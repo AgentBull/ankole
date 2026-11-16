@@ -138,6 +138,59 @@ defmodule Ankole.Conversations.Delivery.Preview do
   def stop(event), do: cast_for_event(event, :stop)
 
   @doc """
+  Stops the preview and waits for any in-flight provider mutation to checkpoint
+  before a silent terminal commit reads `PreviewStates`.
+  """
+  @spec stop_and_await(Signal.t() | Ecto.UUID.t(), pos_integer()) :: :ok
+  def stop_and_await(event, timeout_ms \\ 15_000)
+
+  def stop_and_await(%Signal{} = event, timeout_ms),
+    do: do_stop_and_await(event, timeout_ms)
+
+  def stop_and_await(id, timeout_ms) when is_binary(id) do
+    case PreviewStates.load_signal(id) do
+      %Signal{} = event -> do_stop_and_await(event, timeout_ms)
+      _ -> :ok
+    end
+  end
+
+  def stop_and_await(_, _timeout_ms), do: :ok
+
+  defp do_stop_and_await(%Signal{id: id} = event, timeout_ms) do
+    case preview_pid(event) do
+      pid when is_pid(pid) ->
+        deadline = System.monotonic_time(:millisecond) + timeout_ms
+        monitor = Process.monitor(pid)
+
+        try do
+          case GenServer.call(pid, {:stop_if_owner, id}, timeout_ms) do
+            :not_owner ->
+              Process.demonitor(monitor, [:flush])
+              :ok
+
+            _stopping_or_stopped ->
+              remaining_ms = max(0, deadline - System.monotonic_time(:millisecond))
+
+              receive do
+                {:DOWN, ^monitor, :process, ^pid, _reason} -> :ok
+              after
+                remaining_ms ->
+                  Process.demonitor(monitor, [:flush])
+                  :ok
+              end
+          end
+        catch
+          :exit, _reason ->
+            Process.demonitor(monitor, [:flush])
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  @doc """
   Freezes the current visible reply fragment and makes `new_owner` own later
   presentation updates for the same run stream.
   """
@@ -764,6 +817,17 @@ defmodule Ankole.Conversations.Delivery.Preview do
   @impl GenServer
   def handle_call({:owns_event, id}, _from, state),
     do: {:reply, id in [state.stream_signal_id, state.signal.id], state}
+
+  def handle_call({:stop_if_owner, id}, _from, state) do
+    if id in [state.stream_signal_id, state.signal.id] do
+      case handle_cast(:stop, state) do
+        {:stop, reason, next_state} -> {:stop, reason, :stopped, next_state}
+        {:noreply, next_state} -> {:reply, :stopping, next_state}
+      end
+    else
+      {:reply, :not_owner, state}
+    end
+  end
 
   def handle_call({:adopt_driver, stream_id, opts}, _from, state)
       when stream_id != state.stream_signal_id do

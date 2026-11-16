@@ -2,7 +2,7 @@ defmodule Ankole.Sessions.Key do
   @moduledoc "Constructs and parses persisted execution Session keys."
 
   def conversation(id), do: "conversation:#{id}"
-  def cron(id), do: "cron:#{id}"
+  def routine(id), do: "routine:#{id}"
   def job(id), do: "job:#{id}"
   def pod_job(id), do: "pod_job:#{id}"
   def workflow_task(id), do: "wf_task:#{id}"
@@ -34,7 +34,7 @@ defmodule Ankole.Sessions.Key do
   end
 
   for {prefix, kind} <- [
-        {"cron:", :cron},
+        {"routine:", :routine},
         {"job:", :job},
         {"pod_job:", :pod_job},
         {"wf_task:", :workflow_task}

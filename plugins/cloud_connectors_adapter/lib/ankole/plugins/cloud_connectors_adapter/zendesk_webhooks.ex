@@ -77,9 +77,13 @@ defmodule Ankole.Plugins.CloudConnectorsAdapter.ZendeskWebhooks do
       }
     }
 
-    with {:ok, %{"webhook" => hook}} <-
-           request(config, credentials, "POST", "/api/v2/webhooks", body),
-         do: {:ok, hook}
+    with {:ok, %{"webhook" => hook}} when is_map(hook) <-
+           request(config, credentials, "POST", "/api/v2/webhooks", body) do
+      {:ok, hook}
+    else
+      {:ok, _unexpected} -> {:error, :invalid_upstream_response}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp reconcile_rules(config, credentials, hook, event_types, rules) do
@@ -146,42 +150,73 @@ defmodule Ankole.Plugins.CloudConnectorsAdapter.ZendeskWebhooks do
     )
   end
 
-  defp disconnect(config, credentials, hook) do
+  defp disconnect(config, credentials, %{"id" => hook_id} = hook)
+       when is_binary(hook_id) and hook_id != "" do
     with {:ok, rules} <- rules(config, credentials, "/api/v2/triggers.json", []),
          {:ok, _} <- reconcile_rules(config, credentials, hook, [], rules),
-         {:ok, _} <- request(config, credentials, "DELETE", "/api/v2/webhooks/#{hook["id"]}", nil),
-         do: {:ok, %{"external_subscription_id" => nil}}
-  rescue
-    _ -> {:error, :invalid_upstream_response}
-  else
-    {:error, reason, _created_ids} -> {:error, reason}
-    error -> error
+         {:ok, _} <- request(config, credentials, "DELETE", "/api/v2/webhooks/#{hook_id}", nil) do
+      {:ok, %{"external_subscription_id" => nil}}
+    else
+      {:error, reason, _created_ids} -> {:error, reason}
+      {:error, _reason} = error -> error
+    end
   end
 
-  defp hooks(config, credentials, path, acc) do
-    with {:ok, result} <- request(config, credentials, "GET", path, nil) do
-      acc = acc ++ result["webhooks"]
+  defp disconnect(_config, _credentials, _hook), do: {:error, :invalid_upstream_response}
 
-      if get_in(result, ["meta", "has_more"]),
-        do: hooks(config, credentials, local_path(result["links"]["next"]), acc),
-        else: {:ok, acc}
+  defp hooks(config, credentials, path, acc) do
+    case request(config, credentials, "GET", path, nil) do
+      {:ok, %{"webhooks" => webhooks} = result} when is_list(webhooks) ->
+        acc = acc ++ webhooks
+
+        if get_in(result, ["meta", "has_more"]) == true do
+          with {:ok, next_path} <- local_path(get_in(result, ["links", "next"])) do
+            hooks(config, credentials, next_path, acc)
+          end
+        else
+          {:ok, acc}
+        end
+
+      {:ok, _unexpected} ->
+        {:error, :invalid_upstream_response}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
   defp rules(config, credentials, path, acc) do
-    with {:ok, result} <- request(config, credentials, "GET", path, nil) do
-      acc = acc ++ result["triggers"]
+    case request(config, credentials, "GET", path, nil) do
+      {:ok, %{"triggers" => triggers} = result} when is_list(triggers) ->
+        acc = acc ++ triggers
 
-      if result["next_page"],
-        do: rules(config, credentials, local_path(result["next_page"]), acc),
-        else: {:ok, acc}
+        if result["next_page"] do
+          with {:ok, next_path} <- local_path(result["next_page"]) do
+            rules(config, credentials, next_path, acc)
+          end
+        else
+          {:ok, acc}
+        end
+
+      {:ok, _unexpected} ->
+        {:error, :invalid_upstream_response}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
-  defp local_path(url) do
+  defp local_path(url) when is_binary(url) do
     uri = URI.parse(url)
-    uri.path <> if(uri.query, do: "?" <> uri.query, else: "")
+
+    if is_binary(uri.path) and uri.path != "" do
+      {:ok, uri.path <> if(uri.query, do: "?" <> uri.query, else: "")}
+    else
+      {:error, :invalid_upstream_response}
+    end
   end
+
+  defp local_path(_url), do: {:error, :invalid_upstream_response}
 
   defp title(hook, type), do: "Ankole #{hook["id"]} #{type}"
 

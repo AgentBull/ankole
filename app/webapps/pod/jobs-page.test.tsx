@@ -7,8 +7,18 @@ import { I18nextProvider } from 'react-i18next'
 import i18n, { loadLocale } from '../common/i18n'
 import { stripBidi } from '../common/bidi'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
+import { coalesceMatchesBinding } from './connector-event-picker'
+import { JobCreateFormContent } from './job-create-dialog'
 import { jobsKeys, type JobBoardItem, type JobCandidateAgent, type JobRoutineDetail } from './jobs-api'
 import { JobsRoute } from './jobs-page'
+import {
+  buildRoutineUpdatePayload,
+  RoutineEventTriggersSection,
+  RoutineInlineEditForm,
+  routineHasSchedule
+} from './jobs-routine-editor'
+import { connectorKeys } from './state/connectors'
+import { JobCreateFormModel, resolveJobCandidateAgent } from './state/job-create-form'
 
 async function renderJobsAt(href: string, setup: (client: QueryClient) => void): Promise<string> {
   await loadLocale('en-US')
@@ -320,8 +330,290 @@ test('selecting a Cron routine card opens the Routine inspector beside the board
 
   expect(html).toContain('Run now')
   expect(html).toContain('Pause')
+  expect(html).toContain('Edit')
   expect(html).toContain('Remove')
   expect(html).toContain('Compile the nightly engineering digest and highlight regressions.')
   expect(html).toContain('Digest deep scan')
   expect(html).toContain('Delivered digest')
+})
+
+test('Routine inspector discloses long summaries via native <details>, flags delivery warnings, and shows linked Connector triggers', async () => {
+  const routineCard = makeItem({
+    id: 'cron:77',
+    rawID: '77',
+    kind: 'cron',
+    cardType: 'routine',
+    column: 'scheduled',
+    status: 'active',
+    title: 'CRM triage monitor',
+    triggerSummary: '1 event trigger',
+    summary: 'Checked 20 tickets, 0 anomalies.',
+    manageable: true
+  })
+
+  const longSummary = [
+    'Checked 25 incoming CRM tickets across EMEA and APAC queues.',
+    'Escalated #4821 (SLA < 30m) and scheduled a 45m checkback on #4829.',
+    'Remaining 23 tickets matched normal triage thresholds with zero customer impact.'
+  ].join('\n')
+
+  const routineDetail: JobRoutineDetail = {
+    item: routineCard,
+    instructions: 'Triage new CRM tickets and alert only when SLA intervention is required.',
+    quietSuccess: true,
+    unavailableReason: null,
+    childExecutions: [],
+    runs: [
+      {
+        id: 'run-short',
+        status: 'completed',
+        trigger: 'signal',
+        startedAt: '2026-11-15T10:00:00Z',
+        finishedAt: '2026-11-15T10:01:00Z',
+        summary: 'Checked 20 tickets, 0 anomalies.',
+        deliveryWarning: false,
+        error: null
+      },
+      {
+        id: 'run-long',
+        status: 'completed',
+        trigger: 'signal',
+        startedAt: '2026-11-15T09:00:00Z',
+        finishedAt: '2026-11-15T09:02:00Z',
+        summary: longSummary,
+        deliveryWarning: true,
+        error: null
+      }
+    ]
+  }
+
+  const html = await renderJobsAt('/jobs?item=cron%3A77', client => {
+    client.setQueryData(jobsKeys.board, { items: [routineCard], agents: sampleAgents })
+    client.setQueryData(jobsKeys.routine('cron', '77'), routineDetail)
+    client.setQueryData(jobsKeys.routineBindings('77'), {
+      bindings: [
+        {
+          id: 'b-1',
+          adapter: 'connector',
+          agent_routine_id: '77',
+          agent_uid: 'ops-bot',
+          automation_job_id: null,
+          config_ref: 'connector://conn-1/tickets',
+          enabled: true,
+          filters: {},
+          coalesce: { enabled: true, window_ms: 5000, max_batch_size: 20 },
+          name: 'CRM Tickets',
+          routing_mode: 'ai_colleague',
+          target: { kind: 'agent_routine', routine_id: '77' },
+          unaddressed_group_message_policy: 'ignore',
+          unavailable_reason: null,
+          unmatched_sender_policy: 'manual_review',
+          watched_field_ids: []
+        }
+      ]
+    })
+    client.setQueryData(connectorKeys.catalog, {
+      can_manage: true,
+      connectors: [
+        {
+          id: 'catalog-entry-zendesk',
+          plugin_id: 'zendesk',
+          event_streams: [{ id: 'tickets', label: 'Ticket stream', event_types: ['ticket.created'] }],
+          trigger_types: []
+        }
+      ]
+    })
+    client.setQueryData(connectorKeys.triggers, { triggers: [] })
+    client.setQueryData(connectorKeys.connections, {
+      connections: [
+        { id: 'conn-1', plugin_id: 'zendesk', slug: 'zendesk-prod', display_name: 'Zendesk Prod', status: 'active' }
+      ]
+    })
+  })
+
+  expect(html).toContain('<details')
+  expect(html).toContain('<summary')
+  expect(html).toContain('View full summary')
+  expect(html).toContain('Remaining 23 tickets matched normal triage thresholds')
+  expect(html).toContain('Notification not delivered')
+  expect(html).toContain('Zendesk Prod · Ticket stream')
+  expect(html).toContain('5s / 20')
+  // Event-only Routine with a single active binding disables Disconnect so it cannot be stranded without triggers.
+  expect(html).toMatch(/<button[^>]*\sdisabled=""[^>]*>Disconnect event<\/button>/)
+})
+
+test('event-only Routine edit form keeps schedule off while bindings are still loading and never injects a default cron', async () => {
+  await loadLocale('en-US')
+  const client = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, staleTime: Infinity, retry: false } }
+  })
+
+  const eventOnlyItem = makeItem({
+    id: 'cron:88',
+    rawID: '88',
+    kind: 'cron',
+    cardType: 'routine',
+    column: 'scheduled',
+    status: 'active',
+    title: 'CRM triage monitor',
+    triggerSummary: '1 event trigger',
+    schedule: null,
+    manageable: true
+  })
+  const detail: JobRoutineDetail = {
+    item: eventOnlyItem,
+    instructions: 'Watch incoming tickets and summarize SLA risks.',
+    quietSuccess: true,
+    unavailableReason: null,
+    childExecutions: [],
+    runs: []
+  }
+
+  // `jobRoutineBindingsQuery('88')` is intentionally left unseeded (pending) when the edit form mounts.
+  const html = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={client}>
+        <RoutineInlineEditForm rawID="88" item={eventOnlyItem} detail={detail} onCancel={() => {}} onSaved={() => {}} />
+      </QueryClientProvider>
+    </I18nextProvider>
+  )
+
+  expect(routineHasSchedule(eventOnlyItem)).toBe(false)
+  expect(html).not.toContain('name="expression"')
+  expect(html).not.toContain('0 9 * * 1-5')
+
+  expect(
+    buildRoutineUpdatePayload({
+      title: 'CRM SLA monitor',
+      task: detail.instructions,
+      quietSuccess: true,
+      initialHasSchedule: routineHasSchedule(eventOnlyItem),
+      hasSchedule: false,
+      expression: '0 9 * * 1-5',
+      timezone: 'UTC'
+    })
+  ).toEqual({
+    title: 'CRM SLA monitor',
+    task: 'Watch incoming tickets and summarize SLA risks.',
+    quietSuccess: true
+  })
+
+  // Toggling off an existing schedule on a Hybrid Routine explicitly sends `removeSchedule: true`.
+  expect(
+    buildRoutineUpdatePayload({
+      title: 'Hybrid monitor',
+      task: detail.instructions,
+      quietSuccess: false,
+      initialHasSchedule: true,
+      hasSchedule: false,
+      expression: '0 9 * * 1-5',
+      timezone: 'UTC'
+    })
+  ).toEqual({
+    title: 'Hybrid monitor',
+    task: 'Watch incoming tickets and summarize SLA risks.',
+    quietSuccess: false,
+    removeSchedule: true
+  })
+})
+
+test('Hybrid Routine enables unlinking its event trigger, coalesce changes unlock in-place updates, and JobCreateFormModel derives late agents with ToggleGroup and CronEditor', async () => {
+  await loadLocale('en-US')
+  const client = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, staleTime: Infinity, retry: false } }
+  })
+
+  client.setQueryData(jobsKeys.routineBindings('90'), {
+    bindings: [
+      {
+        id: 'b-90',
+        adapter: 'connector',
+        agent_routine_id: '90',
+        agent_uid: 'ops-bot',
+        automation_job_id: null,
+        config_ref: 'connector://conn-1/tickets',
+        enabled: true,
+        filters: {},
+        coalesce: { enabled: true, window_ms: 30_000, max_batch_size: 15 },
+        name: 'CRM Tickets',
+        routing_mode: 'ai_colleague',
+        target: { kind: 'agent_routine', routine_id: '90' },
+        unaddressed_group_message_policy: 'ignore',
+        unavailable_reason: null,
+        unmatched_sender_policy: 'manual_review',
+        watched_field_ids: []
+      }
+    ]
+  })
+  client.setQueryData(connectorKeys.catalog, {
+    can_manage: true,
+    connectors: [
+      {
+        id: 'catalog-zendesk',
+        plugin_id: 'zendesk',
+        event_streams: [{ id: 'tickets', label: 'Ticket stream', event_types: ['ticket.created'] }],
+        trigger_types: []
+      }
+    ]
+  })
+  client.setQueryData(connectorKeys.triggers, { triggers: [] })
+  client.setQueryData(connectorKeys.connections, {
+    connections: [
+      { id: 'conn-1', plugin_id: 'zendesk', slug: 'zendesk-prod', display_name: 'Zendesk Prod', status: 'active' }
+    ]
+  })
+
+  const rootRoute = createRootRoute({
+    component: () => <RoutineEventTriggersSection rawID="90" manageable hasSchedule />
+  })
+  const router = createRouter({ routeTree: rootRoute, history: createMemoryHistory({ initialEntries: ['/'] }) })
+  await router.load()
+
+  const hybridTriggersHtml = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </I18nextProvider>
+  )
+
+  expect(hybridTriggersHtml).toContain('>Disconnect event</button>')
+  expect(hybridTriggersHtml).not.toMatch(/<button[^>]*\sdisabled=""[^>]*>Disconnect event<\/button>/)
+  expect(hybridTriggersHtml).toContain('value="30"')
+  expect(hybridTriggersHtml).toContain('value="15"')
+  expect(
+    coalesceMatchesBinding(
+      { enabled: true, window_ms: 30_000, max_batch_size: 15 },
+      { enabled: true, window_ms: 30_000, max_batch_size: 15 }
+    )
+  ).toBe(true)
+  expect(
+    coalesceMatchesBinding(
+      { enabled: true, window_ms: 30_000, max_batch_size: 15 },
+      { enabled: true, window_ms: 10_000, max_batch_size: 15 }
+    )
+  ).toBe(false)
+
+  // Opening JobCreateFormModel before `agents` arrive leaves `agentUID` empty, and `resolveJobCandidateAgent` derives `agents[0]` once loaded.
+  const form = new JobCreateFormModel({ mode: 'cron', title: 'Hourly sweep', task: 'Inspect queue' }, [])
+  expect(form.agentUID.value).toBe('')
+  expect(resolveJobCandidateAgent(sampleAgents, form.agentUID.value)?.uid).toBe('pa-alice')
+
+  const formHtml = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <QueryClientProvider client={client}>
+        <JobCreateFormContent
+          agents={sampleAgents}
+          preset={{ mode: 'cron', title: 'Hourly sweep', task: 'Inspect queue' }}
+          onClose={() => {}}
+          onCreated={() => {}}
+        />
+      </QueryClientProvider>
+    </I18nextProvider>
+  )
+  expect(formHtml).toContain('data-slot="toggle-group"')
+  expect(formHtml).not.toContain('type="radio"')
+  expect(formHtml).toContain('0 9 * * 1-5')
+  expect(formHtml).toContain('>Create schedule</button>')
+  expect(formHtml).not.toMatch(/<button type="submit"[^>]*\sdisabled=/)
 })

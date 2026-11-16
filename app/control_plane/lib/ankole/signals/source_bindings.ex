@@ -36,20 +36,71 @@ defmodule Ankole.Signals.SourceBindings do
     Enum.map(references, &Map.get(jobs, &1))
   end
 
-  def lock_in_tx(reference, additional_job_id \\ nil) do
+  def prelock_automation_jobs_in_tx(references) do
+    references = references |> List.wrap() |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort()
+
+    if references != [] do
+      direct_ids =
+        Enum.flat_map(references, fn
+          "job://" <> id ->
+            case Ankole.ModelIntegerID.parse(id) do
+              {:ok, parsed} -> [parsed]
+              _ -> []
+            end
+
+          _ ->
+            []
+        end)
+
+      binding_ids =
+        Binding
+        |> Ash.Query.filter(config_ref in ^references)
+        |> Ash.Query.select([:automation_job_id])
+        |> Ankole.Ash.read!()
+        |> Enum.map(& &1.automation_job_id)
+
+      (direct_ids ++ binding_ids)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.each(&Ankole.AutomationJobs.lock_job_in_tx/1)
+    end
+
+    :ok
+  end
+
+  def lock_in_tx(reference, additional_job_id \\ nil, additional_routine_ids \\ []) do
+    lock_many_in_tx([reference], additional_job_id, additional_routine_ids)
+  end
+
+  def lock_many_in_tx(references, additional_job_ids \\ [], additional_routine_ids \\ []) do
+    references = references |> List.wrap() |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort()
+
     bindings =
-      Binding
-      |> Ash.Query.filter(config_ref == ^reference)
-      |> Ash.Query.sort(id: :asc)
-      |> Ankole.Ash.read!()
+      if references == [] do
+        []
+      else
+        Binding
+        |> Ash.Query.filter(config_ref in ^references)
+        |> Ash.Query.sort(id: :asc)
+        |> Ankole.Ash.read!()
+      end
 
     ids =
-      (List.wrap(additional_job_id) ++ Enum.map(bindings, & &1.automation_job_id))
+      (List.wrap(additional_job_ids) ++ Enum.map(bindings, & &1.automation_job_id))
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
       |> Enum.sort()
 
     Enum.each(ids, &Ankole.AutomationJobs.lock_job_in_tx/1)
+
+    routine_ids =
+      (List.wrap(additional_routine_ids) ++ Enum.map(bindings, & &1.agent_routine_id))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    Ankole.Schedule.lock_routines_in_tx(routine_ids)
     binding_ids = Enum.map(bindings, & &1.id)
 
     Binding
@@ -61,7 +112,7 @@ defmodule Ankole.Signals.SourceBindings do
     :ok
   end
 
-  def put_in_tx(reference, uid, session_id, job_id) do
+  def put_in_tx(reference, uid, session_id, job_id, agent_routine_id \\ nil) do
     previous = default(reference)
 
     attrs = %{
@@ -71,6 +122,7 @@ defmodule Ankole.Signals.SourceBindings do
       config_ref: reference,
       routing_mode: if(job_id, do: :action, else: :ai_colleague),
       automation_job_id: job_id,
+      agent_routine_id: if(is_nil(job_id), do: agent_routine_id),
       agent_uid: if(is_nil(job_id), do: uid),
       target: if(is_nil(job_id), do: %{"session_id" => session_id}, else: %{})
     }
@@ -169,6 +221,67 @@ defmodule Ankole.Signals.SourceBindings do
     Binding
     |> Ash.Query.filter(automation_job_id in ^job_ids or config_ref in ^references)
     |> Ankole.Ash.read!()
+  end
+
+  def external_for_routines([]), do: []
+
+  def external_for_routines(routine_ids) when is_list(routine_ids) do
+    Binding
+    |> Ash.Query.filter(
+      agent_routine_id in ^routine_ids and enabled and
+        fragment("? NOT LIKE 'source:%'", name)
+    )
+    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+    |> Ankole.Ash.read!()
+  end
+
+  def bindings_for_routine(routine_id, cron_refs) do
+    query =
+      if cron_refs == [] do
+        Ash.Query.filter(Binding, agent_routine_id == ^routine_id)
+      else
+        Ash.Query.filter(Binding, agent_routine_id == ^routine_id or config_ref in ^cron_refs)
+      end
+
+    query
+    |> Ash.Query.sort(id: :asc)
+    |> Ankole.Ash.read!()
+  end
+
+  def lock_bindings_in_tx([]), do: []
+
+  def lock_bindings_in_tx(binding_ids) when is_list(binding_ids) do
+    ids = binding_ids |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort()
+
+    if ids == [] do
+      []
+    else
+      Binding
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.Query.sort(id: :asc)
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read!(lock_identity: {"signal_bindings", ids})
+    end
+  end
+
+  def disable_external_bindings_in_tx(bindings) do
+    bindings
+    |> Enum.filter(&(&1.enabled and not String.starts_with?(&1.name || "", "source:")))
+    |> Enum.reduce_while(:ok, fn binding, :ok ->
+      case Ankole.Ash.update(binding, :disable, %{}) do
+        {:ok, _} -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  def routine_has_enabled_external_bindings?(routine_id) do
+    Binding
+    |> Ash.Query.filter(
+      agent_routine_id == ^routine_id and enabled and is_nil(unavailable_reason) and
+        fragment("? NOT LIKE 'source:%'", name)
+    )
+    |> Ankole.Ash.exists?()
   end
 
   def purge_in_tx(ids) do

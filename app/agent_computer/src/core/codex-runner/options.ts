@@ -23,7 +23,6 @@ export type AIGatewayAPIKeyRequester = (options?: AIGatewayAPIKeyRequestOptions)
  */
 type SharedTurnOptions = {
   agentHome: string
-  workspaceRoot: string
   /** The Agent's drive in the control plane: the files that other people see or receive. */
   drive: Drive
   builtinSkillsRoot: string
@@ -42,7 +41,7 @@ type SharedTurnOptions = {
 export type CodexJobOptions = SharedTurnOptions & {
   /** Internal host/test override; production uses the bounded Codex first-progress deadline. */
   firstCodexProgressTimeoutMs?: number
-  /** Rotates the Worker-managed CLI context identity file on thread start/resume/compaction. */
+  /** Observer hook invoked when the Job rotates its CLI context identity on thread start/resume/compaction. */
   updateCliContextId?: (contextId: string) => void
   /** Idle pause threshold before recycling a large waiting_on_user Codex thread (default 10m). */
   coldIdleRecycleMs?: number

@@ -1,5 +1,49 @@
 # Changelog
 
+## Version 2.0.0-alpha.160 (2026-11-16)
+
+- Add `web_fetch` support to the Cloudflare AIGateway provider via Cloudflare
+  Browser Run (`/browser-run/markdown`, defaulting to `browser: "kitesurf"` with
+  optional `"chromium"` rendering, `gotoOptions`, `waitForSelector`,
+  `rejectRequestPattern`, and `userAgent`), and upgrade `ankole-browser` with
+  delta and query-filtered snapshots (`snapshot -i --diff` and `-q <pattern>`),
+  single-round-trip post-action snapshots (`--snap` / `--snap-diff` on actions
+  and `batch`), ARIA `role="combobox"` selection in `select`, automatic
+  `image`/`media`/`font` blocking during `rendered_fallback` fetches plus an
+  interactive `network no-media|default` toggle, zero global CDP request
+  interception by default on `remote_cdp` backends, error-first redacted
+  `diagnostics` ring buffers with automatic `<artifact_root>/downloads/`
+  persistence, and `webmcp list|call` support across CDP `WebMCP`,
+  `navigator.modelContext`, and declarative HTML tool forms.
+- Unify standing Agent schedules and Connector event triggers under
+  `AgentRoutine` (`routine:<id>` sessions on Pod **Jobs** `/jobs`, supporting
+  schedule-only, Connector event-only, and hybrid Cron + Connector Living
+  Routines with inline editing and trigger management), add fixed-window burst
+  coalescing (`coalesce.window_ms`, `max_batch_size`, `group_by`) for
+  Agent-targeted `signal_bindings`, default scheduled and check-back
+  `quiet_success` to `true` with crash-safe `finish_scheduled.summary`
+  persistence (`signals.turn_summary`) surfaced across `/jobs` cards, run
+  history disclosures (with external delivery-failure badges and pre-Signal
+  entry failures), and `cron` `runs` tool reads, and refine Brain automatic
+  learning to skip transient point-in-time metric readings while preserving
+  durable commitments and operational thresholds. Run `mix ecto.migrate` when
+  upgrading.
+- Support dynamic state expressions (`$cond`, `$template`), two-way switcher
+  bindings (`$bindState` on `ToggleGroup`, `Select`, and `Tabs`), and `repeat`
+  lists (`$item`, `$index`) in interactive Pod Chat `ui` blocks, validating
+  compiled specs and remembered view-state snapshots against catalog schemas
+  and safe pointer bounds.
+- Add `ankole-pod pages.tree` and nested `pod_list_pages` (`scope: "space" | "private" | "all"`,
+  `depth`) so Agents can inspect current Pod directory structures in one call,
+  report `can_create_private: true` for personal-assistant actors on Pod
+  directory and search queries, prompt Agents when saving Pod Pages to
+  choose between the owner's `Private` section (for personal assistants) and
+  the shared `Workspace` under a suitable directory—checking user memory or
+  asking the user when unsure—rather than defaulting to the Workspace root, and
+  keep browser tab titles (`document.title`) synchronized across `/pages/$pageID`,
+  `/meta/brain/$pageID`, live Page title drafts, and sidebar/attention
+  conversation caches.
+
 ## Version 2.0.0-alpha.159 (2026-11-16)
 
 - Polish Pod pages from the UI review checklists:

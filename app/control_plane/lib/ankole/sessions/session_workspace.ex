@@ -22,7 +22,7 @@ defmodule Ankole.Sessions.SessionWorkspace do
       {:conversation_id, "sessions_conversation_id_fkey"},
       {:background_job_id, "sessions_background_job_owner_fkey"},
       {:workflow_agent_call_id, "sessions_workflow_call_owner_fkey"},
-      {:cron_schedule_id, "sessions_cron_schedule_owner_fkey"}
+      {:agent_routine_id, "sessions_agent_routine_owner_fkey"}
     ])
 
     unique_index_names([{[:agent_uid, :session_id], "sessions_session_index"}])
@@ -41,7 +41,7 @@ defmodule Ankole.Sessions.SessionWorkspace do
     attribute(:session_id, :string, generated?: true, writable?: false, allow_nil?: false)
 
     attribute(:kind, :atom,
-      constraints: [one_of: [:named, :conversation, :background_job, :workflow_task, :cron]],
+      constraints: [one_of: [:named, :conversation, :background_job, :workflow_task, :routine]],
       allow_nil?: false
     )
 
@@ -49,7 +49,7 @@ defmodule Ankole.Sessions.SessionWorkspace do
     attribute(:conversation_id, Ankole.Ash.Types.UUIDv7)
     attribute(:background_job_id, :integer)
     attribute(:workflow_agent_call_id, :integer)
-    attribute(:cron_schedule_id, Ankole.Ash.Types.UUIDv7)
+    attribute(:agent_routine_id, Ankole.Ash.Types.UUIDv7)
     attribute(:epoch, :integer, allow_nil?: false, default: 0, writable?: false)
     timestamps(type: :utc_datetime_usec)
   end
@@ -76,7 +76,7 @@ defmodule Ankole.Sessions.SessionWorkspace do
         :conversation_id,
         :background_job_id,
         :workflow_agent_call_id,
-        :cron_schedule_id
+        :agent_routine_id
       ])
     end
 

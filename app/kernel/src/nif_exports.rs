@@ -36,7 +36,6 @@ mod atoms {
         aborted,
         metadata,
         private,
-        public,
         invalid,
         busy,
         conflict,
@@ -1397,30 +1396,6 @@ pub fn jwt_verify_jwk_nif(
     let validation = decode_string(validation, "validation")?;
 
     common::jwt_verify_jwk(&token, &jwk, &validation).map_err(error)
-}
-
-#[derive(rustler::NifMap)]
-struct WebURLFactsNIF {
-    scheme: String,
-    host: Option<String>,
-    host_class: Option<rustler::Atom>,
-}
-
-/// Parses a web URL with WHATWG semantics and classifies its host.
-#[rustler::nif]
-pub fn web_url_facts_nif(url: Term<'_>) -> NIFResult<WebURLFactsNIF> {
-    let url = decode_string(url, "url")?;
-    let facts = common::web_url_facts(&url).map_err(error)?;
-
-    Ok(WebURLFactsNIF {
-        scheme: facts.scheme,
-        host: facts.host,
-        host_class: facts.host_class.map(|host_class| match host_class {
-            common::HostClass::Metadata => atoms::metadata(),
-            common::HostClass::Private => atoms::private(),
-            common::HostClass::Public => atoms::public(),
-        }),
-    })
 }
 
 #[rustler::nif]

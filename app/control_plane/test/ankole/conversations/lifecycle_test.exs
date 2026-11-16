@@ -420,7 +420,7 @@ defmodule Ankole.Conversations.LifecycleTest do
                  })
                end)
 
-      assert MapSet.new(Signal.input_provider_message_ids(event)) ==
+      assert MapSet.new(Signal.provider_message_ids(event)) ==
                MapSet.new([event.provider_message_id, "batch-input"])
 
       assert :ok = Ankole.Sessions.Queue.ensure_event_source_live_in_tx(event, @base_time)

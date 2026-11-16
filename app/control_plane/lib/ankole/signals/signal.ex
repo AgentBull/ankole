@@ -46,6 +46,7 @@ defmodule Ankole.Signals.Signal do
       check_constraint(:provider_capacity_attempt_count, "signals_capacity_attempt_count_check")
       check_constraint(:final_response_id, "signals_completion_anchor_check")
       check_constraint(:turn_outcome, "signals_turn_outcome_check")
+      check_constraint(:turn_summary, "signals_turn_summary_length_check")
       check_constraint(:producer, "signals_producer_check")
     end
   end
@@ -78,6 +79,7 @@ defmodule Ankole.Signals.Signal do
     attribute(:type, :string, allow_nil?: false, public?: true)
     attribute(:final_response_id, :string, public?: true)
     attribute(:turn_outcome, :string, public?: true)
+    attribute(:turn_summary, :string, public?: true)
     attribute(:sender_key, :string, public?: true)
     attribute(:message_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, public?: true)
@@ -249,7 +251,7 @@ defmodule Ankole.Signals.Signal do
 
     update :complete do
       require_attributes([:completed_at])
-      accept([:completed_at, :final_response_id, :turn_outcome, :data])
+      accept([:completed_at, :final_response_id, :turn_outcome, :turn_summary, :data])
       change(transition_state(:completed))
     end
 
@@ -260,7 +262,7 @@ defmodule Ankole.Signals.Signal do
     end
 
     update :revise_input do
-      accept([:data, :occurred_at, :provider_message_id, :available_at])
+      accept([:data, :extensions, :occurred_at, :provider_message_id, :available_at])
     end
 
     update :update_metadata do
@@ -309,12 +311,18 @@ defmodule Ankole.Signals.Signal do
     envelope =
       if is_nil(signal.subject), do: envelope, else: Map.put(envelope, "subject", signal.subject)
 
-    reserved = ~w(specversion id source type subject time data data_base64)
+    reserved =
+      ~w(specversion id source type subject time data data_base64 ankole_routine ankole_coalesce)
+
     Map.merge(Map.drop(signal.extensions || %{}, reserved), envelope)
   end
 
-  def scheduled_delivery_snapshot(%__MODULE__{producer: :kernel, type: "cron.fire", data: data})
-      when is_map(data),
+  def scheduled_delivery_snapshot(%__MODULE__{
+        producer: :kernel,
+        type: type,
+        data: data
+      })
+      when is_map(data) and type in ["cron.fire", "check_back_later.wakeup"],
       do: get_in(data, ["wake_payload", "delivery"])
 
   def scheduled_delivery_snapshot(%__MODULE__{producer: :kernel, type: type, data: data})
@@ -327,11 +335,11 @@ defmodule Ankole.Signals.Signal do
              ],
       do: get_in(data, ["reply_route", "delivery"])
 
-  def scheduled_delivery_snapshot(%__MODULE__{}), do: nil
+  def scheduled_delivery_snapshot(%__MODULE__{extensions: %{"ankole_routine" => routine}})
+      when is_map(routine),
+      do: routine["delivery"]
 
-  def input_provider_message_ids(%__MODULE__{} = event) do
-    source_ids(event, fn -> input_entry_ids(event.data) end)
-  end
+  def scheduled_delivery_snapshot(%__MODULE__{}), do: nil
 
   def provider_message_ids(%__MODULE__{} = event) do
     source_ids(event, fn -> input_entry_ids(event.data) end)

@@ -88,7 +88,6 @@ defmodule Ankole.AuthZ do
 
     resource Grant do
       define(:list_grants, action: :read)
-      define(:delete_grant, action: :delete_in_tx)
     end
 
     resource ExternalBinding do

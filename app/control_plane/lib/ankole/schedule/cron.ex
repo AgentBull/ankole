@@ -11,35 +11,36 @@ defmodule Ankole.Schedule.Cron do
   alias Ankole.Schedule.Delivery
   alias Ankole.Schedule.Normalizer
   alias Ankole.Schedule.Planner
+  alias Ankole.Schedule.Routines
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.Schedule.Store
   alias Ankole.Schedule.Jobs.FireCron
 
   @doc """
-  Builds the durable execution session id for one cron schedule.
+  Builds the durable execution session id for one cron schedule or routine.
 
-  Every fire of one schedule runs in this stable session, so one schedule
-  stays serialized and keeps its own bounded conversation history, while the
-  owner conversation and other schedules run concurrently. The stored
-  `owner_session_id` remains the management scope only.
+  Every fire of a routine's schedule runs in `routine:<routine_id>`, so all
+  triggers of that routine stay serialized and share bounded conversation
+  history, while the owner conversation and other routines run concurrently.
   """
-  @spec execution_session_id(Ecto.UUID.t()) :: String.t()
-  def execution_session_id(cron_schedule_id) when is_binary(cron_schedule_id),
-    do: Ankole.Sessions.Key.cron(cron_schedule_id)
+  @spec execution_session_id(CronSchedule.t() | Ecto.UUID.t()) :: String.t()
+  def execution_session_id(%CronSchedule{owner_routine_id: routine_id, id: id}),
+    do: Ankole.Sessions.Key.routine(routine_id || id)
 
-  @doc "Returns the schedule id whose fires run in this session, or nil."
-  @spec execution_schedule_id(String.t()) :: Ecto.UUID.t() | nil
-  def execution_schedule_id(key) do
-    case Ankole.Sessions.Key.parse(key) do
-      {:cron, id} -> id
-      _ -> nil
+  def execution_session_id(cron_schedule_id) when is_binary(cron_schedule_id) do
+    case Store.get_cron_schedule(cron_schedule_id) do
+      %CronSchedule{owner_routine_id: routine_id} when is_binary(routine_id) ->
+        Ankole.Sessions.Key.routine(routine_id)
+
+      _ ->
+        Ankole.Sessions.Key.routine(cron_schedule_id)
     end
   end
 
   @doc "The raw prefix, only for storage-boundary prefix matching."
   @spec execution_session_prefix() :: String.t()
-  def execution_session_prefix, do: Ankole.Sessions.Key.cron("")
+  def execution_session_prefix, do: Ankole.Sessions.Key.routine("")
 
   @spec create_cron_schedule_in_tx(map(), keyword()) ::
           {:ok, %{status: :created | :already_exists, cron_schedule: CronSchedule.t()}}
@@ -103,12 +104,17 @@ defmodule Ankole.Schedule.Cron do
              schedule.agent_uid,
              attrs[:delivery] || schedule.delivery
            ),
-         :ok <- maybe_update_binding(schedule, attrs),
+         {:ok, next_routine_id} <- Routines.resolve_routine_for_cron_update_in_tx(schedule, attrs),
+         :ok <- maybe_update_binding(schedule, attrs, next_routine_id),
+         update_attrs =
+           attrs
+           |> Map.delete(:automation_job_id)
+           |> maybe_put_owner_routine_id(schedule, next_routine_id),
          changeset =
            Ankole.Ash.for_update(
              schedule,
              :update_definition,
-             Map.delete(attrs, :automation_job_id)
+             update_attrs
            ),
          recurrence_changed? =
            Ash.Changeset.changing_attribute?(changeset, :schedule) or
@@ -116,12 +122,29 @@ defmodule Ankole.Schedule.Cron do
          task_context_changed? =
            Ash.Changeset.changing_attribute?(changeset, :payload) or
              Ash.Changeset.changing_attribute?(changeset, :delivery),
-         {:ok, schedule} <- Ankole.Ash.update(changeset),
+         {:ok, updated} <- Ankole.Ash.update(changeset),
          :ok <-
-           maybe_end_execution_conversation_in_tx(schedule, task_context_changed?, now),
-         {:ok, schedule} <-
-           sync_after_update_in_tx(schedule, recurrence_changed?, now, opts) do
-      {:ok, schedule}
+           Routines.sync_from_cron_update_in_tx(
+             schedule.owner_routine_id,
+             Map.put(attrs, :detached_cron_id, schedule.id),
+             now
+           ),
+         :ok <-
+           maybe_end_execution_conversation_in_tx(updated, task_context_changed?, now),
+         {:ok, updated} <-
+           sync_after_update_in_tx(updated, recurrence_changed?, now, opts),
+         :ok <-
+           if(
+             task_context_changed? and is_binary(updated.owner_routine_id) and
+               not Keyword.get(opts, :defer_signal_revoke, false),
+             do:
+               case Routines.get_routine_record(updated.owner_routine_id) do
+                 nil -> :ok
+                 routine -> Routines.seal_open_coalesced_signals_in_tx(routine)
+               end,
+             else: :ok
+           ) do
+      {:ok, updated}
     else
       nil -> {:error, :cron_schedule_not_found}
       false -> {:error, :cron_schedule_changed}
@@ -131,11 +154,24 @@ defmodule Ankole.Schedule.Cron do
 
   @spec pause_cron_schedule_in_tx(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
-  def pause_cron_schedule_in_tx(cron_schedule_id, _opts) when is_binary(cron_schedule_id) do
+  def pause_cron_schedule_in_tx(cron_schedule_id, opts) when is_binary(cron_schedule_id) do
+    with {:ok, schedule, _revocations} <-
+           pause_cron_schedule_with_revocations_in_tx(cron_schedule_id, opts) do
+      {:ok, schedule}
+    end
+  end
+
+  @doc false
+  def pause_cron_schedule_with_revocations_in_tx(cron_schedule_id, opts \\ [])
+      when is_binary(cron_schedule_id) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
     with %CronSchedule{} = schedule <- Store.lock_cron_schedule(cron_schedule_id),
          :ok <- Store.reject_terminal(schedule),
-         {:ok, schedule} <- put_schedule_status(schedule, :paused) do
-      {:ok, schedule}
+         {:ok, schedule} <- put_schedule_status(schedule, :paused),
+         {:ok, revocations} <-
+           Routines.sync_after_cron_pause_in_tx(schedule.owner_routine_id, now, opts) do
+      {:ok, schedule, revocations}
     else
       nil -> {:error, :cron_schedule_not_found}
       {:error, _reason} = error -> error
@@ -159,6 +195,7 @@ defmodule Ankole.Schedule.Cron do
                    schedule.payload,
                    Ankole.Signals.source_routing_mode(schedule)
                  ),
+               :ok <- Routines.sync_after_cron_resume_in_tx(schedule.owner_routine_id),
                :ok <- schedule_wake_in_tx(schedule) do
             {:ok, schedule}
           end
@@ -191,7 +228,8 @@ defmodule Ankole.Schedule.Cron do
       if bound_spent?(schedule, next_fire_at) do
         complete_schedule_in_tx(schedule, now)
       else
-        with {:ok, schedule} <- put_schedule_status(schedule, :active) do
+        with {:ok, schedule} <- put_schedule_status(schedule, :active),
+             :ok <- Routines.sync_after_cron_resume_in_tx(schedule.owner_routine_id) do
           schedule_next_fire_in_tx(schedule, next_fire_at)
         end
       end
@@ -201,13 +239,32 @@ defmodule Ankole.Schedule.Cron do
   @spec remove_cron_schedule_in_tx(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
   def remove_cron_schedule_in_tx(cron_schedule_id, opts) when is_binary(cron_schedule_id) do
+    with {:ok, schedule, _revocations} <-
+           remove_cron_schedule_with_revocations_in_tx(cron_schedule_id, opts) do
+      {:ok, schedule}
+    end
+  end
+
+  @doc false
+  def remove_cron_schedule_with_revocations_in_tx(cron_schedule_id, opts \\ [])
+      when is_binary(cron_schedule_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with %CronSchedule{} = schedule <- Store.lock_cron_schedule(cron_schedule_id),
          {:ok, schedule} <- put_schedule_status(schedule, :deleted),
-         :ok <- end_execution_conversation_in_tx(schedule, now),
-         {:ok, _events} <- Store.cancel_pending_cron_events(schedule, now) do
-      {:ok, schedule}
+         {:ok, _events} <- Store.cancel_pending_cron_events(schedule, now),
+         {:ok, revocations} <-
+           if(schedule.owner_routine_id,
+             do:
+               Routines.sync_after_cron_remove_in_tx(
+                 schedule.owner_routine_id,
+                 schedule.id,
+                 now,
+                 opts
+               ),
+             else: with(:ok <- end_execution_conversation_in_tx(schedule, now), do: {:ok, []})
+           ) do
+      {:ok, schedule, revocations}
     else
       nil -> {:error, :cron_schedule_not_found}
       {:error, _reason} = error -> error
@@ -225,17 +282,23 @@ defmodule Ankole.Schedule.Cron do
            Ankole.Principals.WorkAccess.check_record_in_tx(CronSchedule, cron_schedule_id),
          %CronSchedule{} = schedule <- Store.lock_cron_schedule(cron_schedule_id),
          :ok <- Store.reject_terminal(schedule),
-         :ok <-
-           Normalizer.validate_cron_task(
-             schedule.payload,
-             Ankole.Signals.source_routing_mode(schedule)
-           ),
          {:ok, request_id} <- manual_request_id(opts),
-         {:ok, result} <- arm_manual_cron_fire_in_tx(schedule, request_id, now, opts) do
+         {:ok, result} <- run_locked_cron_schedule_in_tx(schedule, request_id, now, opts) do
       {:ok, result}
     else
       nil -> {:error, :cron_schedule_not_found}
       {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  def run_locked_cron_schedule_in_tx(schedule, request_id, now, opts) do
+    with :ok <-
+           Normalizer.validate_cron_task(
+             schedule.payload,
+             Ankole.Signals.source_routing_mode(schedule)
+           ) do
+      arm_manual_cron_fire_in_tx(schedule, request_id, now, opts)
     end
   end
 
@@ -390,7 +453,16 @@ defmodule Ankole.Schedule.Cron do
 
   defp complete_schedule_in_tx(schedule, now) do
     with {:ok, schedule} <- put_schedule_status(schedule, :completed),
-         :ok <- end_execution_conversation_in_tx(schedule, now) do
+         :ok <-
+           if(schedule.owner_routine_id,
+             do:
+               Routines.maybe_complete_after_cron_exhausted_in_tx(
+                 schedule.owner_routine_id,
+                 schedule.id,
+                 now
+               ),
+             else: end_execution_conversation_in_tx(schedule, now)
+           ) do
       {:ok, schedule}
     end
   end
@@ -400,18 +472,6 @@ defmodule Ankole.Schedule.Cron do
   defp maybe_end_execution_conversation_in_tx(schedule, true, now),
     do: end_execution_conversation_in_tx(schedule, now)
 
-  # The execution session's conversation carries the task history and the
-  # delivery channel's origin (channel id, channel kind, and DM peer id),
-  # set once when the conversation is created and never re-derived on
-  # reuse. A changed payload makes that history a wrong prefix for the next
-  # fire, and a changed delivery channel would leave the recorded origin
-  # naming the old channel: a stale console label, not a functional
-  # failure. Ending the conversation here makes the next fire start fresh,
-  # with history and origin both matching the current schedule facts;
-  # timing-only changes keep history. A fire running right now is
-  # unaffected: turn completion resolves its conversation by id, not by
-  # active lookup. A terminal schedule also ends its conversation so its
-  # model history closes cleanly with the schedule.
   defp end_execution_conversation_in_tx(%CronSchedule{owner_job_id: id}, _now)
        when is_integer(id), do: :ok
 
@@ -419,7 +479,7 @@ defmodule Ankole.Schedule.Cron do
     with {:ok, _conversation} <-
            AIGateway.end_active_conversation_in_tx(
              schedule.agent_uid,
-             execution_session_id(schedule.id),
+             execution_session_id(schedule),
              now
            ) do
       :ok
@@ -443,22 +503,34 @@ defmodule Ankole.Schedule.Cron do
 
   defp schedule_wake_in_tx(%CronSchedule{}), do: :ok
 
-  defp maybe_update_binding(schedule, attrs) do
-    if Map.has_key?(attrs, :automation_job_id),
-      do:
-        Ankole.Signals.put_source_binding_in_tx(
-          "schedule://#{schedule.id}",
-          schedule.agent_uid,
-          execution_session_id(schedule.id),
-          attrs.automation_job_id
-        ),
-      else: :ok
+  defp maybe_put_owner_routine_id(attrs, schedule, next_routine_id) do
+    if schedule.owner_routine_id != next_routine_id,
+      do: Map.put(attrs, :owner_routine_id, next_routine_id),
+      else: attrs
+  end
+
+  defp maybe_update_binding(schedule, attrs, next_routine_id) do
+    if Map.has_key?(attrs, :automation_job_id) do
+      session_id = Ankole.Sessions.Key.routine(next_routine_id || schedule.id)
+
+      Ankole.Signals.put_source_binding_in_tx(
+        "schedule://#{schedule.id}",
+        schedule.agent_uid,
+        session_id,
+        attrs.automation_job_id,
+        next_routine_id
+      )
+    else
+      :ok
+    end
   end
 
   defp insert_cron_schedule_in_tx(attrs) do
-    attrs = Map.put(attrs, :id, Ash.UUIDv7.generate())
+    attempted_id = Ash.UUIDv7.generate()
+    attrs = Map.put(attrs, :id, attempted_id)
 
-    with {:ok, _attempted} <-
+    with {:ok, attrs} <- maybe_upsert_owning_routine_in_tx(attrs),
+         {:ok, _attempted} <-
            Ankole.Ash.create(
              CronSchedule,
              if(attrs[:owner_job_id], do: :create_job, else: :create),
@@ -466,21 +538,152 @@ defmodule Ankole.Schedule.Cron do
              touch_update_defaults?: false
            ),
          {:ok, persisted} <- Store.lock_cron_by_idempotency(attrs),
+         fresh? = persisted.id == attempted_id,
          :ok <-
-           if(attrs.id == persisted.id,
+           if(fresh?,
              do:
                Ankole.Signals.put_source_binding_in_tx(
                  "schedule://#{persisted.id}",
                  persisted.agent_uid,
-                 execution_session_id(persisted.id),
-                 attrs.automation_job_id
+                 execution_session_id(persisted),
+                 attrs.automation_job_id,
+                 persisted.owner_routine_id
                ),
              else: :ok
            ),
          :ok <- schedule_wake_in_tx(persisted) do
-      status = if attrs.id == persisted.id, do: :created, else: :already_exists
+      status = if fresh?, do: :created, else: :already_exists
       {:ok, %{status: status, cron_schedule: persisted}}
     end
+  end
+
+  defp maybe_upsert_owning_routine_in_tx(%{owner_job_id: job_id} = attrs)
+       when is_integer(job_id),
+       do: {:ok, attrs}
+
+  defp maybe_upsert_owning_routine_in_tx(%{automation_job_id: job_id} = attrs)
+       when is_integer(job_id),
+       do: {:ok, attrs}
+
+  defp maybe_upsert_owning_routine_in_tx(%{owner_routine_id: routine_id} = attrs)
+       when is_binary(routine_id) do
+    case Routines.lock_routine_in_tx(routine_id) do
+      nil ->
+        {:error, :routine_not_found}
+
+      %{status: :deleted} ->
+        {:error, :routine_deleted}
+
+      routine ->
+        payload = Map.put(attrs[:payload] || %{}, "task", routine.task)
+
+        {:ok,
+         Map.merge(attrs, %{
+           name: routine.name,
+           binding_name: routine.binding_name,
+           payload: payload,
+           delivery: routine.delivery
+         })}
+    end
+  end
+
+  defp maybe_upsert_owning_routine_in_tx(attrs) do
+    with {:ok, routine} <- Routines.upsert_for_cron_in_tx(attrs) do
+      {:ok, Map.merge(attrs, %{id: routine.id, owner_routine_id: routine.id})}
+    end
+  end
+
+  @doc false
+  def insert_routine_cron_in_tx(routine, cron_spec) do
+    cron_id =
+      if is_nil(Store.get_cron_schedule(routine.id)),
+        do: routine.id,
+        else: Ash.UUIDv7.generate()
+
+    status = if routine.status == :paused, do: :paused, else: :active
+
+    attrs = %{
+      id: cron_id,
+      authorization_kind: routine.authorization_kind,
+      human_uid: routine.human_uid,
+      human_access_version: routine.human_access_version,
+      status: status,
+      agent_uid: routine.agent_uid,
+      owner_session_id: routine.owner_session_id,
+      owner_routine_id: routine.id,
+      binding_name: routine.binding_name,
+      name: routine.name,
+      schedule: cron_spec.schedule,
+      timezone: cron_spec.timezone,
+      payload: %{"task" => routine.task},
+      delivery: routine.delivery,
+      next_fire_at: cron_spec.next_fire_at,
+      idempotency_key: "routine-cron:#{routine.id}:#{cron_id}",
+      created_by: routine.created_by || %{}
+    }
+
+    with {:ok, persisted} <-
+           Ankole.Ash.create(CronSchedule, :create, attrs, touch_update_defaults?: false),
+         :ok <-
+           Ankole.Signals.put_source_binding_in_tx(
+             "schedule://#{persisted.id}",
+             persisted.agent_uid,
+             execution_session_id(persisted),
+             nil,
+             routine.id
+           ),
+         :ok <- schedule_wake_in_tx(persisted) do
+      {:ok, persisted}
+    end
+  end
+
+  @doc false
+  def sync_child_cron_metadata_in_tx(cron, routine, payload_extra \\ %{}) do
+    changes = %{
+      name: routine.name,
+      binding_name: routine.binding_name,
+      delivery: routine.delivery,
+      payload:
+        (cron.payload || %{})
+        |> Map.merge(payload_extra)
+        |> Map.put("task", routine.task)
+    }
+
+    with {:ok, _} <- Ankole.Ash.update(cron, :update_definition, changes), do: :ok
+  end
+
+  @doc false
+  def update_child_cron_in_tx(cron, routine, cron_spec, payload_extra \\ %{}) do
+    changes = %{
+      name: routine.name,
+      binding_name: routine.binding_name,
+      delivery: routine.delivery,
+      payload:
+        (cron.payload || %{})
+        |> Map.merge(payload_extra)
+        |> Map.put("task", routine.task),
+      schedule: cron_spec.schedule,
+      timezone: cron_spec.timezone
+    }
+
+    with {:ok, cron} <- Ankole.Ash.update(cron, :update_definition, changes),
+         {:ok, cron} <-
+           if(cron.status == :completed and routine.status == :active,
+             do: Ankole.Ash.update(cron, :reactivate, %{}),
+             else: {:ok, cron}
+           ),
+         {:ok, _cron} <-
+           if(cron.status == :active and not is_nil(cron_spec.next_fire_at),
+             do: schedule_next_fire_in_tx(cron, cron_spec.next_fire_at),
+             else: {:ok, cron}
+           ) do
+      :ok
+    end
+  end
+
+  @doc false
+  def resume_locked_child_cron_in_tx(cron, _routine, now) do
+    resume_paused_in_tx(cron, now, [])
   end
 
   defp sync_after_update_in_tx(%CronSchedule{status: :active} = schedule, true, now, _opts) do
@@ -555,7 +758,7 @@ defmodule Ankole.Schedule.Cron do
       human_access_version: schedule.human_access_version,
       kind: "cron_fire",
       agent_uid: schedule.agent_uid,
-      session_id: if(schedule.owner_job_id, do: nil, else: execution_session_id(schedule.id)),
+      session_id: if(schedule.owner_job_id, do: nil, else: execution_session_id(schedule)),
       binding_name: schedule.binding_name,
       conversation_id: primary_target["conversation_id"],
       provider_thread_id: primary_target["provider_thread_id"],

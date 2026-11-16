@@ -48,7 +48,7 @@ defmodule AnkoleWeb.JSONAPI.SchedulesTest do
 
     assert Enum.all?(
              list["data"],
-             &(&1["attributes"]["execution_session_id"] == "cron:" <> &1["id"])
+             &(&1["attributes"]["execution_session_id"] == "routine:" <> &1["id"])
            )
 
     shown =
@@ -117,7 +117,7 @@ defmodule AnkoleWeb.JSONAPI.SchedulesTest do
     assert %{"id" => schedule_id, "owner_session_id" => "session-a", "status" => "active"} =
              created
 
-    assert created["execution_session_id"] == "cron:" <> schedule_id
+    assert created["execution_session_id"] == "routine:" <> schedule_id
     assert %{"kind" => "operator_api", "principal_uid" => principal_ref} = created["created_by"]
     assert principal_ref =~ admin_uid
 
@@ -266,7 +266,7 @@ defmodule AnkoleWeb.JSONAPI.SchedulesTest do
 
           assert work.tenant_id == data_tenant.id
           assert work.agent_uid == agent.uid
-          assert work.session_id == "cron:#{rule.id}"
+          assert work.session_id == "routine:#{rule.id}"
         end
 
         assert event.signal_id == Ankole.Signals.root_signal_id(signal.id)

@@ -5,9 +5,13 @@ defmodule Ankole.Schedule.Schemas.CronSchedule.ExecutionSessionId do
   use Ash.Resource.Calculation
 
   @impl true
-  def calculate(records, _opts, _context),
-    do:
-      Enum.map(records, fn record ->
-        if is_nil(record.owner_job_id), do: Ankole.Schedule.Cron.execution_session_id(record.id)
-      end)
+  def load(_query, _opts, _context), do: [:owner_routine_id]
+
+  @impl true
+  def calculate(records, _opts, _context) do
+    Enum.map(records, fn record ->
+      if is_binary(record.owner_routine_id),
+        do: Ankole.Sessions.Key.routine(record.owner_routine_id)
+    end)
+  end
 end

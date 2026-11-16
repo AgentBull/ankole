@@ -39,7 +39,6 @@ defmodule Ankole.Signals.Adapters do
       :config_key_pattern,
       :config_module,
       :application_bindings,
-      :worker_env_module,
       :binding_saved_module,
       :author_hydrator,
       :supported_group_message_modes,
@@ -57,7 +56,6 @@ defmodule Ankole.Signals.Adapters do
             config_key_pattern: String.t() | nil,
             config_module: module() | nil,
             application_bindings: :one | nil,
-            worker_env_module: module() | nil,
             binding_saved_module: module() | nil,
             author_hydrator: module() | nil,
             supported_group_message_modes: [String.t()] | nil,
@@ -174,13 +172,6 @@ defmodule Ankole.Signals.Adapters do
          :ok <-
            validate_optional_adapter_module(
              declaration,
-             :worker_env_module,
-             :resolve_worker_env,
-             1
-           ),
-         :ok <-
-           validate_optional_adapter_module(
-             declaration,
              :binding_saved_module,
              :handle_binding_saved,
              2
@@ -203,7 +194,6 @@ defmodule Ankole.Signals.Adapters do
          config_key_pattern: value(declaration, :config_key_pattern),
          config_module: value(declaration, :config_module),
          application_bindings: value(declaration, :application_bindings),
-         worker_env_module: value(declaration, :worker_env_module),
          binding_saved_module: value(declaration, :binding_saved_module),
          author_hydrator: value(declaration, :author_hydrator),
          supported_group_message_modes:

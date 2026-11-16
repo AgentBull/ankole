@@ -218,6 +218,7 @@ export {
   updateConversationParticipants,
   updateConversationQueue,
   updatePodAdminSettings,
+  updatePodJobRoutine,
   updatePodProfile,
   verifyPodEmailBinding
 } from './sdk.gen'
@@ -1349,6 +1350,11 @@ export type {
   UpdatePodAdminSettingsErrors,
   UpdatePodAdminSettingsResponse,
   UpdatePodAdminSettingsResponses,
+  UpdatePodJobRoutineData,
+  UpdatePodJobRoutineError,
+  UpdatePodJobRoutineErrors,
+  UpdatePodJobRoutineResponse,
+  UpdatePodJobRoutineResponses,
   UpdatePodProfileData,
   UpdatePodProfileError,
   UpdatePodProfileErrors,

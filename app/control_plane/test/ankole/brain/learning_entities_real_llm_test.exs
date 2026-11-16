@@ -264,4 +264,126 @@ defmodule Ankole.Brain.LearningEntitiesRealLLMTest do
     assert {:ok, unchanged} = Objects.get_by_slug(protocol.id)
     assert unchanged.revision == protocol.revision
   end
+
+  test "pure live operational readings produce no claims in conversation or document learning" do
+    now = DateTime.utc_now(:microsecond)
+    live_reading = "当前待审单 14 笔，工单 #8821 待法务审核，今日盘中实时队列延迟 180ms。"
+
+    channel =
+      Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
+        id: Ankole.Ecto.UUIDv7.autogenerate(),
+        external_kind: :im_group,
+        reply_mode: :entry,
+        title: "工单巡检",
+        provider_conversation_id: "live-reading-only",
+        last_activity_at: now,
+        first_seen_at: now,
+        last_seen_at: now
+      })
+
+    {:ok, entry} =
+      Repo.transact(fn ->
+        Ankole.Conversations.External.observe_in_tx(
+          channel.id,
+          %{
+            provider_message_id: "live-reading-msg",
+            provider_time: now,
+            author: %{"display_name" => "Ops Bot"},
+            text: live_reading
+          },
+          now
+        )
+      end)
+
+    assert {:ok,
+            %{
+              status: :not_applicable,
+              written: %{claims: 0, objects: 0, timelines: 0, links: 0, rejected: 0}
+            }} = ConversationsLearning.process_conversation(channel.id)
+
+    assert Sources.conversation_extraction_watermark(channel.id) == entry.message.seq
+    refute Repo.exists?(Claim)
+
+    {:ok, doc} =
+      Ankole.Brain.create_object(
+        %{
+          slug: "documents/intraday-queue-poll",
+          type: "document",
+          title: "盘中队列实时查询",
+          body: live_reading
+        },
+        :system
+      )
+
+    assert {:ok, %{claims: 0, rejected: 0}} = SourceLearning.learn_page(doc.id, doc.revision)
+    refute Repo.exists?(Claim)
+  end
+
+  test "mixed operational sentences drop live counts while keeping commitments, thresholds, postmortem root causes, and settled metrics" do
+    %{principal: alice} = human_fixture()
+    now = DateTime.utc_now(:microsecond)
+
+    channel =
+      Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
+        id: Ankole.Ecto.UUIDv7.autogenerate(),
+        external_kind: :im_group,
+        reply_mode: :entry,
+        title: "履约排期",
+        provider_conversation_id: "mixed-live-durable",
+        last_activity_at: now,
+        first_seen_at: now,
+        last_seen_at: now
+      })
+
+    {:ok, _} =
+      Repo.transact(fn ->
+        Ankole.Conversations.External.observe_in_tx(
+          channel.id,
+          %{
+            provider_message_id: "mixed-msg",
+            provider_time: now,
+            author: %{"principal_uid" => alice.uid, "display_name" => "Alice"},
+            text:
+              "目前积压 14 单；客户要求本周五前全部完成交付；以后积压超过 10 单必须立即通知负责人；上季度封账履约准时率为 99.2%，我长期偏好用表格汇报周度复盘。"
+          },
+          now
+        )
+      end)
+
+    assert {:ok, %{status: :complete, written: %{claims: conv_count}}} =
+             ConversationsLearning.process_conversation(channel.id)
+
+    assert conv_count >= 3
+    {:ok, conv_source_id} = Ankole.Brain.Scope.conversation(channel.id)
+    conv_claims = Repo.all(from c in Claim, where: c.source_node_id == ^conv_source_id)
+
+    refute Enum.any?(conv_claims, &(&1.claim =~ "14"))
+    assert Enum.any?(conv_claims, &(&1.claim =~ "周五"))
+    assert Enum.any?(conv_claims, &(&1.claim =~ "10" and &1.claim =~ "通知"))
+    assert Enum.any?(conv_claims, &(&1.claim =~ "99.2%"))
+    assert Enum.any?(conv_claims, &(&1.kind == "preference" and &1.claim =~ "表格"))
+
+    {:ok, postmortem} =
+      Ankole.Brain.create_object(
+        %{
+          slug: "documents/order-worker-oom-postmortem",
+          type: "document",
+          title: "订单消费节点 OOM 事故复盘",
+          body: """
+          # 2026-11-10 订单消费节点 OOM 事故复盘
+          根因分析：14:02 回调重试风暴导致内存队列深度飙升至 5200，超出单实例内存上限并触发 OOM 重启。
+          改进决策：将单节点消费队列硬上限设为 1000，超限请求返回背压状态码。
+          """
+        },
+        :system
+      )
+
+    assert {:ok, %{claims: doc_count}} =
+             SourceLearning.learn_page(postmortem.id, postmortem.revision)
+
+    assert doc_count >= 2
+    doc_claims = Repo.all(from c in Claim, where: c.source_node_id == ^postmortem.id)
+    assert Enum.any?(doc_claims, &(&1.claim =~ "5200" or &1.claim =~ "OOM"))
+    assert Enum.any?(doc_claims, &(&1.claim =~ "1000"))
+  end
 end

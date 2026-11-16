@@ -15,6 +15,7 @@ import { preflightPageMarkdown, type ExistingPageSnapshot } from './diagram-pref
 const readOperations = [
   'pages.list',
   'pages.children',
+  'pages.tree',
   'pages.search',
   'pages.read',
   'pages.sharing',

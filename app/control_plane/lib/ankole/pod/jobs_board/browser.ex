@@ -9,7 +9,7 @@ defmodule Ankole.Pod.JobsBoard.Browser do
     domain: Ankole.Pod,
     extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
 
-  alias Ankole.Ash.Types.{PrincipalKey, UUIDv7}
+  alias Ankole.Ash.Types.{JSONMap, PrincipalKey, UUIDv7}
   alias Ankole.Pod.APIError
   alias Ankole.Pod.Chat.ExecutionDetail
   alias Ankole.Pod.JobsBoard
@@ -23,6 +23,14 @@ defmodule Ankole.Pod.JobsBoard.Browser do
     canRunBackgroundJob: [type: :boolean, allow_nil?: false]
   ]
 
+  @event_trigger_input [
+    configRef: [type: :string, allow_nil?: false],
+    name: [type: :string],
+    filters: [type: JSONMap],
+    watchedFieldIDs: [type: {:array, UUIDv7}],
+    coalesce: [type: JSONMap]
+  ]
+
   @routine_run [
     id: [type: :string, allow_nil?: false],
     status: [type: :string, allow_nil?: false],
@@ -30,7 +38,8 @@ defmodule Ankole.Pod.JobsBoard.Browser do
     startedAt: [type: :utc_datetime_usec],
     finishedAt: [type: :utc_datetime_usec],
     summary: [type: :string, constraints: [allow_empty?: true, trim?: false]],
-    error: [type: :string, constraints: [allow_empty?: true, trim?: false]]
+    error: [type: :string, constraints: [allow_empty?: true, trim?: false]],
+    deliveryWarning: [type: :boolean]
   ]
 
   @child_execution [
@@ -54,6 +63,7 @@ defmodule Ankole.Pod.JobsBoard.Browser do
     allow(:list, check: :guardrail)
     allow(:create, check: :guardrail)
     allow(:routine_detail, check: :guardrail)
+    allow(:update_routine, check: :guardrail)
     allow(:change_routine, check: :guardrail)
     allow(:execution, check: :guardrail)
     allow(:stop_execution, check: :guardrail)
@@ -138,6 +148,10 @@ defmodule Ankole.Pod.JobsBoard.Browser do
       argument(:quietSuccess, :boolean)
       argument(:runNow, :boolean)
 
+      argument(:eventTriggers, {:array, :map},
+        constraints: [items: [fields: @event_trigger_input]]
+      )
+
       run(fn input, context ->
         args = input.arguments
 
@@ -150,10 +164,67 @@ defmodule Ankole.Pod.JobsBoard.Browser do
           conversation_id: args[:conversationID],
           runner_id: args[:runnerID],
           repeat: args[:repeat],
+          event_triggers: args[:eventTriggers],
           quiet_success: args[:quietSuccess],
           run_now: args[:runNow]
         })
         |> APIError.result()
+      end)
+    end
+
+    action :update_routine, View do
+      transaction?(false)
+
+      argument(:raw_id, :string, allow_nil?: false)
+
+      argument(:title, :string, constraints: [min_length: 1, max_length: 200])
+
+      argument(:task, :string, constraints: [min_length: 1, max_length: 20_000, trim?: false])
+
+      argument(:conversationID, UUIDv7)
+
+      argument(:repeat, :map,
+        constraints: [
+          fields: [
+            expression: [type: :string, allow_nil?: false],
+            timezone: [type: :string, allow_nil?: false]
+          ]
+        ]
+      )
+
+      argument(:removeSchedule, :boolean)
+      argument(:quietSuccess, :boolean)
+
+      run(fn input, context ->
+        args = input.arguments
+
+        attrs =
+          %{}
+          |> then(&if(Map.has_key?(args, :title), do: Map.put(&1, :title, args.title), else: &1))
+          |> then(&if(Map.has_key?(args, :task), do: Map.put(&1, :task, args.task), else: &1))
+          |> then(
+            &if(Map.has_key?(args, :conversationID),
+              do: Map.put(&1, :conversation_id, args.conversationID),
+              else: &1
+            )
+          )
+          |> then(
+            &if(Map.has_key?(args, :repeat), do: Map.put(&1, :repeat, args.repeat), else: &1)
+          )
+          |> then(
+            &if(Map.has_key?(args, :removeSchedule),
+              do: Map.put(&1, :remove_schedule, args.removeSchedule),
+              else: &1
+            )
+          )
+          |> then(
+            &if(Map.has_key?(args, :quietSuccess),
+              do: Map.put(&1, :quiet_success, args.quietSuccess),
+              else: &1
+            )
+          )
+
+        JobsBoard.update_routine(context.actor, args.raw_id, attrs) |> APIError.result()
       end)
     end
 

@@ -234,11 +234,6 @@ defmodule Ankole.Kernel do
   @type reciprocal_rank_fusion_result :: %{
           required(String.t()) => String.t() | float()
         }
-  @type web_url_facts :: %{
-          scheme: String.t(),
-          host: String.t() | nil,
-          host_class: :metadata | :private | :public | nil
-        }
 
   @doc """
   Decrypts a compact AEAD token produced by `aead_encrypt/2`.
@@ -300,24 +295,6 @@ defmodule Ankole.Kernel do
 
   def vfs_document_reconcile(source, markdown),
     do: source |> vfs_document_reconcile_nif(markdown) |> decode_page_result()
-
-  def vfs_merge_knowledge(base, base_meta, current, current_meta, edited, edited_meta) do
-    case vfs_merge_knowledge_nif(
-           base,
-           Torque.encode!(base_meta),
-           current,
-           Torque.encode!(current_meta),
-           edited,
-           Torque.encode!(edited_meta)
-         )
-         |> decode_json_result() do
-      {:error, _} = error -> error
-      result -> {:ok, %{xml: result["xml"], metadata: result["metadata"]}}
-    end
-  end
-
-  defp vfs_merge_knowledge_nif(_base, _base_meta, _current, _current_meta, _edited, _edited_meta),
-    do: :erlang.nif_error(:nif_not_loaded)
 
   def vfs_fingerprint(source), do: vfs_fingerprint_nif(source)
 
@@ -897,24 +874,9 @@ defmodule Ankole.Kernel do
 
   The success map has these string keys:
 
-    * `"kind"` - `"with"` when the outermost query has a `WITH` clause,
-      otherwise `"select"`.
     * `"tables"` - each referenced base table, also inside CTEs and subqueries,
       as `%{"catalog", "schema", "name"}`. CTE names and table functions are
       not tables. Names keep the case in which the query writes them.
-    * `"columns"` - each column reference as `%{"table", "name"}`, where
-      `"table"` is the qualifier as written or `nil`. Output aliases that
-      `ORDER BY` or `GROUP BY` refers to also appear here.
-    * `"aggregates"` - lower-case aggregate names, such as `"sum"` or
-      `"count_distinct"` for `COUNT(DISTINCT ...)`. Window calls with `OVER`
-      are not aggregates.
-    * `"literals"` - comparisons between a column and literals in `WHERE` and
-      `HAVING`, as `%{"column", "table", "operator", "values"}`. The operator
-      is one of `=`, `<>`, `<`, `<=`, `>`, `>=`, `in`, `like`, or `ilike`.
-      `BETWEEN` yields one `>=` and one `<=` entry. Negated forms are skipped.
-    * `"joins"` - the number of `JOIN` clauses in the whole query.
-    * `"group_by"` - whether any `SELECT` has `GROUP BY`.
-    * `"limit"` - the outermost literal `LIMIT` or `FETCH FIRST` count, or `nil`.
     * `"fanout_risk"` - whether a `SELECT` with two or more relations applies
       a duplicate-sensitive aggregate (not `MIN`, `MAX`, or a `DISTINCT`
       aggregate) to `*`, an unqualified column, or a column of a relation that
@@ -1354,22 +1316,6 @@ defmodule Ankole.Kernel do
   @doc "Transliterates a Page title with AnyAscii into a lowercase kebab-case URL slug."
   @spec page_url_slug(String.t()) :: String.t()
   def page_url_slug(_title), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Parses a web URL with WHATWG semantics and classifies its host.
-
-  `host_class` drives the shared web URL policy: `:metadata` hosts are cloud
-  credential endpoints Ankole always rejects, `:private` hosts are rejected
-  only when `security.ssrf_filter` is enabled, and `:public` hosts are
-  allowed. Most callers want `validate_web_url/3`, which applies that policy;
-  reach for raw facts only when a caller needs the parsed pieces themselves.
-  Both Elixir and Bun consume this one classifier.
-  """
-  @spec web_url_facts(String.t()) :: result(web_url_facts())
-  def web_url_facts(url) when is_binary(url), do: web_url_facts_nif(url)
-
-  @spec web_url_facts_nif(String.t()) :: result(web_url_facts())
-  defp web_url_facts_nif(_url), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Validates one web URL against the shared SSRF policy.

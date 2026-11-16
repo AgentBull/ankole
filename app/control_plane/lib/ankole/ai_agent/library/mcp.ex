@@ -66,8 +66,8 @@ defmodule Ankole.AIAgent.Library.MCP do
   defp agent_uid(_), do: {:error, :forbidden}
 
   defp headers(uid, %{"bearer_token_env_var" => key}) do
-    with {:ok, env} <- Ankole.AgentWorkers.effective_env_parts(uid),
-         value when is_binary(value) and value != "" <- Map.merge(env.operator, env.binding)[key],
+    with {:ok, env} <- Ankole.AgentWorkers.effective_env(uid),
+         value when is_binary(value) and value != "" <- env[key],
          do: {:ok, [{"authorization", "Bearer " <> value}]},
          else: (
            {:error, _} = error -> error

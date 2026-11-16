@@ -191,8 +191,10 @@ defmodule Ankole.Sessions.Prompt do
 
   defp runtime_context(opts) do
     conversation = opts.context.conversation
+    agent = Map.get(opts.context, :agent) || %{}
     timezone = conversation.timezone || "UTC"
-    role = String.trim(opts.context.agent.role || "")
+    role = String.trim(Map.get(agent, :role) || "")
+    owner_uid = personal_assistant_owner_uid(agent)
     clock = zoned_time(conversation.started_at, timezone)
     origin = format_channel(conversation.origin_channel)
 
@@ -200,10 +202,11 @@ defmodule Ankole.Sessions.Prompt do
       "<runtime_context>",
       "Agent UID: #{opts.agent_uid}",
       "Agent display name: #{display_name(opts)}",
+      if(owner_uid, do: "Owner UID: #{owner_uid}", else: ""),
       "Agent Home: #{AgentHomePaths.home()}",
       "Current workspace: #{AgentHomePaths.session_workspace(opts.workspace_id)}",
       drive_context(conversation.origin_channel),
-      pod_instructions(conversation),
+      pod_instructions(conversation, agent),
       drive_instructions(),
       "Other conversations' workspaces (/workspace/sessions/<other-id>) belong to other people. Do not read or write them.",
       if(match?(%{kind: "im_dm"}, conversation.origin_channel),
@@ -247,11 +250,15 @@ defmodule Ankole.Sessions.Prompt do
   end
 
   @doc "Projects Pod delivery rules and the current Page from their Conversation owner."
-  def pod_instructions(%{origin_channel: %{kind: "native"}} = conversation) do
+  def pod_instructions(conversation, agent \\ nil)
+
+  def pod_instructions(%{origin_channel: %{kind: "native"}} = conversation, agent) do
     page_id = Map.get(conversation, :page_id)
+    owner_uid = personal_assistant_owner_uid(agent)
 
     [
       "This conversation is in the Pod workspace. Documents and research reports are saved as editable Pod Pages by default. Use the pod-content Skill and the real ankole-pod contracts to create or update them, then deliver a clickable [page title](ankole:page/<page-id>) link. A local file or a chat summary alone is not the saved result.",
+      pod_placement_instructions(owner_uid),
       "A Page shows its title and metadata above the workspace; pages.write supplies a document body and ankole-pod applet publishes an Applet. Do not repeat the Page title as an opening H1 in a document or Applet unless the user explicitly asks for that title in the body or for verbatim text, and build Applets with @ankole/uikit components, Ankole semantic CSS variables, and host-synced usePod().theme ('light' | 'dark') rather than standalone page chrome or hardcoded colors. Keep any standalone report complete, including its title; adapt only the body saved to the Page.",
       "When the user explicitly requests a file format such as PDF, PowerPoint, or a spreadsheet, deliver that format. Do not convert every answer or temporary working file into a Page.",
       if(page_id,
@@ -263,7 +270,21 @@ defmodule Ankole.Sessions.Prompt do
     |> Enum.join("\n")
   end
 
-  def pod_instructions(_conversation), do: ""
+  def pod_instructions(_conversation, _agent), do: ""
+
+  defp pod_placement_instructions(owner_uid) when is_binary(owner_uid) do
+    ~s[When saving a new Page, consider whether it fits better in your owner's Private section (`private_owner_uid: "#{owner_uid}"` for the Private root, or a `parent_id` inside Private) or in the shared Workspace, and choose a fitting directory (`parent_id`) rather than placing everything at the Workspace root. Lean toward Private for ad-hoc, rough, or purely personal work that others do not need to see. Inspect the current directory structure (`pod_list_pages` with `scope: "all"` or `ankole-pod pages.tree`) and relevant user memory, and ask the user when you are genuinely unsure.]
+  end
+
+  defp pod_placement_instructions(nil) do
+    ~s[When saving a new Page, inspect the current Workspace directory structure (`pod_list_pages` with `depth` or `ankole-pod pages.tree`) and choose a suitable directory (`parent_id`) rather than defaulting to the Workspace root. Check relevant memory, and ask the user if you are genuinely unsure where to place it.]
+  end
+
+  defp personal_assistant_owner_uid(%{type: :personal_assistant, owner_principal_uid: uid})
+       when is_binary(uid) and uid != "",
+       do: uid
+
+  defp personal_assistant_owner_uid(_agent), do: nil
 
   defp drive_context(%{id: _conversation_id}),
     do:

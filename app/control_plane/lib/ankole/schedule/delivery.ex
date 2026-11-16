@@ -7,6 +7,14 @@ defmodule Ankole.Schedule.Delivery do
 
   @spec normalize(term(), String.t() | nil) :: {:ok, map()} | {:error, term()}
   def normalize(delivery, binding_name) when is_map(delivery) do
+    with {:ok, normalized} <- normalize_without_default(delivery, binding_name) do
+      {:ok, Map.put_new(normalized, "quiet_success", true)}
+    end
+  end
+
+  def normalize(_delivery, _binding_name), do: {:error, :cron_delivery_route_required}
+
+  defp normalize_without_default(delivery, binding_name) when is_map(delivery) do
     with {:ok, targets} <- normalize_targets(delivery),
          :ok <- validate_primary_binding(targets, binding_name),
          :ok <- validate_unique_targets(targets),
@@ -21,13 +29,11 @@ defmodule Ankole.Schedule.Delivery do
     end
   end
 
-  def normalize(_delivery, _binding_name), do: {:error, :cron_delivery_route_required}
-
   @spec merge_update(term(), term(), String.t() | nil) :: {:ok, map()} | {:error, term()}
   def merge_update(existing, update, binding_name)
       when is_map(update) do
     if route_update?(update) do
-      with {:ok, normalized_update} <- normalize(update, binding_name) do
+      with {:ok, normalized_update} <- normalize_without_default(update, binding_name) do
         preserve_existing_quiet_success(existing, normalized_update)
       end
     else
@@ -134,7 +140,7 @@ defmodule Ankole.Schedule.Delivery do
 
   defp preserve_existing_quiet_success(existing, normalized_update) when is_map(existing) do
     case normalize_quiet_success(existing) do
-      {:ok, :unset} -> {:ok, normalized_update}
+      {:ok, :unset} -> {:ok, Map.put(normalized_update, "quiet_success", true)}
       {:ok, value} -> {:ok, Map.put(normalized_update, "quiet_success", value)}
       {:error, _reason} = error -> error
     end

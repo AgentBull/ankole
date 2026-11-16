@@ -167,6 +167,7 @@ defmodule Ankole.Sessions.Admission do
          true <- uid == key.agent_uid and session == key.session_id,
          true <- event.status in [:queued, :running],
          true <- WorkAccess.fields(event) == WorkAccess.fields(snapshot),
+         :ok <- ensure_due_for_admission_in_tx(key, event, now),
          :ok <- current_queue_head(event),
          :ok <- Commands.prepare_new_in_tx(event, now),
          :ok <- Ankole.Sessions.WakeRecycle.maybe_recycle_in_tx(event, plan, now),
@@ -209,6 +210,7 @@ defmodule Ankole.Sessions.Admission do
           error
       end
     else
+      {:deferred_until_due, %Signal{} = event} -> {:ok, %{status: :deferred, signal: event}}
       {:ok, %{status: :completed} = result} -> {:ok, result}
       nil -> {:error, :input_unavailable}
       false -> {:error, :input_unavailable}
@@ -217,6 +219,31 @@ defmodule Ankole.Sessions.Admission do
       _closed -> {:error, :input_unavailable}
     end
   end
+
+  defp ensure_due_for_admission_in_tx(
+         key,
+         %Signal{
+           last_attempt_at: nil,
+           inserted_at: %DateTime{} = inserted_at,
+           available_at: %DateTime{} = available_at
+         } = event,
+         now
+       ) do
+    delayed? =
+      is_map(get_in(event.extensions || %{}, ["ankole_coalesce"])) or
+        DateTime.compare(available_at, inserted_at) == :gt or
+        (event.attempt_count || 0) > 0
+
+    if delayed? and DateTime.compare(available_at, now) == :gt do
+      with :ok <- Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(key, available_at) do
+        {:deferred_until_due, event}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp ensure_due_for_admission_in_tx(_key, _event, _now), do: :ok
 
   # The Driver may have read the queue before a Human reordered pending follow-ups.
   defp current_queue_head(

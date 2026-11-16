@@ -28,13 +28,15 @@ export function PageContent({
   onRequestFileComment,
   filePreviewRef,
   searchFind,
-  searchTarget
+  searchTarget,
+  embedded = false
 }: {
   detail: PageDetail
   onRequestFileComment?: (selection: FileCommentSelection) => void
   filePreviewRef?: Ref<FilePreviewHandle | null>
   searchFind?: string
   searchTarget?: ParsedSearchTarget
+  embedded?: boolean
 }) {
   const { t } = useTranslation()
   switch (detail.page.type) {
@@ -48,6 +50,7 @@ export function PageContent({
           previewRef={filePreviewRef}
           searchFind={searchFind}
           searchTarget={searchTarget}
+          embedded={embedded}
         />
       )
     case 'base':

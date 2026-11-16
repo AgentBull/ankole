@@ -126,7 +126,7 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
       public?: true,
       allow_nil?: false,
       constraints: [
-        one_of: [:conversation, :signal, :dreaming, :job, :cron, :responses_api, :custom]
+        one_of: [:conversation, :signal, :dreaming, :job, :routine, :responses_api, :custom]
       ]
     )
 

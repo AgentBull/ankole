@@ -22,6 +22,9 @@ describe('conversationDisplayName', () => {
 
   test('uses a kind name for other managed conversations and preserves custom keys', () => {
     expect(conversationDisplayName(conversation({ kind: 'job' }))).toBe(i18n.t('console.conversations.kind.job'))
+    expect(conversationDisplayName(conversation({ kind: 'routine' }))).toBe(
+      i18n.t('console.conversations.kind.routine')
+    )
     expect(
       conversationDisplayName(
         conversation({ conversation_key: 'operator-session', kind: 'custom', metadata: {}, display_name: null })

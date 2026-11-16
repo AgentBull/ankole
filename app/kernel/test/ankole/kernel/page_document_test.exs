@@ -121,17 +121,9 @@ defmodule Ankole.Kernel.PageDocumentTest do
     assert {:ok, %{vfs_content_empty: false}} = Kernel.vfs_projection(:doc, source)
     assert {:ok, %{xml: ^source}} = Kernel.vfs_document_reconcile(source, markdown)
 
-    edited = String.replace(source, "Deep body", "Updated body")
-    original_metadata = %{"summary" => "Original"}
-    current_metadata = %{"summary" => "Current"}
-    assert {:ok, %{xml: ^edited, metadata: ^current_metadata}} =
-      Kernel.vfs_merge_knowledge(source, original_metadata, source, current_metadata,
-        edited, original_metadata)
-
     assert {:error, _} = Kernel.page_content_empty(over)
     assert {:error, _} = Kernel.vfs_document_export(over)
     assert {:error, _} = Kernel.vfs_document_reconcile(over, markdown)
-    assert {:error, _} = Kernel.vfs_merge_knowledge(over, %{}, over, %{}, over, %{})
     """
 
     paths = Enum.flat_map(:code.get_path(), &["-pa", List.to_string(&1)])

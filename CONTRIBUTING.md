@@ -177,6 +177,7 @@ bun --version
 elixir --version
 rustc --version
 cargo clippy --version
+protoc --version
 docker compose version
 docker info
 ```

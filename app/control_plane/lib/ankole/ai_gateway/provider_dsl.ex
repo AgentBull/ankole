@@ -180,6 +180,16 @@ defmodule Ankole.AIGateway.ProviderDSL do
     end
   end
 
+  @doc """
+  Declares that this provider's `web_fetch` capability accepts one URL per
+  upstream request rather than a batch array.
+  """
+  defmacro single_url(value \\ true) do
+    quote do
+      @ai_provider_capability_attrs {:single_url, unquote(value)}
+    end
+  end
+
   @doc false
   defmacro __before_compile__(env) do
     provider_kind =
@@ -265,6 +275,8 @@ defmodule Ankole.AIGateway.ProviderDSL do
     supports_native_image_generation? =
       Map.get(attrs, :supports_native_image_generation, false)
 
+    single_url? = Map.get(attrs, :single_url, false)
+
     unless is_boolean(supports_parallel_tool_calls?) do
       raise ArgumentError,
             "supports_parallel_tool_calls must be a boolean for #{inspect(module)} #{kind}"
@@ -275,6 +287,11 @@ defmodule Ankole.AIGateway.ProviderDSL do
             "supports_native_image_generation must be a boolean for #{inspect(module)} #{kind}"
     end
 
+    unless is_boolean(single_url?) do
+      raise ArgumentError,
+            "single_url must be a boolean for #{inspect(module)} #{kind}"
+    end
+
     capability = %Capability{
       kind: kind,
       upstream: upstream(kind),
@@ -282,7 +299,8 @@ defmodule Ankole.AIGateway.ProviderDSL do
       prepare: prepare,
       timeout_ms: Map.get(attrs, :timeout_ms),
       supports_parallel_tool_calls?: supports_parallel_tool_calls?,
-      supports_native_image_generation?: supports_native_image_generation?
+      supports_native_image_generation?: supports_native_image_generation?,
+      single_url?: single_url?
     }
 
     Module.put_attribute(module, :ai_provider_capabilities, capability)

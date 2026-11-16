@@ -182,7 +182,13 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
              outbound_key
            ),
          {:ok, adapter} <- resolve_registered_adapter(intent) do
-      dispatch(agent_uid, binding_name, outbound_key, adapter, options)
+      dispatch(
+        agent_uid,
+        binding_name,
+        outbound_key,
+        adapter,
+        Keyword.put(options, :prefetched_intent, intent)
+      )
     else
       nil -> {:error, :intent_not_found}
       {:error, _reason} = error -> error
@@ -247,11 +253,20 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   # a duplicate reply. A timeout leaves the intent untouched; the job snoozes
   # before it claims an attempt or sends a provider request.
   defp await_reply_preview_finalization(agent_uid, binding_name, outbound_key, options) do
-    case Ankole.Conversations.Delivery.Queries.fetch_delivery(
-           agent_uid,
-           binding_name,
-           outbound_key
-         ) do
+    intent =
+      case Keyword.fetch(options, :prefetched_intent) do
+        {:ok, %Intent{} = prefetched} ->
+          prefetched
+
+        _ ->
+          Ankole.Conversations.Delivery.Queries.fetch_delivery(
+            agent_uid,
+            binding_name,
+            outbound_key
+          )
+      end
+
+    case intent do
       %Intent{} = intent ->
         if reply_preview_finalization?(intent) do
           timeout_ms =

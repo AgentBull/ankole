@@ -1,6 +1,7 @@
 import type { Frame, Locator, Page } from 'playwright-core'
 import type { BrowserCommandArgs } from '../protocol'
 import { BrowserDataError } from '../errors'
+import { compileQueryFilter } from './query-filter'
 
 // This module uses the Playwright AI snapshot.
 // `page.getByRef` resolves a ref from the latest snapshot.
@@ -48,9 +49,11 @@ const InteractiveRoles = new Set([
 
 export class SnapshotStore {
   private readonly refs = new Set<string>()
+  private readonly baselines = new Map<string, ReadonlySet<string>>()
 
   clear(): void {
     this.refs.clear()
+    this.baselines.clear()
   }
 
   entries(): string[] {
@@ -64,7 +67,7 @@ export class SnapshotStore {
     deadline = Date.now() + 30_000
   ): Promise<string> {
     const locator = options.selector ? frame.locator(options.selector).first() : undefined
-    const root = locator ?? page
+    const root = locator ?? (frame === page.mainFrame() ? page : frame.locator(':root'))
     let snapshot: string
     try {
       // Snapshot calls can reject a missing selector before their timeout.
@@ -85,10 +88,45 @@ export class SnapshotStore {
     } catch (error) {
       throw asSnapshotError(error)
     }
-    const text = presentSnapshot(snapshot, options)
+
+    const baseLines = formatSnapshotLines(snapshot, options)
+    // Retain every live ref from the full capture so unchanged @eN targets remain clickable
+    // even when --diff, -q, or SnapshotBudget narrows the printed output.
     this.refs.clear()
-    for (const match of text.matchAll(RefInText)) this.refs.add(match[1]!)
-    return text
+    for (const line of baseLines) {
+      for (const match of line.matchAll(RefInText)) this.refs.add(match[1]!)
+    }
+
+    if (baseLines.length === 0) return '(empty page)'
+
+    const baselineKey = snapshotBaselineKey(page, frame, options)
+    const nextSignatures = new Set(baseLines.map(lineSignature))
+    let candidateLines = baseLines
+
+    if (options.diff) {
+      const previous = this.baselines.get(baselineKey)
+      if (previous) {
+        candidateLines = filterDiffLines(baseLines, previous)
+      }
+    }
+
+    // Update the (url, frame, mode) baseline whenever this capture is not narrowed by -q.
+    if (!options.query) {
+      this.baselines.set(baselineKey, nextSignatures)
+    }
+
+    if (options.query) {
+      const matches = compileQueryFilter(options.query)
+      candidateLines = filterQueryLines(candidateLines, matches)
+      if (candidateLines.length === 0) return '(no matching snapshot lines)'
+    } else if (options.diff && candidateLines.length === 0) {
+      return '(no snapshot changes)'
+    }
+
+    const text = candidateLines.join('\n').trim()
+    if (text.length === 0) return options.diff ? '(no snapshot changes)' : '(empty page)'
+    if (text.length <= SnapshotBudget) return text
+    return `${text.slice(0, SnapshotBudget)}\n… [snapshot truncated]`
   }
 
   async resolve(page: Page, input: string, rawFrame: Frame = page.mainFrame()): Promise<Locator> {
@@ -121,15 +159,64 @@ function interactiveSnapshot(nodes: (SnapshotNode | string)[], depth = 0): strin
   return lines.filter(Boolean).join('\n')
 }
 
-function presentSnapshot(snapshot: string, options: SnapshotOptions): string {
+function formatSnapshotLines(snapshot: string, options: SnapshotOptions): string[] {
   const lines = snapshot.split('\n').flatMap(line => {
     if (!options.urls && line.trimStart().startsWith('- /url:')) return []
-    return [options.compact ? line.trimStart() : line]
+    const formatted = options.compact ? line.trimStart() : line
+    return formatted.trim().length > 0 ? [formatted] : []
   })
-  const text = lines.join('\n').trim()
-  if (text.length === 0) return '(empty page)'
-  if (text.length <= SnapshotBudget) return text
-  return `${text.slice(0, SnapshotBudget)}\n… [snapshot truncated]`
+  return lines
+}
+
+function lineSignature(line: string): string {
+  return line.trim()
+}
+
+function snapshotBaselineKey(page: Page, frame: Frame, options: SnapshotOptions): string {
+  const pageURL = safeURL(() => page.url())
+  const frameKey = frame === page.mainFrame() ? 'main' : `${safeURL(() => frame.name())}::${safeURL(() => frame.url())}`
+  const modeKey = `${options.interactive ? 'i' : 'a'}:${options.urls ? 'u' : ''}:${options.depth ?? ''}:${options.selector ?? ''}`
+  return `${pageURL}\0${frameKey}\0${modeKey}`
+}
+
+function filterDiffLines(lines: string[], previous: ReadonlySet<string>): string[] {
+  const out: string[] = []
+  let includeTrailingURL = false
+  for (const line of lines) {
+    const trimmed = line.trimStart()
+    if (trimmed.startsWith('- /url:')) {
+      if (includeTrailingURL || !previous.has(lineSignature(line))) out.push(line)
+      includeTrailingURL = false
+      continue
+    }
+    const changed = !previous.has(lineSignature(line))
+    if (changed) out.push(line)
+    includeTrailingURL = changed
+  }
+  return out
+}
+
+function filterQueryLines(lines: string[], matches: (line: string) => boolean): string[] {
+  const out: string[] = []
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!
+    const nextLine = lines[index + 1]
+    const nextIsURL = nextLine !== undefined && nextLine.trimStart().startsWith('- /url:')
+    if (line.trimStart().startsWith('- /url:')) continue
+    if (matches(line) || (nextIsURL && matches(nextLine))) {
+      out.push(line)
+      if (nextIsURL) out.push(nextLine)
+    }
+  }
+  return out
+}
+
+function safeURL(read: () => string): string {
+  try {
+    return read()
+  } catch {
+    return ''
+  }
 }
 
 async function locatorForRef(page: Page, ref: string): Promise<Locator> {

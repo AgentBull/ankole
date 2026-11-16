@@ -61,15 +61,9 @@ defmodule AnkoleWeb.PodAppletController do
   end
 
   defp request(conn) do
-    with {:ok, body} <- conn.private[:applet_route_body] || {:ok, :absent} do
-      query =
-        URI.query_decoder(conn.query_string)
-        |> Enum.reduce(%{}, fn {key, value}, result ->
-          Map.update(result, key, value, fn previous -> List.wrap(previous) ++ [value] end)
-        end)
-
-      [_, path] = String.split(conn.request_path, "/routes", parts: 2)
-
+    with {:ok, body} <- conn.private[:applet_route_body] || {:ok, :absent},
+         {:ok, query} <- decode_query(conn.query_string),
+         [_, path] <- String.split(conn.request_path, "/routes", parts: 2) do
       request = %{
         "method" => conn.method,
         "path" => if(path == "", do: "/", else: path),
@@ -80,7 +74,17 @@ defmodule AnkoleWeb.PodAppletController do
     else
       _ -> {:error, :invalid_request}
     end
+  end
+
+  defp decode_query(query_string) do
+    query =
+      URI.query_decoder(query_string)
+      |> Enum.reduce(%{}, fn {key, value}, result ->
+        Map.update(result, key, value, fn previous -> List.wrap(previous) ++ [value] end)
+      end)
+
+    {:ok, query}
   rescue
-    _ -> {:error, :invalid_request}
+    ArgumentError -> {:error, :invalid_request}
   end
 end

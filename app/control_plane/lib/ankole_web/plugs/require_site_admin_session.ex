@@ -4,7 +4,6 @@ defmodule AnkoleWeb.Plugs.RequireSiteAdminSession do
   import Plug.Conn
 
   alias Ankole.Repo
-  alias Ankole.Principals
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.Session, as: WebSession
 
@@ -16,30 +15,29 @@ defmodule AnkoleWeb.Plugs.RequireSiteAdminSession do
   @impl Plug
   def call(conn, _opts) do
     case WebSession.authorize_site_admin_session(conn) do
-      {:ok, %{"principal_uid" => uid} = authentication} ->
-        with {:ok, tenant} <- Ankole.Tenants.privileged(),
-             :ok <- Repo.put_tenant_id(tenant.id),
-             {:ok, principal} <- Principals.get_principal(uid) do
-          :ok = WebSession.renew_authentication(authentication)
+      {:ok,
+       %{
+         authentication: %{"principal_uid" => uid} = authentication,
+         principal: principal,
+         tenant: tenant
+       }} ->
+        :ok = Repo.put_tenant_id(tenant.id)
+        :ok = WebSession.renew_authentication(authentication)
 
-          conn
-          |> assign(:current_principal_uid, uid)
-          |> assign(:current_principal, principal)
-          |> assign(
-            :authz_actor,
-            Ankole.AuthZ.Actor.from_browser(
-              principal,
-              authentication,
-              "console_rest",
-              to_string(:inet.ntoa(conn.remote_ip))
-            )
+        conn
+        |> assign(:current_tenant, tenant)
+        |> assign(:current_principal_uid, uid)
+        |> assign(:current_principal, principal)
+        |> assign(:site_admin_authentication, authentication)
+        |> assign(
+          :authz_actor,
+          Ankole.AuthZ.Actor.from_browser(
+            principal,
+            authentication,
+            "console_rest",
+            to_string(:inet.ntoa(conn.remote_ip))
           )
-        else
-          _ ->
-            conn
-            |> ConsoleErrors.render(401, "unauthorized", "active administrator session required")
-            |> halt()
-        end
+        )
 
       :forbidden ->
         conn

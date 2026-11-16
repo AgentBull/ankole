@@ -88,29 +88,35 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   def inspect_stall_in_tx(job_id, %DateTime{} = now) do
     case Queries.get(job_id) do
       %Job{status: :running} = job ->
-        _worker = Worker.lock_in_tx(job)
-        :ok = Lifecycle.lock_agent_slots(job.agent_uid)
-        job = Queries.lock_for_agent_in_tx(job.id, job.agent_uid)
         # A Worker can accept an attempt and fail before its first trajectory.
         # The claim time bounds that gap without another deadline owner.
-        activity = latest_active_turn_activity(job.id) || job.updated_at
+        initial_activity = latest_active_turn_activity(job.id) || job.updated_at
 
-        event =
-          Ankole.Sessions.Queue.oldest_open(
-            job.agent_uid,
-            BackgroundAgentJobs.job_session_id(job.id)
-          )
+        if initial_activity && stalled?(initial_activity, now) do
+          _worker = Worker.lock_in_tx(job)
+          :ok = Lifecycle.lock_agent_slots(job.agent_uid)
+          job = Queries.lock_for_agent_in_tx(job.id, job.agent_uid)
+          activity = latest_active_turn_activity(job.id) || job.updated_at
 
-        if (job.status == :running and activity) && event && stalled?(activity, now) do
-          ref = %JobTurnRef{
-            agent_uid: job.agent_uid,
-            session_id: event.session_id,
-            signal_id: event.id,
-            job_id: job.id,
-            attempt: job.attempts
-          }
+          event =
+            Ankole.Sessions.Queue.oldest_open(
+              job.agent_uid,
+              BackgroundAgentJobs.job_session_id(job.id)
+            )
 
-          {:ok, {ref, stall_count(job.id) + 1}}
+          if (job.status == :running and activity) && event && stalled?(activity, now) do
+            ref = %JobTurnRef{
+              agent_uid: job.agent_uid,
+              session_id: event.session_id,
+              signal_id: event.id,
+              job_id: job.id,
+              attempt: job.attempts
+            }
+
+            {:ok, {ref, stall_count(job.id) + 1}}
+          else
+            {:ok, :live}
+          end
         else
           {:ok, :live}
         end

@@ -151,13 +151,7 @@ defmodule Ankole.Pod.Access.BlockedWaits do
         {:ok, _} ->
           case Access.authorize(turn_actor, page, "node_view") do
             {:error, _} ->
-              explained = Explain.explain(turn_actor, page, "node_view")
-
-              stage_4 =
-                Enum.find(explained.stages, &(&1.id == "brain_disclosure_gate")) ||
-                  %{details: %{}}
-
-              case stage_4.details["missing_reader_uids"] do
+              case Access.missing_brain_reader_uids(turn_actor, page) do
                 [single_uid] when is_binary(single_uid) -> single_uid
                 _ -> nil
               end

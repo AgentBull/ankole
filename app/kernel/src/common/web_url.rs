@@ -12,7 +12,7 @@ use url::{Host, Url as URL};
 use crate::common::{KernelError, KernelResult};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HostClass {
+enum HostClass {
     /// Cloud metadata endpoints; rejected regardless of policy.
     Metadata,
     /// Localhost names and non-public literal IP addresses; rejected only when
@@ -22,8 +22,9 @@ pub enum HostClass {
     Public,
 }
 
+#[cfg(test)]
 impl HostClass {
-    pub fn as_str(self) -> &'static str {
+    fn as_str(self) -> &'static str {
         match self {
             HostClass::Metadata => "metadata",
             HostClass::Private => "private",
@@ -33,11 +34,12 @@ impl HostClass {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WebURLFacts {
-    pub scheme: String,
+struct WebURLFacts {
+    scheme: String,
+    #[cfg(test)]
     /// `None` for host-less URLs such as `data:` and `about:`.
-    pub host: Option<String>,
-    pub host_class: Option<HostClass>,
+    host: Option<String>,
+    host_class: Option<HostClass>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,22 +109,23 @@ fn validate_host_class(class: HostClass, ssrf_filter: bool) -> Result<(), WebURL
     }
 }
 
-pub fn web_url_facts(input: &str) -> KernelResult<WebURLFacts> {
+fn web_url_facts(input: &str) -> KernelResult<WebURLFacts> {
     let url =
         URL::parse(input).map_err(|error| KernelError::new(format!("invalid web url: {error}")))?;
 
-    let (host, host_class) = match url.host() {
-        Some(host) => (Some(host_text(&host)), Some(classify_host(&host))),
-        None => (None, None),
-    };
+    #[cfg(test)]
+    let host = url.host().map(|parsed| host_text(&parsed));
+    let host_class = url.host().map(|parsed| classify_host(&parsed));
 
     Ok(WebURLFacts {
         scheme: url.scheme().to_string(),
+        #[cfg(test)]
         host,
         host_class,
     })
 }
 
+#[cfg(test)]
 fn host_text(host: &Host<&str>) -> String {
     match host {
         Host::Domain(domain) => (*domain).to_string(),

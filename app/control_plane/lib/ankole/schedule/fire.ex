@@ -7,6 +7,8 @@ defmodule Ankole.Schedule.Fire do
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Cron
   alias Ankole.Schedule.Planner
+  alias Ankole.Schedule.Routines
+  alias Ankole.Schedule.Schemas.AgentRoutine
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.Schedule.Store
@@ -14,14 +16,22 @@ defmodule Ankole.Schedule.Fire do
 
   def prepare_event(id, opts) do
     case Store.get_scheduled_event(id) do
-      nil -> {:ok, nil}
-      event -> prepare_delivery(event, Keyword.get(opts, :now, DateTime.utc_now(:microsecond)))
+      nil ->
+        {:ok, nil}
+
+      event ->
+        now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+        prepare_delivery(event, now, event_routine(event))
     end
   end
 
   def prepare_cron(id, now) do
     case Store.get_cron_schedule(id) do
       %CronSchedule{status: :active, next_fire_at: %DateTime{}} = schedule ->
+        routine =
+          if is_binary(schedule.owner_routine_id),
+            do: Routines.get_routine_record(schedule.owner_routine_id)
+
         result =
           with {:ok, attrs} <-
                  Cron.event_attrs(
@@ -36,12 +46,16 @@ defmodule Ankole.Schedule.Fire do
                do:
                  prepare_delivery(
                    struct(ScheduledEvent, Map.put(attrs, :id, Store.reserve_event_id())),
-                   now
+                   now,
+                   routine
                  )
 
         case result do
-          {:error, reason} -> {:error, {:cron_fire_failed, reason, schedule.next_fire_at}}
-          {:ok, plan} -> {:ok, Map.put(plan, :schedule_snapshot, schedule)}
+          {:error, reason} ->
+            {:error, {:cron_fire_failed, reason, schedule.next_fire_at}}
+
+          {:ok, plan} ->
+            {:ok, Map.merge(plan, %{schedule_snapshot: schedule, routine_snapshot: routine})}
         end
 
       _ ->
@@ -49,10 +63,10 @@ defmodule Ankole.Schedule.Fire do
     end
   end
 
-  defp prepare_delivery(event, now) do
+  defp prepare_delivery(event, now, routine) do
     Ankole.Signals.prepare_dispatch(
       Ankole.Signals.source_reference(event),
-      signal_payload(event, now),
+      signal_payload(event, now, routine),
       authorization: Ankole.Principals.WorkAccess.fields(event),
       reply_route: %{
         binding_name: event.binding_name,
@@ -90,9 +104,23 @@ defmodule Ankole.Schedule.Fire do
   def fire_cron_in_tx(cron_schedule_id, now, plan \\ nil) when is_binary(cron_schedule_id) do
     case Store.get_cron_schedule(cron_schedule_id) do
       %CronSchedule{status: :active} = schedule ->
+        routine =
+          if is_binary(schedule.owner_routine_id),
+            do: Routines.get_routine_record(schedule.owner_routine_id)
+
+        works = Enum.reject([schedule, routine], &is_nil/1)
+
         result =
           with {:ok, plan} <- if(plan, do: {:ok, plan}, else: prepare_cron(cron_schedule_id, now)),
-               {:ok, _} <- lock_delivery(plan, schedule),
+               :ok <-
+                 if(
+                   Map.has_key?(plan, :schedule_snapshot) and
+                     (not same_cron_fire?(schedule, plan.schedule_snapshot) or
+                        not same_routine_snapshot?(routine, plan[:routine_snapshot])),
+                   do: {:error, :cron_schedule_changed},
+                   else: :ok
+                 ),
+               {:ok, _} <- lock_delivery(plan, works),
                do: fire_active_cron_in_tx(schedule, now, plan)
 
         case result do
@@ -135,11 +163,31 @@ defmodule Ankole.Schedule.Fire do
       locked.next_fire_at == snapshot.next_fire_at
   end
 
+  defp same_routine_snapshot?(nil, nil), do: true
+
+  defp same_routine_snapshot?(%AgentRoutine{} = current, %AgentRoutine{} = snapshot) do
+    current.status == snapshot.status and current.updated_at == snapshot.updated_at and
+      current.definition_version == snapshot.definition_version
+  end
+
+  defp same_routine_snapshot?(_current, _snapshot), do: false
+
   defp fire_locked_cron_in_tx(schedule, now, plan) do
-    case if(Ankole.AutomationJobs.JobSources.live?(schedule),
-           do: Cron.validate_fire_schedule(schedule),
-           else: {:cancel, :page_trashed}
-         ) do
+    routine =
+      if is_binary(schedule.owner_routine_id),
+        do:
+          get_in(plan, [:routines, schedule.owner_routine_id]) ||
+            Routines.get_routine_record(schedule.owner_routine_id)
+
+    validation =
+      if Ankole.AutomationJobs.JobSources.live?(schedule) do
+        with :ok <- validate_owning_routine(schedule, :scheduled),
+             do: Cron.validate_fire_schedule(schedule)
+      else
+        {:cancel, :page_trashed}
+      end
+
+    case validation do
       :ok ->
         with {:ok, event} <-
                insert_cron_history(
@@ -149,7 +197,7 @@ defmodule Ankole.Schedule.Fire do
                  nil,
                  plan.signal["data"]["scheduled_event_id"]
                ),
-             {:ok, delivery} <- deliver_scheduled_event(event, now, plan),
+             {:ok, delivery} <- deliver_scheduled_event(event, now, plan, routine),
              {:ok, event} <- mark_event_fired(event, delivery, now),
              {:ok, _schedule} <-
                Cron.advance_after_fire(schedule, event.cron_fire_slot_at, now) do
@@ -335,9 +383,27 @@ defmodule Ankole.Schedule.Fire do
          now,
          opts
        ) do
-    with {:ok, delivery} <- deliver_scheduled_event(event, now, opts[:dispatch]),
-         {:ok, event} <- mark_event_fired(event, delivery, now) do
-      {:ok, fire_result(event, delivery)}
+    case Ankole.Sessions.Key.parse(event.session_id) do
+      {:routine, routine_id} ->
+        routine =
+          get_in(opts[:dispatch] || %{}, [:routines, routine_id]) ||
+            Routines.get_routine_record(routine_id)
+
+        if match?(%AgentRoutine{status: :active}, routine) and
+             Ankole.Principals.WorkAccess.check_in_tx(routine) == :ok do
+          with {:ok, delivery} <- deliver_scheduled_event(event, now, opts[:dispatch], routine),
+               {:ok, event} <- mark_event_fired(event, delivery, now) do
+            {:ok, fire_result(event, delivery)}
+          end
+        else
+          mark_event_cancelled(event, now, :routine_not_active)
+        end
+
+      _other ->
+        with {:ok, delivery} <- deliver_scheduled_event(event, now, opts[:dispatch], nil),
+             {:ok, event} <- mark_event_fired(event, delivery, now) do
+          {:ok, fire_result(event, delivery)}
+        end
     end
   end
 
@@ -347,10 +413,17 @@ defmodule Ankole.Schedule.Fire do
          now,
          opts
        ) do
+    routine =
+      if match?(%CronSchedule{owner_routine_id: id} when is_binary(id), schedule),
+        do:
+          get_in(opts[:dispatch] || %{}, [:routines, schedule.owner_routine_id]) ||
+            Routines.get_routine_record(schedule.owner_routine_id)
+
     with %CronSchedule{} = schedule <- schedule,
          true <- Ankole.AutomationJobs.JobSources.live?(schedule),
+         :ok <- validate_owning_routine(schedule, :manual),
          :ok <- Cron.validate_fire_schedule(schedule),
-         {:ok, delivery} <- deliver_scheduled_event(event, now, opts[:dispatch]),
+         {:ok, delivery} <- deliver_scheduled_event(event, now, opts[:dispatch], routine),
          {:ok, event} <- mark_event_fired(event, delivery, now) do
       {:ok, fire_result(event, delivery)}
     else
@@ -361,8 +434,46 @@ defmodule Ankole.Schedule.Fire do
     end
   end
 
-  defp deliver_scheduled_event(event, now, plan) do
-    expected = signal_payload(event, now) |> Map.delete("source")
+  defp validate_owning_routine(%CronSchedule{owner_routine_id: nil}, _mode), do: :ok
+
+  defp validate_owning_routine(%CronSchedule{owner_routine_id: routine_id}, mode)
+       when is_binary(routine_id) do
+    allowed_statuses = if mode == :manual, do: [:active, :paused], else: [:active]
+
+    case Routines.get_routine_record(routine_id) do
+      %AgentRoutine{status: status} = routine ->
+        if status in allowed_statuses and Ankole.Principals.WorkAccess.check_in_tx(routine) == :ok,
+          do: :ok,
+          else: {:cancel, :routine_not_active}
+
+      nil ->
+        {:cancel, :routine_not_active}
+    end
+  end
+
+  defp event_routine(%ScheduledEvent{kind: "check_back_later", session_id: session_id})
+       when is_binary(session_id) do
+    case Ankole.Sessions.Key.parse(session_id) do
+      {:routine, routine_id} -> Routines.get_routine_record(routine_id)
+      _ -> nil
+    end
+  end
+
+  defp event_routine(%ScheduledEvent{kind: "cron_fire", cron_schedule_id: cron_id})
+       when is_binary(cron_id) do
+    case Store.get_cron_schedule(cron_id) do
+      %CronSchedule{owner_routine_id: routine_id} when is_binary(routine_id) ->
+        Routines.get_routine_record(routine_id)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp event_routine(_event), do: nil
+
+  defp deliver_scheduled_event(event, now, plan, routine) do
+    expected = signal_payload(event, now, routine) |> Map.delete("source")
     prepared = Map.take(plan.signal, Map.keys(expected))
 
     if expected == prepared,
@@ -421,7 +532,30 @@ defmodule Ankole.Schedule.Fire do
     end
   end
 
-  defp signal_payload(%ScheduledEvent{} = event, now) do
+  defp signal_payload(%ScheduledEvent{} = event, now, routine) do
+    wake_payload =
+      case {event.kind, routine} do
+        {"check_back_later", %AgentRoutine{delivery: delivery}} when is_map(delivery) ->
+          Map.put(event.wake_payload || %{}, "delivery", delivery)
+
+        {"cron_fire", %AgentRoutine{} = owning_routine} ->
+          base = event.wake_payload || %{}
+          stored_payload = base["payload"] || %{}
+
+          merged_payload =
+            if is_binary(stored_payload["task"]) and String.trim(stored_payload["task"]) != "",
+              do: Map.put(stored_payload, "task", owning_routine.task),
+              else: stored_payload
+
+          base
+          |> Map.put("cron_schedule_name", owning_routine.name)
+          |> Map.put("delivery", owning_routine.delivery || %{})
+          |> Map.put("payload", merged_payload)
+
+        _ ->
+          event.wake_payload || %{}
+      end
+
     %{
       "specversion" => "1.0",
       "id" => source_event_id(event),
@@ -430,16 +564,16 @@ defmodule Ankole.Schedule.Fire do
       "time" => DateTime.to_iso8601(now),
       "type" => signal_type(event),
       "data" =>
-        Map.merge(get_in(event.wake_payload || %{}, ["payload"]) || %{}, %{
-          "trigger" => event.wake_payload["trigger"],
-          "cron_schedule_name" => event.wake_payload["cron_schedule_name"],
+        Map.merge(get_in(wake_payload, ["payload"]) || %{}, %{
+          "trigger" => wake_payload["trigger"],
+          "cron_schedule_name" => wake_payload["cron_schedule_name"],
           "scheduled_event_id" => event.id,
           "due_at" => DateTime.to_iso8601(event.due_at),
           "fired_at" => DateTime.to_iso8601(now),
           "timezone" => event.timezone,
           "cron_schedule_id" => event.cron_schedule_id,
           "cron_fire_slot_at" => Planner.datetime(event.cron_fire_slot_at),
-          "wake_payload" => event.wake_payload || %{},
+          "wake_payload" => wake_payload,
           "reply_route" =>
             Attrs.reject_nil_values(%{
               "binding_name" => event.binding_name,

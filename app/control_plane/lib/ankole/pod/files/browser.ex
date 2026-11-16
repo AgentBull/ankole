@@ -29,8 +29,7 @@ defmodule Ankole.Pod.Files.Browser do
       type: {:array, :map},
       allow_nil?: false,
       constraints: [items: [fields: @entry_fields]]
-    ],
-    routes: [type: {:array, :string}]
+    ]
   ]
 
   resource do

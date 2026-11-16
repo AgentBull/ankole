@@ -57,7 +57,9 @@ export function usePageTransliteration(): boolean {
 
 export function knownPageTitle(client: QueryClient, id: string): string | undefined {
   return (
-    pageMetadata(client).collection.get(id)?.title ?? client.getQueryData<PageDetail>(contentKeys.page(id))?.page.title
+    pageMetadata(client).collection.get(id)?.title ??
+    client.getQueryData<PageDetail>(contentKeys.page(id))?.page.title ??
+    cachedPageMap(client).get(id)?.title
   )
 }
 

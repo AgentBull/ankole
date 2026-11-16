@@ -6,6 +6,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
   alias Ankole.Logging
   alias Ankole.Conversations.Delivery.Adapter
   alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.PreviewAdapter
   alias Ankole.Signals.Sanitizer
 
   # Give a transient provider failure a short recovery window before retry.
@@ -168,9 +169,11 @@ defmodule Ankole.Conversations.Delivery.Recovery do
          adapter
        )
        when is_map(presentation) do
-    capabilities = Adapter.capabilities(adapter)
+    reconcilable? =
+      (is_binary(intent.source_signal_id) and match?(%PreviewAdapter{}, adapter.reply_preview)) or
+        MapSet.member?(Adapter.capabilities(adapter), :outbound_reconciliation)
 
-    case MapSet.member?(capabilities, :outbound_reconciliation) do
+    case reconcilable? do
       true -> {:reconcile, intent}
       false -> {:unknown, intent, %{"reason" => "durable AI reply cannot be reconciled"}}
     end

@@ -158,7 +158,7 @@ defmodule Ankole.Pod.PageContractTest do
       %{updated_at: DateTime.utc_now(:microsecond)}
     )
 
-    assert {:ok, %{revision: 2, changes: [], reset_required: true, reload_required: true}} =
+    assert {:ok, %{revision: 2, changes: [], reset_required: true}} =
              Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 0)
 
     assert {:ok, %{revision: 2, changes: [_], reset_required: false}} =

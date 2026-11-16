@@ -19,6 +19,8 @@ defmodule Ankole.Schedule do
   alias Ankole.Schedule.Planner
   alias Ankole.Schedule.Projections
   alias Ankole.Schedule.Queries
+  alias Ankole.Schedule.Routines
+  alias Ankole.Schedule.Schemas.AgentRoutine
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
 
@@ -68,6 +70,12 @@ defmodule Ankole.Schedule do
     resource CronSchedule do
       # `get_cron_schedule/1` is the facade read that gives `{:error, :not_found}`.
       define(:get_cron_schedule_record, action: :read, get_by: [:id], not_found_error?: false)
+    end
+
+    resource AgentRoutine do
+      define(:get_agent_routine_record, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_agent_routines, action: :read)
+      define(:reauthorize_agent_routine, action: :reauthorize)
     end
   end
 
@@ -251,10 +259,6 @@ defmodule Ankole.Schedule do
     to: Cron,
     as: :execution_session_id
 
-  @doc "Returns the cron schedule whose fires run in this session, or nil."
-  @spec cron_execution_schedule_id(String.t()) :: Ecto.UUID.t() | nil
-  defdelegate cron_execution_schedule_id(session_id), to: Cron, as: :execution_schedule_id
-
   @doc """
   Fetches one cron schedule.
   """
@@ -287,17 +291,76 @@ defmodule Ankole.Schedule do
   @spec list_pending_checkbacks(String.t(), String.t(), pos_integer()) :: [ScheduledEvent.t()]
   defdelegate list_pending_checkbacks(agent_uid, session_id, limit \\ 10), to: Queries
 
+  def create_routine(attrs, opts \\ []) do
+    Repo.transact_top_level(fn -> Routines.create_routine_in_tx(attrs, opts) end)
+  end
+
+  defdelegate create_routine_in_tx(attrs, opts \\ []), to: Routines
+
+  def update_routine(routine_id, attrs, opts \\ []) do
+    Repo.transact_top_level(fn -> Routines.update_routine_in_tx(routine_id, attrs, opts) end)
+  end
+
+  def pause_routine(routine_id, opts \\ []) do
+    Repo.transact_top_level(fn -> Routines.pause_routine_in_tx(routine_id, opts) end)
+  end
+
+  def resume_routine(routine_id, opts \\ []) do
+    Repo.transact_top_level(fn -> Routines.resume_routine_in_tx(routine_id, opts) end)
+  end
+
+  def remove_routine(routine_id, opts \\ []) do
+    Repo.transact_top_level(fn -> Routines.remove_routine_in_tx(routine_id, opts) end)
+  end
+
+  def run_routine(routine_id, opts \\ []) do
+    Repo.transact_top_level(
+      fn -> Routines.run_routine_in_tx(routine_id, opts) end,
+      after_commit: fn result -> Ankole.Signals.publish_committed(Map.get(result, :signals)) end
+    )
+  end
+
+  defdelegate get_routine(routine_id), to: Routines
+  defdelegate get_routine_by_name(agent_uid, owner_session_id, name), to: Routines
+  defdelegate list_routines(agent_uid \\ nil, owner_session_id \\ nil), to: Routines
+  defdelegate list_board_routines(), to: Routines
+  defdelegate schedules_by_owner_routines(routine_ids), to: Routines
+  defdelegate schedules_by_owner_jobs(job_ids), to: Queries
+  defdelegate bindings_by_owner_routines(routine_ids), to: Routines
+  defdelegate routine_cron_fire_rollups(schedules_by_routine), to: Queries
+  defdelegate list_unlinked_cron_fire_events(cron_ids, limit), to: Queries
+  defdelegate list_board_checkbacks(cutoff), to: Queries
+  defdelegate routine_execution_session_id(routine_id), to: Routines, as: :execution_session_id
+  defdelegate routine_room_ids(routine), to: Routines, as: :room_ids
+
+  defdelegate list_routine_run_entries(routine, limit \\ 25),
+    to: Routines,
+    as: :list_merged_run_entries
+
+  defdelegate lock_routine_in_tx(routine_id), to: Routines
+  defdelegate lock_routines_in_tx(routine_ids, lock_mode \\ :for_update), to: Routines
+  defdelegate lock_routine_children_in_tx(routine_id), to: Routines
+
+  defdelegate maybe_complete_routine_after_binding_disabled_in_tx(routine_id, now),
+    to: Routines
+
+  defdelegate reauthorize_routine_children_in_tx(routine_id, authorization), to: Routines
+
   @doc """
   Returns the narrow model-visible recurring schedule projection.
   """
   @spec cron_model_projection(CronSchedule.t()) :: map()
   defdelegate cron_model_projection(schedule), to: Projections
+  defdelegate routine_model_projection(routine), to: Projections
+  defdelegate routine_model_projections(routines), to: Projections
+  defdelegate routine_run_model_projections(routine, limit \\ 25), to: Projections
 
   @doc """
   Returns the model-visible scheduled event projection for schedule RPC responses.
   """
   @spec event_model_projection(ScheduledEvent.t()) :: map()
   defdelegate event_model_projections(events), to: Projections
+  defdelegate cron_run_model_projections(events), to: Projections
   defdelegate cron_model_projections(schedules), to: Projections
 
   defdelegate event_model_projection(event), to: Projections

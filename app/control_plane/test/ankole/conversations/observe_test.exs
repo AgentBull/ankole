@@ -1638,7 +1638,7 @@ defmodule Ankole.Conversations.ObserveTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      target = append_retry_target!(agent.uid, "bot", "cron:schedule-1")
+      target = append_retry_target!(agent.uid, "bot", "routine:#{Ecto.UUID.generate()}")
       insert_durable_reply_surface!(target, "bot", "dead-letter-card")
 
       refute message_snapshot(
@@ -1673,8 +1673,8 @@ defmodule Ankole.Conversations.ObserveTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      explicit_target = append_retry_target!(agent.uid, "bot", "cron:explicit")
-      reply_target = append_retry_target!(agent.uid, "bot", "cron:reply")
+      explicit_target = append_retry_target!(agent.uid, "bot", "routine:#{Ecto.UUID.generate()}")
+      reply_target = append_retry_target!(agent.uid, "bot", "routine:#{Ecto.UUID.generate()}")
       insert_durable_reply_surface!(explicit_target, "bot", "explicit-card")
       insert_durable_reply_surface!(reply_target, "bot", "reply-card")
 
@@ -1701,7 +1701,7 @@ defmodule Ankole.Conversations.ObserveTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      reply_target = append_retry_target!(agent.uid, "bot", "cron:reply")
+      reply_target = append_retry_target!(agent.uid, "bot", "routine:#{Ecto.UUID.generate()}")
       insert_durable_reply_surface!(reply_target, "bot", "reply-card")
 
       assert {:ok, %{signal: retry_command}} =
@@ -1752,7 +1752,7 @@ defmodule Ankole.Conversations.ObserveTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      target = append_retry_target!(agent.uid, "bot", "cron:schedule-1")
+      target = append_retry_target!(agent.uid, "bot", "routine:#{Ecto.UUID.generate()}")
       insert_durable_reply_surface!(target, "bot", "dead-letter-card")
 
       assert {:ok, %{signal: retry_command}} =

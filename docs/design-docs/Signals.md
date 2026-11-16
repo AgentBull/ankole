@@ -375,7 +375,7 @@ receipts and work before acknowledging the source. Durable sources use
 `emit(reference, event, response_mode: :fire_and_forget)`; Applet capabilities
 enter the same dispatcher with their authenticated Page and execution Principal.
 
-Bindings support `action` with an `automation_job_id`, in addition to Agent
+Bindings support `action` with an `automation_job_id` and standing Agent routines via `agent_routine_id`, in addition to direct Agent
 routing. Built-in source references are `schedule://`, `scheduled-event://`,
 `webhook-endpoint://`, `base://`, `applet://` and `job://`. Managed external sources
 use `connector://<auth_config_id>/<stream>` and `connector-trigger://<trigger_id>`
@@ -383,10 +383,10 @@ through the [Connectors](Connectors.md#external-events-and-subscription-reconcil
 domain. The source owner
 maintains its default `internal` Binding through its normal create/edit API;
 additional subscriptions use `/api/v2/pod/signal-bindings` or `bindings.*` Pod
-RPCs. Source access and target Page/Job access are checked independently.
-Listing subscriptions accepts either `config_ref` or `job_id`. A Job-scoped list
+RPCs. Source access and target Page/Job/Routine access are checked independently.
+Listing subscriptions accepts `config_ref`, `job_id`, or `routine_id` (`agent_routine_id`). A Job-scoped list
 requires target Page read permission and includes only sources the caller can
-read, so the Automation panel can load its subscriptions in one request.
+read, so the Automation panel can load its subscriptions in one request; a Routine-scoped list verifies that the caller owns or can view the target `AgentRoutine`.
 Mutation requires the
 source's management permission, and personal assistants use their owner's
 Human identity for personal source authorization. Target validation across
@@ -456,15 +456,23 @@ references in one query per batch of up to 1,000 expired receipts, advances by
 the receipt primary key, and deletes expired rows in atomic Ash batches. Migrated
 cron deliveries share their rule's Binding; terminal one-shot history uses a
 disabled archival Binding so its receipts remain readable.
-Cancelled Jobs and Jobs whose Human authorization was revoked do not receive new
+Cancelled Jobs, paused or deleted `AgentRoutine`s, and targets whose Human authorization was revoked do not receive new
 events; other enabled subscriptions continue to receive the source event. Every fanout transaction
 locks the source and destination Human authorizers, target Jobs in ID order,
-Bindings, all receipts, and then all target Session
-queues and Signals. It compares prepared Job and Binding snapshots under those
+target `AgentRoutine` rows in ID order, Bindings, all receipts, and then all target Session
+queues and Signals. It compares prepared Job, Routine, and Binding snapshots under those
 locks before committing. Applet execution and concurrency-key evaluation happen
 outside the database transaction. Dispatch normalizes the complete event to JSON
 values before filtering and evaluates each Action delivery's concurrency key
 against the event that its Binding actually receives.
+
+### Burst Coalescing for Agent Event Bindings
+
+External and Connector `signal_bindings` targeting an Agent or `AgentRoutine` support fixed-window burst coalescing and open queue-tail batching via their `coalesce` JSONB configuration (`enabled` default `true`, `window_ms` in `0..300_000` default `5_000`, `max_batch_size` in `1..100` default `20`, `group_by` in `["binding", "subject"]` default `"binding"`, and a `64 KiB` serialized payload cap):
+
+- **Fixed initial window without starvation**: When the first matching event arrives for a `(binding_id, group_key, definition_version, auth_fingerprint)` slot without an open batch, `Signals.Intake` creates an unstarted `queued` `Signal` (`last_attempt_at = NULL`) with `available_at = received_at + window_ms` and stores the ordered event list in `extensions["ankole_coalesce"]["events"]`. Subsequent events append in arrival order without pushing `available_at` into the future.
+- **Early sealing on capacity or configuration change**: Reaching `max_batch_size` or `64 KiB` sets `extensions["ankole_coalesce"]["sealed"] = true` and pulls `available_at` up to `min(available_at, received_at)` (scheduling `EnsureDriver` with `only_earlier: true`), while later events open a subsequent queued batch in FIFO order. Editing a routine's `task` or `delivery` (`definition_version` bump) or changing work authorization (`auth_fingerprint`) seals any open unstarted batch so newer events execute in a fresh batch under the updated contract.
+- **Deduplication horizon**: Every coalesced event records its own `signal_binding_receipts` row pointing to the batch `Signal`, guaranteeing idempotent deduplication within the seven-day receipt retention window. Completed turns persist any optional structured summary on `signals.turn_summary`.
 
 For Base changes, `watched_field_ids` selects matching rows by each row's changed
 field IDs. A delete remains eligible and carries its saved business unique key.

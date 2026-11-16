@@ -112,10 +112,12 @@ export async function prepareExecutionMaterials(
     refresh?.unref()
 
     return {
-      workerEnv: { ...withoutBrowserMaterialSourceEnv(projectedWorkerEnv), ...mcporter.env },
+      workerEnv: {
+        ...withoutInternalGatewayEnv(withoutBrowserMaterialSourceEnv(projectedWorkerEnv)),
+        ...mcporter.env
+      },
       runtimeEnv: {
         ...input.runtimeEnv,
-        ANKOLE_MCP_TOKEN: resolved.vars.ANKOLE_MCP_TOKEN ?? '',
         ANKOLE_MCP_ORIGIN: resolved.vars.ANKOLE_MCP_ORIGIN ?? '',
         GIT_ASKPASS: '/usr/local/bin/ankole-git-askpass',
         GIT_TERMINAL_PROMPT: '0',
@@ -136,6 +138,13 @@ export async function prepareExecutionMaterials(
     await cleanupExecutionMaterials({ browser, mcporter }).catch(() => undefined)
     throw error
   }
+}
+
+function withoutInternalGatewayEnv(env: Record<string, string>): Record<string, string> {
+  const output = { ...env }
+  delete output.ANKOLE_MCP_TOKEN
+  delete output.ANKOLE_MCP_CONNECTIONS
+  return output
 }
 
 /** Testable cleanup rule used by every prepared execution. */

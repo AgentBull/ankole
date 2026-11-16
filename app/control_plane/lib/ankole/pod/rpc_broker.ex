@@ -6,7 +6,7 @@ defmodule Ankole.Pod.RPCBroker do
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.WorkerFiles
 
-  @read_operations ~w(jobs.actions jobs.runs jobs.list jobs.get_run bindings.list jobs.schedules.list jobs.schedules.runs jobs.webhooks.list skills.bundle pages.list pages.children pages.search pages.read pages.sharing comments.list comments.show files.manifest files.download chat.attachment.get base.tables base.schema base.query base.aggregate office.inspect office.render office.commands)
+  @read_operations ~w(jobs.actions jobs.runs jobs.list jobs.get_run bindings.list jobs.schedules.list jobs.schedules.runs jobs.webhooks.list skills.bundle pages.list pages.children pages.tree pages.search pages.read pages.sharing comments.list comments.show files.manifest files.download chat.attachment.get base.tables base.schema base.query base.aggregate office.inspect office.render office.commands)
   @write_operations ~w(jobs.schedules.put jobs.schedules.pause jobs.schedules.resume jobs.schedules.run jobs.schedules.delete jobs.webhooks.create jobs.webhooks.update jobs.webhooks.pause jobs.webhooks.resume jobs.webhooks.cancel jobs.webhooks.delete chat.send_to_agent pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.update_sharing pages.write pages.append comments.reply comments.resolve files.upload applets.publish applets.call applets.transfer_owner jobs.create jobs.configure jobs.delete bindings.put base.configure_table base.create_table base.delete_table base.create_field base.update_field base.delete_field base.create_view base.update_view base.delete_view base.write base.copy office.apply office.to_document)
 
   def handle_read(turn, %FabricProto.PodRequest{} = request, ctx) do
@@ -117,6 +117,10 @@ defmodule Ankole.Pod.RPCBroker do
     with {:ok, opts} <- page_options(actor, params),
          {:ok, directory} <- Pages.list_children(actor, params["parent_id"], opts),
          do: {:ok, %{directory | pages: Enum.map(directory.pages, &navigation_page/1)}}
+  end
+
+  defp dispatch("pages.tree", actor, params, _ctx) do
+    with {:ok, opts} <- page_options(actor, params), do: Pages.tree(actor, opts)
   end
 
   defp dispatch("pages.search", actor, params, _ctx) do

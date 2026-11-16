@@ -1,6 +1,6 @@
 export const POD_FIRST_USE_GUIDANCE = [
   'ankole-pod writes pure JSON to stdout; run `ankole-pod --help` for full operations and schemas.',
-  '- Read/search pages: `ankole-pod pages.search \'{"query":"..."}\'` (or `ankole-pod pages.search "<query>" [--title-only] [--type doc|knowledge|base|applet|file]`), `ankole-pod pages.read \'{"id":"<node-id>","markdown_path":"page.md"}\'`',
+  '- Read/search pages & directory tree: `ankole-pod pages.tree` (`\'{"scope":"all","depth":3}\'`), `ankole-pod pages.search \'{"query":"..."}\'`, `ankole-pod pages.read \'{"id":"<node-id>","markdown_path":"page.md"}\'`',
   '- Office Pages (.xlsx/.xlsm/.docx/.docm/.pptx in Pod): `ankole-pod office inspect|render|commands|apply|to-document ...` (use `OfficeCLI` only for scratch files in `/workspace`, never to overwrite active Pod Office Pages)',
   '- Comments on pages & files: `ankole-pod comments list|show|reply|resolve <node-id> ...`',
   '- Base tables: `ankole-pod base.tables|base.schema|base.query|base.write \'{"id":"..."}\'`',
@@ -36,6 +36,7 @@ or add your Agent to the space.
 Read operations:
   pages.list       {scope?: space|private|shared|recent|favorites|trash, query?}
   pages.children   {parent_id?, scope?: space|private, cursor?, limit?} — returns pages and next_cursor
+  pages.tree       {parent_id?, scope?: all|space|private, depth?, limit?} — returns the nested directory tree (ankole-pod pages.tree defaults to scope="all", depth=3)
   pages.search     {query, domain?: all|pages|brain, types?, scope?, ancestor_id?, created_by?, updated_after?, title_only?, sort?, limit?, required_action?, exclude_subtree_of?} — full-text search across Pages and Brain (defaults to domain="all"); returns pages, ancestors, and matches (match_fields, snippet.segments, primary_target)
   pages.read       {id} — returns Markdown and the current page revision
   pages.sharing    {id}
@@ -63,12 +64,15 @@ Write operations:
   pages.update_sharing {id, upserts?, removes?} — incrementally change sharing; use target_scope: "self" for one page
   pages.set_sharing {id, sharing_version, inherit_permissions?, grants?} — requires manage access
   pages.create     {type: file|doc|knowledge|base|applet, title, parent_id?, private_owner_uid?, markdown?, icon?}
+    Omitting both parent_id and private_owner_uid creates at the shared Space (Workspace) root. Pass parent_id
+    to file under an editable parent Page in Space or Private, or pass private_owner_uid (principal_uid from
+    pages.children — the human owner's UID for a personal assistant, never the Agent UID) for the Private root.
     Knowledge pages require parent_id and markdown, including YAML frontmatter when present. pages.create
     ignores icon for a Knowledge page; set it afterward with pages.update.
   pages.update     {id, title?, expected_title?, icon?} — expected_title is required whenever title is supplied
     In pages.create and pages.update, icon is exactly one emoji, such as "📊"; send null to remove it.
     Any other text fails with invalid_icon, so put a label such as "Demo data" in the title or content.
-  pages.move       {id, parent_id?, private_owner_uid?}
+  pages.move       {id, parent_id?, private_owner_uid?} — omit both to move to Space root, or pass parent_id or private_owner_uid
   pages.delete     {id} — moves the subtree into the trash
   pages.restore    {id}
   pages.write      {id, base_revision, markdown} — stale writes are rejected

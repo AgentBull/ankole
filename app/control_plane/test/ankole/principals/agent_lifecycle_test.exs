@@ -145,4 +145,38 @@ defmodule Ankole.Principals.AgentLifecycleTest do
     assert [%{principal_uid: owner_uid}] = Access.page_grants(boundary.id)
     assert owner_uid == owner.uid
   end
+
+  test "deleting an agent releases owner_uid on Applet Pages instead of failing foreign-key constraints" do
+    %{principal: human} = human_fixture()
+    %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    human_actor = actor_fixture(human.uid)
+    agent_actor = actor_fixture(agent.uid)
+
+    {:ok, root} = Pages.create(human_actor, %{type: "doc", title: "Workspace Root"})
+
+    for action <- ["node_view", "node_contribute", "node_edit"] do
+      {:ok, _} =
+        AuthZ.create_permission_grant(%{
+          principal_uid: agent.uid,
+          resource_pattern: "drive:**:#{root.id}:**",
+          action: action
+        })
+    end
+
+    {:ok, applet} =
+      Pages.create(agent_actor, %{
+        type: "applet",
+        title: "Ops Dashboard",
+        parent_id: root.id
+      })
+
+    assert Repo.get_by!(Ankole.Pod.Page, id: applet.id).owner_uid == agent.uid
+
+    assert {:ok, %{status: :disabled}} = Principals.Agents.delete_agent(agent.uid)
+    assert {:ok, _deleted} = Principals.Agents.delete_agent(agent.uid)
+
+    reloaded = Repo.get_by!(Ankole.Pod.Page, id: applet.id)
+    assert reloaded.owner_uid == nil
+    assert reloaded.deleted_at == nil
+  end
 end

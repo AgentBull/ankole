@@ -256,8 +256,11 @@ defmodule Ankole.Pod.Documents do
          )
   end
 
-  @doc "Publishes a committed document change to the page channel."
-  def committed(%{page_id: id}), do: Pages.broadcast(id)
+  @doc "Publishes a committed document change to the page channel and VFS workers."
+  def committed(%{page_id: id}) do
+    Ankole.Files.Vfs.Invalidator.notify_page_updated(id)
+    Pages.broadcast(id)
+  end
 
   defp replay(page, base) do
     query =
@@ -276,13 +279,12 @@ defmodule Ankole.Pod.Documents do
           revision: page.revision,
           changes: [],
           reset_required: false,
-          reload_required: false,
           acknowledged_revision: page.revision
         })
       )
 
     if bytes + envelope_bytes > Ankole.Pod.DocumentWire.max_bytes() do
-      %{revision: page.revision, changes: [], reset_required: true, reload_required: true}
+      %{revision: page.revision, changes: [], reset_required: true}
     else
       changes = query |> Ash.Query.sort(revision: :asc) |> Ankole.Ash.read!()
 

@@ -1,7 +1,6 @@
 defmodule Ankole.Plugins.DiscordAdapter.Inbound do
   @moduledoc false
 
-  alias Ankole.Principals
   alias Ankole.Plugins.DiscordAdapter.Client
   alias Ankole.Plugins.DiscordAdapter.Config
   alias Ankole.Plugins.DiscordAdapter.Emoji
@@ -195,7 +194,8 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
              message_id,
              prefix: "dc1"
            ),
-         {:ok, operator_principal_uid} <- resolve_action_operator("discord", user_id, value) do
+         {:ok, operator_principal_uid} <-
+           AdapterContext.resolve_action_operator("discord", user_id, value) do
       Observe.emit_action(consumer.context.binding_id, %{
         source_event_id: interaction_id,
         action_id: interaction_id,
@@ -235,18 +235,6 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
   end
 
   defp emit_action(_consumer, _event), do: {:ok, %{status: :ignored_invalid_interaction}}
-
-  defp resolve_action_operator(provider, external_id, value) do
-    case Principals.resolve_platform_subject(provider, external_id) do
-      {:ok, principal} ->
-        {:ok, principal.uid}
-
-      {:error, :not_found} ->
-        if Ankole.Conversations.ActionCards.action_card_interaction_id?(value["interactionId"]),
-          do: {:ok, nil},
-          else: {:error, :not_found}
-    end
-  end
 
   # A guild interaction carries the clicking human in `member.user`; a DM
   # interaction carries it in `user`.

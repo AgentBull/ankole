@@ -101,7 +101,11 @@ defmodule Ankole.Sessions.TurnEnvelope do
       conversation: %FabricProto.ConversationInfo{
         timezone: context.conversation.timezone,
         page_id: Map.get(context.conversation, :page_id) || "",
-        pod_instructions: Ankole.Sessions.Prompt.pod_instructions(context.conversation)
+        pod_instructions:
+          Ankole.Sessions.Prompt.pod_instructions(
+            context.conversation,
+            Map.get(context, :agent)
+          )
       },
       agents: agents["content"],
       design: design["content"],

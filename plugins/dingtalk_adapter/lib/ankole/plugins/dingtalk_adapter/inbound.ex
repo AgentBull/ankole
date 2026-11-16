@@ -213,7 +213,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
             option = optional_text(value, "selectedOptionId") || "input"
             base = "card:#{out_track_id}:#{interaction_id}:#{version}:#{control_id}:#{option}"
 
-            if Ankole.Conversations.ActionCards.action_card_interaction_id?(interaction_id) do
+            if AdapterContext.action_card_interaction_id?(interaction_id) do
               "#{base}:#{operator_id}"
             else
               base
@@ -263,17 +263,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   end
 
   defp resolve_card_operator(%{config: config} = consumer, operator_id, interaction_id) do
-    if Ankole.Conversations.ActionCards.action_card_interaction_id?(interaction_id) do
-      case Ankole.Principals.resolve_platform_subject_uid(
-             Config.subject_namespace(config),
-             operator_id
-           ) do
-        {:ok, uid} -> {:ok, uid}
-        _ -> {:ok, nil}
-      end
-    else
-      observe_card_operator(consumer, operator_id)
-    end
+    AdapterContext.resolve_action_operator(
+      Config.subject_namespace(config),
+      operator_id,
+      interaction_id,
+      fn -> observe_card_operator(consumer, operator_id) end
+    )
   end
 
   defp observe_card_operator(%{context: context, config: config}, operator_id) do
@@ -460,20 +455,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   defp encode_id(id), do: URI.encode(id, &URI.char_unreserved?/1)
 
   defp provider_time(payload) do
-    case fetch_value(payload, "createAt") do
-      value when is_integer(value) ->
-        unit = if value > 10_000_000_000, do: :millisecond, else: :second
-        DateTime.from_unix!(value, unit)
-
-      value when is_binary(value) ->
-        case Ankole.Attrs.integer_value(value) do
-          nil -> nil
-          integer -> provider_time(%{"createAt" => integer})
-        end
-
-      _value ->
-        nil
-    end
+    payload |> fetch_value("createAt") |> Ankole.Plugins.MapHelpers.unix_datetime()
   end
 
   defp operator_user_id(payload) do

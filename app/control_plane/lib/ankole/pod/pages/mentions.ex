@@ -15,13 +15,18 @@ defmodule Ankole.Pod.Pages.Mentions do
   @default_candidates_limit 20
   @max_resolve_ids 200
   @doc false
-  def principal_uids(xml) do
-    ~r/<mention\s+principal="([^"]+)"\s*\/>/
+  def principal_uids(xml) when is_binary(xml) do
+    ~r/<mention\b[^>]*\bprincipal="([^"]+)"/
     |> Regex.scan(xml, capture: :all_but_first)
     |> List.flatten()
   end
 
-  @page_mention_regex ~r/<mention\s+page="([^"]+)"\s*\/>/
+  @doc false
+  def page_ids(xml) when is_binary(xml) do
+    ~r/<mention\b[^>]*\bpage="([^"]+)"/
+    |> Regex.scan(xml, capture: :all_but_first)
+    |> List.flatten()
+  end
 
   def candidates(%AuthZ.Actor{} = actor, opts \\ %{}) when is_map(opts) do
     Repo.transact_repeatable_read_only(fn -> candidates_in_tx(actor, opts) end)
@@ -114,9 +119,8 @@ defmodule Ankole.Pod.Pages.Mentions do
   def resolve_xml_references(%AuthZ.Actor{} = actor, xml, context_page_id \\ nil)
       when is_binary(xml) do
     page_ids =
-      @page_mention_regex
-      |> Regex.scan(xml, capture: :all_but_first)
-      |> List.flatten()
+      xml
+      |> page_ids()
       |> Enum.uniq()
       |> Enum.take(@max_resolve_ids)
 

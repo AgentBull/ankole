@@ -8,7 +8,6 @@ defmodule Ankole.Pod.JobsBoard.Queries do
 
   alias Ankole.AIGateway.ModelProfiles
   alias Ankole.AuthZ.Actor
-  alias Ankole.AutomationJobs
   alias Ankole.AutomationJobs.Applet
   alias Ankole.AutomationJobs.Schemas.Job, as: AutomationJob
   alias Ankole.AutomationJobs.Schemas.Run, as: AutomationRun
@@ -20,10 +19,10 @@ defmodule Ankole.Pod.JobsBoard.Queries do
   alias Ankole.Pod.Chat.Presentation
   alias Ankole.Principals
   alias Ankole.Schedule
-  alias Ankole.Schedule.Queries, as: ScheduleQueries
-  alias Ankole.Schedule.Schemas.{CronSchedule, ScheduledEvent}
+  alias Ankole.Schedule.Schemas.{AgentRoutine, ScheduledEvent}
   alias Ankole.Sessions
   alias Ankole.Sessions.Key
+  alias Ankole.Signals
   alias Ankole.Signals.Webhooks
   alias Ankole.Workflow
   alias Ankole.Workflow.Queries, as: WorkflowQueries
@@ -62,16 +61,23 @@ defmodule Ankole.Pod.JobsBoard.Queries do
     end
   end
 
+  @doc "Reads one projected card on `/jobs` by its board ID (`job:`, `cron:`, `checkback:`, or `automation:`)."
+  def get_card(%Actor{} = actor, card_id) when is_binary(card_id) do
+    case load_card_with_source(actor, card_id) do
+      {:ok, card, _source} -> {:ok, card}
+      {:error, _} = error -> error
+    end
+  end
+
+  def get_card(_actor, _card_id), do: {:error, :job_not_found}
+
   @doc "Reads one routine card (`cron`, `automation_job`, or `checkback`) and its run history."
   def routine_detail(%Actor{} = actor, kind, raw_id)
       when kind in [:cron, :automation_job, :checkback, "cron", "automation_job", "checkback"] do
     kind = normalize_routine_kind(kind)
 
-    with true <- Native.active_human?(actor),
-         cards <- project_member_cards(actor, DateTime.utc_now(:microsecond), :board),
-         card_id <- routine_card_id(kind, raw_id),
-         %{} = item <- Enum.find(cards, &(&1.id == card_id)) do
-      build_routine_detail(actor, kind, raw_id, item)
+    with {:ok, item, source} <- load_card_with_source(actor, routine_card_id(kind, raw_id)) do
+      build_routine_detail(kind, source, item)
     else
       _ -> {:error, :job_not_found}
     end
@@ -144,12 +150,13 @@ defmodule Ankole.Pod.JobsBoard.Queries do
           {:error, :execution_not_found}
         end
 
-      {:cron, cron_id} ->
-        case Schedule.get_cron_schedule(cron_id) do
-          {:ok, %CronSchedule{} = rule} ->
-            if cron_visible_to?(actor, rule) do
+      {:routine, routine_id} ->
+        case Schedule.get_routine(routine_id) do
+          {:ok, %AgentRoutine{} = routine} ->
+            if routine_visible_to?(actor, routine) do
               can_act? =
-                rule.human_uid == uid and Native.authorize_agent(actor, run.agent_uid) == :ok
+                routine_manageable?(actor, routine) and
+                  Native.authorize_agent(actor, run.agent_uid) == :ok
 
               {:ok, can_act?}
             else
@@ -169,14 +176,15 @@ defmodule Ankole.Pod.JobsBoard.Queries do
     end
   end
 
-  defp cron_visible_to?(actor, %CronSchedule{} = rule) do
+  @doc false
+  def routine_visible_to?(%Actor{} = actor, %AgentRoutine{} = routine) do
     uid = Actor.uid(actor)
 
-    with :ok <- reject_foreign_pa(uid, rule.agent_uid) do
-      if rule.human_uid == uid do
+    with :ok <- reject_foreign_pa(uid, routine.agent_uid) do
+      if routine.human_uid == uid do
         true
       else
-        candidate_ids = rule_room_ids(rule)
+        candidate_ids = Schedule.routine_room_ids(routine)
         visible_rooms = visible_room_titles(actor, uid, nil, candidate_ids)
         Enum.any?(candidate_ids, &Map.has_key?(visible_rooms, &1))
       end
@@ -184,6 +192,156 @@ defmodule Ankole.Pod.JobsBoard.Queries do
       _ -> false
     end
   end
+
+  @doc false
+  def routine_manageable?(%Actor{} = actor, %AgentRoutine{} = routine) do
+    uid = Actor.uid(actor)
+
+    case reject_foreign_pa(uid, routine.agent_uid) do
+      :ok ->
+        routine.human_uid == uid or
+          (Ankole.AuthZ.pod_admin?(uid) and routine_visible_to?(actor, routine))
+
+      _ ->
+        false
+    end
+  end
+
+  defp load_card_with_source(%Actor{} = actor, card_id) do
+    if Native.active_human?(actor) do
+      now = DateTime.utc_now(:microsecond)
+      cutoff = DateTime.add(now, -@fresh_failure_seconds, :second)
+      load_single_card(actor, card_id, now, cutoff)
+    else
+      {:error, :job_not_found}
+    end
+  end
+
+  defp load_single_card(actor, "job:" <> raw_id, now, _cutoff) do
+    uid = Actor.uid(actor)
+
+    with {:ok, %AgentJob{} = job, _can_act?} <-
+           authorize_execution_read(actor, :background_agent_job, raw_id) do
+      candidate_rooms =
+        [
+          session_room_id(job.owner_session_id),
+          get_in(job.reply_route || %{}, ["conversation_id"])
+        ]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+
+      room_titles = visible_room_titles(actor, uid, nil, candidate_rooms)
+      agent_uids = if is_binary(job.agent_uid), do: [job.agent_uid], else: []
+      agent_names = principal_names(agent_uids)
+      callable_agents = callable_agent_set(actor, agent_uids)
+      metrics = Executions.room_metrics([job], [])
+      chain_lengths = job_chain_lengths([job])
+
+      card =
+        project_job_card(
+          job,
+          uid,
+          agent_names,
+          room_titles,
+          callable_agents,
+          Map.get(metrics.jobs, job.id, %{}),
+          Map.get(chain_lengths, job.workspace_owner_job_id, 1),
+          now
+        )
+
+      {:ok, card, job}
+    else
+      _ -> {:error, :job_not_found}
+    end
+  end
+
+  defp load_single_card(actor, "cron:" <> raw_id, _now, cutoff) do
+    uid = Actor.uid(actor)
+    pod_admin? = Ankole.AuthZ.pod_admin?(uid)
+
+    with {:ok, %AgentRoutine{status: status} = routine} when status in [:active, :paused] <-
+           Schedule.get_routine(raw_id),
+         :ok <- reject_foreign_pa(uid, routine.agent_uid),
+         candidate_ids = Schedule.routine_room_ids(routine),
+         room_titles = visible_room_titles(actor, uid, nil, candidate_ids),
+         true <-
+           routine.human_uid == uid or
+             Enum.any?(candidate_ids, &Map.has_key?(room_titles, &1)) do
+      session_id = Schedule.routine_execution_session_id(routine.id)
+      cron_jobs = AgentJobQueries.cron_board_jobs([session_id], cutoff)
+      cron_wfs = WorkflowQueries.cron_board_runs([session_id])
+      agent_names = principal_names([routine.agent_uid])
+
+      [card] =
+        project_cron_cards(
+          [routine],
+          uid,
+          pod_admin?,
+          agent_names,
+          room_titles,
+          %{routine.id => cron_jobs},
+          %{routine.id => cron_wfs}
+        )
+
+      {:ok, card, routine}
+    else
+      _ -> {:error, :job_not_found}
+    end
+  end
+
+  defp load_single_card(actor, "checkback:" <> raw_id, _now, cutoff) do
+    uid = Actor.uid(actor)
+
+    with {:ok, parsed_id} <- Ankole.ModelIntegerID.parse(raw_id),
+         %ScheduledEvent{kind: "check_back_later"} = event <-
+           Schedule.Store.get_scheduled_event(parsed_id),
+         true <-
+           event.status == :scheduled or
+             (event.status == :failed and DateTime.compare(event.updated_at, cutoff) in [:gt, :eq]),
+         :ok <- reject_foreign_pa(uid, event.agent_uid) do
+      room_id = event.conversation_id || session_room_id(event.session_id)
+      room_titles = visible_room_titles(actor, uid, nil, if(room_id, do: [room_id], else: []))
+
+      if event.human_uid == uid or (room_id != nil and Map.has_key?(room_titles, room_id)) do
+        agent_names = principal_names(if(event.agent_uid, do: [event.agent_uid], else: []))
+        {:ok, project_checkback_card(event, uid, agent_names, room_titles), event}
+      else
+        {:error, :job_not_found}
+      end
+    else
+      _ -> {:error, :job_not_found}
+    end
+  end
+
+  defp load_single_card(actor, "automation:" <> raw_id, _now, _cutoff) do
+    uid = Actor.uid(actor)
+    authority_uid = Principals.authority_uid(uid)
+
+    with {:ok, parsed_id} <- Ankole.ModelIntegerID.parse(raw_id) do
+      visible_page_ids =
+        case Ankole.Pod.Access.reachable_anchors(actor) do
+          {:ok, reachable} -> Ankole.Pod.visible_node_ids(reachable)
+          _ -> []
+        end
+
+      case Enum.find(
+             Applet.list_visible_active_jobs(authority_uid, visible_page_ids),
+             &(&1.id == parsed_id)
+           ) do
+        %AutomationJob{} = job ->
+          titles = page_titles([job.page_id])
+          [card] = project_automation_cards({[job], titles}, authority_uid)
+          {:ok, card, job}
+
+        nil ->
+          {:error, :job_not_found}
+      end
+    else
+      _ -> {:error, :job_not_found}
+    end
+  end
+
+  defp load_single_card(_actor, _card_id, _now, _cutoff), do: {:error, :job_not_found}
 
   # Shared projection pipeline for both `summary/1` (`:summary`) and `list/1` (`:board`).
   # Visibility, continuation-chain head selection, and Cron child grouping run
@@ -277,10 +435,13 @@ defmodule Ankole.Pod.JobsBoard.Queries do
           )
         end)
 
+    pod_admin? = Ankole.AuthZ.pod_admin?(uid)
+
     cron_cards =
       project_cron_cards(
         scope.visible_crons,
         uid,
+        pod_admin?,
         agent_names,
         scope.room_titles,
         cron_jobs_by_id,
@@ -319,14 +480,15 @@ defmodule Ankole.Pod.JobsBoard.Queries do
     foreign_pa_set = MapSet.new(foreign_pa_uids)
 
     visible_crons =
-      ScheduleQueries.list_board_cron_schedules()
-      |> Enum.filter(fn rule ->
-        not MapSet.member?(foreign_pa_set, rule.agent_uid) and
-          (rule.human_uid == uid or Enum.any?(rule_room_ids(rule), &Map.has_key?(room_titles, &1)))
+      Schedule.list_board_routines()
+      |> Enum.filter(fn routine ->
+        not MapSet.member?(foreign_pa_set, routine.agent_uid) and
+          (routine.human_uid == uid or
+             Enum.any?(Schedule.routine_room_ids(routine), &Map.has_key?(room_titles, &1)))
       end)
 
     visible_checkbacks =
-      ScheduleQueries.list_board_checkbacks(cutoff)
+      Schedule.list_board_checkbacks(cutoff)
       |> Enum.filter(fn event ->
         not MapSet.member?(foreign_pa_set, event.agent_uid) and
           (event.human_uid == uid or
@@ -343,12 +505,14 @@ defmodule Ankole.Pod.JobsBoard.Queries do
       foreign_pa_uids: foreign_pa_uids,
       visible_crons: visible_crons,
       cron_by_session:
-        Map.new(visible_crons, &{Schedule.Cron.execution_session_id(&1.id), &1.id}),
-      live_cron_sessions: Enum.map(visible_crons, &Schedule.Cron.execution_session_id(&1.id)),
+        Map.new(visible_crons, &{Schedule.routine_execution_session_id(&1.id), &1.id}),
+      live_cron_sessions: Enum.map(visible_crons, &Schedule.routine_execution_session_id(&1.id)),
       visible_checkbacks: visible_checkbacks,
       auto_jobs: auto_jobs
     }
   end
+
+  defp visible_room_titles(_actor, _uid, _visible_page_ids, []), do: %{}
 
   defp visible_room_titles(actor, uid, visible_page_ids, only_ids) do
     page_ids =
@@ -532,53 +696,91 @@ defmodule Ankole.Pod.JobsBoard.Queries do
     }
   end
 
-  defp project_cron_cards([], _uid, _agent_names, _room_titles, _cron_jobs, _cron_wfs), do: []
+  defp project_cron_cards(
+         [],
+         _uid,
+         _pod_admin?,
+         _agent_names,
+         _room_titles,
+         _cron_jobs,
+         _cron_wfs
+       ),
+       do: []
 
-  defp project_cron_cards(rules, uid, agent_names, room_titles, cron_jobs, cron_wfs) do
-    rule_ids = Enum.map(rules, & &1.id)
+  defp project_cron_cards(
+         routines,
+         uid,
+         pod_admin?,
+         agent_names,
+         room_titles,
+         cron_jobs,
+         cron_wfs
+       ) do
+    routine_ids = Enum.map(routines, & &1.id)
+    schedules_by_routine = Schedule.schedules_by_owner_routines(routine_ids)
+    bindings_by_routine = Schedule.bindings_by_owner_routines(routine_ids)
 
     session_keys =
-      Enum.map(rules, &{&1.agent_uid, Schedule.Cron.execution_session_id(&1.id)})
+      Enum.map(routines, &{&1.agent_uid, Schedule.routine_execution_session_id(&1.id)})
 
     session_statuses = Sessions.statuses(session_keys)
-    {latest_events, pending_manual_ids} = ScheduleQueries.cron_fire_rollups(rule_ids)
+    signal_rollups = Signals.routine_session_rollups(session_keys)
 
-    Enum.map(rules, fn rule ->
+    {latest_unlinked_events, pending_manual_ids} =
+      Schedule.routine_cron_fire_rollups(schedules_by_routine)
+
+    Enum.map(routines, fn routine ->
+      session_key = {routine.agent_uid, Schedule.routine_execution_session_id(routine.id)}
+
       project_single_cron_card(
-        rule,
+        routine,
         uid,
+        pod_admin?,
         agent_names,
         room_titles,
-        session_statuses[{rule.agent_uid, Schedule.Cron.execution_session_id(rule.id)}],
-        Map.get(latest_events, rule.id),
-        MapSet.member?(pending_manual_ids, rule.id),
-        Map.get(cron_jobs, rule.id, []),
-        Map.get(cron_wfs, rule.id, [])
+        Map.get(schedules_by_routine, routine.id, []),
+        Map.get(bindings_by_routine, routine.id, []),
+        session_statuses[session_key],
+        Map.get(signal_rollups, session_key, %{latest_signal: nil, latest_summary: nil}),
+        Map.get(latest_unlinked_events, routine.id),
+        MapSet.member?(pending_manual_ids, routine.id),
+        Map.get(cron_jobs, routine.id, []),
+        Map.get(cron_wfs, routine.id, [])
       )
     end)
   end
 
   defp project_single_cron_card(
-         %CronSchedule{} = rule,
+         %AgentRoutine{} = routine,
          uid,
+         pod_admin?,
          agent_names,
          room_titles,
+         crons,
+         bindings,
          session_status,
-         latest_event,
+         signal_rollup,
+         latest_unlinked_event,
          pending_fire?,
          child_jobs,
          child_wfs
        ) do
-    room_id = Enum.find(rule_room_ids(rule), &Map.has_key?(room_titles, &1))
+    room_id = Enum.find(Schedule.routine_room_ids(routine), &Map.has_key?(room_titles, &1))
     waiting_job = Enum.find(child_jobs, &(&1.status == :waiting_on_user))
     live_job = Enum.find(child_jobs, &(&1.status in [:queued, :running]))
     live_wf = Enum.find(child_wfs, &(&1.status == :running))
 
+    primary_cron =
+      Enum.find(crons, &(&1.status == :active)) || Enum.find(crons, &(&1.status == :paused))
+
+    enabled_bindings = Enum.filter(bindings, & &1.enabled)
+    latest_outcome = latest_routine_outcome(signal_rollup[:latest_signal], latest_unlinked_event)
+
     {column, status, attention?, attention_reason} =
       cron_card_placement(
-        rule,
+        routine,
         session_status,
-        latest_event,
+        latest_outcome,
         pending_fire?,
         waiting_job,
         live_job,
@@ -589,23 +791,24 @@ defmodule Ankole.Pod.JobsBoard.Queries do
       cron_active_execution(waiting_job, live_job, live_wf, child_jobs, child_wfs)
 
     %{
-      id: "cron:#{rule.id}",
-      rawID: rule.id,
+      id: "cron:#{routine.id}",
+      rawID: routine.id,
       kind: :cron,
       cardType: :routine,
       column: column,
       status: status,
       attention: attention?,
       attentionReason: attention_reason,
-      title: rule.name,
-      summary: cron_card_summary(rule, waiting_job, latest_event),
-      agentUID: rule.agent_uid,
-      agentName: agent_names[rule.agent_uid] || rule.agent_uid,
+      title: routine.name,
+      summary:
+        cron_card_summary(routine, waiting_job, latest_outcome, signal_rollup[:latest_summary]),
+      agentUID: routine.agent_uid,
+      agentName: agent_names[routine.agent_uid] || routine.agent_uid,
       conversationID: room_id,
       conversationTitle: room_id && room_titles[room_id],
       pageID: nil,
       pageTitle: nil,
-      manageable: rule.human_uid == uid,
+      manageable: routine.human_uid == uid or pod_admin?,
       stoppable: false,
       canMessage: false,
       stepCount: 0,
@@ -614,28 +817,27 @@ defmodule Ankole.Pod.JobsBoard.Queries do
       chainLength: 1,
       activeExecutionKind: exec_kind,
       activeExecutionID: exec_id,
-      schedule: rule.schedule,
-      timezone: rule.timezone,
-      nextRunAt: rule.next_fire_at,
-      lastRunAt: rule.last_fire_at || (latest_event && latest_event.fired_at),
-      lastRunStatus: latest_event && to_string(latest_event.status),
-      triggerSummary: cron_expression_label(rule.schedule),
-      createdAt: rule.inserted_at,
-      updatedAt: rule.updated_at
+      schedule: primary_cron && primary_cron.schedule,
+      timezone: primary_cron && primary_cron.timezone,
+      nextRunAt: primary_cron && primary_cron.next_fire_at,
+      lastRunAt: latest_outcome.at || (primary_cron && primary_cron.last_fire_at),
+      lastRunStatus: latest_outcome.status,
+      triggerSummary: routine_trigger_summary(primary_cron, length(enabled_bindings)),
+      createdAt: routine.inserted_at,
+      updatedAt: routine.updated_at
     }
   end
 
   defp cron_card_placement(
-         rule,
+         routine,
          session_status,
-         latest_event,
+         latest_outcome,
          pending_fire?,
          waiting_job,
          live_job,
          live_wf
        ) do
     session_live? = session_status != nil and session_status.state != :idle
-    latest_failed_fire? = match?(%ScheduledEvent{status: :failed}, latest_event)
 
     cond do
       not is_nil(waiting_job) ->
@@ -644,11 +846,11 @@ defmodule Ankole.Pod.JobsBoard.Queries do
       session_live? or pending_fire? or not is_nil(live_job) or not is_nil(live_wf) ->
         {:running, "running", false, nil}
 
-      latest_failed_fire? ->
+      latest_outcome.failed? ->
         {:running, "failed", true, "failed"}
 
       true ->
-        {:scheduled, to_string(rule.status), false, nil}
+        {:scheduled, to_string(routine.status), false, nil}
     end
   end
 
@@ -716,7 +918,7 @@ defmodule Ankole.Pod.JobsBoard.Queries do
 
   defp project_automation_cards({jobs, page_titles}, authority_uid) do
     job_ids = Enum.map(jobs, & &1.id)
-    schedules_by_job = ScheduleQueries.schedules_by_owner_jobs(job_ids)
+    schedules_by_job = Schedule.schedules_by_owner_jobs(job_ids)
     webhook_counts = Webhooks.counts_by_owner_jobs(job_ids)
     {live_runs, latest_runs} = Applet.run_rollups_by_jobs(job_ids)
 
@@ -804,12 +1006,29 @@ defmodule Ankole.Pod.JobsBoard.Queries do
     end
   end
 
-  defp build_routine_detail(_actor, :cron, raw_id, item) do
-    with {:ok, %CronSchedule{} = rule} <- Schedule.get_cron_schedule(raw_id) do
-      events = ScheduleQueries.list_cron_fire_events(rule.id, @routine_history_limit)
+  defp build_routine_detail(:cron, %AgentRoutine{} = routine, item) do
+    session_id = Schedule.routine_execution_session_id(routine.id)
+    entries = Schedule.list_routine_run_entries(routine, @routine_history_limit)
 
-      runs =
-        Enum.map(events, fn event ->
+    stopped_signal_ids =
+      for({:signal, signal} <- entries, do: signal.id)
+      |> Conversations.stopped_delivery_signal_ids()
+
+    runs =
+      Enum.map(entries, fn
+        {:signal, signal} ->
+          %{
+            id: signal.id,
+            status: routine_signal_status(signal),
+            trigger: routine_signal_trigger(signal),
+            startedAt: signal.last_attempt_at || signal.inserted_at,
+            finishedAt: signal.completed_at || signal.dead_letter_at,
+            summary: non_empty(signal.turn_summary),
+            error: routine_signal_error(signal),
+            deliveryWarning: MapSet.member?(stopped_signal_ids, signal.id)
+          }
+
+        {:event, event} ->
           %{
             id: to_string(event.id),
             status: to_string(event.status),
@@ -817,113 +1036,100 @@ defmodule Ankole.Pod.JobsBoard.Queries do
             startedAt: event.due_at,
             finishedAt: event.fired_at || event.cancelled_at,
             summary: nil,
-            error: map_error_reason(event.last_fire_error)
+            error: map_error_reason(event.last_fire_error),
+            deliveryWarning: false
+          }
+      end)
+
+    child_jobs = AgentJobQueries.session_head_jobs(session_id, 20)
+    child_wfs = WorkflowQueries.session_runs(session_id, 20)
+
+    child_executions =
+      Enum.map(child_jobs, fn job ->
+        %{
+          id: to_string(job.id),
+          kind: :background_agent_job,
+          title: non_empty(job.title) || "Job ##{job.id}",
+          status: to_string(job.status),
+          summary: job_card_summary(job, %{}),
+          startedAt: job.started_at,
+          completedAt: job.completed_at,
+          createdAt: job.inserted_at
+        }
+      end) ++
+        Enum.map(child_wfs, fn wf ->
+          %{
+            id: to_string(wf.id),
+            kind: :workflow,
+            title: non_empty(wf.title) || "Workflow ##{wf.id}",
+            status: to_string(wf.status),
+            summary:
+              if(wf.status == :failed,
+                do: workflow_error_excerpt(wf.error),
+                else: excerpt(wf.result_text, 180)
+              ),
+            startedAt: wf.inserted_at,
+            completedAt: wf.completed_at,
+            createdAt: wf.inserted_at
           }
         end)
 
-      session_id = Schedule.Cron.execution_session_id(rule.id)
-      child_jobs = AgentJobQueries.session_head_jobs(session_id, 20)
-      child_wfs = WorkflowQueries.session_runs(session_id, 20)
-
-      child_executions =
-        Enum.map(child_jobs, fn job ->
-          %{
-            id: to_string(job.id),
-            kind: :background_agent_job,
-            title: non_empty(job.title) || "Job ##{job.id}",
-            status: to_string(job.status),
-            summary: job_card_summary(job, %{}),
-            startedAt: job.started_at,
-            completedAt: job.completed_at,
-            createdAt: job.inserted_at
-          }
-        end) ++
-          Enum.map(child_wfs, fn wf ->
-            %{
-              id: to_string(wf.id),
-              kind: :workflow,
-              title: non_empty(wf.title) || "Workflow ##{wf.id}",
-              status: to_string(wf.status),
-              summary:
-                if(wf.status == :failed,
-                  do: workflow_error_excerpt(wf.error),
-                  else: excerpt(wf.result_text, 180)
-                ),
-              startedAt: wf.inserted_at,
-              completedAt: wf.completed_at,
-              createdAt: wf.inserted_at
-            }
-          end)
-
-      {:ok,
-       %{
-         item: item,
-         instructions: get_in(rule.payload || %{}, ["task"]) || "",
-         quietSuccess: get_in(rule.delivery || %{}, ["quiet_success"]) == true,
-         unavailableReason: nil,
-         runs: runs,
-         childExecutions: child_executions
-       }}
-    else
-      _ -> {:error, :job_not_found}
-    end
+    {:ok,
+     %{
+       item: item,
+       instructions: routine.task || "",
+       quietSuccess: get_in(routine.delivery || %{}, ["quiet_success"]) == true,
+       unavailableReason: nil,
+       runs: runs,
+       childExecutions: child_executions
+     }}
   end
 
-  defp build_routine_detail(_actor, :checkback, raw_id, item) do
-    with {:ok, parsed_id} <- Ankole.ModelIntegerID.parse(raw_id),
-         %ScheduledEvent{kind: "check_back_later"} = event <-
-           Schedule.Store.get_scheduled_event(parsed_id) do
-      payload = event.wake_payload || %{}
+  defp build_routine_detail(:checkback, %ScheduledEvent{} = event, item) do
+    payload = event.wake_payload || %{}
 
-      instructions =
-        [non_empty(payload["check"]), non_empty(payload["context_summary"])]
-        |> Enum.reject(&is_nil/1)
-        |> Enum.join("\n\n")
+    instructions =
+      [non_empty(payload["check"]), non_empty(payload["context_summary"])]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n\n")
 
-      {:ok,
-       %{
-         item: item,
-         instructions: instructions,
-         quietSuccess: payload["quiet_success"] == true,
-         unavailableReason: nil,
-         runs: [],
-         childExecutions: []
-       }}
-    else
-      _ -> {:error, :job_not_found}
-    end
+    {:ok,
+     %{
+       item: item,
+       instructions: instructions,
+       quietSuccess: payload["quiet_success"] == true,
+       unavailableReason: nil,
+       runs: [],
+       childExecutions: []
+     }}
   end
 
-  defp build_routine_detail(_actor, :automation_job, raw_id, item) do
-    with {:ok, parsed_id} <- Ankole.ModelIntegerID.parse(raw_id),
-         {:ok, %AutomationJob{} = job} <- AutomationJobs.get_automation_job(parsed_id) do
-      runs =
-        job.id
-        |> Applet.recent_runs_for_job(@routine_history_limit)
-        |> Enum.map(fn run ->
-          %{
-            id: to_string(run.id),
-            status: to_string(run.status),
-            trigger: get_in(run.event || %{}, ["type"]),
-            startedAt: run.started_at || run.inserted_at,
-            finishedAt: run.finished_at,
-            summary: excerpt(run.stdout, 240),
-            error: excerpt(run.error, 240)
-          }
-        end)
+  defp build_routine_detail(:automation_job, %AutomationJob{} = job, item) do
+    runs =
+      job.id
+      |> Applet.recent_runs_for_job(@routine_history_limit)
+      |> Enum.map(fn run ->
+        %{
+          id: to_string(run.id),
+          status: to_string(run.status),
+          trigger: get_in(run.event || %{}, ["type"]),
+          startedAt: run.started_at || run.inserted_at,
+          finishedAt: run.finished_at,
+          summary: excerpt(run.stdout, 240),
+          error: excerpt(run.error, 240),
+          deliveryWarning: false
+        }
+      end)
 
-      {:ok,
-       %{
-         item: item,
-         instructions: job.action_key,
-         quietSuccess: nil,
-         unavailableReason: job.unavailable_reason,
-         runs: runs,
-         childExecutions: []
-       }}
-    else
-      _ -> {:error, :job_not_found}
-    end
+    {:ok,
+     %{
+       item: item,
+       instructions: job.action_key,
+       quietSuccess: nil,
+       unavailableReason: job.unavailable_reason,
+       runs: runs,
+       childExecutions: []
+     }}
   end
 
   defp candidate_agents(%Actor{} = actor) do
@@ -1022,18 +1228,6 @@ defmodule Ankole.Pod.JobsBoard.Queries do
     end)
   end
 
-  defp rule_room_ids(%CronSchedule{} = rule) do
-    targets =
-      for %{"conversation_id" => id} <- get_in(rule.delivery || %{}, ["targets"]) || [],
-          is_binary(id),
-          {:ok, uuid} <- [Ecto.UUID.cast(id)],
-          do: uuid
-
-    [session_room_id(rule.owner_session_id) | targets]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-  end
-
   defp run_room_id(run, room_titles) do
     candidates = [
       session_room_id(run.owner_session_id),
@@ -1071,17 +1265,116 @@ defmodule Ankole.Pod.JobsBoard.Queries do
     end
   end
 
-  defp cron_card_summary(rule, waiting_job, latest_event) do
+  defp cron_card_summary(routine, waiting_job, latest_outcome, latest_summary) do
     cond do
       waiting_job != nil ->
-        pending_question_text(waiting_job) || excerpt(rule.payload["task"], 180)
+        pending_question_text(waiting_job) || excerpt(routine.task, 180)
 
-      match?(%ScheduledEvent{status: :failed}, latest_event) ->
-        map_error_reason(latest_event.last_fire_error) || excerpt(rule.payload["task"], 180)
+      latest_outcome.failed? ->
+        latest_outcome.error || excerpt(routine.task, 180)
+
+      non_empty(latest_summary) != nil ->
+        excerpt(latest_summary, 180)
 
       true ->
-        excerpt(get_in(rule.payload || %{}, ["task"]), 180)
+        excerpt(routine.task, 180)
     end
+  end
+
+  defp latest_routine_outcome(nil, nil) do
+    %{at: nil, status: nil, failed?: false, error: nil}
+  end
+
+  defp latest_routine_outcome(signal, nil), do: signal_outcome_snapshot(signal)
+  defp latest_routine_outcome(nil, event), do: event_outcome_snapshot(event)
+
+  defp latest_routine_outcome(signal, event) do
+    sig = signal_outcome_snapshot(signal)
+    evt = event_outcome_snapshot(event)
+
+    case {sig.at, evt.at} do
+      {%DateTime{} = sig_at, %DateTime{} = evt_at} ->
+        if DateTime.compare(sig_at, evt_at) in [:gt, :eq], do: sig, else: evt
+
+      {%DateTime{}, nil} ->
+        sig
+
+      _ ->
+        evt
+    end
+  end
+
+  defp signal_outcome_snapshot(signal) do
+    failed? = routine_signal_failed?(signal)
+
+    %{
+      at:
+        signal.completed_at || signal.dead_letter_at || signal.last_attempt_at ||
+          signal.inserted_at,
+      status: routine_signal_status(signal),
+      failed?: failed?,
+      error: if(failed?, do: routine_signal_error(signal))
+    }
+  end
+
+  defp event_outcome_snapshot(%ScheduledEvent{} = event) do
+    failed? = event.status == :failed
+
+    %{
+      at: event.fired_at || event.cancelled_at || event.due_at,
+      status: to_string(event.status),
+      failed?: failed?,
+      error: if(failed?, do: map_error_reason(event.last_fire_error))
+    }
+  end
+
+  defp routine_signal_status(%{status: :queued}), do: "queued"
+  defp routine_signal_status(%{status: :running}), do: "running"
+  defp routine_signal_status(%{status: :completed}), do: "succeeded"
+
+  defp routine_signal_status(%{status: :dead_letter, dead_letter_reason: %{"reason" => reason}})
+       when reason in ["routine_paused", "routine_deleted"],
+       do: "cancelled"
+
+  defp routine_signal_status(%{status: :dead_letter}), do: "failed"
+  defp routine_signal_status(%{status: status}), do: to_string(status)
+
+  defp routine_signal_failed?(%{status: :dead_letter, dead_letter_reason: %{"reason" => reason}})
+       when reason in ["routine_paused", "routine_deleted"],
+       do: false
+
+  defp routine_signal_failed?(%{status: :dead_letter}), do: true
+  defp routine_signal_failed?(_), do: false
+
+  defp routine_signal_error(signal) do
+    if routine_signal_failed?(signal) do
+      map_error_reason(signal.dead_letter_reason)
+    end
+  end
+
+  defp routine_signal_trigger(%{type: "cron.fire", data: data}) do
+    get_in(data || %{}, ["wake_payload", "trigger"]) || "scheduled"
+  end
+
+  defp routine_signal_trigger(%{type: "routine.manual_run"}), do: "manual"
+  defp routine_signal_trigger(%{type: "check_back_later.wakeup"}), do: "checkback"
+
+  defp routine_signal_trigger(signal) do
+    case Ankole.Signals.Coalesce.batch_size(signal) do
+      count when count > 1 -> "#{signal.type} (×#{count})"
+      _ -> signal.type
+    end
+  end
+
+  defp routine_trigger_summary(nil, 0), do: nil
+  defp routine_trigger_summary(nil, event_count), do: "event:#{event_count}"
+
+  defp routine_trigger_summary(cron, 0), do: cron_expression_label(cron.schedule)
+
+  defp routine_trigger_summary(cron, event_count) do
+    [cron_expression_label(cron.schedule), "event:#{event_count}"]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" + ")
   end
 
   defp pending_question_text(%AgentJob{metadata: metadata}) when is_map(metadata) do

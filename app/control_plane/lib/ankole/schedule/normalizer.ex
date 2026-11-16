@@ -52,7 +52,7 @@ defmodule Ankole.Schedule.Normalizer do
          {:ok, check} <- Attrs.bounded_text(attrs, "check", @max_check_length),
          {:ok, context_summary} <-
            Attrs.optional_bounded_text(attrs, "context_summary", @max_context_summary_length),
-         {:ok, quiet_success} <- optional_boolean(attrs, "quiet_success", false),
+         {:ok, quiet_success} <- optional_boolean(attrs, "quiet_success", true),
          {:ok, tool_call_id} <- Attrs.required_text(attrs, "tool_call_id"),
          {:ok, idempotency_key} <- Attrs.required_text(attrs, "idempotency_key"),
          {:ok, agent_uid} <- Attrs.required_text(attrs, "agent_uid"),
@@ -267,10 +267,10 @@ defmodule Ankole.Schedule.Normalizer do
   defp normalize_cron_status("paused"), do: {:ok, :paused}
   defp normalize_cron_status(_status), do: {:error, :invalid_cron_status}
 
-  # A cron execution session cannot own schedules: its turns see only the
-  # schedule that fired them, so a schedule owned there could not be listed.
+  # A routine execution session cannot own schedules: its turns see only the
+  # routine/schedule that runs them, so a schedule owned there could not be listed.
   defp reject_reserved_owner_session(owner_session_id) do
-    if Ankole.Schedule.Cron.execution_schedule_id(owner_session_id),
+    if match?({:routine, _}, Ankole.Sessions.Key.parse(owner_session_id)),
       do: {:error, :cron_owner_session_reserved},
       else: :ok
   end

@@ -1,3 +1,4 @@
+import { startRunCLIBridges } from '../../../cli/run-cli-bridges'
 import { driveMounts, type DriveView } from '../../../drive/mounts'
 import { linkMountedSkills, materializeKnowledgeSkills } from '../../../skills/knowledge-skills'
 import { HostedTool } from '../../../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
@@ -66,6 +67,7 @@ export type PreparedCodexJobExecution = {
   }
   project: PreparedCodexJobProject
   preparedAgentPlugins: PreparedAgentPlugins
+  updateCliContextId(contextId: string): void
   cleanup(): Promise<void>
 }
 
@@ -94,6 +96,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
   let materializedSkills: Awaited<ReturnType<typeof materializeKnowledgeSkills>> | undefined
   let cleanupSkills: (() => Promise<void>) | undefined
   let cleanupMaterials: (() => Promise<void>) | undefined
+  let cliBridges: ReturnType<typeof startRunCLIBridges> | undefined
   try {
     driveView = await driveMounts.acquire(turnStart.drive_vfs)
     materializedSkills = driveView
@@ -135,6 +138,14 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     const projectLocation = codexJobProjectLocation(opts.agentHome, workspaceOwnerJobID)
     if (job.runtimeThreadId) assertCodexJobProjectResumeState(projectLocation.hostPath)
     const jobProject = prepareCodexJobProject({ jobProjectRoot: projectLocation.hostPath })
+    const activeCliBridges = startRunCLIBridges({
+      drive: opts.drive,
+      rpc: opts.rpc,
+      turn: turnStart.turn,
+      workspaceRoot: jobProject.root,
+      agentUid: job.agentUid
+    })
+    cliBridges = activeCliBridges
     const initializeProject = !job.runtimeThreadId
     const skillsPrompt = agentContext.skillsPrompt
     const jobInstructions = renderCodexJobAgents({
@@ -188,7 +199,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
       agentHome: opts.agentHome,
       rpc: opts.rpc,
       bindingName,
-      runtimeEnv: opts.runtimeEnv,
+      runtimeEnv: { ...opts.runtimeEnv, ...activeCliBridges.env },
       mcpServers: skillMCPServers,
       mcporterDirectory: join(jobProject.root, 'temp'),
       projectEnv: workerEnv => projectWorkerEnv(runtimeProjection, workerEnv),
@@ -296,19 +307,30 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
       },
       project: jobProject,
       preparedAgentPlugins,
+      updateCliContextId: contextId => {
+        activeCliBridges.updateContextId(contextId)
+        opts.updateCliContextId?.(contextId)
+      },
       cleanup: async () => {
         try {
           await materials.cleanup()
         } finally {
-          await cleanupSkills?.()
-          await driveView?.release()
+          try {
+            activeCliBridges.close()
+          } finally {
+            await cleanupSkills?.()
+            await driveView?.release()
+          }
         }
       }
     }
   } catch (error) {
-    await driveView?.release().catch(() => undefined)
     await cleanupMaterials?.().catch(() => undefined)
+    await Promise.resolve()
+      .then(() => cliBridges?.close())
+      .catch(() => undefined)
     await cleanupSkills?.().catch(() => undefined)
+    await driveView?.release().catch(() => undefined)
     throw error
   }
 }

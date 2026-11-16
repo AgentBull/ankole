@@ -144,6 +144,7 @@ export class SessionActor {
     const browserSession = await this.attached(deadline, signal)
     const results: Array<Record<string, unknown>> = []
     const warnings: string[] = []
+    let fatalAbort = false
 
     for (const item of command.args.commands) {
       signal?.throwIfAborted()
@@ -161,18 +162,33 @@ export class SessionActor {
         if (error instanceof BrowserDataError && error.code === 'session_lost') {
           this.remoteLost = this.material?.backend.kind !== 'local_chromium'
           await this.closeLive(false)
+          fatalAbort = true
           break
         }
-        if (
-          bail ||
+        const timedOutOrCancelled =
           (error instanceof BrowserDataError && ['timeout', 'cancelled'].includes(error.code)) ||
           (error instanceof DOMException && error.name === 'AbortError')
-        ) {
+        if (timedOutOrCancelled) fatalAbort = true
+        if (bail || timedOutOrCancelled) {
           break
         }
       }
     }
-    return { data: { results }, warnings }
+
+    let inlineSnap: Record<string, unknown> = {}
+    if (command.args.snap && !fatalAbort && this.browserSession?.physical.isConnected()) {
+      signal?.throwIfAborted()
+      this.assertBeforeDeadline(deadline)
+      inlineSnap = await this.runSessionOperationWithinDeadline(
+        browserSession,
+        () => browserSession.captureInlineSnapshot(command.args.snap!, deadline),
+        deadline,
+        signal
+      )
+      warnings.push(...browserSession.warnings())
+    }
+
+    return { data: { results, ...inlineSnap }, warnings }
   }
 
   private async acquireLease(command: BrowserCommandOf<'lease.acquire'>, deadline: number): Promise<ActorResult> {
@@ -341,9 +357,23 @@ export class SessionActor {
     deadline: number,
     signal?: AbortSignal
   ): Promise<unknown> {
+    return await this.runSessionOperationWithinDeadline(
+      browserSession,
+      () => browserSession.execute(command, deadline),
+      deadline,
+      signal
+    )
+  }
+
+  private async runSessionOperationWithinDeadline<T>(
+    _browserSession: BrowserSession,
+    startOperation: () => Promise<T>,
+    deadline: number,
+    signal?: AbortSignal
+  ): Promise<T> {
     signal?.throwIfAborted()
     this.assertBeforeDeadline(deadline)
-    const operation = browserSession.execute(command, deadline)
+    const operation = startOperation()
     let timer: ReturnType<typeof setTimeout> | undefined
     let onAbort: (() => void) | undefined
     try {

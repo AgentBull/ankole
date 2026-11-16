@@ -193,15 +193,20 @@ defmodule Ankole.Conversations.Peers do
     end
   end
 
-  defp origin_route(%{event: %{type: "cron.fire"} = event}) do
-    with delivery when is_map(delivery) <-
-           Ankole.Signals.Signal.scheduled_delivery_snapshot(event),
-         {:ok, [target]} <- Ankole.Schedule.Delivery.targets(delivery, event.reply_binding_name),
-         id when is_binary(id) <- target["conversation_id"],
-         %{kind: :native} <- Conversations.get_conversation!(id) do
-      {:ok, %{owner_session_id: Key.conversation(id), reply_route: target}}
+  defp origin_route(%{kind: :scheduled, event: event} = run) do
+    if event.type == "cron.fire" or Ankole.Sessions.Scheduled.routine_event_signal?(event) do
+      with delivery when is_map(delivery) <-
+             Ankole.Signals.Signal.scheduled_delivery_snapshot(event),
+           {:ok, [target]} <-
+             Ankole.Schedule.Delivery.targets(delivery, event.reply_binding_name),
+           id when is_binary(id) <- target["conversation_id"],
+           %{kind: :native} <- Conversations.get_conversation!(id) do
+        {:ok, %{owner_session_id: Key.conversation(id), reply_route: target}}
+      else
+        _ -> {:error, :origin_conversation_required}
+      end
     else
-      _ -> {:error, :origin_conversation_required}
+      Route.long_lived_source(run)
     end
   end
 

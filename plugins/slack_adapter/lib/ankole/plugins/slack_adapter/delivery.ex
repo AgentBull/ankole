@@ -216,25 +216,12 @@ defmodule Ankole.Plugins.SlackAdapter.Delivery do
   def requests_for_intent(_intent), do: {:error, :unsupported_intent_operation}
 
   defp send_requests(intent, client) do
-    with {:ok, requests} <- requests_for_intent(intent) do
-      requests
-      |> Enum.reduce_while([], fn request, results ->
-        case perform(request, client) |> maybe_reply_fallback(request, intent, client) do
-          {:ok, result} -> {:cont, [result | results]}
-          {:error, _reason} when results != [] -> {:halt, :unknown}
-          {:error, _reason} = error -> {:halt, error}
-        end
-      end)
-      |> case do
-        :unknown ->
-          :unknown
-
-        {:error, _reason} = error ->
-          error
-
-        results ->
-          {:ok, combine_results(Enum.reverse(results)) |> Map.put(:payload, intent.payload)}
-      end
+    with {:ok, requests} <- requests_for_intent(intent),
+         {:ok, results} <-
+           Ankole.Conversations.Delivery.send_chunks(requests, fn request ->
+             perform(request, client) |> maybe_reply_fallback(request, intent, client)
+           end) do
+      {:ok, combine_results(results) |> Map.put(:payload, intent.payload)}
     end
   end
 
@@ -247,10 +234,15 @@ defmodule Ankole.Plugins.SlackAdapter.Delivery do
         {:error, {:rate_limited, seconds}}
 
       {:error, %Error{reason: reason} = error} ->
-        if reason == request[:idempotent_error] do
-          {:ok, %{raw_payload: %{"ok" => true, "already_absent_or_applied" => true}}}
-        else
-          {:error, error}
+        cond do
+          reason == request[:idempotent_error] ->
+            {:ok, %{raw_payload: %{"ok" => true, "already_absent_or_applied" => true}}}
+
+          request.method == "chat.postMessage" and uncertain?(error) ->
+            :unknown
+
+          true ->
+            {:error, error}
         end
     end
   end
@@ -264,8 +256,14 @@ defmodule Ankole.Plugins.SlackAdapter.Delivery do
        when reason in ["thread_not_found", "message_not_found"] do
     SlackOpenAPI.post(client, "chat.postMessage", body: Map.delete(body, "thread_ts"))
     |> case do
-      {:ok, result} -> normalize_success(result, Map.delete(body, "thread_ts"))
-      {:error, _reason} = error -> error
+      {:ok, result} ->
+        normalize_success(result, Map.delete(body, "thread_ts"))
+
+      {:error, %Error{reason: :rate_limited, retry_after: seconds}} ->
+        {:error, {:rate_limited, seconds}}
+
+      {:error, %Error{} = error} ->
+        if uncertain?(error), do: :unknown, else: {:error, error}
     end
   end
 
@@ -327,21 +325,46 @@ defmodule Ankole.Plugins.SlackAdapter.Delivery do
 
   defp upload_attachment(intent, attachment, client) do
     with {:ok, content, name} <- attachment_content(attachment),
-         {:ok, body} <-
-           SlackOpenAPI.upload_external(client,
-             filename: name,
-             content: content,
-             channel_id: channel_id(intent.conversation_id),
-             thread_ts: intent.reply_to_provider_message_id
-           ) do
-      payload =
-        Map.update(intent.payload, "attachments", [], fn attachments ->
-          Enum.map(attachments, &Map.put(&1, "provider_file_id", first_file_id(body)))
-        end)
+         opts = [
+           filename: name,
+           content: content,
+           channel_id: channel_id(intent.conversation_id),
+           thread_ts: intent.reply_to_provider_message_id
+         ],
+         {:ok, file_id} <- stage_slack_upload(client, opts) do
+      case SlackOpenAPI.complete_upload_external(client, file_id, opts) do
+        {:ok, body} ->
+          payload =
+            Map.update(intent.payload, "attachments", [], fn attachments ->
+              Enum.map(attachments, &Map.put(&1, "provider_file_id", first_file_id(body)))
+            end)
 
-      {:ok, %{raw_payload: body, payload: payload}}
+          {:ok, %{raw_payload: body, payload: payload}}
+
+        {:error, %Error{reason: :rate_limited, retry_after: seconds}} ->
+          {:error, {:rate_limited, seconds}}
+
+        {:error, %Error{} = error} ->
+          if uncertain?(error), do: :unknown, else: {:error, error}
+      end
     end
   end
+
+  defp stage_slack_upload(client, opts) do
+    case SlackOpenAPI.stage_upload_external(client, opts) do
+      {:ok, file_id} ->
+        {:ok, file_id}
+
+      {:error, %Error{reason: :rate_limited, retry_after: seconds}} ->
+        {:error, {:rate_limited, seconds}}
+
+      {:error, %Error{} = error} ->
+        {:error, error}
+    end
+  end
+
+  defp uncertain?(%Error{reason: reason, status: status}),
+    do: reason == :transport or (is_integer(status) and status >= 500)
 
   defp attachment_content(attachment) do
     with {:ok, content} <- Ankole.Conversations.Delivery.attachment_content(attachment) do

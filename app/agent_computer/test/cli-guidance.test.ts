@@ -1,6 +1,6 @@
 import { create } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { emitFirstUseGuidance, readContextGenerationFile, writeContextGenerationFile } from '../src/cli/cli-guidance'
@@ -208,4 +208,48 @@ describe('CLI context-epoch first-use guidance and stdout EPIPE guard', () => {
       expect(stderr).toBe('')
     })
   }
+
+  it('writes default ankole-files get downloads under the Job workspaceRoot', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-cli-ws-'))
+    const jobWorkspace = join(root, 'job-ws')
+    mkdirSync(jobWorkspace, { recursive: true })
+
+    const fakeDrive = new FakeDrive(root)
+    fakeDrive.put('reports/q3.txt', 'quarterly summary')
+
+    const bridges = startRunCLIBridges({
+      drive: fakeDrive.drive(),
+      rpc: (async () => {
+        throw new Error('unexpected rpc')
+      }) as unknown as RPCRequester,
+      turn: { session: { session_id: 'job:1' }, signal_id: 'sig-job-1' },
+      workspaceRoot: jobWorkspace,
+      agentUid: 'agent-ws-1',
+      initialContextId: 'job-1:cmp:root',
+      shareRoot: root
+    })
+
+    try {
+      const driveEntry = join(import.meta.dir, '../src/cli/drive/drive-cli.ts')
+      const proc = Bun.spawn([process.execPath, driveEntry, 'get', 'reports/q3.txt'], {
+        cwd: jobWorkspace,
+        env: { ...process.env, ...bridges.env },
+        stdout: 'pipe',
+        stderr: 'pipe'
+      })
+      const [stdout, _stderr, exit] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited
+      ])
+      expect(exit).toBe(0)
+      const parsed = JSON.parse(stdout) as { local_path: string }
+      const expectedTarget = join(jobWorkspace, 'drive/reports/q3.txt')
+      expect(parsed.local_path).toBe(expectedTarget)
+      expect(readFileSync(expectedTarget, 'utf8')).toBe('quarterly summary')
+    } finally {
+      bridges.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

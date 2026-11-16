@@ -1393,7 +1393,7 @@ defmodule Ankole.Pod.OfficeFiles do
          client_id,
          actor_name,
          document,
-         read_revision,
+         _read_revision,
          limits
        ) do
     with {:ok, page} <- Pages.lock(page_id),
@@ -1406,7 +1406,6 @@ defmodule Ankole.Pod.OfficeFiles do
              actor,
              page,
              document,
-             read_revision,
              client_id,
              actor_name,
              limits
@@ -1433,50 +1432,41 @@ defmodule Ankole.Pod.OfficeFiles do
          actor,
          page,
          document,
-         read_revision,
          client_id,
          actor_name,
          limits
        ) do
-    case replay(page, read_revision) do
-      %{reset_required: true, revision: current_rev} ->
-        {:error, {:revision_conflict, current_rev}}
-
-      %{changes: prior} ->
-        with {:ok, base_doc} <- catch_up(document, page, :spreadsheet),
-             {:ok, final_doc, committed_ops, carries_media?, last_structural_edit} <-
-               apply_agent_spreadsheet_memory(
-                 prepared_ops,
-                 page,
-                 base_doc,
-                 prior,
-                 actor_name,
-                 limits
-               ) do
-          persist_agent_spreadsheet_batch(
-            actor,
-            page,
-            client_id,
-            committed_ops,
-            final_doc,
-            carries_media?,
-            last_structural_edit,
-            limits
-          )
-        end
+    with {:ok, base_doc} <- catch_up(document, page, :spreadsheet),
+         {:ok, final_doc, committed_ops, carries_media?, last_structural_edit} <-
+           apply_agent_spreadsheet_memory(
+             prepared_ops,
+             page,
+             base_doc,
+             actor_name,
+             limits
+           ) do
+      persist_agent_spreadsheet_batch(
+        actor,
+        page,
+        client_id,
+        committed_ops,
+        final_doc,
+        carries_media?,
+        last_structural_edit,
+        limits
+      )
     end
   end
 
-  defp apply_agent_spreadsheet_memory(prepared_ops, page, base_doc, prior, actor_name, limits) do
+  defp apply_agent_spreadsheet_memory(prepared_ops, page, base_doc, actor_name, limits) do
     init = {:ok, base_doc, [], false, nil, nil}
 
     Enum.reduce_while(prepared_ops, init, fn item,
                                              {:ok, cur_doc, acc, any_media?, last_struct,
                                               used_bytes} ->
       op = own_comment(actor_name, item.op)
-      op_prior = if item.seq == 1, do: prior, else: []
 
-      with {:ok, applied} <- rebase(cur_doc, op, op_prior, actor_name, page),
+      with {:ok, applied} <- rebase(cur_doc, op, [], actor_name, page),
            {:ok, next_used} <- check_batch_media_room(page, applied, used_bytes, limits) do
         next_struct = applied.structural_edit || last_struct
 

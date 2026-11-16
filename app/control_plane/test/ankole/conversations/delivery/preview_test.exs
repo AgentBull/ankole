@@ -1823,4 +1823,14 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     refute Preview.channel_reply_eligible?(%{base | type: "workflow.task.dispatch"})
     refute Preview.channel_reply_eligible?(%{base | conversation_id: nil})
   end
+
+  test "stop_and_await stops a live preview synchronously from a Signal struct" do
+    %{subject: subject, signal: signal} = addressed_signal("stop-and-await")
+    %{pid: pid} = start_dispatched_preview(subject.uid, signal)
+    assert Process.alive?(pid)
+
+    assert :ok = Preview.stop_and_await(signal, 5_000)
+    refute Process.alive?(pid)
+    assert :ok = Preview.stop_and_await(signal, 5_000)
+  end
 end

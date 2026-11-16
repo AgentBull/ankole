@@ -39,10 +39,8 @@ defmodule Ankole.SessionsCase do
     end)
   end
 
-  def effective_worker_env(agent_uid, opts \\ []) do
-    with {:ok, %{operator: operator, binding: binding}} <-
-           Ankole.AgentWorkers.WorkerEnv.effective_env_parts(agent_uid, opts),
-         do: {:ok, Map.merge(operator, binding)}
+  def effective_worker_env(agent_uid, _opts \\ []) do
+    Ankole.AgentWorkers.WorkerEnv.effective_env(agent_uid)
   end
 
   using do

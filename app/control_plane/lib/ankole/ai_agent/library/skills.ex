@@ -9,8 +9,6 @@ defmodule Ankole.AIAgent.Library.Skills do
   @slug_regex ~r/\A[a-z0-9][a-z0-9._-]{0,95}\z/
 
   def reserved_custom_slugs, do: @reserved_custom_slugs
-  def reserved_custom_slug?(slug) when is_binary(slug), do: slug in @reserved_custom_slugs
-  def reserved_custom_slug?(_), do: false
 
   def validate_custom_slug(slug) when is_binary(slug) do
     trimmed = String.trim(slug)
@@ -107,9 +105,8 @@ defmodule Ankole.AIAgent.Library.Skills do
 
     readable =
       agents
-      |> Enum.map(& &1.principal.uid)
-      |> Enum.filter(&(Management.agent(actor, &1, "read") == :ok))
-      |> MapSet.new()
+      |> Enum.filter(&(Management.agent_record(actor, &1.agent, "read") == :ok))
+      |> MapSet.new(& &1.principal.uid)
 
     readable_sorted = Enum.sort(readable)
 

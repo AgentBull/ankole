@@ -20,6 +20,9 @@ pub(super) struct JinaReaderWebFetch;
 #[derive(Debug)]
 pub(super) struct CloudflareWebSearch;
 
+#[derive(Debug)]
+pub(super) struct CloudflareWebFetch;
+
 impl APIProtocol for ParallelWebSearch {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         Ok(parallel_search_body(context))
@@ -122,6 +125,21 @@ impl APIProtocol for CloudflareWebSearch {
         body: Value,
     ) -> Result<Value, StreamError> {
         normalize_cloudflare_search_body(status, body)
+    }
+}
+
+impl APIProtocol for CloudflareWebFetch {
+    fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
+        Ok(cloudflare_web_fetch_body(context))
+    }
+
+    fn on_provider_body(
+        &mut self,
+        context: &ResponseContext,
+        status: u16,
+        body: Value,
+    ) -> Result<Value, StreamError> {
+        normalize_cloudflare_web_fetch_body(context, status, body)
     }
 }
 
@@ -264,6 +282,30 @@ fn cloudflare_search_body(context: &ResponseContext) -> Map<String, Value> {
     body
 }
 
+fn cloudflare_web_fetch_body(context: &ResponseContext) -> Map<String, Value> {
+    let request = context.resolved_provider_request_object();
+    let url = request
+        .get("urls")
+        .and_then(Value::as_array)
+        .and_then(|urls| urls.first())
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_string();
+    let mut body = Map::new();
+
+    body.insert("url".to_string(), json!(url));
+    for key in [
+        "gotoOptions",
+        "waitForSelector",
+        "rejectRequestPattern",
+        "userAgent",
+    ] {
+        maybe_put_from(&mut body, &request, key);
+    }
+    body
+}
+
 fn jina_reader_extract_body(context: &ResponseContext) -> Map<String, Value> {
     let request = context.resolved_provider_request_object();
     let url = request
@@ -398,6 +440,73 @@ fn normalize_jina_reader_extract_body(
         .unwrap_or_default();
     let mut result = Map::new();
 
+    result.insert("url".to_string(), json!(url));
+    result.insert("title".to_string(), json!(title));
+    result.insert("text".to_string(), json!(text));
+    result.insert("truncated".to_string(), json!(false));
+    Ok(extract_response(vec![Value::Object(result)]))
+}
+
+fn normalize_cloudflare_web_fetch_body(
+    context: &ResponseContext,
+    status: u16,
+    body: Value,
+) -> Result<Value, StreamError> {
+    let object = provider_object_body(status, body, "Cloudflare Browser Run")?;
+    if object.get("success") == Some(&Value::Bool(false)) {
+        return Err(invalid_upstream_body_error(
+            status,
+            object,
+            "Cloudflare Browser Run reported an unsuccessful response",
+        ));
+    }
+
+    let request = context.resolved_provider_request_object();
+    let requested_url = request
+        .get("urls")
+        .and_then(Value::as_array)
+        .and_then(|urls| urls.first())
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    let meta = object.get("meta").and_then(Value::as_object);
+    let meta_title = meta
+        .and_then(|map| map.get("title"))
+        .and_then(Value::as_str);
+    let meta_url = meta.and_then(|map| map.get("url")).and_then(Value::as_str);
+
+    let (url, title, text) = match object.get("result") {
+        Some(Value::String(markdown)) => (
+            meta_url.unwrap_or(requested_url).to_string(),
+            meta_title.unwrap_or_default().to_string(),
+            markdown.clone(),
+        ),
+        result_field => {
+            let payload = result_field.filter(|value| value.is_object()).unwrap_or(&object);
+            (
+                payload
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .or(meta_url)
+                    .unwrap_or(requested_url)
+                    .to_string(),
+                payload
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .or(meta_title)
+                    .unwrap_or_default()
+                    .to_string(),
+                payload
+                    .get("markdown")
+                    .or_else(|| payload.get("content"))
+                    .or_else(|| payload.get("text"))
+                    .map(value_to_text)
+                    .unwrap_or_default(),
+            )
+        }
+    };
+
+    let mut result = Map::new();
     result.insert("url".to_string(), json!(url));
     result.insert("title".to_string(), json!(title));
     result.insert("text".to_string(), json!(text));

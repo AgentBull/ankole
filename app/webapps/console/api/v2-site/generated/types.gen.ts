@@ -402,7 +402,7 @@ export type ListAiGatewayProviderKindsResponses = {
         options: Array<string>
         required: boolean
         scope: 'connection' | 'credential' | 'request'
-        type: 'boolean' | 'float' | 'integer' | 'map' | 'select' | 'string'
+        type: 'boolean' | 'float' | 'integer' | 'map' | 'select' | 'string' | 'string_list'
       }>
     }>
   }

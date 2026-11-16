@@ -12,6 +12,4 @@ defmodule Ankole.Sessions.Common do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
-
-  defdelegate collect_results(results), to: Ankole.Attrs
 end

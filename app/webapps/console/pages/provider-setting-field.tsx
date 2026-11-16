@@ -6,7 +6,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Switch
+  Switch,
+  Textarea
 } from '@ankole/uikit'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
@@ -113,6 +114,26 @@ export function ProviderSettingField({
           onChange={onChange}
         />
       </fieldset>
+    )
+  }
+
+  if (setting.type === 'string_list') {
+    return (
+      <LabeledField
+        label={label}
+        description={description ?? t('console.providers.string_list_hint')}
+        required={setting.required}>
+        <Textarea
+          disabled={disabled}
+          rows={3}
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="off"
+          placeholder={defaultDraft || undefined}
+          value={draft}
+          onChange={event => onChange(event.target.value)}
+        />
+      </LabeledField>
     )
   }
 

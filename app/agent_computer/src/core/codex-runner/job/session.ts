@@ -406,7 +406,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
   private publishCliContextId(): void {
     if (!this.runtimeThreadID) return
-    this.opts.updateCliContextId?.(`${this.jobID}:thread:${this.runtimeThreadID}:cmp:${this.compactionSeq}`)
+    this.prepared.updateCliContextId(`${this.jobID}:thread:${this.runtimeThreadID}:cmp:${this.compactionSeq}`)
   }
 
   private async startCodexTurn(input: string): Promise<void> {

@@ -49,16 +49,7 @@ defmodule Ankole.KernelTest do
   test "sql_inspect/2 returns string-keyed facts and coded rejections" do
     assert {:ok,
             %{
-              "kind" => "select",
               "tables" => [%{"catalog" => nil, "schema" => "shop", "name" => "orders"}],
-              "aggregates" => ["sum"],
-              "literals" => [
-                %{"column" => "status", "table" => "o", "operator" => "=", "values" => ["paid"]},
-                %{"column" => "amount", "table" => nil, "operator" => ">", "values" => [1.5]}
-              ],
-              "joins" => 0,
-              "group_by" => true,
-              "limit" => 10,
               "fanout_risk" => false
             }} =
              NativeKernel.sql_inspect(
@@ -78,24 +69,36 @@ defmodule Ankole.KernelTest do
     assert {:error, %{"code" => "empty"}} = NativeKernel.sql_inspect("", :clickhouse)
   end
 
-  test "web_url_facts/1 matches the shared host classification vectors" do
+  test "validate_web_url/3 matches the shared host classification vectors" do
     vectors_path = Path.expand("../vectors/web_url_host_classification.json", __DIR__)
 
     %{"addresses" => addresses, "urls" => urls, "invalid_urls" => invalid_urls} =
       vectors_path |> File.read!() |> Torque.decode!()
 
-    for %{"input" => input, "class" => class} <- addresses do
-      url = if String.contains?(input, ":"), do: "https://[#{input}]/", else: "https://#{input}/"
+    entries =
+      Enum.map(addresses, fn %{"input" => input, "class" => class} ->
+        url =
+          if String.contains?(input, ":"), do: "https://[#{input}]/", else: "https://#{input}/"
 
-      assert %{host_class: host_class} = NativeKernel.web_url_facts(url),
-             "#{input} must classify as #{class}"
+        {input, url, class}
+      end) ++
+        Enum.map(urls, fn %{"input" => url, "class" => class} -> {url, url, class} end)
 
-      assert Atom.to_string(host_class) == class, "#{input} must classify as #{class}"
-    end
+    for {label, url, class} <- entries do
+      expected_filtered =
+        case class do
+          "public" -> :ok
+          "private" -> {:error, :private}
+          "metadata" -> {:error, :metadata}
+        end
 
-    for %{"input" => url, "class" => class} <- urls do
-      assert %{host_class: host_class} = NativeKernel.web_url_facts(url)
-      assert Atom.to_string(host_class) == class
+      expected_unfiltered = if class == "metadata", do: {:error, :metadata}, else: :ok
+
+      assert NativeKernel.validate_web_url(url, ["http", "https"], true) == expected_filtered,
+             "#{label} must classify as #{class} under ssrf_filter=true"
+
+      assert NativeKernel.validate_web_url(url, ["http", "https"], false) == expected_unfiltered,
+             "#{label} must classify as #{class} under ssrf_filter=false"
     end
 
     for url <- invalid_urls do

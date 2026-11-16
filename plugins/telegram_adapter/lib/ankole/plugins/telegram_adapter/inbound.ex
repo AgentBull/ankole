@@ -1,7 +1,6 @@
 defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   @moduledoc false
 
-  alias Ankole.Principals
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.TelegramAdapter.Client
   alias Ankole.Plugins.UTF16Text
@@ -238,7 +237,11 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
              prefix: "tg1"
            ),
          {:ok, operator_principal_uid} <-
-           resolve_action_operator("telegram", Integer.to_string(user_id), value),
+           AdapterContext.resolve_action_operator(
+             "telegram",
+             Integer.to_string(user_id),
+             value
+           ),
          {:ok, action_result} = result <-
            Observe.emit_action(consumer.context.binding_id, %{
              source_event_id: Integer.to_string(update_id),
@@ -312,18 +315,6 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   end
 
   defp acknowledge_callback(_event, _callback_id, _message, _show_alert), do: :ok
-
-  defp resolve_action_operator(provider, external_id, value) do
-    case Principals.resolve_platform_subject(provider, external_id) do
-      {:ok, principal} ->
-        {:ok, principal.uid}
-
-      {:error, :not_found} ->
-        if Ankole.Conversations.ActionCards.action_card_interaction_id?(value["interactionId"]),
-          do: {:ok, nil},
-          else: {:error, :not_found}
-    end
-  end
 
   defp message_text(message) do
     cond do

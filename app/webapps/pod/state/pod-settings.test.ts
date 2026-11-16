@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test'
+import { QueryClient } from '@tanstack/react-query'
 import type { PodAdminSettingsResponse } from '../api/generated/types.gen'
 import { conversationSearchQuery, podKeys } from '../api'
-import { podRouteTitle } from '../app'
+import { knownConversationTitle, podRouteTitle } from '../app'
 import { routeSidebarTab } from '../sidebar'
 import { AccountSettingsModel } from './account-settings'
 import { PodSettingsModel, parseAllowedDomains, resolveInvitationExpiryISO } from './pod-settings'
@@ -131,8 +132,14 @@ test('routeSidebarTab and podRouteTitle preserve sidebar context and format rout
   expect(routeSidebarTab('/settings')).toBeUndefined()
 
   const t = (key: string) => key
-  expect(podRouteTitle('/pages/abc', t)).toBeUndefined()
+  expect(podRouteTitle('/pages/abc', t)).toBe('Ankole')
+  expect(podRouteTitle('/pages/abc', t, undefined, 'Launch Plan')).toBe('Launch Plan · Ankole')
+  expect(podRouteTitle('/pages/abc', t, undefined, '  \u202ESaaS Relay\u202C  ')).toBe('SaaS Relay · Ankole')
+  expect(podRouteTitle('/pages/abc', t, undefined, '   ')).toBe('pod.content.untitled · Ankole')
   expect(podRouteTitle('/meta', t)).toBe('Meta Ankole · Ankole')
+  expect(podRouteTitle('/meta/brain', t)).toBe('Meta Ankole · Ankole')
+  expect(podRouteTitle('/meta/brain/abc', t)).toBe('Meta Ankole · Ankole')
+  expect(podRouteTitle('/meta/brain/abc', t, undefined, 'Customer Ontology')).toBe('Customer Ontology · Ankole')
   expect(podRouteTitle('/meta/skills', t)).toBe('Meta Ankole · Ankole')
   expect(podRouteTitle('/me', t)).toBe('pod.account.title · Ankole')
   expect(podRouteTitle('/settings', t)).toBe('pod.settings.title · Ankole')
@@ -148,4 +155,22 @@ test('routeSidebarTab and podRouteTitle preserve sidebar context and format rout
 test('conversationSearchQuery keys empty queries with podKeys.conversations and scopes search queries', () => {
   expect(conversationSearchQuery('').queryKey).toEqual(podKeys.conversations)
   expect(conversationSearchQuery('  roadmap  ').queryKey).toEqual([...podKeys.conversations, 'search', 'roadmap'])
+})
+
+test('knownConversationTitle resolves titles across detail, list, infinite sidebar, and attention caches', () => {
+  const client = new QueryClient()
+  expect(knownConversationTitle(client, 'conv-1')).toBeUndefined()
+
+  client.setQueryData([...podKeys.conversations, 'attention'], [{ id: 'conv-1', title: 'Attention title' }])
+  expect(knownConversationTitle(client, 'conv-1')).toBe('Attention title')
+
+  client.setQueryData([...podKeys.conversations, 'sidebar', ''], {
+    pages: [{ conversations: [{ id: 'conv-2', title: 'Sidebar title' }] }],
+    pageParams: [undefined]
+  })
+  expect(knownConversationTitle(client, 'conv-2')).toBe('Sidebar title')
+
+  client.setQueryData(podKeys.detail('conv-2'), { conversation: { id: 'conv-2', title: 'Detail title' } })
+  expect(knownConversationTitle(client, 'conv-2')).toBe('Detail title')
+  client.clear()
 })

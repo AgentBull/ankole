@@ -55,6 +55,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     parallel = Enum.find(kinds, &(&1["provider_kind"] == "parallel"))
     jina_search = Enum.find(kinds, &(&1["provider_kind"] == "jina_search"))
     jina_reader = Enum.find(kinds, &(&1["provider_kind"] == "jina_reader"))
+    cloudflare = Enum.find(kinds, &(&1["provider_kind"] == "cloudflare"))
     bright_data_serp = Enum.find(kinds, &(&1["provider_kind"] == "bright_data_serp"))
     agentbull_cloud = Enum.find(kinds, &(&1["provider_kind"] == "agentbull_cloud"))
 
@@ -67,6 +68,18 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert "web_fetch" in parallel["capabilities"]
     assert "web_search" in jina_search["capabilities"]
     assert "web_fetch" in jina_reader["capabilities"]
+    assert "web_search" in cloudflare["capabilities"]
+    assert "web_fetch" in cloudflare["capabilities"]
+
+    cloudflare_settings = Map.new(cloudflare["settings"], &{&1["key"], &1})
+    assert cloudflare_settings["browser"]["options"] == ~w(kitesurf chromium)
+    assert cloudflare_settings["browser"]["default"] == "kitesurf"
+    assert cloudflare_settings["browser"]["capabilities"] == ["web_fetch"]
+    assert cloudflare_settings["gotoOptions"]["type"] == "map"
+    assert cloudflare_settings["waitForSelector"]["type"] == "map"
+    assert cloudflare_settings["waitForSelector"]["capabilities"] == ["web_fetch"]
+    assert cloudflare_settings["rejectRequestPattern"]["type"] == "string_list"
+    assert cloudflare_settings["rejectRequestPattern"]["capabilities"] == ["web_fetch"]
     assert "web_search" in bright_data_serp["capabilities"]
     assert "web_search" in agentbull_cloud["capabilities"]
     assert agentbull_cloud["default_base_url"] == "https://cloudapis.agentbull.com/v1"

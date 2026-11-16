@@ -367,6 +367,7 @@ defmodule Ankole.Principals.Agents do
         |> Access.remove_grants()
 
         :ok = Ankole.AuthZ.Grants.delete_principal_resource_grants_in_tx(principal.uid)
+        :ok = Ankole.Pod.release_applet_owners_for_principal_in_tx(principal.uid)
         :ok = Ankole.Pod.delete_private_root_in_tx(principal.uid)
         :ok = Ankole.Conversations.delete_for_agent_in_tx(principal.uid)
         :ok = AgentWorkers.mark_deleting_in_tx(principal.uid)

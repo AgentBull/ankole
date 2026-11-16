@@ -33,6 +33,7 @@ import { requestErrorMessage } from '../../common/request-errors'
 import { DiscardConfirmDialog, LabeledField, useDialogDiscardGuard } from '../console-form'
 import { AgentLink } from '../console-list-page'
 import { formatConsoleDate } from '../console-primitives'
+import { LIST_REFRESH_MS } from '../refresh-intervals'
 import { AccessReviewModel } from '../state/access-review-model'
 
 type RestrictionItem = GetHumanAccessResponse['restrictions'][number]
@@ -45,7 +46,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
   const [disableReason, setDisableReason] = useState('')
   const [disableConfirmed, setDisableConfirmed] = useState(false)
 
-  const access = useQuery({ ...getHumanAccessOptions({ path: { uid } }), refetchInterval: 15000 })
+  const access = useQuery({ ...getHumanAccessOptions({ path: { uid } }), refetchInterval: LIST_REFRESH_MS })
   const state = access.data
 
   const onError = (error: unknown) => toast.error(requestErrorMessage(error))
@@ -239,17 +240,26 @@ export function HumanAccessSection({ uid }: { uid: string }) {
           <details className="border-t border-border pt-4">
             <summary className="cursor-pointer text-sm font-medium">{t('console.human_access.history')}</summary>
             <div className="mt-3 grid gap-3">
-              {state.history.map(item => (
-                <div key={item.id} className="grid gap-1 border-b border-border pb-3 text-sm">
-                  <span>
-                    {humanizeTechnicalLabel(item.action)} · {humanizeTechnicalLabel(item.source)}
-                  </span>
-                  <p>{item.reason}</p>
-                  <p className="text-xs text-muted-foreground">
-                    <ActorLabel actor={item.actor} /> · {formatConsoleDate(item.inserted_at)}
-                  </p>
-                </div>
-              ))}
+              {state.history.map(item => {
+                const detailsText =
+                  item.details && typeof item.details === 'object' && Object.keys(item.details).length > 0
+                    ? JSON.stringify(item.details)
+                    : null
+                return (
+                  <div key={item.id} className="grid gap-1 border-b border-border pb-3 text-sm">
+                    <span>
+                      {humanizeTechnicalLabel(item.action)} · {humanizeTechnicalLabel(item.source)}
+                    </span>
+                    <p>{item.reason}</p>
+                    {detailsText ? (
+                      <code className="text-xs break-all text-muted-foreground">{detailsText}</code>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">
+                      <ActorLabel actor={item.actor} /> · {formatConsoleDate(item.inserted_at)}
+                    </p>
+                  </div>
+                )
+              })}
             </div>
           </details>
         </>

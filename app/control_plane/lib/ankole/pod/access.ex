@@ -654,6 +654,44 @@ defmodule Ankole.Pod.Access do
   end
 
   def grants(filter), do: Ankole.AuthZ.list_grants!(query: [filter: filter])
+
+  @doc "Returns conversation disclosure recipients who lack `node_view` on a Brain node."
+  @spec missing_brain_reader_uids(Actor.t(), Page.t()) :: [String.t()]
+  def missing_brain_reader_uids(%Actor{} = subject_actor, %Page{} = page) do
+    with {ref, _}
+         when is_struct(ref, Ankole.Sessions.RunRef) or
+                is_struct(ref, Ankole.Sessions.JobTurnRef) <- subject_actor.turn_authority,
+         true <- page.type in [:knowledge, :file],
+         {:ok, root} <- Pages.root(page.id),
+         true <- root.system_key == "ankole_brain",
+         {:ok, brain_ctx} <-
+           Ankole.Brain.RequestContext.build(Actor.uid(subject_actor), %{
+             "signal_id" => ref.signal_id
+           }) do
+      recipients =
+        case brain_ctx.disclosure do
+          %{mode: :strict} = d ->
+            Enum.uniq(List.wrap(d[:asker_uid]) ++ (d[:present_uids] || []))
+
+          d ->
+            List.wrap(d[:asker_uid])
+        end
+
+      Enum.filter(recipients, fn uid ->
+        case Ankole.Principals.get_principal(uid) do
+          {:ok, principal} ->
+            actor = Actor.new(principal, authn: subject_actor.authn)
+            not match?({:ok, _}, authorize(actor, page, "node_view", allow_trashed?: false))
+
+          _ ->
+            true
+        end
+      end)
+    else
+      _ -> []
+    end
+  end
+
   defp owner_match?(%{principal_uid: uid}, grant), do: grant.principal_uid == uid
   defp owner_match?(%{group_id: id}, grant), do: grant.group_id == id
 

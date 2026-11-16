@@ -1,6 +1,5 @@
 import { agentHomePaths } from '../core/agent-home-paths'
 import { runCodexJob } from '../core/codex-runner'
-import { startRunCLIBridges } from '../cli/run-cli-bridges'
 import type { RuntimeRPCClient } from '../lanes/rpc-lane'
 import type { BrowserRuntime } from '../browser-runtime'
 import { Drive } from '../drive/drive'
@@ -11,7 +10,7 @@ import { requestAIGatewayAPIKey, throwingRPCRequester } from './rpc-requests'
 import { prepareTurnWorkspace } from './workspace'
 
 /**
- * Materializes the workspace, environment, CLI bridges, Skills, and handler
+ * Materializes the Agent Home directories, Drive handle, and handler
  * dependencies for one accepted Turn. It commits complete and no-op results.
  * ActiveTurns owns admission, failures, controlled stops, and release.
  */
@@ -22,7 +21,7 @@ export async function executeActiveTurn(
   active: ActiveTurn
 ): Promise<void> {
   const turnStart = active.turnStart
-  const workspaceRoot = prepareTurnWorkspace(config)
+  prepareTurnWorkspace(config)
   const paths = agentHomePaths(config.agentHomeRoot)
   workerLogger.info('worker.turn_started', 'worker turn started', {
     signal_id: turnStart.turn.signal_id,
@@ -30,36 +29,21 @@ export async function executeActiveTurn(
   })
   const rpc = throwingRPCRequester(rpcClient, active.abortSignal)
   const drive = new Drive({ agentHome: paths.home, rpc, frame: { jobTurn: turnStart.turn } })
-  const cliBridges = startRunCLIBridges({
+
+  active.abortSignal.throwIfAborted()
+
+  await runCodexJob(turnStart, {
+    agentHome: paths.home,
     drive,
+    builtinSkillsRoot: config.builtinSkillsRoot,
+    internalSkillsRoot: config.internalSkillsRoot,
+    runtimeEnv: turnStart.runtime_env,
     rpc,
-    turn: turnStart.turn,
-    workspaceRoot,
-    agentUid: config.workerID
+    requestAIGatewayAPIKey: options => requestAIGatewayAPIKey(rpcClient, { ...options, signal: active.abortSignal }),
+    logger: workerLogger,
+    pollSteering: () => active.pollSteering(),
+    pollDisabledSkills: () => active.pollDisabledSkills(),
+    abortSignal: active.abortSignal,
+    browserRuntime
   })
-
-  try {
-    const runtimeEnv = { ...turnStart.runtime_env, ...cliBridges.env }
-
-    active.abortSignal.throwIfAborted()
-
-    await runCodexJob(turnStart, {
-      agentHome: paths.home,
-      workspaceRoot,
-      drive,
-      builtinSkillsRoot: config.builtinSkillsRoot,
-      internalSkillsRoot: config.internalSkillsRoot,
-      runtimeEnv,
-      updateCliContextId: cliBridges.updateContextId,
-      rpc,
-      requestAIGatewayAPIKey: options => requestAIGatewayAPIKey(rpcClient, { ...options, signal: active.abortSignal }),
-      logger: workerLogger,
-      pollSteering: () => active.pollSteering(),
-      pollDisabledSkills: () => active.pollDisabledSkills(),
-      abortSignal: active.abortSignal,
-      browserRuntime
-    })
-  } finally {
-    cliBridges.close()
-  }
 }

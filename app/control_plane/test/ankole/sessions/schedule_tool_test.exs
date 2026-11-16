@@ -34,7 +34,7 @@ defmodule Ankole.Sessions.ScheduleToolTest do
     event =
       Repo.one!(from(e in ScheduledEvent, where: e.source_signal_id == ^run.signal_id))
 
-    assert event.wake_payload["quiet_success"] == false
+    assert event.wake_payload["quiet_success"] == true
     assert event.wake_payload["context_summary"] == nil
     assert event.wake_payload["reason"] == "Review progress"
     assert event.wake_payload["check"] == "Check the report"
@@ -147,7 +147,7 @@ defmodule Ankole.Sessions.ScheduleToolTest do
     end
   end
 
-  test "automation cron add accepts absent payload and cron-origin get accepts absent name", %{
+  test "automation cron add accepts absent payload and routine-origin get accepts absent name", %{
     run: run
   } do
     automation = Ankole.WorkFixtures.applet_job(run.agent_uid)
@@ -161,13 +161,21 @@ defmodule Ankole.Sessions.ScheduleToolTest do
     assert {:ok, rule} =
              Schedule.get_cron_schedule_by_name(run.agent_uid, run.session_id, "action")
 
-    id = rule.id
     assert rule.payload == %{}
-    origin = %{run | session_id: Schedule.cron_execution_session_id(id)}
+    assert Ash.load!(rule, :execution_session_id).execution_session_id == nil
+
+    agent_created = invoke(run, "cron", cron_args("agent-origin"), "agent-origin-cron")
+    refute agent_created.is_error, inspect(agent_created)
+    assert agent_created.details["schedule"]["event_binding_count"] == 0
+
+    assert {:ok, routine} =
+             Schedule.get_routine_by_name(run.agent_uid, run.session_id, "agent-origin")
+
+    origin = %{run | session_id: Schedule.routine_execution_session_id(routine.id)}
 
     assert invoke(origin, "cron", %{"action" => "get"}, "origin-get").details["schedule"][
              "name"
-           ] == "action"
+           ] == "agent-origin"
   end
 
   test "check_back_later can deliver its default subscription to an Applet Action", %{run: run} do

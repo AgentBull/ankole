@@ -16,7 +16,7 @@ defmodule Ankole.Tenants do
   alias Ankole.AuthZ.Grants
   alias Ankole.AuthZ.Root
   alias Ankole.AuthZ.Store
-  alias Ankole.Tenants.{DeletionHooks, Tenant}
+  alias Ankole.Tenants.Tenant
 
   resources do
     resource Tenant do
@@ -122,26 +122,55 @@ defmodule Ankole.Tenants do
     |> Ash.Query.filter(is_nil(suspended_at) and is_nil(deleting_at))
     |> Ash.Query.sort(inserted_at: :asc, id: :asc)
     |> Ankole.Ash.read!()
-    |> DeletionHooks.map_tenants(fun)
+    |> map_tenants(fun)
   end
 
   @doc "Runs retention work in every tenant, including suspended and deleting tenants."
-  def map_all(fun) when is_function(fun, 0), do: DeletionHooks.map_tenants(list(), fun)
+  def map_all(fun) when is_function(fun, 0), do: map_tenants(list(), fun)
 
   @doc false
-  defdelegate fanout_result(results), to: DeletionHooks
+  def fanout_result(results) do
+    errors = for {tenant_id, {:error, reason}} <- results, do: {tenant_id, reason}
 
-  @doc "Registers an idempotent tenant deletion hook (`{module, fun}`, `module`, or 1-arity fun)."
-  defdelegate register_deletion_hook(hook), to: DeletionHooks
+    case errors do
+      [] -> :ok
+      errors -> {:error, {:tenant_failures, errors}}
+    end
+  end
 
-  @doc "Unregisters a previously registered tenant deletion hook."
-  defdelegate unregister_deletion_hook(hook), to: DeletionHooks
+  defp map_tenants(tenants, fun) when is_list(tenants) and is_function(fun, 0) do
+    Enum.map(tenants, fn tenant ->
+      result = Repo.with_tenant(tenant.id, fn -> run_fanout_item(tenant.id, fun) end)
+      {tenant.id, result}
+    end)
+  end
 
-  @doc "Returns the configured tenant deletion hooks."
-  defdelegate deletion_hooks(), to: DeletionHooks
+  defp run_fanout_item(tenant_id, fun) do
+    case fun.() do
+      {:error, reason} = error ->
+        log_fanout_failure(tenant_id, :error, reason, [])
+        error
 
-  @doc "Executes all registered tenant deletion hooks as a retryable step."
-  defdelegate run_deletion_hooks(tenant_id), to: DeletionHooks
+      result ->
+        result
+    end
+  rescue
+    error ->
+      log_fanout_failure(tenant_id, :error, error, __STACKTRACE__)
+      {:error, {:exception, Exception.message(error)}}
+  catch
+    kind, reason ->
+      log_fanout_failure(tenant_id, kind, reason, __STACKTRACE__)
+      {:error, {kind, reason}}
+  end
+
+  defp log_fanout_failure(tenant_id, kind, reason, stacktrace) do
+    Ankole.Logging.warning(
+      "tenants.site_fanout_failed",
+      "Site work failed for one tenant",
+      Ankole.Logging.failure_fields(kind, reason, stacktrace) |> Map.put(:tenant_id, tenant_id)
+    )
+  end
 
   @doc "Checks a loaded tenant, or reads its current state by ID, for new work."
   def accepting_work?(%Tenant{suspended_at: nil, deleting_at: nil}), do: true

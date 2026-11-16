@@ -119,6 +119,9 @@ const NonEmptyString = z.string().min(1, 'must be a non-empty string')
 const PositiveInt = z.number().int('must be a positive integer').positive('must be a positive integer')
 const NonNegativeInt = z.number().int('must be a non-negative integer').nonnegative('must be a non-negative integer')
 
+export const InlineSnapModeSchema = z.enum(['interactive', 'diff'])
+export type InlineSnapMode = z.infer<typeof InlineSnapModeSchema>
+
 export const ScrollDirectionSchema = z.enum(['up', 'down', 'left', 'right'])
 export const GetPropertySchema = z.enum(['text', 'html', 'value', 'attr', 'title', 'url', 'count', 'box'])
 export const IsPredicateSchema = z.enum(['visible', 'enabled', 'checked'])
@@ -127,10 +130,14 @@ export const FindActionSchema = z.enum(['click', 'fill', 'type', 'hover', 'focus
 export const TabActionSchema = z.enum(['list', 'new', 'switch', 'close'])
 export const DialogActionSchema = z.enum(['status', 'accept', 'dismiss'])
 export const WaitLoadStateSchema = z.enum(['load', 'domcontentloaded', 'networkidle'])
+export const NetworkModeSchema = z.enum(['status', 'default', 'no-media'])
+export const WebMCPActionSchema = z.enum(['list', 'call'])
 export const LifecycleVerbSchema = z.enum(['reset', 'purge'])
 
-const SelectorArgsSchema = z.object({ selector: NonEmptyString }).strict()
-const TypeTextArgsSchema = z.object({ selector: NonEmptyString, text: NonEmptyString }).strict()
+const SnapOption = { snap: InlineSnapModeSchema.optional() }
+
+const SelectorArgsSchema = z.object({ selector: NonEmptyString, ...SnapOption }).strict()
+const TypeTextArgsSchema = z.object({ selector: NonEmptyString, text: NonEmptyString, ...SnapOption }).strict()
 
 const OpenArgsSchema = z.object({ url: NonEmptyString.optional() }).strict()
 
@@ -139,8 +146,10 @@ const SnapshotArgsSchema = z
     interactive: z.boolean().optional(),
     compact: z.boolean().optional(),
     urls: z.boolean().optional(),
+    diff: z.boolean().optional(),
     depth: PositiveInt.optional(),
-    selector: NonEmptyString.optional()
+    selector: NonEmptyString.optional(),
+    query: NonEmptyString.optional()
   })
   .strict()
 
@@ -152,23 +161,25 @@ const ScreenshotArgsSchema = z
   })
   .strict()
 
-const PressArgsSchema = z.object({ key: NonEmptyString }).strict()
-const SelectArgsSchema = z.object({ selector: NonEmptyString, value: NonEmptyString }).strict()
+const PressArgsSchema = z.object({ key: NonEmptyString, ...SnapOption }).strict()
+const SelectArgsSchema = z.object({ selector: NonEmptyString, value: NonEmptyString, ...SnapOption }).strict()
 
 const ScrollArgsSchema = z
   .object({
     direction: ScrollDirectionSchema,
     pixels: PositiveInt.optional(),
-    selector: NonEmptyString.optional()
+    selector: NonEmptyString.optional(),
+    ...SnapOption
   })
   .strict()
 
-const DragArgsSchema = z.object({ source: NonEmptyString, target: NonEmptyString }).strict()
+const DragArgsSchema = z.object({ source: NonEmptyString, target: NonEmptyString, ...SnapOption }).strict()
 
 const UploadArgsSchema = z
   .object({
     selector: NonEmptyString,
-    paths: z.array(NonEmptyString).min(1, 'requires at least one file path')
+    paths: z.array(NonEmptyString).min(1, 'requires at least one file path'),
+    ...SnapOption
   })
   .strict()
 
@@ -189,7 +200,8 @@ const FindArgsSchema = z
         index: NonNegativeInt,
         selector: NonEmptyString,
         action: FindActionSchema.optional(),
-        text: NonEmptyString.optional()
+        text: NonEmptyString.optional(),
+        ...SnapOption
       })
       .strict(),
     z
@@ -199,13 +211,17 @@ const FindArgsSchema = z
         name: NonEmptyString.optional(),
         exact: z.boolean().optional(),
         action: FindActionSchema.optional(),
-        text: NonEmptyString.optional()
+        text: NonEmptyString.optional(),
+        ...SnapOption
       })
       .strict()
   ])
   .superRefine((args, context) => {
     if ((args.action === 'fill' || args.action === 'type') && args.text === undefined) {
       context.addIssue({ code: 'custom', path: ['text'], message: 'must be a non-empty string' })
+    }
+    if (args.snap !== undefined && (!args.action || args.action === 'text')) {
+      context.addIssue({ code: 'custom', path: ['snap'], message: 'snap requires an interactive find action' })
     }
   })
 
@@ -252,6 +268,33 @@ const FetchArgsSchema = z
     path: ['urls']
   })
 
+const DiagnosticsArgsSchema = z
+  .object({
+    all: z.boolean().optional(),
+    include_static: z.boolean().optional(),
+    url: NonEmptyString.optional(),
+    clear: z.boolean().optional()
+  })
+  .strict()
+
+const NetworkArgsSchema = z
+  .object({
+    mode: NetworkModeSchema
+  })
+  .strict()
+
+const WebMCPArgsSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('list') }).strict(),
+  z
+    .object({
+      action: z.literal('call'),
+      tool: NonEmptyString,
+      input: JSONRecordSchema.optional(),
+      ...SnapOption
+    })
+    .strict()
+])
+
 const EmptyArgsSchema = z.object({}).strict()
 const LifecycleArgsSchema = z.object({ verb: LifecycleVerbSchema }).strict()
 const LeaseAcquireArgsSchema = z.object({ run_id: NonEmptyString }).strict()
@@ -288,7 +331,10 @@ const PageCommandArms = [
   browserCommandArm('frame', FrameArgsSchema),
   browserCommandArm('dialog', DialogArgsSchema),
   browserCommandArm('eval', EvalArgsSchema),
-  browserCommandArm('fetch', FetchArgsSchema)
+  browserCommandArm('fetch', FetchArgsSchema),
+  browserCommandArm('diagnostics', DiagnosticsArgsSchema),
+  browserCommandArm('network', NetworkArgsSchema),
+  browserCommandArm('webmcp', WebMCPArgsSchema)
 ] as const
 
 const StatusCommandArm = browserCommandArm('status', EmptyArgsSchema)
@@ -300,7 +346,8 @@ export const BrowserBatchItemSchema = z.discriminatedUnion('name', [StatusComman
 const BatchArgsSchema = z
   .object({
     commands: z.array(BrowserBatchItemSchema),
-    bail: z.boolean().optional()
+    bail: z.boolean().optional(),
+    ...SnapOption
   })
   .strict()
 

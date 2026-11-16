@@ -1501,22 +1501,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp commit_stateful_terminal(nil, _items, _terminal_error, _terminal_metadata), do: :ok
 
   defp commit_stateful_terminal(stateful, items, nil, terminal_metadata) do
-    case ResponseCommit.commit_complete(stateful.message_id, items, terminal_metadata) do
-      {:ok, %{} = _message} ->
-        :ok
-
-      {:ok, :already_terminal} ->
-        authoritative_stateful_terminal(stateful)
-
-      {:error, reason} ->
-        Logging.warning(
-          "ai_gateway.response_stream.complete_commit_failed",
-          "AIGateway response stream complete commit failed",
-          %{message_id: stateful.message_id, reason: inspect(reason)}
-        )
-
-        commit_stateful_terminal_commit_failure(stateful, items, terminal_metadata)
-    end
+    commit_stateful_complete_with_retry(stateful, items, terminal_metadata, 2)
   end
 
   defp commit_stateful_terminal(stateful, items, error_details, terminal_metadata) do
@@ -1537,6 +1522,29 @@ defmodule Ankole.AIGateway.ResponseStream.State do
         )
 
         {:error, reason}
+    end
+  end
+
+  defp commit_stateful_complete_with_retry(stateful, items, terminal_metadata, retries_left) do
+    case ResponseCommit.commit_complete(stateful.message_id, items, terminal_metadata) do
+      {:ok, %{} = _message} ->
+        :ok
+
+      {:ok, :already_terminal} ->
+        authoritative_stateful_terminal(stateful)
+
+      {:error, reason} when retries_left > 0 and reason != :message_not_found ->
+        Process.sleep(50)
+        commit_stateful_complete_with_retry(stateful, items, terminal_metadata, retries_left - 1)
+
+      {:error, reason} ->
+        Logging.warning(
+          "ai_gateway.response_stream.complete_commit_failed",
+          "AIGateway response stream complete commit failed",
+          %{message_id: stateful.message_id, reason: inspect(reason)}
+        )
+
+        commit_stateful_terminal_commit_failure(stateful, items, terminal_metadata)
     end
   end
 
@@ -1564,7 +1572,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
              "code" => "stateful_terminal_commit_failed",
              "message" => safe_error_message("stateful_terminal_commit_failed"),
              "stage" => "terminal_commit",
-             "retryable" => false
+             "retryable" => true
            },
            metadata: terminal_metadata
          ) do

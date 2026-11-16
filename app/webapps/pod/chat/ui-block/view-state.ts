@@ -18,13 +18,28 @@ export function rememberViewState(code: string, state: StateModel) {
 
 /**
  * Holds the state of one mounted `ui` block. A settled block starts from the state that its reader left when the
- * same block was last on screen, for example before the reader opened another room. While a block streams, state
- * that later lines add or change joins the store, and the values that the reader set elsewhere stay.
+ * same block was last on screen, falling back to `initial` if a remembered snapshot fails `validateSnapshot`.
+ * While a block streams, state that later lines add or change joins the store, and the values that the reader set
+ * elsewhere stay.
  *
  * Two blocks with the same source share what is remembered.
  */
-export function useViewState(code: string, streaming: boolean, initial: StateModel = NO_STATE): StateStore {
-  const [store] = useState(() => createStateStore((!streaming && remembered.get(code)) || initial))
+export function useViewState(
+  code: string,
+  streaming: boolean,
+  initial: StateModel = NO_STATE,
+  validateSnapshot?: (state: StateModel) => boolean
+): StateStore {
+  const [store] = useState(() => {
+    if (!streaming) {
+      const saved = remembered.get(code)
+      if (saved !== undefined) {
+        if (!validateSnapshot || validateSnapshot(saved)) return createStateStore(saved)
+        remembered.delete(code)
+      }
+    }
+    return createStateStore(initial)
+  })
   const seeded = useRef(flattenToPointers(initial))
   useEffect(() => {
     const next = flattenToPointers(initial)
@@ -33,9 +48,9 @@ export function useViewState(code: string, streaming: boolean, initial: StateMod
     if (changed.length) store.update(Object.fromEntries(changed))
   }, [initial, store])
   useEffect(() => {
-    if (streaming) return
+    if (streaming || !validateSnapshot) return
     rememberViewState(code, store.getSnapshot())
     return store.subscribe(() => rememberViewState(code, store.getSnapshot()))
-  }, [code, streaming, store])
+  }, [code, streaming, store, Boolean(validateSnapshot)])
   return store
 }

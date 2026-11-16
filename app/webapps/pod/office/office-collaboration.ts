@@ -139,7 +139,8 @@ const BOOTSTRAP_ATTEMPTS = 3
 const SEND_DELAY_MS = 30
 const BUSY_DELAY_MS = 200
 const BUSY_RETRIES = 5
-const RETRY_DELAY_MS = 1000
+const RETRY_BASE_DELAY_MS = 500
+const RETRY_MAX_DELAY_MS = 8000
 const PRESENCE_INTERVAL_MS = 250
 export const DEFAULT_IDLE_COMMIT_MS = 2000
 
@@ -249,7 +250,14 @@ export const OfficeCollaborationModel = createModel(
     let selectionTasks = 0
     let sequence = 0
     let applyCount = 0
+    let retryAttempts = 0
     let pushing = false
+
+    const nextRetryDelay = () => {
+      const base = Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2 ** retryAttempts)
+      retryAttempts = Math.min(retryAttempts + 1, 10)
+      return Math.round(base * (0.8 + Math.random() * 0.4))
+    }
     let sendTimer: ReturnType<typeof setTimeout> | undefined
     let idleTimer: ReturnType<typeof setTimeout> | undefined
     let presenceTimer: ReturnType<typeof setTimeout> | undefined
@@ -433,6 +441,7 @@ export const OfficeCollaborationModel = createModel(
       composing.value = externalComposition
       inFlight = undefined
       queue = []
+      retryAttempts = 0
       clearTimeout(sendTimer)
       publishCounts()
       if (discarded) notify({ kind: 'discarded', count: discarded })
@@ -543,10 +552,11 @@ export const OfficeCollaborationModel = createModel(
         if (!sent) return
         applyCount++
         const reply = await channel.push<OfficeChanges>('office:apply', sent.request!)
+        retryAttempts = 0
         await serial(() => receive(reply, sent))
         error.value = undefined
       } catch (failure) {
-        delay = sent ? await failed(sent, failure) : RETRY_DELAY_MS
+        delay = sent ? await failed(sent, failure) : nextRetryDelay()
       } finally {
         pushing = false
         if (!disposed && delay !== undefined && (inFlight || queue.length)) scheduleFlush(delay)
@@ -596,7 +606,7 @@ export const OfficeCollaborationModel = createModel(
         if (sent.busy <= BUSY_RETRIES) return BUSY_DELAY_MS
         error.value = failure
         if (inFlight === sent) finishSave(false)
-        return RETRY_DELAY_MS
+        return nextRetryDelay()
       }
       if (reason === 'office_conflict') {
         const details = (failure as { payload?: { details?: { reason?: string; changes?: OfficeEntry[] } } }).payload
@@ -626,7 +636,7 @@ export const OfficeCollaborationModel = createModel(
       }
       error.value = failure
       if (inFlight === sent) finishSave(false)
-      return RETRY_DELAY_MS
+      return nextRetryDelay()
     }
 
     const editSerial = <T>(task: (eng: OfficeSyncEngine<TSnapshot>) => Promise<T | undefined>) => {

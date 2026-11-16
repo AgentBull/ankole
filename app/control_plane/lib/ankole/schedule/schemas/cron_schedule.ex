@@ -44,11 +44,13 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
 
     foreign_key_names([
       {:owner_job_id, "cron_schedules_owner_job_fkey"},
+      {:owner_routine_id, "cron_schedules_owner_routine_fkey"},
       {:agent_uid, "cron_schedules_agent_uid_fkey"}
     ])
 
     check_constraints do
       check_constraint(:owner_job_id, "cron_schedules_owner_scope_check")
+      check_constraint(:owner_routine_id, "cron_schedules_routine_exclusive_check")
       check_constraint(:authorization_kind, "cron_schedules_work_authorization_check")
       check_constraint(:status, "cron_schedules_status_check")
       check_constraint(:next_fire_at, "cron_schedules_live_deadline_check")
@@ -87,6 +89,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
 
     ash_attributes()
     attribute(:owner_job_id, :integer, public?: true)
+    attribute(:owner_routine_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:binding_name, :string, public?: true)
     attribute(:name, :string, allow_nil?: false, public?: true)
     attribute(:schedule, Ankole.Ash.Types.JSONMap, default: %{}, allow_nil?: false, public?: true)
@@ -163,6 +166,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     transitions do
       transition(:pause, from: :active, to: :paused)
       transition(:resume, from: :paused, to: :active)
+      transition(:reactivate, from: :completed, to: :active)
       transition(:delete, from: [:active, :paused, :completed], to: :deleted)
       transition(:complete, from: [:active, :paused], to: :completed)
       transition(:stop_human_work, from: :active, to: :paused)
@@ -260,6 +264,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
         :agent_uid,
         :owner_session_id,
         :owner_job_id,
+        :owner_routine_id,
         :binding_name,
         :name,
         :schedule,
@@ -290,6 +295,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
         :agent_uid,
         :owner_session_id,
         :owner_job_id,
+        :owner_routine_id,
         :binding_name,
         :name,
         :schedule,
@@ -313,6 +319,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       validate(Ankole.TimeZone, where: [changing(:timezone)], only_when_valid?: true)
 
       accept([
+        :owner_routine_id,
         :binding_name,
         :name,
         :schedule,
@@ -329,6 +336,11 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     end
 
     update :resume do
+      accept([])
+      change(transition_state(:active))
+    end
+
+    update :reactivate do
       accept([])
       change(transition_state(:active))
     end

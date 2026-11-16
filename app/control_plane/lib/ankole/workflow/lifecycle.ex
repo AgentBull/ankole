@@ -126,8 +126,8 @@ defmodule Ankole.Workflow.Lifecycle do
       {:conversation, conversation_id} ->
         Ankole.Conversations.Events.publish_status(conversation_id)
 
-      # A cron rule's Workflow shows on the Work item of the room that owns the rule.
-      {:cron, _schedule_id} ->
+      # A routine's Workflow shows on the Work item of the room that owns the routine.
+      {:routine, _routine_id} ->
         Ankole.Conversations.Events.publish_rooms_changed()
 
       _ ->

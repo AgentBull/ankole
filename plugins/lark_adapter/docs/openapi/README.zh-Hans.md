@@ -361,22 +361,6 @@ dispatcher =
 FeishuOpenAPI.Event.Dispatcher.dispatch(dispatcher, {:raw, raw_body, headers})
 ```
 
-### 可选的 Plug 适配器
-
-若宿主应用使用 `Plug`，可直接挂载 `FeishuOpenAPI.Event.Server` 读取原始请求体、完成验签与解密并写回 JSON 响应：
-
-```elixir
-plug FeishuOpenAPI.Event.Server, dispatcher: dispatcher
-```
-
-返回值与 HTTP 响应的对应关系：
-
-- `url_verification` 握手请求 -> `{"challenge": "..."}`
-- 处理函数返回映射（map） -> 直接序列化为响应体
-- 处理函数返回 `{:ok, _}` -> `{"msg": "success"}`
-- 处理函数返回 `{:error, _}` 或抛出异常 -> 返回 HTTP 500，触发飞书服务端重推
-- 处理函数返回其他值 -> `{"msg": "success"}`
-
 对于交互卡片的 HTTP 回调，请使用下文的 `FeishuOpenAPI.CardAction.Handler`，不要使用 `Event.Dispatcher.on_callback/3`，因为卡片回调的签名算法与事件订阅 Webhook 不同。
 
 ## 交互卡片回调
@@ -405,12 +389,6 @@ card_handler =
   )
 
 FeishuOpenAPI.CardAction.Handler.dispatch(card_handler, {:raw, raw_body, headers})
-```
-
-在 `Plug` 路由中可挂载配套的适配器：
-
-```elixir
-plug FeishuOpenAPI.CardAction.Server, handler: card_handler
 ```
 
 ## WebSocket 事件推送

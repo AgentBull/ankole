@@ -1,6 +1,15 @@
 defmodule Ankole.Connectors.Jobs.ReconcileTriggers do
   @moduledoc false
-  use Ankole.Job, tenancy: :site, queue: :default, max_attempts: 3
+  use Ankole.Job,
+    tenancy: :site,
+    queue: :default,
+    max_attempts: 3,
+    unique: [
+      period: :infinity,
+      fields: [:worker, :args],
+      states: [:available, :scheduled, :retryable]
+    ]
+
   require Ash.Query
   @impl Ankole.Job
   def run(_job) do

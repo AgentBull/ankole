@@ -180,15 +180,6 @@ defmodule Ankole.Conversations.SharedAssistantBotTest do
         assert clicked.reply_binding_id == binding.id
         assert clicked.human_uid == human.uid
 
-        if adapter == "lark" do
-          assert {:ok, %{binding: binding_env}} =
-                   Ankole.AgentWorkers.WorkerEnv.effective_env_parts(assistant.uid,
-                     binding_name: binding.name
-                   )
-
-          assert binding_env == %{}
-        end
-
         assert {:ok, [%{deleted_mirror_entries: 1}]} =
                  inbound(adapter).handle_message_removed(
                    "removed",

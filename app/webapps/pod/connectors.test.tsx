@@ -12,6 +12,7 @@ import type {
   PodConnectorsCatalogResponse
 } from './api/generated/types.gen'
 import { Connectors } from './connectors'
+import { connectorKeys } from './state/connectors'
 
 test('subscription polling exposes reauthorization when the account query still has its earlier active snapshot', async () => {
   await loadLocale('en-US')
@@ -92,13 +93,12 @@ test('subscription polling exposes reauthorization when the account query still 
     config_ref: 'connector-trigger://calendar-subscription',
     updated_at: '2026-11-04T10:00:00Z'
   }
-  const key = ['connectors', '', '']
   client.setQueryData(['pod-session', '', ''], session)
-  client.setQueryData([...key, 'catalog'], catalog)
-  client.setQueryData([...key, 'connections'], connections)
-  client.setQueryData([...key, 'accounts', 'mine'], accounts)
-  client.setQueryData([...key, 'accounts', 'team'], { accounts: [] })
-  client.setQueryData([...key, 'triggers'], { triggers: [trigger] })
+  client.setQueryData(connectorKeys.catalog, catalog)
+  client.setQueryData(connectorKeys.connections, connections)
+  client.setQueryData(connectorKeys.accounts('mine'), accounts)
+  client.setQueryData(connectorKeys.accounts('team'), { accounts: [] })
+  client.setQueryData(connectorKeys.triggers, { triggers: [trigger] })
   const rootRoute = createRootRoute({ component: Connectors })
   const router = createRouter({ routeTree: rootRoute, history: createMemoryHistory({ initialEntries: ['/'] }) })
   await router.load()
@@ -119,7 +119,7 @@ test('subscription polling exposes reauthorization when the account query still 
     expect(render()).not.toContain('Authorize and continue')
     // Reconciliation expires the account. Only the trigger query polls; its response
     // includes the account status read by Triggers.list during that request.
-    client.setQueryData([...key, 'triggers'], {
+    client.setQueryData(connectorKeys.triggers, {
       triggers: [
         {
           ...trigger,
@@ -130,7 +130,7 @@ test('subscription polling exposes reauthorization when the account query still 
         }
       ]
     })
-    expect(client.getQueryData([...key, 'accounts', 'mine'])).toEqual(accounts)
+    expect(client.getQueryData(connectorKeys.accounts('mine'))).toEqual(accounts)
     expect(render()).toContain('Authorize and continue')
   } finally {
     client.clear()

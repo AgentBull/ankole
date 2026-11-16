@@ -31,6 +31,7 @@ defmodule Ankole.AIGateway.Providers.JinaReader do
       api_resolver(:jina_reader_web_fetch)
       prepare(:prepare_web_fetch)
       timeout_ms(@timeout_ms)
+      single_url(true)
     end
   end
 

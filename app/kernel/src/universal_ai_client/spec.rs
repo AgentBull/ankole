@@ -33,6 +33,7 @@ pub enum APIResolverKind {
     JinaSearchWebSearch,
     JinaReaderWebFetch,
     CloudflareWebSearch,
+    CloudflareWebFetch,
     CloudflareDecision,
     SystemoneDecision,
     #[serde(rename = "openai_decision")]
@@ -83,6 +84,7 @@ impl APIResolverKind {
             Self::JinaSearchWebSearch => "jina_search_web_search",
             Self::JinaReaderWebFetch => "jina_reader_web_fetch",
             Self::CloudflareWebSearch => "cloudflare_web_search",
+            Self::CloudflareWebFetch => "cloudflare_web_fetch",
             Self::CloudflareDecision => "cloudflare_decision",
             Self::SystemoneDecision => "systemone_decision",
             Self::OpenAIDecision => "openai_decision",

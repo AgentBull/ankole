@@ -15,24 +15,35 @@ Use the preconfigured `ankole-browser` CLI. The runtime injects an opaque route,
 
 ## Choose the execution surface
 
-Use short CLI commands to explore and perform one or two deterministic actions:
+Use short CLI commands to explore and perform one or two deterministic actions. Pass `--snap-diff` (or `--snap`) on interactive commands to execute the action and read the resulting accessibility delta in a single round-trip:
 
 ```bash
 ankole-browser open https://example.com
 ankole-browser snapshot -i
-ankole-browser click @e2
-ankole-browser fill @e4 "value"
+ankole-browser click @e2 --snap-diff
 ankole-browser screenshot browser/explore.png --annotate
 ```
 
-Use `batch` for a known short sequence. It accepts quoted commands or an array of argv arrays on stdin and applies the same parser as individual commands:
+Use `batch` for multi-field forms and known action sequences so filling inputs, selecting native `<select>` or ARIA `role="combobox"` options, checking boxes, uploading files, and observing the resulting UI delta happen in one call:
+
+```bash
+ankole-browser batch --bail --snap-diff \
+  'fill @e3 "ops@example.com"' \
+  'select @e5 "Enterprise"' \
+  'check @e6' \
+  'click @e8'
+```
+
+`batch` also accepts a JSON array of argv arrays on stdin and applies the same parser as individual commands:
 
 ```bash
 printf '%s' '[["open","https://example.com"],["wait","--load","domcontentloaded"],["snapshot","-i"]]' \
   | ankole-browser batch --json
 ```
 
-Write an ESM JavaScript file and use `run` when the task needs a loop, branch, repeated extraction, popup/download/response coordination, precise waiting, reusable code, or several values kept in memory. `run` attaches native Playwright objects to the same physical browser session used by CLI commands:
+When a task collects structured data or fills forms without needing visual screenshots, enable `ankole-browser network no-media` to skip `image`, `media`, and `font` subresources; run `ankole-browser network default` before taking screenshots when visual assets matter. If a site exposes structured WebMCP tools (via CDP `WebMCP`, `navigator.modelContext`, or `<form toolname tooldescription>`), inspect them with `ankole-browser webmcp list` and invoke them directly with `ankole-browser webmcp call <tool> '{"key":"value"}' --snap-diff`.
+
+Write an ESM JavaScript file and use `run` when the task needs a loop, branch, repeated extraction, popup/response coordination, precise waiting, reusable code, or several values kept in memory. `run` attaches native Playwright objects to the same physical browser session used by CLI commands:
 
 ```js
 // browser/final.mjs
@@ -64,14 +75,15 @@ The runner owns connection teardown. User code must not launch a browser or clos
 ## Work from observable state
 
 1. Translate every user requirement into a rendered state, returned value, or artifact that can prove completion.
-2. Start with `open` and `snapshot -i`. Choose refs only from the latest snapshot. A main-frame ref has the form `@e2`. A ref in an iframe has the form `@f1e3`. Take a new snapshot after navigation, a tab change, a frame change, a page close, or a `stale_ref` error. Do not guess a replacement ref.
-3. Use `find role|text|label|placeholder|testid|first|last|nth` when a ref is inconvenient. Use `get`, `is`, and `wait` to check state rather than treating a successful click as proof of its outcome.
-4. Keep the injected default session for the whole Job. A Job already has its own opaque route and persistent profile; do not invent named sessions as an isolation mechanism. `close` releases live browser resources but retains route data.
-5. Save evidence under `browser/` in the current Session or Job Workspace. Browser commands return the same real absolute paths that the Worker uses. For a reproducible workflow, keep `plan.md`, scratch scripts, `final.mjs`, and numbered run directories. Verify `result.json`, logs, current page state, and every cited screenshot before finishing.
+2. Start with `open` and `snapshot -i`. On subsequent steps on the same page, prefer `--snap-diff` or `snapshot -i --diff` to read only newly revealed controls or changed states (`[expanded=true]`, `[checked=true]`, newly opened modals) without repeating unchanged navigation chrome; unchanged `@eN` refs from the latest snapshot remain addressable. Use `snapshot -i -q <pattern>` (substring or `/regex/i`) to locate specific controls on dense pages before the 16 KiB output budget is applied. A main-frame ref has the form `@e2`; a ref in an iframe has the form `@f1e3`. Take a fresh snapshot after navigation, a tab change, a frame change, a page close, or a `stale_ref` error, and never guess a replacement ref.
+3. `select <selector> <value>` handles both native `<select>` elements and custom ARIA `role="combobox"` / `aria-haspopup="listbox"` dropdowns (including portal-rendered option lists and filterable combobox inputs). Use `find role|text|label|placeholder|testid|first|last|nth` when a ref is inconvenient, and use `get`, `is`, and `wait` to verify state rather than treating a click alone as proof of completion.
+4. When an action fails silently or a page misbehaves, run `ankole-browser diagnostics` (add `--all`, `--include-static`, `--url <pattern>`, or `--clear` as needed) to inspect uncaught JS exceptions, console errors/warnings, and failed or 4xx/5xx API requests with sensitive URL tokens redacted. Browser file downloads save automatically into `<artifact_root>/downloads/`; both the triggering action response (`downloads`) and `ankole-browser diagnostics` report the saved file paths.
+5. Keep the injected default session for the whole Job. A Job already has its own opaque route and persistent profile; do not invent named sessions as an isolation mechanism. `close` releases live browser resources but retains route data.
+6. Save evidence under `browser/` in the current Session or Job Workspace. Browser commands return the same real absolute paths that the Worker uses. For a reproducible workflow, keep `plan.md`, scratch scripts, `final.mjs`, and numbered run directories. Verify `result.json`, logs, current page state, and every cited screenshot before finishing.
 
 ## Local files
 
-The browser is not guaranteed to run on the Worker, so it does not always see the Worker filesystem, and a `file://` URL can fail with `net::ERR_BLOCKED_BY_CLIENT`. 
+The browser is not guaranteed to run on the Worker, so it does not always see the Worker filesystem, and a `file://` URL can fail with `net::ERR_BLOCKED_BY_CLIENT`.
 
 ## Native dialogs
 

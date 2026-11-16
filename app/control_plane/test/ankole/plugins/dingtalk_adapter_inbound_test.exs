@@ -213,4 +213,19 @@ defmodule Ankole.Plugins.DingTalkAdapterInboundTest do
   test "provider_conversation_id percent-encodes the conversation id" do
     assert Inbound.provider_conversation_id("cid AB/12") == "dingtalk:cid%20AB%2F12"
   end
+
+  test "an out-of-range createAt degrades occurred_at to nil without failing normalization" do
+    payload = %{
+      "msgId" => "m-overflow",
+      "conversationId" => "cidA",
+      "conversationType" => "1",
+      "senderStaffId" => "staff1",
+      "msgtype" => "text",
+      "text" => %{"content" => "hello"},
+      "createAt" => 9_999_999_999_999_999_999
+    }
+
+    assert {:ok, input} = Inbound.normalize_message_receive(event(payload), consumer())
+    assert input.provider_time == nil
+  end
 end

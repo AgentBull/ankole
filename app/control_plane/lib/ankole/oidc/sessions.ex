@@ -7,14 +7,21 @@ defmodule Ankole.OIDC.Sessions do
   alias Ankole.OIDC.Session
   alias Ankole.Principals.HumanAccess
 
+  def actor_for_session(%Session{} = session, principal, ip) do
+    with true <- session.principal_uid == principal.uid,
+         %{provider_id: _} = proof <-
+           Ash.Resource.get_metadata(session, :authentication_evidence) ||
+             BrowserSessions.authentication_evidence(session.authentication_id),
+         do: {:ok, Ankole.AuthZ.Actor.from_evidence(principal, proof, "oidc_token", ip)},
+         else: (_ -> {:error, :invalid_authentication})
+  end
+
   def actor_for_session(id, principal, ip) do
     with %Session{} = session <-
            Session
            |> Ash.Query.filter(id == ^id and principal_uid == ^principal.uid)
            |> Ankole.Ash.read_one!(),
-         %{provider_id: _} = proof <-
-           BrowserSessions.authentication_evidence(session.authentication_id),
-         do: {:ok, Ankole.AuthZ.Actor.from_evidence(principal, proof, "oidc_token", ip)},
+         do: actor_for_session(session, principal, ip),
          else: (_ -> {:error, :invalid_authentication})
   end
 
@@ -67,7 +74,7 @@ defmodule Ankole.OIDC.Sessions do
     end
   end
 
-  def validate(id, client_id, principal_uid, scope, kind \\ :access) do
+  def validate(id, client_id, principal_uid, scope, kind \\ :access, opts \\ []) do
     scopes = String.split(scope, " ", trim: true)
 
     with :ok <- accepting_work(),
@@ -81,22 +88,34 @@ defmodule Ankole.OIDC.Sessions do
              (is_nil(session.ended_at) and live_authentication?(session)),
          {:ok, principal} <- Ankole.Principals.get_principal(principal_uid),
          :ok <- HumanAccess.check(principal, session.access_version),
+         evidence = BrowserSessions.authentication_evidence(session.authentication_id),
          true <-
            Ankole.Principals.PodLoginPolicy.authentication_allowed?(
              principal,
              session.provider_id,
-             BrowserSessions.authentication_evidence(session.authentication_id)
+             evidence
            ),
-         {:ok, client} <- OIDC.get_active_client(client_id),
+         {:ok, client} <- fetch_active_client(client_id, opts[:client]),
          :ok <- LoginPolicy.authorize_source(client, session.provider_id),
          true <-
            "openid" in scopes and MapSet.subset?(MapSet.new(scopes), MapSet.new(client.scopes)) do
-      {:ok, session}
+      {:ok,
+       session
+       |> Ash.Resource.put_metadata(:principal, principal)
+       |> Ash.Resource.put_metadata(:authentication_evidence, evidence)}
     else
       false -> {:error, :authorization_revoked}
       {:error, _} = error -> error
     end
   end
+
+  @doc "Returns the validated Principal attached by `validate/6`."
+  def validated_principal(session), do: Ash.Resource.get_metadata(session, :principal)
+
+  defp fetch_active_client(client_id, %Client{id: client_id, enabled: true} = client),
+    do: {:ok, client}
+
+  defp fetch_active_client(client_id, _cached), do: OIDC.get_active_client(client_id)
 
   defp live_authentication?(session) do
     ref = %{"id" => session.authentication_id, "revision" => session.authentication_revision}

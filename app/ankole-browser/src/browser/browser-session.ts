@@ -1,13 +1,18 @@
 import { mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import type { BrowserContext, Frame, Locator, Page } from 'playwright-core'
-import type { BrowserCommandArgs, BrowserMaterial, BrowserPageCommand } from '../protocol'
+import type { BrowserCommandArgs, BrowserMaterial, BrowserPageCommand, InlineSnapMode } from '../protocol'
 import { BrowserDataError, browserError } from '../errors'
 import { PhysicalBrowser } from './backend'
+import { DiagnosticsStore } from './diagnostics'
 import { DialogGuard } from './dialog-guard'
-import { installNavigationPolicy, validateNavigationURL } from './navigation-policy'
+import { installNavigationPolicy, validateNavigationURL, type NetworkPolicyController } from './navigation-policy'
 import { PageRegistry } from './page-registry'
+import { selectByLabelOrValue } from './select'
 import { SnapshotStore } from './snapshot'
+import { callWebMCPTool, listWebMCPTools } from './webmcp'
+
+export { selectByLabelOrValue } from './select'
 
 type PointerActionCommand = Extract<
   BrowserPageCommand,
@@ -33,13 +38,16 @@ type PointerActionCommand = Extract<
 export class BrowserSession {
   readonly guard = new DialogGuard()
   readonly snapshots = new SnapshotStore()
+  readonly diagnostics: DiagnosticsStore
   readonly registry: PageRegistry
+  private networkPolicy?: NetworkPolicyController
 
   private constructor(
     readonly material: BrowserMaterial,
     readonly session: string,
     readonly physical: PhysicalBrowser
   ) {
+    this.diagnostics = new DiagnosticsStore(material.artifact_root)
     this.registry = new PageRegistry(physical.context, page => this.installPage(page))
   }
 
@@ -47,7 +55,13 @@ export class BrowserSession {
     const physical = await PhysicalBrowser.connect(material, session)
     try {
       const browserSession = new BrowserSession(material, session, physical)
-      await installNavigationPolicy(physical.context, material)
+      await browserSession.diagnostics.attachBrowser(
+        physical.browser,
+        material.backend.kind === 'local_chromium'
+          ? resolve(material.data_root, 'sessions', session, 'downloads-staging')
+          : undefined
+      )
+      browserSession.networkPolicy = await installNavigationPolicy(physical.context, material)
       await browserSession.guard.cleanupOrphans(physical.context)
       await browserSession.registry.ensurePage()
       await browserSession.registry.refreshMetadata()
@@ -96,10 +110,12 @@ export class BrowserSession {
   }
 
   async close(): Promise<void> {
+    await this.diagnostics?.close()
     await this.physical.close()
   }
 
   async purge(): Promise<void> {
+    await this.diagnostics?.close()
     await this.physical.purge()
   }
 
@@ -138,7 +154,7 @@ export class BrowserSession {
       case 'is':
         return await this.is(command.args)
       case 'find':
-        return await this.find(command.args)
+        return await this.find(command.args, deadline)
       case 'wait':
         return await this.wait(command.args)
       case 'tab':
@@ -152,8 +168,31 @@ export class BrowserSession {
         return await this.registry.currentFrame().evaluate(command.args.expression)
       case 'fetch':
         return await this.fetch(command.args.urls, deadline, command.args.result_mode)
+      case 'diagnostics':
+        return await this.diagnostics.read(command.args, deadline)
+      case 'network':
+        return await this.network(command.args)
+      case 'webmcp':
+        return await this.webmcp(command.args, deadline)
     }
     return unsupportedCommand(command)
+  }
+
+  async captureInlineSnapshot(mode: InlineSnapMode, deadline: number): Promise<Record<string, unknown>> {
+    if (this.guard.hasPending()) {
+      return { dialog_pending: true, dialog: this.guard.status() }
+    }
+    const snapshot = await this.snapshots.capture(
+      this.registry.currentPage(),
+      { interactive: true, ...(mode === 'diff' ? { diff: true } : {}) },
+      this.registry.currentFrame(),
+      deadline
+    )
+    return {
+      snapshot,
+      snapshot_mode: mode,
+      refs_may_be_stale: false
+    }
   }
 
   status(): Record<string, unknown> {
@@ -161,6 +200,7 @@ export class BrowserSession {
       backend: this.physical.kind,
       connected: this.physical.isConnected(),
       session: this.session,
+      network: this.networkPolicy?.mode() ?? 'default',
       tabs: this.registry.list(),
       dialog: this.guard.status()
     }
@@ -182,70 +222,76 @@ export class BrowserSession {
 
   private async action(command: PointerActionCommand, deadline: number): Promise<Record<string, unknown>> {
     const page = this.registry.currentPage()
+    const frame = this.registry.currentFrame()
     this.guard.assertRendererAvailable(command.name)
-    if (command.name === 'press') {
-      await this.guard.runPotentialDialogAction(page, () => page.keyboard.press(command.args.key))
-    } else if (command.name === 'scroll') {
-      const direction = command.args.direction
-      const pixels = command.args.pixels ?? 720
-      const selector = command.args.selector
-      const deltaX = direction === 'left' ? -pixels : direction === 'right' ? pixels : 0
-      const deltaY = direction === 'up' ? -pixels : direction === 'down' ? pixels : 0
-      if (selector) {
-        const locator = await this.resolve(selector)
-        await locator.evaluate(
-          (element, delta) => element.scrollBy({ left: delta.x, top: delta.y, behavior: 'instant' }),
-          { x: deltaX, y: deltaY }
-        )
-      } else await page.mouse.wheel(deltaX, deltaY)
-    } else if (command.name === 'drag') {
-      const source = await this.resolve(command.args.source)
-      const target = await this.resolve(command.args.target)
-      await this.guard.runPotentialDialogAction(page, () => source.dragTo(target))
-    } else {
-      const locator = await this.resolve(command.args.selector)
-      await this.guard.runPotentialDialogAction(page, async () => {
-        switch (command.name) {
-          case 'click':
-            await locator.click()
-            break
-          case 'dblclick':
-            await locator.dblclick()
-            break
-          case 'focus':
-            await locator.focus()
-            break
-          case 'hover':
-            await locator.hover()
-            break
-          case 'fill':
-            await locator.fill(command.args.text)
-            break
-          case 'type':
-            await locator.pressSequentially(command.args.text)
-            break
-          case 'select':
-            await selectByLabelOrValue(locator, command.args.value, deadline)
-            break
-          case 'check':
-            await locator.check()
-            break
-          case 'uncheck':
-            await locator.uncheck()
-            break
-          case 'scrollintoview':
-            await locator.scrollIntoViewIfNeeded()
-            break
-          case 'upload':
-            await locator.setInputFiles(command.args.paths.map(path => this.workspacePath(path)))
-            break
-          default:
-            unsupportedCommand(command)
+    return await this.runInteractiveMutation({
+      page,
+      deadline,
+      mayTriggerDownload: ['click', 'dblclick', 'press', 'select'].includes(command.name),
+      snap: command.args.snap,
+      mutate: async () => {
+        if (command.name === 'press') {
+          await page.keyboard.press(command.args.key)
+        } else if (command.name === 'scroll') {
+          const direction = command.args.direction
+          const pixels = command.args.pixels ?? 720
+          const selector = command.args.selector
+          const deltaX = direction === 'left' ? -pixels : direction === 'right' ? pixels : 0
+          const deltaY = direction === 'up' ? -pixels : direction === 'down' ? pixels : 0
+          if (selector) {
+            const locator = await this.resolve(selector)
+            await locator.evaluate(
+              (element, delta) => element.scrollBy({ left: delta.x, top: delta.y, behavior: 'instant' }),
+              { x: deltaX, y: deltaY }
+            )
+          } else await page.mouse.wheel(deltaX, deltaY)
+        } else if (command.name === 'drag') {
+          const source = await this.resolve(command.args.source)
+          const target = await this.resolve(command.args.target)
+          await source.dragTo(target)
+        } else {
+          const locator = await this.resolve(command.args.selector)
+          switch (command.name) {
+            case 'click':
+              await locator.click()
+              break
+            case 'dblclick':
+              await locator.dblclick()
+              break
+            case 'focus':
+              await locator.focus()
+              break
+            case 'hover':
+              await locator.hover()
+              break
+            case 'fill':
+              await locator.fill(command.args.text)
+              break
+            case 'type':
+              await locator.pressSequentially(command.args.text)
+              break
+            case 'select':
+              await selectByLabelOrValue(frame, locator, command.args.value, deadline)
+              break
+            case 'check':
+              await locator.check()
+              break
+            case 'uncheck':
+              await locator.uncheck()
+              break
+            case 'scrollintoview':
+              await locator.scrollIntoViewIfNeeded()
+              break
+            case 'upload':
+              await locator.setInputFiles(command.args.paths.map(path => this.workspacePath(path)))
+              break
+            default:
+              unsupportedCommand(command)
+          }
         }
-      })
-    }
-    await this.registry.refreshMetadata(page)
-    return { url: page.url(), refs_may_be_stale: true }
+        return { url: page.url() }
+      }
+    })
   }
 
   private async get(args: BrowserCommandArgs<'get'>): Promise<unknown> {
@@ -287,7 +333,7 @@ export class BrowserSession {
     return unsupportedCommand(args.predicate)
   }
 
-  private async find(args: BrowserCommandArgs<'find'>): Promise<unknown> {
+  private async find(args: BrowserCommandArgs<'find'>, deadline: number): Promise<unknown> {
     this.guard.assertRendererAvailable('find')
     const frame = this.registry.currentFrame()
     let locator: Locator
@@ -326,18 +372,24 @@ export class BrowserSession {
     if (!action) return { count: await locator.count() }
     if (action === 'text') return await locator.first().innerText()
     const page = this.registry.currentPage()
-    await this.guard.runPotentialDialogAction(page, async () => {
-      const target = locator.first()
-      if (action === 'click') await target.click()
-      else if (action === 'fill') await target.fill(args.text!)
-      else if (action === 'type') await target.pressSequentially(args.text!)
-      else if (action === 'hover') await target.hover()
-      else if (action === 'focus') await target.focus()
-      else if (action === 'check') await target.check()
-      else if (action === 'uncheck') await target.uncheck()
-      else unsupportedCommand(action)
+    return await this.runInteractiveMutation({
+      page,
+      deadline,
+      mayTriggerDownload: action === 'click',
+      snap: args.snap,
+      mutate: async () => {
+        const target = locator.first()
+        if (action === 'click') await target.click()
+        else if (action === 'fill') await target.fill(args.text!)
+        else if (action === 'type') await target.pressSequentially(args.text!)
+        else if (action === 'hover') await target.hover()
+        else if (action === 'focus') await target.focus()
+        else if (action === 'check') await target.check()
+        else if (action === 'uncheck') await target.uncheck()
+        else unsupportedCommand(action)
+        return { action }
+      }
     })
-    return { action, refs_may_be_stale: true }
   }
 
   private async wait(args: BrowserCommandArgs<'wait'>): Promise<Record<string, unknown>> {
@@ -385,6 +437,57 @@ export class BrowserSession {
     return result
   }
 
+  private async network(args: BrowserCommandArgs<'network'>): Promise<Record<string, unknown>> {
+    if (args.mode === 'status') {
+      return this.networkPolicy?.status() ?? { mode: 'default', blocked_resource_types: [] }
+    }
+    if (!this.networkPolicy) {
+      throw new BrowserDataError('internal', 'browser network policy controller is unavailable')
+    }
+    return await this.networkPolicy.setMode(args.mode)
+  }
+
+  private async webmcp(args: BrowserCommandArgs<'webmcp'>, deadline: number): Promise<Record<string, unknown>> {
+    this.guard.assertRendererAvailable('webmcp')
+    const page = this.registry.currentPage()
+    const frame = this.registry.currentFrame()
+    if (args.action === 'list') {
+      return await listWebMCPTools(page, frame, deadline)
+    }
+    return await this.runInteractiveMutation({
+      page,
+      deadline,
+      mayTriggerDownload: true,
+      snap: args.snap,
+      mutate: async () => await callWebMCPTool(page, frame, args.tool, args.input ?? {}, deadline)
+    })
+  }
+
+  private async runInteractiveMutation(options: {
+    page: Page
+    deadline: number
+    mayTriggerDownload: boolean
+    snap?: InlineSnapMode
+    mutate: () => Promise<Record<string, unknown>>
+  }): Promise<Record<string, unknown>> {
+    const settleGraceMs = options.mayTriggerDownload ? 75 : 0
+    const { result: fields, downloads } = await this.diagnostics.captureDownloadsDuring(
+      options.deadline,
+      settleGraceMs,
+      () => this.guard.runPotentialDialogAction(options.page, options.mutate)
+    )
+    await this.registry.refreshMetadata(options.page)
+    const result: Record<string, unknown> = {
+      ...fields,
+      refs_may_be_stale: true,
+      ...(downloads.length > 0 ? { downloads } : {})
+    }
+    if (options.snap) {
+      Object.assign(result, await this.captureInlineSnapshot(options.snap, options.deadline))
+    }
+    return result
+  }
+
   private async screenshot(args: BrowserCommandArgs<'screenshot'>): Promise<Record<string, unknown>> {
     const page = this.registry.currentPage()
     const annotate = args.annotate === true
@@ -418,6 +521,7 @@ export class BrowserSession {
           const urlDeadline = Math.min(deadline - 250, Date.now() + perURLBudget)
           try {
             page = await this.registry.newPage()
+            await this.networkPolicy?.prepareRenderedFetchPage(page)
             const url = await validateNavigationURL(value, this.material)
             const navigationTimeout = urlDeadline - Date.now() - RenderedFetchMinimumSettleMs
             if (navigationTimeout <= 0) {
@@ -481,6 +585,7 @@ export class BrowserSession {
 
   private installPage(page: Page): void {
     this.guard.install(page)
+    this.diagnostics.installPage(page)
     page.on('framenavigated', frame => {
       if (frame === page.mainFrame()) this.snapshots.clear()
     })
@@ -489,7 +594,8 @@ export class BrowserSession {
 
   private assertCommandAllowedDuringDialog(command: BrowserPageCommand): void {
     if (!this.guard.hasPending()) return
-    if (command.name === 'dialog') return
+    if (command.name === 'dialog' || command.name === 'diagnostics') return
+    if (command.name === 'network' && command.args.mode === 'status') return
     if (command.name === 'get' && (command.args.property === 'url' || command.args.property === 'title')) return
     if (command.name === 'tab' && command.args.action !== 'new') return
     this.guard.assertRendererAvailable(command.name)
@@ -617,32 +723,4 @@ function assertInside(root: string, path: string, boundary: string): void {
   if (child === '..' || child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(child)) {
     throw new BrowserDataError('invalid_command', `file path must stay inside ${boundary}`)
   }
-}
-
-async function selectByLabelOrValue(locator: Locator, value: string, deadline: number): Promise<void> {
-  while (Date.now() < deadline) {
-    const match = await locator.evaluateHandle(
-      (element, value) => {
-        const select = element instanceof HTMLSelectElement ? element : element.closest('label')?.control
-        if (!(select instanceof HTMLSelectElement)) throw new Error('Expected a select control')
-        const options = Array.from(select.options)
-        return options.find(option => option.label === value) ?? options.find(option => option.value === value) ?? null
-      },
-      value,
-      { timeout: Math.max(1, deadline - Date.now()) }
-    )
-    try {
-      const option = match.asElement()
-      if (option) {
-        await locator.selectOption(option, { timeout: Math.max(1, deadline - Date.now()) })
-        return
-      }
-    } finally {
-      await match.dispose()
-    }
-    await Bun.sleep(Math.min(100, Math.max(0, deadline - Date.now())))
-  }
-  throw new BrowserDataError('timeout', 'select option was unavailable before the command deadline', {
-    retryable: true
-  })
 }

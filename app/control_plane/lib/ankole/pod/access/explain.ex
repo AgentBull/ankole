@@ -500,6 +500,7 @@ defmodule Ankole.Pod.Access.Explain do
       subject_actor: subject_actor,
       authority_uid: authority_uid,
       page: page,
+      context: {snapshot, evaluated},
       viewer_reachable: viewer_reachable,
       satisfied: MapSet.new(evaluated["satisfiedGrantIDs"] || []),
       groups: groups,
@@ -626,7 +627,10 @@ defmodule Ankole.Pod.Access.Explain do
 
   defp linked_grant_source(grant, location_suffix, ctx) do
     with %Page{} = src_page <- Map.get(ctx.source_pages, grant.source_node_id),
-         {:ok, _} <- Access.authorize(ctx.subject_actor, src_page, grant.source_action) do
+         {:ok, _} <-
+           Access.authorize(ctx.subject_actor, src_page, grant.source_action,
+             context: ctx.context
+           ) do
       [
         %{
           "kind" => "source_node_grant",

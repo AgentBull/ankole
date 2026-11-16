@@ -376,12 +376,12 @@ defmodule AnkoleWeb.Plugs.VfsWebdav do
   defp header(conn, key), do: List.first(get_req_header(conn, key))
   defp put_metadata(%{node: _, etag: _} = meta), do: {:ok, meta}
 
-  defp put_metadata(%{vfs_meta: meta} = node),
-    do: {:ok, Map.put(meta, :refresh_body, Map.get(node, :vfs_refresh_body, false))}
+  defp put_metadata(%{node: _node, vfs_meta: meta} = result),
+    do: {:ok, Map.put(meta, :refresh_body, Map.get(result, :vfs_refresh_body, false))}
 
   defp put_metadata(node) do
     with {:ok, meta} <- Content.stat(Namespace.entry(node, node.type)),
-         do: {:ok, Map.put(meta, :refresh_body, Map.get(node, :vfs_refresh_body, false))}
+         do: {:ok, Map.put(meta, :refresh_body, false)}
   end
 
   defp http_date(time), do: Calendar.strftime(time, "%a, %d %b %Y %H:%M:%S GMT")

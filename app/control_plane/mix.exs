@@ -244,6 +244,7 @@ defmodule Ankole.MixProject do
       {:archdo, github: "BadBeta/archdo", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
+      # Ash declares stream_data with optional: false, so Mix rejects :only restrictions here.
       {:stream_data, "~> 1.4", []},
       {:phoenix, "~> 1.8.16"},
       {:phoenix_pubsub, "~> 2.4"},

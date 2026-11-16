@@ -10,6 +10,10 @@ export function readDocumentTheme(
   return doc?.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
 }
 
+export function resolveAppletFrameTitle(title: string): string {
+  return title.trim() || t('pod.content.applet')
+}
+
 type AppletProvider = {
   render(options: { dom: Element; props: { runtime: AppletRuntime } }): void
   destroy(options: { dom: Element }): void
@@ -106,7 +110,7 @@ export function mountApplet(
   if (!principal) throw new Error('The applet requires this document’s authenticated Principal')
   host()
   const frame = document.createElement('iframe')
-  frame.title = t('pod.content.applet')
+  frame.title = resolveAppletFrameTitle(runtime.title)
   frame.className = 'block w-full min-h-32 border-0 bg-transparent'
   let currentTheme = readDocumentTheme()
   frame.style.colorScheme = currentTheme
@@ -412,6 +416,7 @@ export function mountApplet(
     update(next: Omit<AppletRuntime, 'revision' | 'routes' | 'embedded'>) {
       if (disposed || next.pageID !== pageID) return
       currentRuntime = next
+      frame.title = resolveAppletFrameTitle(next.title)
       bound = { ...bound, actions: next.actions, title: next.title, theme: currentTheme }
       if (!provider) return
       try {

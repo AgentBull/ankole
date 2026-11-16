@@ -34,6 +34,12 @@ defmodule Ankole.AIAgent.Library.Management do
 
   def agent(actor, uid, action) do
     with :ok <- member(actor), {:ok, %{agent: agent}} <- Principals.get_agent(uid) do
+      agent_record(actor, agent, action)
+    end
+  end
+
+  def agent_record(actor, agent, action) do
+    with :ok <- member(actor) do
       case agent do
         %{type: :personal_assistant, owner_principal_uid: owner} ->
           if owner?(actor, owner), do: :ok, else: {:error, :forbidden}
@@ -41,7 +47,7 @@ defmodule Ankole.AIAgent.Library.Management do
         %{type: :ai_colleague} when action == "read" ->
           :ok
 
-        %{type: :ai_colleague} ->
+        %{type: :ai_colleague, uid: uid} ->
           authorize(actor, "tenant_console:agent:#{uid}", action)
       end
     end

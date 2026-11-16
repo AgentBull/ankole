@@ -503,7 +503,7 @@ defmodule Ankole.Sessions.ConversationContextTest do
           id: signal_id,
           type: "cron.fire",
           subject: "context-test",
-          target: %{agent_uid: context.agent.uid, session_id: "cron:context-test"},
+          target: %{agent_uid: context.agent.uid, session_id: "routine:context-test"},
           sender: context.human.uid,
           data: %{"wake_payload" => %{"cron_schedule_name" => "Context report"}}
         })

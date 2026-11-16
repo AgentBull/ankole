@@ -249,4 +249,18 @@ defmodule Ankole.Plugins.WeComAdapterInboundTest do
   test "provider_conversation_id percent-encodes the chat target" do
     assert Inbound.provider_conversation_id("wr AB/12") == "wecom:wr%20AB%2F12"
   end
+
+  test "an out-of-range create_time degrades occurred_at to nil without failing normalization" do
+    body = %{
+      "msgid" => "m-overflow",
+      "chattype" => "single",
+      "from" => %{"userid" => "Alice"},
+      "msgtype" => "text",
+      "text" => %{"content" => "hello"},
+      "create_time" => 9_999_999_999_999_999_999
+    }
+
+    assert {:ok, input} = Inbound.normalize_message_receive(event(body), consumer())
+    assert input.provider_time == nil
+  end
 end

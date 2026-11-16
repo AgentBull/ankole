@@ -40,11 +40,13 @@ import { podKeys, type ConversationDetail, type PodAgent } from './api'
 import { contentKeys, pageQuery, type PageDetail } from './content-api'
 import { prefetchBase } from './base-api'
 import { RealtimeRequestError } from './realtime'
+import { stripBidi } from '../common/bidi'
 import { podPublicOrigin } from '../common/browser-context'
 import { isDesktopRuntime } from '../common/pod-bootstrap'
 import { podLocation, podPagePath, podPagePathnameID, podPageRouteID, podRouteID } from '../common/pod-url'
 import { parseRouterSearch, stringifyRouterSearch, useSearchParams } from '../common/router'
 import { uuidShorten } from '../common/uuid-url'
+import { pageMetadata } from './state/page-metadata'
 import { knownPageTitle } from './use-page-metadata'
 import { StandaloneActionCardDialog } from './chat/standalone-action-card-dialog'
 import { StandaloneInteractionDialog } from './chat/standalone-interaction-dialog'
@@ -72,9 +74,18 @@ const contentScopeTitleKeys: Record<string, string> = {
 export function podRouteTitle(
   pathname: string,
   t: (key: string) => string,
-  conversationTitle?: string
+  conversationTitle?: string,
+  pageTitle?: string
 ): string | undefined {
-  if (pathname.startsWith('/pages/')) return undefined
+  if (pathname.startsWith('/pages/')) {
+    if (pageTitle === undefined) return 'Ankole'
+    const label = stripBidi(pageTitle).trim() || t('pod.content.untitled')
+    return `${label} · Ankole`
+  }
+  if (pathname.startsWith('/meta/brain/')) {
+    const label = stripBidi(pageTitle).trim() || 'Meta Ankole'
+    return `${label} · Ankole`
+  }
   if (pathname === '/meta' || pathname.startsWith('/meta/')) return 'Meta Ankole · Ankole'
   let label: string | undefined
   if (pathname === '/me' || pathname.startsWith('/me/')) {
@@ -86,17 +97,51 @@ export function podRouteTitle(
   } else if (pathname === '/settings' || pathname.startsWith('/settings/')) {
     label = t('pod.settings.title')
   } else if (pathname.startsWith('/dm/')) {
-    label = conversationTitle?.trim() || decodeURIComponent(pathname.slice('/dm/'.length))
+    label = stripBidi(conversationTitle).trim() || stripBidi(decodeURIComponent(pathname.slice('/dm/'.length))).trim()
   } else if (pathname === '/') {
     label = t('pod.sidebar.tabs.chat')
   } else if (pathname.startsWith('/conversations/')) {
-    label = conversationTitle?.trim() || t('pod.sidebar.tabs.chat')
+    label = stripBidi(conversationTitle).trim() || t('pod.sidebar.tabs.chat')
   } else if (pathname.startsWith('/content/')) {
     const scope = decodeURIComponent(pathname.slice('/content/'.length).split('/')[0] ?? '')
     const key = contentScopeTitleKeys[scope]
     label = key ? t(key) : t('pod.sidebar.tabs.home')
   }
   return label ? `${label} · Ankole` : undefined
+}
+
+export function knownConversationTitle(
+  client: ReturnType<typeof useQueryClient>,
+  conversationID: string
+): string | undefined {
+  const detailTitle = client.getQueryData<ConversationDetail>(podKeys.detail(conversationID))?.conversation.title
+  if (detailTitle) return detailTitle
+  type NamedConversation = { id: string; title?: string | null }
+  for (const [, data] of client.getQueriesData<
+    | {
+        conversations?: NamedConversation[]
+        pages?: Array<{ conversations?: NamedConversation[] }>
+      }
+    | NamedConversation[]
+  >({ queryKey: podKeys.conversations })) {
+    if (!data) continue
+    if (Array.isArray(data)) {
+      const match = data.find(item => item?.id === conversationID)?.title
+      if (match) return match
+      continue
+    }
+    if ('conversations' in data && Array.isArray(data.conversations)) {
+      const match = data.conversations.find(item => item.id === conversationID)?.title
+      if (match) return match
+    }
+    if ('pages' in data && Array.isArray(data.pages)) {
+      for (const page of data.pages) {
+        const match = page.conversations?.find(item => item.id === conversationID)?.title
+        if (match) return match
+      }
+    }
+  }
+  return undefined
 }
 const routeFeedback = {
   pendingComponent: PodRouteLoading,
@@ -466,6 +511,8 @@ function PodShell() {
       : undefined
     const conversationID = conversationSegment ? (podRouteID(conversationSegment) ?? conversationSegment) : undefined
     const colleagueUID = pathname.startsWith('/dm/') ? decodeURIComponent(pathname.slice('/dm/'.length)) : undefined
+    const pageID = podPagePathnameID(pathname)
+    let lastTitle: string | undefined
     const syncTitle = () => {
       let conversationTitle: string | undefined
       if (colleagueUID) {
@@ -474,18 +521,40 @@ function PodShell() {
           .getQueryData<{ agents: PodAgent[] }>(podKeys.agents)
           ?.agents.find(agent => agent.uid === colleagueUID)?.displayName
       } else if (conversationID) {
-        conversationTitle =
-          client.getQueryData<ConversationDetail>(podKeys.detail(conversationID))?.conversation.title ||
-          client
-            .getQueryData<{ conversations: Array<{ id: string; title: string }> }>(podKeys.conversations)
-            ?.conversations.find(item => item.id === conversationID)?.title
+        conversationTitle = knownConversationTitle(client, conversationID)
       }
-      const next = podRouteTitle(pathname, t, conversationTitle)
-      if (next) document.title = next
+      const pageTitle = pageID ? knownPageTitle(client, pageID) : undefined
+      const next = podRouteTitle(pathname, t, conversationTitle, pageTitle)
+      if (next && next !== lastTitle) {
+        lastTitle = next
+        document.title = next
+      }
     }
     syncTitle()
-    if (!conversationID && !colleagueUID) return
-    return client.getQueryCache().subscribe(() => syncTitle())
+    if (!conversationID && !colleagueUID && !pageID) return
+    let currentMetadata = pageID ? pageMetadata(client) : undefined
+    let unsubscribePages = currentMetadata?.subscribe(() => syncTitle())
+    const watchQueries = Boolean(conversationID || colleagueUID)
+    const unsubscribeQuery =
+      watchQueries || pageID
+        ? client.getQueryCache().subscribe(() => {
+            if (pageID) {
+              const nextMetadata = pageMetadata(client)
+              if (nextMetadata !== currentMetadata) {
+                unsubscribePages?.()
+                currentMetadata = nextMetadata
+                unsubscribePages = currentMetadata.subscribe(() => syncTitle())
+                syncTitle()
+                return
+              }
+            }
+            if (watchQueries) syncTitle()
+          })
+        : undefined
+    return () => {
+      unsubscribeQuery?.()
+      unsubscribePages?.()
+    }
   }, [client, pathname, t])
   const openCommand = useCallback(() => {
     commandReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null

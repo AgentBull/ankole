@@ -113,7 +113,7 @@ defmodule AnkoleWeb.BrowserInvitation do
         })
       end)
     else
-      {:error, reason} -> BrowserAPI.error(410, reason)
+      {:error, reason} -> AnkoleWeb.BrowserAPI.Error.login(reason)
     end
   end
 end

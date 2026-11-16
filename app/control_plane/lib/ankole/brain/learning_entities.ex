@@ -149,6 +149,11 @@ defmodule Ankole.Brain.LearningEntities do
     entity to store it. Skip greetings, operational chatter, routine job IDs,
     status polling, and questions that assert nothing; retain useful decisions,
     commitments, preferences, business facts, and reusable procedures.
+    Skip live operational readings—such as current queue counts, in-flight
+    ticket or order statuses, or intraday figures that a live table or system
+    answers on demand—unless they record a settled outcome, root cause, policy
+    threshold, or decision. When unsure whether a state reading outlives the
+    current moment, omit that reading while keeping durable assertions nearby.
 
     Work-session narration is never a fact. Skip routine updates about the
     assistant's execution, whoever reports them: progress, completion,

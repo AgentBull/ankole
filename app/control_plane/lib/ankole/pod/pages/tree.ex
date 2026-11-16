@@ -328,7 +328,7 @@ defmodule Ankole.Pod.Pages.Tree do
   def create(%Actor{} = actor, attrs) do
     Access.write_tree(actor.turn_authority, fn -> create_authorized_in_tx(actor, attrs) end,
       root_ids: fn -> root_ids([Ankole.Attrs.get(attrs, :parent_id)]) end,
-      after_commit: &committed/1
+      after_commit: fn page -> committed(page, %{access_changed: page.is_acl_anchor}) end
     )
   end
 
@@ -394,7 +394,9 @@ defmodule Ankole.Pod.Pages.Tree do
         |> Access.anchor_attributes()
 
       with {:ok, page} <- Ankole.Ash.create(Node, :create_in_tx, attrs),
-           do: initialize_content(page, Keyword.get(opts, :initial_content))
+           {:ok, page} <- initialize_content(page, Keyword.get(opts, :initial_content)) do
+        {:ok, page}
+      end
     else
       false -> {:error, :not_a_directory}
       error -> error
@@ -440,8 +442,16 @@ defmodule Ankole.Pod.Pages.Tree do
           else: Map.put_new_lazy(attrs, :updated_at, fn -> DateTime.utc_now(:microsecond) end)
 
       with {:ok, updated} <- Ankole.Ash.update(current, :update_in_tx, attrs),
-           :ok <- Ankole.Pod.SearchProjection.upsert_in_tx(updated),
-           :ok <- Ankole.Pod.FileExtraction.reconcile_renamed_in_tx(current, updated),
+           :ok <-
+             if(action in [:anchor, :sharing, :vfs_receipt, :begin_purge],
+               do: :ok,
+               else: Ankole.Pod.SearchProjection.upsert_in_tx(updated)
+             ),
+           :ok <-
+             if(action in [:anchor, :sharing, :vfs_receipt, :begin_purge],
+               do: :ok,
+               else: Ankole.Pod.FileExtraction.reconcile_renamed_in_tx(current, updated)
+             ),
            do: {:ok, updated}
     end
   end
@@ -449,13 +459,25 @@ defmodule Ankole.Pod.Pages.Tree do
   def rename(actor, id, name), do: move(actor, id, %{name: name})
 
   def move(%Actor{} = actor, id, attrs) do
-    Access.write_tree(actor.turn_authority, fn -> move_in_tx(actor, id, attrs) end,
-      root_ids: fn -> root_ids([id, Ankole.Attrs.get(attrs, :parent_id)]) end,
-      after_commit: &committed/1
-    )
+    with {:ok, {moved, _meta}} <-
+           Access.write_tree(
+             actor.turn_authority,
+             fn -> move_with_meta_in_tx(actor, id, attrs) end,
+             root_ids: fn -> root_ids([id, Ankole.Attrs.get(attrs, :parent_id)]) end,
+             after_commit: fn {moved, meta} -> committed(moved, meta) end
+           ) do
+      {:ok, moved}
+    end
   end
 
   def move_in_tx(actor, id, attrs, opts \\ []) do
+    with {:ok, {moved, _meta}} <- move_with_meta_in_tx(actor, id, attrs, opts) do
+      {:ok, moved}
+    end
+  end
+
+  @doc false
+  def move_with_meta_in_tx(actor, id, attrs, opts \\ []) do
     lock_tree()
 
     with {:ok, node} <- lock(id),
@@ -482,8 +504,15 @@ defmodule Ankole.Pod.Pages.Tree do
                updated_at: DateTime.utc_now(:microsecond)
              }),
            :ok <- sync_content_name(actor, node, moved, attrs),
-           :ok <- Ankole.Pod.Pages.Lifecycle.move_node_in_tx(node.id, old_path),
-           do: {:ok, moved}
+           :ok <- Ankole.Pod.Pages.Lifecycle.move_node_in_tx(node.id, old_path) do
+        access_changed =
+          moved.is_acl_anchor or moved.acl_anchor_id != node.acl_anchor_id or
+            moved.parent_anchor_id != node.parent_anchor_id
+
+        previous_parent_id = if node.parent_id != moved.parent_id, do: node.parent_id
+
+        {:ok, {moved, %{access_changed: access_changed, previous_parent_id: previous_parent_id}}}
+      end
     end
   end
 
@@ -906,19 +935,34 @@ defmodule Ankole.Pod.Pages.Tree do
     end)
   end
 
-  def committed(%{id: id} = node) do
-    Access.broadcast_change(Map.get(node, :type) != :file)
-    content_committed(%{id: id})
-  end
-
-  def content_committed(%{id: id}) do
-    ids =
-      case fetch(id) do
-        {:ok, page} -> [id, page.parent_id]
-        _ -> [id]
+  def committed(%{id: _id} = node, meta \\ %{}) do
+    if Map.get(meta, :access_changed, true) do
+      Access.broadcast_change(Map.get(node, :type) != :file)
+    else
+      if Map.get(node, :type) != :file do
+        Phoenix.PubSub.broadcast(
+          Ankole.PubSub,
+          "drive-vfs-access:" <> Repo.tenant_id!(),
+          :vfs_access_changed
+        )
       end
 
-    for id <- Enum.reject(ids, &is_nil/1) do
+      Ankole.Pod.Pages.broadcast_access()
+    end
+
+    content_committed(node, meta)
+  end
+
+  def content_committed(%{id: id} = _node, meta \\ %{}) do
+    previous_parent_id = Map.get(meta, :previous_parent_id)
+
+    ids =
+      case fetch(id) do
+        {:ok, page} -> [id, page.parent_id, previous_parent_id]
+        _ -> [id, previous_parent_id]
+      end
+
+    for id <- ids |> Enum.reject(&is_nil/1) |> Enum.uniq() do
       broadcast(id)
 
       Phoenix.PubSub.broadcast(

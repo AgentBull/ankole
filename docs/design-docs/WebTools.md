@@ -67,10 +67,16 @@ archives, images, audio, video, or executables—Agents use the command tool for
 explicit file downloads.
 
 Both foreground Sessions and Codex Jobs call AIGateway first with the
-`web_fetch.default` selector. If that selector has no configured provider or the
-upstream fetch fails, execution falls back to rendered extraction on the Worker
-(labeled `rendered_fallback` in the response `source` field). Both paths return
-each page's URL, title, extracted text or error message, and `source`, without
+`web_fetch.default` selector. When `web_fetch` resolves to a `cloudflare`
+provider row, AIGateway dispatches each requested URL to Cloudflare Browser Run
+(`POST /accounts/<account_id>/browser-run/markdown`), selecting Cloudflare's
+stateless Kitesurf engine (`?browser=kitesurf`) by default or full Chromium when
+the profile or request sets `browser` to `"chromium"`, and forwarding optional
+`gotoOptions`, `waitForSelector`, `rejectRequestPattern`, and `userAgent`
+settings. If `web_fetch.default` has no configured provider or the upstream
+fetch fails, execution falls back to rendered extraction on the Worker (labeled
+`rendered_fallback` in the response `source` field). Both paths return each
+page's URL, title, extracted text or error message, and `source`, without
 exposing browser endpoints, credentials, daemon process details, or local
 renderer state to the model.
 
@@ -171,12 +177,14 @@ root—without writing a material file to disk. Each client request enforces a
 cancellation.
 
 Inside `ankole-browser`, a default fetch batch accepts up to five URLs, opens at
-most two pages concurrently, and enforces a fixed per-URL timeout. For each page, the
-browser waits for the main document navigation to commit—without waiting for
-`DOMContentLoaded`—and then waits briefly for visible text to stabilize. Partial
-failures during page creation, navigation, or extraction produce an error for
-that URL. The browser keeps successful sibling results, continues the remaining
-URLs, and returns entries in the caller's request order.
+most two pages concurrently, and enforces a fixed per-URL timeout. Temporary
+extraction pages abort `image`, `media`, and `font` subresources so decorative
+binary assets do not delay text stabilization or consume Worker bandwidth. For
+each page, the browser waits for the main document navigation to commit—without
+waiting for `DOMContentLoaded`—and then waits briefly for visible text to
+stabilize. Partial failures during page creation, navigation, or extraction
+produce an error for that URL. The browser keeps successful sibling results,
+continues the remaining URLs, and returns entries in the caller's request order.
 
 If rendered extraction fails, Agent Computer logs the backend kind, failure
 stage, error code, retryability flag, failed URL index, URL scheme and host, and
@@ -208,16 +216,47 @@ Playwright scripts attach to the same default browser session:
 
 - `snapshot` returns Playwright's AI accessibility snapshot. Passing `-i`
   extracts interactive controls and pointer-cursor elements from Playwright's
-  JSON tree before applying the output budget, so verbose static copy never
-  crowds out actionable controls.
-- `select` waits for an option whose label or value matches,
-  prefers the label when different options match the same argument, and dispatches native input and change events.
-- Each snapshot captures element references (`@eN`, or `@f1e3` inside iframes),
-  and subsequent commands resolve refs against the latest snapshot; if a ref is
-  unknown or its DOM node has detached, the command returns `stale_ref`.
+  JSON tree before applying the 16 KiB output budget, so verbose static copy
+  never crowds out actionable controls. Passing `--diff` compares the capture
+  against the cached line-signature baseline for the current `(url, frame, mode)`
+  and emits only newly added or state-changed lines before truncation, while
+  `-q` / `--query` filters lines by case-insensitive substring or `/regex/flags`
+  without overwriting the full-page diff baseline. Interactive actions (`click`,
+  `fill`, `select`, `upload`, `find`, `webmcp call`, and `batch`) also accept
+  `--snap` and `--snap-diff` to return the post-action interactive or delta
+  snapshot in the same command round-trip.
+- `select` drives both native `<select>` elements and custom ARIA
+  `role="combobox"` / `aria-haspopup="listbox"` controls (including portal
+  listboxes and filterable combobox inputs), preferring exact label matches
+  before value matches and dispatching native input and change events.
+- Each snapshot retains every live element reference (`@eN`, or `@f1e3` inside
+  iframes) from the unfiltered capture, so unchanged `@eN` targets remain
+  clickable even after `--diff`, `-q`, or budget truncation narrows the printed
+  text; if a ref is unknown or its DOM node has detached, the command returns
+  `stale_ref`.
 - When given an explicit selector, text and interactive snapshots wait for that
   selector to attach within the remaining command timeout, returning a retryable
   `timeout` if it does not appear in time.
+- `diagnostics` reads bounded per-session ring buffers of uncaught `pageerror`
+  exceptions, console messages, failed or 4xx/5xx network responses, and
+  completed downloads—defaulting to errors only (`--all` and `--include-static`
+  widen the view, `--url` filters entries, and `--clear` resets the buffers).
+  Diagnostic entries strip URL userinfo, redact sensitive query and fragment
+  parameters (`token`, `api_key`, `secret`, `code`, `signature`, and session
+  keys), and omit request and response headers. Browser-triggered downloads save
+  automatically under `<artifact_root>/downloads/` with collision-safe filenames
+  confined inside `artifact_root`, surfacing in both the triggering action result
+  (`downloads`) and `diagnostics`.
+- `network` switches interactive sessions between `default` and `no-media`
+  (blocking `image`, `media`, and `font` subresources during data-only or
+  form-filling workflows). Remote CDP backends (`remote_cdp` and
+  `remote_session_request`, including stateless engines such as Kitesurf) attach
+  without global `Fetch.enable` interception by default so subresources incur
+  zero WAN round-trips unless `no-media` is enabled.
+- `webmcp` discovers (`webmcp list`) and invokes (`webmcp call <tool> [json]`)
+  page-exposed WebMCP tools across the CDP `WebMCP` domain, imperative
+  `navigator.modelContext` registrations, and declarative HTML
+  `<form toolname="..." tooldescription="...">` forms.
 
 In short, use `web_fetch` to read page text, and use the Browser Skill for UI
 interaction, screenshots, persistent login sessions, and repeatable Playwright
@@ -297,8 +336,20 @@ whether the owner reused a clean cached page.
 
 Automated tests verify:
 
-- direct mapping of semantic selectors on AIGateway requests
-- rendered-fallback activation and `source` labeling
+- direct mapping of semantic selectors on AIGateway requests, including
+  Cloudflare Browser Run Markdown extraction (`kitesurf` default and `chromium`
+  override) across single- and multi-URL `web_fetch` calls
+- rendered-fallback activation, `source` labeling, and automatic `image`/`media`/`font`
+  subresource blocking on temporary extraction pages
+- stateless `remote_cdp` attachment without global request interception, plus
+  on-demand `network no-media` toggling
+- delta (`snapshot -i --diff`), query-filtered (`-q`), and inline (`--snap` /
+  `--snap-diff`) snapshots preserving full `@eN` ref clickability and surfacing
+  bottom-of-DOM modals within the 16 KiB snapshot budget
+- native `<select>` and ARIA `role="combobox"` selection, `webmcp` discovery and
+  invocation across CDP, `navigator.modelContext`, and declarative `<form>`
+  tools, bounded `diagnostics` URL redaction, and confined `downloads/`
+  persistence
 - call-level character budgets, proportional budget sharing across multi-URL
   calls, and unclipped small pages
 - workspace full-text persistence, the 2,000,000-character file cap, and

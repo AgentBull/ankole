@@ -34,7 +34,7 @@ defmodule Ankole.AgentWorkers do
   defdelegate prepare_rename(agent_uid), to: ReconcileJob
   defdelegate rename_worker_in_tx(worker, new_uid), to: ReconcileJob
 
-  defdelegate effective_env_parts(uid), to: Ankole.AgentWorkers.WorkerEnv
+  defdelegate effective_env(uid), to: Ankole.AgentWorkers.WorkerEnv
 
   defdelegate validate_worker_env_name(name),
     to: Ankole.AgentWorkers.WorkerEnv,

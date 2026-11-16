@@ -258,7 +258,13 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
     )
   end
 
-  defp card_result({:error, _reason} = error, _task_id), do: error
+  defp card_result({:error, %WeComOpenAPI.Error{} = error}, _intent) do
+    if Ankole.Plugins.WeComAdapter.Delivery.uncertain?(error),
+      do: :unknown,
+      else: {:error, error}
+  end
+
+  defp card_result({:error, _reason} = error, _intent), do: error
 
   defp send_fallback_text(client, delivery, intent) do
     content =
@@ -280,6 +286,11 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
         Ankole.Plugins.WeComAdapter.Delivery.confirmed_send_result(ack, content, %{
           "attachments" => []
         })
+
+      {:error, %WeComOpenAPI.Error{} = error} ->
+        if Ankole.Plugins.WeComAdapter.Delivery.uncertain?(error),
+          do: :unknown,
+          else: {:error, error}
 
       {:error, _reason} = error ->
         error

@@ -1,5 +1,6 @@
 defmodule Ankole.Signals.Intake do
   @moduledoc false
+  require Ash.Expr
   require Ash.Query
 
   alias Ankole.Signals.Target, as: ExecutionTarget
@@ -9,7 +10,7 @@ defmodule Ankole.Signals.Intake do
   alias Ankole.Principals.{Principal, WorkAccess}
   alias Ankole.Sessions.Queue
   alias Ankole.Sessions.Jobs.EnsureDriver
-  alias Ankole.Signals.Signal
+  alias Ankole.Signals.{Coalesce, Signal}
   alias Ankole.Errors.Invalid.Stale
 
   def accept(attrs) do
@@ -34,8 +35,8 @@ defmodule Ankole.Signals.Intake do
   defp accept_all_in_tx(attrs_list) do
     with {:ok, facts} <- all_facts(attrs_list),
          :ok <- Queue.lock_sessions_in_tx(Enum.map(facts, &{&1.agent_uid, &1.session_id})),
-         {:ok, signals} <- persist(facts),
-         :ok <- wake_sessions(signals) do
+         {:ok, signals, extra_wakes} <- persist(facts),
+         :ok <- wake_sessions(signals ++ extra_wakes) do
       {:ok, signals}
     end
   end
@@ -131,6 +132,8 @@ defmodule Ankole.Signals.Intake do
   end
 
   defp facts(attrs, target) do
+    received_at = DateTime.utc_now(:microsecond)
+
     with {:ok, source} <- required_text(attrs, :source),
          {:ok, producer} <- producer(Ankole.Attrs.get(attrs, :producer)),
          {:ok, id} <- required_text(attrs, :id),
@@ -139,10 +142,17 @@ defmodule Ankole.Signals.Intake do
          {:ok, occurred_at} <- instant(Ankole.Attrs.get(attrs, :time)),
          {:ok, available_at} <- instant(Ankole.Attrs.get(attrs, :available_at) || occurred_at),
          {:ok, data} <- JSONPayload.normalize(Ankole.Attrs.get(attrs, :data, %{})),
-         {:ok, extensions} <-
+         {:ok, raw_extensions} <-
            JSONPayload.normalize_map(Ankole.Attrs.get(attrs, :extensions) || %{}),
+         {:ok, internal_extensions} <-
+           JSONPayload.normalize_map(Ankole.Attrs.get(attrs, :internal_extensions) || %{}),
          {:ok, route} <- reply_route(Ankole.Attrs.get(attrs, :reply_route), target.agent_uid) do
       sender = Ankole.Attrs.get(attrs, :sender)
+
+      extensions =
+        raw_extensions
+        |> Map.drop(["ankole_routine", "ankole_coalesce"])
+        |> Map.merge(internal_extensions)
 
       authorization =
         case Ankole.Attrs.get(attrs, :authorization) do
@@ -161,6 +171,8 @@ defmodule Ankole.Signals.Intake do
          subject: subject,
          occurred_at: occurred_at,
          available_at: available_at,
+         received_at: received_at,
+         coalesce_spec: Ankole.Attrs.get(attrs, :coalesce_spec),
          data: data,
          extensions: extensions,
          sender_key: sender,
@@ -176,12 +188,15 @@ defmodule Ankole.Signals.Intake do
   defp persist(facts) do
     existing = existing_signals(facts)
 
-    with {:ok, created} <-
-           facts
-           |> Enum.reject(&Map.has_key?(existing, identity(&1)))
-           |> Enum.uniq_by(&identity/1)
-           |> create_signals() do
-      signals = Map.merge(existing, Map.new(created, &{identity(&1), &1}))
+    new_facts =
+      facts
+      |> Enum.reject(&Map.has_key?(existing, identity(&1)))
+      |> Enum.uniq_by(&identity/1)
+
+    {coalesce_facts, plain_facts} = Enum.split_with(new_facts, &(not is_nil(&1.coalesce_spec)))
+
+    with {:ok, resolved_new, extra_wakes} <- persist_new_facts(plain_facts, coalesce_facts) do
+      signals = Map.merge(existing, resolved_new)
 
       facts
       |> Enum.reduce_while({:ok, []}, fn fact, {:ok, accepted} ->
@@ -194,11 +209,177 @@ defmodule Ankole.Signals.Intake do
         end
       end)
       |> case do
-        {:ok, accepted} -> {:ok, Enum.reverse(accepted)}
+        {:ok, accepted} -> {:ok, Enum.reverse(accepted), extra_wakes}
         error -> error
       end
     end
   end
+
+  defp persist_new_facts([], []), do: {:ok, %{}, []}
+
+  defp persist_new_facts(plain_facts, []) do
+    with {:ok, created} <- create_signals(plain_facts) do
+      {:ok, Map.new(created, &{identity(&1), &1}), []}
+    end
+  end
+
+  defp persist_new_facts(plain_facts, coalesce_facts) do
+    last_seq = last_sequences(plain_facts ++ coalesce_facts)
+    {plain_inputs, last_seq} = allocate_sequences(plain_facts, last_seq)
+
+    with {:ok, plain_created} <- insert_signal_inputs(plain_inputs),
+         {:ok, coalesced_map, extra_wakes} <- persist_coalesced_facts(coalesce_facts, last_seq) do
+      {:ok, Map.merge(Map.new(plain_created, &{identity(&1), &1}), coalesced_map), extra_wakes}
+    end
+  end
+
+  defp persist_coalesced_facts(coalesce_facts, last_seq) do
+    open_by_slot =
+      coalesce_facts
+      |> lock_open_coalesce_candidates()
+      |> Enum.reject(&Coalesce.sealed?/1)
+      |> Enum.sort_by(& &1.queue_sequence, :asc)
+      |> Enum.reduce(%{}, fn sig, acc ->
+        case sig.extensions do
+          %{"ankole_coalesce" => %{"binding_id" => bid, "group_key" => gkey}}
+          when is_binary(bid) and is_binary(gkey) ->
+            Map.put(acc, {sig.agent_uid, sig.session_id, bid, gkey}, sig)
+
+          _ ->
+            acc
+        end
+      end)
+
+    coalesce_facts
+    |> Enum.reduce_while({:ok, open_by_slot, last_seq, %{}, []}, fn fact,
+                                                                    {:ok, open_map, seq_map,
+                                                                     resolved, wakes} ->
+      spec = fact.coalesce_spec
+      slot = {fact.agent_uid, fact.session_id, spec.binding_id, spec.group_key}
+      envelope = Coalesce.envelope_from_fact(fact)
+
+      case apply_coalesce_fact(
+             Map.get(open_map, slot),
+             fact,
+             spec,
+             slot,
+             envelope,
+             open_map,
+             seq_map,
+             wakes
+           ) do
+        {:ok, signal, next_open_map, next_seq_map, next_wakes} ->
+          {:cont,
+           {:ok, next_open_map, next_seq_map, Map.put(resolved, identity(fact), signal),
+            next_wakes}}
+
+        error ->
+          {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, _open_map, _seq_map, resolved, wakes} -> {:ok, resolved, Enum.reverse(wakes)}
+      error -> error
+    end
+  end
+
+  defp apply_coalesce_fact(nil, fact, spec, slot, envelope, open_map, seq_map, wakes) do
+    open_new_coalesce_signal(fact, spec, slot, envelope, open_map, seq_map, wakes)
+  end
+
+  defp apply_coalesce_fact(open, fact, spec, slot, envelope, open_map, seq_map, wakes) do
+    if Coalesce.compatible_open_batch?(open, spec) do
+      case Coalesce.try_append(open, envelope, spec, fact.received_at) do
+        {:appended, updated_ext, available_at} ->
+          with {:ok, updated} <-
+                 Ankole.Signals.revise_input_signal(open, %{
+                   extensions: updated_ext,
+                   available_at: available_at
+                 }) do
+            next_open =
+              if Coalesce.sealed?(updated),
+                do: Map.delete(open_map, slot),
+                else: Map.put(open_map, slot, updated)
+
+            {:ok, updated, next_open, seq_map, wakes}
+          end
+
+        {:overflow, sealed_ext, sealed_available_at} ->
+          with {:ok, sealed} <-
+                 Ankole.Signals.revise_input_signal(open, %{
+                   extensions: sealed_ext,
+                   available_at: sealed_available_at
+                 }) do
+            open_new_coalesce_signal(
+              fact,
+              spec,
+              slot,
+              envelope,
+              Map.delete(open_map, slot),
+              seq_map,
+              [sealed | wakes]
+            )
+          end
+      end
+    else
+      with {:ok, _sealed} <-
+             Ankole.Signals.revise_input_signal(open, %{
+               extensions: Coalesce.seal_extensions(open)
+             }) do
+        open_new_coalesce_signal(
+          fact,
+          spec,
+          slot,
+          envelope,
+          Map.delete(open_map, slot),
+          seq_map,
+          wakes
+        )
+      end
+    end
+  end
+
+  defp open_new_coalesce_signal(fact, spec, slot, envelope, open_map, seq_map, wakes) do
+    {meta, available_at} = Coalesce.initial_batch(spec, envelope, fact.received_at)
+    session_key = {fact.agent_uid, fact.session_id}
+    sequence = (Map.fetch!(seq_map, session_key) || 0) + 1
+
+    input =
+      fact
+      |> strip_transient_fact_fields()
+      |> Map.put(:queue_sequence, sequence)
+      |> Map.put(:available_at, available_at)
+      |> Map.put(:extensions, Map.put(fact.extensions || %{}, "ankole_coalesce", meta))
+
+    with {:ok, created} <-
+           Ankole.Ash.create(Signal, :accept, input, touch_update_defaults?: false) do
+      next_open =
+        if Coalesce.sealed?(created),
+          do: Map.delete(open_map, slot),
+          else: Map.put(open_map, slot, created)
+
+      {:ok, created, next_open, Map.put(seq_map, session_key, sequence), wakes}
+    end
+  end
+
+  defp lock_open_coalesce_candidates(coalesce_facts) do
+    session_filter =
+      coalesce_facts
+      |> Enum.map(&{&1.agent_uid, &1.session_id})
+      |> Enum.uniq()
+      |> Enum.reduce(Ash.Expr.expr(false), fn {uid, sid}, expr ->
+        Ash.Expr.expr(^expr or (agent_uid == ^uid and session_id == ^sid))
+      end)
+
+    Signal
+    |> Ash.Query.filter(^session_filter)
+    |> Ash.Query.filter(status == :queued and is_nil(last_attempt_at))
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!(lock_identity: {:rows, "signals", :id})
+  end
+
+  defp strip_transient_fact_fields(fact), do: Map.drop(fact, [:coalesce_spec, :received_at])
 
   defp identity(fact), do: {fact.agent_uid, fact.source, fact.source_event_id}
 
@@ -217,16 +398,28 @@ defmodule Ankole.Signals.Intake do
     |> Map.take(identities)
   end
 
-  defp create_signals([]), do: {:ok, []}
-
   defp create_signals(facts) do
-    {inputs, _last} =
-      Enum.map_reduce(facts, last_sequences(facts), fn fact, last ->
-        key = {fact.agent_uid, fact.session_id}
-        sequence = (Map.fetch!(last, key) || 0) + 1
-        {Map.put(fact, :queue_sequence, sequence), Map.put(last, key, sequence)}
-      end)
+    {inputs, _last} = allocate_sequences(facts, last_sequences(facts))
+    insert_signal_inputs(inputs)
+  end
 
+  defp allocate_sequences(facts, last_seq) do
+    Enum.map_reduce(facts, last_seq, fn fact, last ->
+      key = {fact.agent_uid, fact.session_id}
+      sequence = (Map.fetch!(last, key) || 0) + 1
+
+      input =
+        fact
+        |> strip_transient_fact_fields()
+        |> Map.put(:queue_sequence, sequence)
+
+      {input, Map.put(last, key, sequence)}
+    end)
+  end
+
+  defp insert_signal_inputs([]), do: {:ok, []}
+
+  defp insert_signal_inputs(inputs) do
     Ankole.Ash.create_all(inputs, Signal, :accept,
       touch_update_defaults?: false,
       return_skipped_upsert?: true

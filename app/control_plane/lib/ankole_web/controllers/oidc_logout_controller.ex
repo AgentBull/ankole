@@ -2,7 +2,6 @@ defmodule AnkoleWeb.OIDCLogoutController do
   @moduledoc false
   use AnkoleWeb, :controller
 
-  alias Ankole.OIDC.Logout
   alias Ankole.OIDC.RPLogout
   alias AnkoleWeb.Session, as: WebSession
 
@@ -39,8 +38,7 @@ defmodule AnkoleWeb.OIDCLogoutController do
 
   def confirm(conn, %{"request" => id, "action" => "confirm"}) do
     case RPLogout.confirm(WebSession.browser_reference(conn), id) do
-      {:ok, %{redirect_uri: redirect_uri, browser: browser}} ->
-        Logout.deliver_browser(browser.id)
+      {:ok, %{redirect_uri: redirect_uri}} ->
         conn = WebSession.clear_authentication_cookies(conn)
 
         case redirect_uri do

@@ -98,14 +98,7 @@ export function DocumentPage({
 }) {
   useSignals()
   const { t, i18n } = useTranslation()
-  const labels = useMemo(
-    () => ({
-      ...editorLabels(i18n.language),
-      block: i18n.t('pod.editor.block', { defaultValue: 'Block' }),
-      open_link: i18n.t('pod.editor.open_link', { defaultValue: 'Open link' })
-    }),
-    [i18n]
-  )
+  const labels = useMemo(() => editorLabels(i18n.language), [i18n.language])
   const [generation, setGeneration] = useState(0)
   const [initialXML, setInitialXML] = useState(detail.content?.content ?? '<page/>')
   const initialDocument = useMemo(() => parseXml(initialXML), [initialXML])
@@ -142,6 +135,7 @@ export function DocumentPage({
     [pageHost]
   )
   const [assetError, setAssetError] = useState<unknown>()
+  const [editorError, setEditorError] = useState<unknown>()
   const awareness = useModel(DocumentPresenceModel)
   const [collaborationError, setCollaborationError] = useState<unknown>()
   const [revoked, setRevoked] = useState(false)
@@ -300,6 +294,7 @@ export function DocumentPage({
       return { xml: latest.content?.content ?? '<page/>', revision: latest.page.revision }
     })
     if (xml === undefined) return
+    setEditorError(undefined)
     setInitialXML(xml)
     setGeneration(value => value + 1)
   }
@@ -400,6 +395,7 @@ export function DocumentPage({
       )}
       <DocumentRecovery model={model} title={title.value} />
       <ContentError error={assetError} />
+      <ContentError error={editorError} />
       {/* The notice above already reports lost access, so the request error would only repeat it. */}
       {!accessDenied && (
         <ContentError
@@ -434,7 +430,7 @@ export function DocumentPage({
                 }}
               />
             )}
-            onError={setCollaborationError}
+            onError={setEditorError}
             onReady={(instance, editorHandle) => {
               editor.current = instance
               onEditor(editorHandle)

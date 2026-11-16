@@ -115,4 +115,13 @@ defmodule Ankole.Sessions.SessionWorkspacesTest do
                [Repo.tenant_id!(), agent.uid]
              )
   end
+
+  test "Workspaces.ensure_in_tx rejects pod_job session keys without raising CaseClauseError" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:error, :invalid_session_key} =
+             Repo.transact_top_level(fn ->
+               Ankole.Sessions.Workspaces.ensure_in_tx(agent.uid, "pod_job:123")
+             end)
+  end
 end

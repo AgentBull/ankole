@@ -143,7 +143,7 @@ export async function reloadConversation(
   }
 }
 
-function activityPayload(value: unknown): value is PodActivity {
+export function activityPayload(value: unknown): value is PodActivity {
   if (!isRecord(value)) return false
   const item = value as PodActivity
   return (

@@ -20,6 +20,7 @@ import { Link } from '@tanstack/react-router'
 import { Choice as ChoiceControl, ContentError, ContentSkeleton, InlineLoading } from './content-primitives'
 import { contentKeys, podFileURL, podRequest, type PageDetail } from './content-api'
 import * as api from './api/generated/sdk.gen'
+import { eventTypeFilterExpression, useConnectorEventSources } from './connector-event-picker'
 import { automationJobID, connectorFailureMessage, connectorReturnTo } from './state/connectors'
 
 const podForPage = (pageID: string) => ({
@@ -1349,16 +1350,15 @@ function ConnectorEvents({
   const { t } = useTranslation()
   const linkedHeadingId = useId()
   const key = [...contentKeys.page(pageID), 'automation', 'connectors']
-  const catalog = useQuery({ queryKey: [...key, 'catalog'], queryFn: () => api.podConnectorsCatalog() })
-  const triggers = useQuery({
-    queryKey: [...key, 'triggers'],
-    queryFn: () => api.podConnectorTriggersList(),
-    refetchInterval: isActive ? 5000 : false
-  })
-  const connections = useQuery({
-    queryKey: [...key, 'connections'],
-    queryFn: () => api.podConnectorAuthConfigsList(),
-    refetchInterval: isActive ? 5000 : false
+  const {
+    triggers,
+    connections,
+    origins,
+    choices,
+    error: sourcesError
+  } = useConnectorEventSources({
+    pollIntervalMs: isActive ? 5000 : false,
+    automation: { pageID, jobID: job.id }
   })
   const [selected, setSelected] = useState(() => {
     if (typeof window === 'undefined') return ''
@@ -1366,52 +1366,9 @@ function ConnectorEvents({
     return automationJobID(params) === job.id ? (params.get('connector_source') ?? '') : ''
   })
   const [eventType, setEventType] = useState('')
-  const visibleConnections = connections.data?.connections ?? []
-  const origins = (triggers.data?.triggers ?? []).flatMap(item => {
-    const connection = visibleConnections.find(value => value.id === item.auth_config_id)
-    const definition = catalog.data?.connectors
-      ?.find(value => value.plugin_id === connection?.plugin_id)
-      ?.trigger_types?.find(value => value.id === item.trigger_type)
-    return connection && item.status !== 'deleting'
-      ? [
-          {
-            reference: item.config_ref,
-            label: `${connection.display_name} · ${definition?.label ?? item.trigger_type} · ${item.scope_key}`,
-            connectionStatus: connection.status,
-            status: item.status,
-            subscription: true,
-            eventTypes: [] as string[],
-            lastError: item.last_error,
-            manageURL: connectorReturnTo({
-              connection: connection.slug,
-              trigger: { type: item.trigger_type, scope: item.scope_key, id: item.id },
-              automation: { pageID, jobID: job.id }
-            })
-          }
-        ]
-      : []
-  })
-  if (catalog.data?.can_manage) {
-    for (const connection of visibleConnections) {
-      const declaration = catalog.data.connectors?.find(item => item.id === connection.plugin_id)
-      for (const stream of declaration?.event_streams ?? []) {
-        origins.push({
-          reference: `connector://${connection.id}/${stream.id}`,
-          label: `${connection.display_name} · ${stream.label}`,
-          connectionStatus: connection.status,
-          status: connection.status,
-          subscription: false,
-          eventTypes: stream.event_types,
-          lastError: null,
-          manageURL: connectorReturnTo({ connection: connection.slug, automation: { pageID, jobID: job.id } })
-        })
-      }
-    }
-  }
-  const choices = origins.filter(item => item.connectionStatus === 'active')
   const source = selected ? choices.find(item => item.reference === selected) : choices[0]
   const selectedType = source?.eventTypes.includes(eventType) ? eventType : ''
-  const filter = selectedType ? `signal.type == ${JSON.stringify(selectedType)}` : undefined
+  const filter = eventTypeFilterExpression(selectedType)
   const bindings = useQuery({
     queryKey: [...key, 'bindings', job.id],
     queryFn: () => api.podEventBindings({ query: { job_id: job.id } })
@@ -1437,7 +1394,7 @@ function ConnectorEvents({
           {t('pod.automation.open_connectors')}
         </Link>
       </div>
-      <ContentError error={catalog.error ?? triggers.error ?? connections.error ?? bindings.error} />
+      <ContentError error={sourcesError ?? bindings.error} />
       {!!linked.length && (
         <div className="grid gap-2" role="group" aria-labelledby={linkedHeadingId}>
           <h4 id={linkedHeadingId} className="text-sm font-medium">

@@ -3,6 +3,7 @@ defmodule Ankole.Conversations.AdapterContext do
   Binding runtime context and helper access handed to a signal adapter.
   """
 
+  alias Ankole.Conversations.ActionCards
   alias Ankole.Principals
 
   @enforce_keys [:binding_id, :agent_uid, :binding_name, :adapter, :user_name]
@@ -65,6 +66,62 @@ defmodule Ankole.Conversations.AdapterContext do
       {:ok, %{principal: principal}} -> {:ok, principal.uid}
       {:error, _reason} = error -> error
     end
+  end
+
+  @doc "Returns true when `interaction_id` addresses an Action Card callback."
+  @spec action_card_interaction_id?(term()) :: boolean()
+  defdelegate action_card_interaction_id?(interaction_id), to: ActionCards
+
+  @doc """
+  Resolves the Principal UID for an interactive callback operator.
+
+  Action Card clicks resolve existing Principals without auto-provisioning new
+  members (`{:ok, uid | nil}`) so unmapped clickers receive an explicit Action
+  Card rejection receipt. Non-Action-Card interactions either require a mapped
+  subject (`:reject`, the default for consumer channels) or invoke `fallback.()`
+  to observe an enterprise directory member.
+  """
+  @spec resolve_action_operator(
+          String.t(),
+          String.t() | [String.t()],
+          term(),
+          :reject | (-> {:ok, String.t()} | {:error, term()})
+        ) :: {:ok, String.t() | nil} | {:error, term()}
+  def resolve_action_operator(provider, external_ids, interaction_or_value, fallback \\ :reject) do
+    interaction_id =
+      if is_map(interaction_or_value),
+        do: interaction_or_value["interactionId"],
+        else: interaction_or_value
+
+    candidates =
+      external_ids
+      |> List.wrap()
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
+      |> Enum.uniq()
+
+    if action_card_interaction_id?(interaction_id) do
+      {:ok, resolve_first_subject_uid(provider, candidates)}
+    else
+      case fallback do
+        :reject ->
+          case resolve_first_subject_uid(provider, candidates) do
+            uid when is_binary(uid) -> {:ok, uid}
+            nil -> {:error, :not_found}
+          end
+
+        observe_fun when is_function(observe_fun, 0) ->
+          observe_fun.()
+      end
+    end
+  end
+
+  defp resolve_first_subject_uid(provider, candidates) do
+    Enum.find_value(candidates, fn id ->
+      case Principals.resolve_platform_subject_uid(provider, id) do
+        {:ok, uid} -> uid
+        _ -> nil
+      end
+    end)
   end
 
   defp put_default(attrs, key, value) do

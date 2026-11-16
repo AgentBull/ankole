@@ -81,14 +81,9 @@ defmodule Ankole.Connectors.Gateway do
     |> consent_return(context, id, name)
   end
 
-  defp call({:skill, skill, server} = target, name, args, context, _options)
+  defp call({:skill, _skill, _server} = target, name, args, context, _options)
        when is_binary(name) and is_map(args) do
-    with {:ok, declaration} <- skill_server(context, skill, server),
-         true <- allowed?(declaration, name),
-         {:ok, tools} <- tools(target, context),
-         %{} = tool <- Enum.find(tools, &(&1["name"] == name)),
-         :ok <- readonly(context, tool["annotations"] || %{}),
-         {:ok, args} <- Ankole.Sessions.ToolArguments.validate(tool["inputSchema"] || %{}, args),
+    with {:ok, declaration, tool, args} <- prepare_skill_call(target, name, args, context),
          {:ok, result} <-
            RemoteMCP.call(
              declaration["url"],
@@ -111,10 +106,6 @@ defmodule Ankole.Connectors.Gateway do
         _ ->
           {:ok, result}
       end
-    else
-      false -> {:error, :mcp_tool_not_enabled}
-      nil -> {:error, :mcp_tool_not_found}
-      error -> error
     end
   end
 
@@ -239,23 +230,39 @@ defmodule Ankole.Connectors.Gateway do
            ) do
       {:ok, adapter, spec, args, credentials}
     else
-      nil ->
-        {:error, %{code: "mcp_tool_not_found", request_sent: false, retryable: false}}
-
-      {:error, reason} when is_binary(reason) ->
-        {:error,
-         %{code: "invalid_tool_arguments", message: reason, retryable: false, request_sent: false}}
-
-      {:error, reason} when is_atom(reason) ->
-        {:error, %{code: Atom.to_string(reason), retryable: false, request_sent: false}}
-
-      {:error, reason} when is_map(reason) ->
-        {:error, Map.put(reason, :request_sent, false)}
-
-      error ->
-        error
+      error -> pre_invocation_error(error)
     end
   end
+
+  defp prepare_skill_call({:skill, skill, server} = target, name, args, context) do
+    with {:ok, declaration} <- skill_server(context, skill, server),
+         true <- allowed?(declaration, name),
+         {:ok, tools} <- tools(target, context),
+         %{} = tool <- Enum.find(tools, &(&1["name"] == name)),
+         :ok <- readonly(context, tool["annotations"] || %{}),
+         {:ok, args} <- Ankole.Sessions.ToolArguments.validate(tool["inputSchema"] || %{}, args) do
+      {:ok, declaration, tool, args}
+    else
+      false -> pre_invocation_error({:error, :mcp_tool_not_enabled})
+      error -> pre_invocation_error(error)
+    end
+  end
+
+  defp pre_invocation_error(nil),
+    do: {:error, %{code: "mcp_tool_not_found", request_sent: false, retryable: false}}
+
+  defp pre_invocation_error({:error, reason}) when is_binary(reason),
+    do:
+      {:error,
+       %{code: "invalid_tool_arguments", message: reason, retryable: false, request_sent: false}}
+
+  defp pre_invocation_error({:error, reason}) when is_atom(reason),
+    do: {:error, %{code: Atom.to_string(reason), retryable: false, request_sent: false}}
+
+  defp pre_invocation_error({:error, reason}) when is_map(reason),
+    do: {:error, Map.put(reason, :request_sent, false)}
+
+  defp pre_invocation_error(error), do: error
 
   defp skill_server(context, skill, server) do
     with {:ok, projection} <-
@@ -299,7 +306,8 @@ defmodule Ankole.Connectors.Gateway do
   defp validate_output(spec, result) do
     case ToolSpec.validate_output(spec, result) do
       {:error, reason} ->
-        {:error, %{code: "invalid_upstream_output", message: reason, retryable: false}}
+        {:error,
+         %{code: "invalid_upstream_output", message: reason, retryable: false, request_sent: true}}
 
       result ->
         result

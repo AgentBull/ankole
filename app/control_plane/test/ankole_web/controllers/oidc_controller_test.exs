@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.OIDCControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  use Oban.Testing, repo: Ankole.Repo
   import AnkoleWeb.PodAPI
 
   import Ankole.PrincipalsFixtures
@@ -785,6 +786,15 @@ defmodule AnkoleWeb.OIDCControllerTest do
              |> post("/oauth/introspect", %{"token" => tokens["access_token"]})
              |> json_response(401)
 
+    duplicate_client_auth =
+      conn
+      |> recycle()
+      |> put_req_header("authorization", basic)
+      |> post("/oauth/introspect", %{"token" => tokens["access_token"], "client_id" => client.id})
+
+    assert %{"error" => "invalid_request"} = json_response(duplicate_client_auth, 400)
+    assert get_resp_header(duplicate_client_auth, "www-authenticate") == []
+
     {:ok, _} =
       Repo.with_tenant(human.principal.tenant_id, fn ->
         Ankole.PrincipalsFixtures.disable_principal_fixture(human.principal.uid)
@@ -869,6 +879,59 @@ defmodule AnkoleWeb.OIDCControllerTest do
              }),
              409
            ) =~ "ankole-app"
+  end
+
+  test "RP logout confirmation enqueues durable Back-Channel Logout without inline HTTP blocking",
+       %{conn: conn, tenant: tenant} do
+    human = human_fixture()
+
+    client =
+      create_client!(%{
+        post_logout_redirect_uris: ["https://spa.example.test/signed-out"],
+        backchannel_logout_uri: "https://127.0.0.1:1/backchannel-logout"
+      })
+
+    issued =
+      conn
+      |> oauth_session_conn(human.principal.uid)
+      |> get("/oauth/authorize", authorization_request(client.id, "openid"))
+
+    tokens =
+      exchange_public_code(conn, client.id, redirect_query(issued)["code"], pkce_verifier())
+
+    prepared =
+      get(recycle(issued), "/oauth/logout", %{
+        "id_token_hint" => tokens["id_token"],
+        "post_logout_redirect_uri" => "https://spa.example.test/signed-out",
+        "state" => "fast-logout"
+      })
+
+    request_id = redirect_query(prepared)["request"]
+    started_ms = System.monotonic_time(:millisecond)
+
+    confirmed =
+      post(recycle(prepared), "/oauth/logout/confirm", %{
+        "request" => request_id,
+        "action" => "confirm"
+      })
+
+    elapsed_ms = System.monotonic_time(:millisecond) - started_ms
+    assert redirected_to(confirmed) == "https://spa.example.test/signed-out?state=fast-logout"
+    assert elapsed_ms < 1_000
+
+    Repo.with_tenant(tenant.id, fn ->
+      delivery =
+        Repo.get_by!(Ankole.OIDC.LogoutDelivery,
+          endpoint: "https://127.0.0.1:1/backchannel-logout"
+        )
+
+      assert delivery.status == :pending
+
+      assert_enqueued(
+        worker: Ankole.OIDC.LogoutWorker,
+        args: %{delivery_id: delivery.id, tenant_id: tenant.id}
+      )
+    end)
   end
 
   test "a valid hint from another browser requires confirmation of the current identity", %{

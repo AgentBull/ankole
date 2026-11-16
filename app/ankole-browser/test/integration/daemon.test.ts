@@ -1,18 +1,24 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { spawn, type ChildProcess } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { browserClientContextFromEnv, sendBrowserCommand, type BrowserClientContext } from '../../src/client'
 import { runBrowserCode } from '../../src/cli/run-command'
 import { BrowserMaterialSchema } from '../../src/protocol'
+import {
+  chromiumExecutable,
+  integrationEnabled,
+  runCode,
+  runCodePath,
+  startDaemon,
+  waitForExit,
+  waitForPath,
+  withRunnerEnv
+} from './harness'
 
-const enabled = process.env.ANKOLE_BROWSER_INTEGRATION === '1'
-const chromiumExecutable =
-  process.env.ANKOLE_BROWSER_TEST_CHROMIUM ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-
-describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () => {
+describe.skipIf(!integrationEnabled)('real daemon, Chromium, dialog, and code lease', () => {
   let root: string
   let socketPath: string
   let daemon: ChildProcess
@@ -328,9 +334,7 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
   }, 35_000)
 
   test('code runs own their default artifacts and serialize explicit directory reuse', async () => {
-    const previousRunner = process.env.ANKOLE_BROWSER_RUNNER
-    process.env.ANKOLE_BROWSER_RUNNER = resolve(import.meta.dir, '../../dist/runner/bootstrap.js')
-    try {
+    await withRunnerEnv(async () => {
       const run = (value: string, session: string, runDir?: string) =>
         runBrowserCode({
           context,
@@ -351,29 +355,17 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
       await expect(run('collision', 'run-b', runDir)).rejects.toMatchObject({ code: 'session_busy' })
       expect((await pending).value).toBe('held')
       expect((await run('replacement', 'run-b', runDir)).value).toBe('replacement')
-    } finally {
-      if (previousRunner === undefined) delete process.env.ANKOLE_BROWSER_RUNNER
-      else process.env.ANKOLE_BROWSER_RUNNER = previousRunner
-    }
+    })
   }, 30_000)
 
   test('browser.bind runner sees and changes the same persistent page', async () => {
-    const packageRoot = resolve(import.meta.dir, '../..')
-    const previousRunner = process.env.ANKOLE_BROWSER_RUNNER
-    process.env.ANKOLE_BROWSER_RUNNER = resolve(packageRoot, 'dist/runner/bootstrap.js')
-    try {
-      const result = await runBrowserCode({
-        context,
-        scriptSource: `export default async ({ page }) => { await page.locator('#value').fill('from-code'); await page.evaluate(() => localStorage.setItem('browser-test', 'from-code')); return { value: await page.locator('#value').inputValue() } }`,
-        scriptArgs: [],
-        timeoutMs: 15_000
-      })
-      expect(result.status).toBe('ok')
-      expect(result.value).toEqual({ value: 'from-code' })
-    } finally {
-      if (previousRunner === undefined) delete process.env.ANKOLE_BROWSER_RUNNER
-      else process.env.ANKOLE_BROWSER_RUNNER = previousRunner
-    }
+    const result = await runCode(
+      context,
+      `export default async ({ page }) => { await page.locator('#value').fill('from-code'); await page.evaluate(() => localStorage.setItem('browser-test', 'from-code')); return { value: await page.locator('#value').inputValue() } }`,
+      15_000
+    )
+    expect(result.status).toBe('ok')
+    expect(result.value).toEqual({ value: 'from-code' })
 
     const value = await sendBrowserCommand(context, { name: 'get', args: { property: 'value', selector: '#value' } })
     expect(value.ok && value.data).toBe('from-code')
@@ -529,7 +521,7 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
   }, 20_000)
 })
 
-describe.skipIf(!enabled)('real browser capacity pressure', () => {
+describe.skipIf(!integrationEnabled)('real browser capacity pressure', () => {
   test('a waiting route reclaims an idle warm browser instead of timing out', async () => {
     const capacityRoot = await mkdtemp('/tmp/ankole-browser-capacity-')
     const capacitySocket = join(capacityRoot, 'socket', 'browser.sock')
@@ -577,85 +569,3 @@ describe.skipIf(!enabled)('real browser capacity pressure', () => {
     }
   }, 40_000)
 })
-
-async function startDaemon(socketPath: string, maxActiveBrowsers?: number): Promise<ChildProcess> {
-  const child = spawn(process.execPath, ['dist/daemon/main.js'], {
-    cwd: resolve(import.meta.dir, '../..'),
-    env: {
-      ...process.env,
-      ANKOLE_BROWSER_DAEMON_SOCKET: socketPath,
-      ...(maxActiveBrowsers === undefined ? {} : { ANKOLE_BROWSER_MAX_ACTIVE_BROWSERS: String(maxActiveBrowsers) })
-    },
-    stdio: ['ignore', 'pipe', 'pipe']
-  })
-  await waitForDaemon(child, socketPath)
-  return child
-}
-
-async function runCode(
-  context: BrowserClientContext,
-  scriptSource: string,
-  timeoutMs = 10_000
-): Promise<Record<string, unknown>> {
-  const previousRunner = process.env.ANKOLE_BROWSER_RUNNER
-  process.env.ANKOLE_BROWSER_RUNNER = resolve(import.meta.dir, '../../dist/runner/bootstrap.js')
-  try {
-    return await runBrowserCode({ context, scriptSource, scriptArgs: [], timeoutMs })
-  } finally {
-    if (previousRunner === undefined) delete process.env.ANKOLE_BROWSER_RUNNER
-    else process.env.ANKOLE_BROWSER_RUNNER = previousRunner
-  }
-}
-
-async function runCodePath(
-  context: BrowserClientContext,
-  scriptPath: string,
-  timeoutMs = 10_000
-): Promise<Record<string, unknown>> {
-  const previousRunner = process.env.ANKOLE_BROWSER_RUNNER
-  process.env.ANKOLE_BROWSER_RUNNER = resolve(import.meta.dir, '../../dist/runner/bootstrap.js')
-  try {
-    return await runBrowserCode({ context, scriptPath, scriptArgs: [], timeoutMs })
-  } finally {
-    if (previousRunner === undefined) delete process.env.ANKOLE_BROWSER_RUNNER
-    else process.env.ANKOLE_BROWSER_RUNNER = previousRunner
-  }
-}
-
-async function waitForPath(path: string): Promise<void> {
-  const deadline = Date.now() + 10_000
-  while (Date.now() < deadline) {
-    try {
-      await stat(path)
-      return
-    } catch {
-      // Wait for the daemon to create its Unix domain socket.
-    }
-    await Bun.sleep(25)
-  }
-  throw new Error(`timed out waiting for ${path}`)
-}
-
-async function waitForDaemon(child: ChildProcess, path: string): Promise<void> {
-  let stderr = ''
-  child.stderr?.on('data', chunk => {
-    stderr += String(chunk)
-  })
-  await Promise.race([
-    waitForPath(path),
-    new Promise<never>((_, reject) => {
-      child.once('error', reject)
-      child.once('exit', (code, signal) => reject(new Error(`daemon exited (${code ?? signal}): ${stderr}`)))
-    })
-  ])
-}
-
-async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return
-  await Promise.race([
-    new Promise<void>(resolveExit => child.once('exit', () => resolveExit())),
-    Bun.sleep(timeoutMs).then(() => {
-      child.kill('SIGKILL')
-    })
-  ])
-}

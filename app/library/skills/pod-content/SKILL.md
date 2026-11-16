@@ -75,10 +75,13 @@ Every `pages.update` request that supplies `title` requires its last-read title 
 or stale base with `title_conflict`. Read the current title and reconsider the
 rename before retrying. Updates to other metadata do not require a title base.
 
-1. Use `pages.search {query}` to find titles and document text, or read a known
-   page ID. Search returns at most 30 matches. Use `pages.children {parent_id}`
-   to browse a page's children; omit `parent_id` for roots. Pass `next_cursor`
-   back as `cursor` until it is null. `pages.list` provides workspace lists.
+1. Use `pages.tree {parent_id?, scope?: "all" | "space" | "private", depth?}` (or
+   `ankole-pod pages.tree`) to inspect the current directory structure alongside
+   `principal_uid`, `can_create_private`, and `can_create_space`. Use
+   `pages.search {query}` to find titles and document text, or read a known page
+   ID; search returns at most 30 matches by default. Use
+   `pages.children {parent_id?, scope?: "space" | "private"}` to page through one
+   directory (`next_cursor` -> `cursor`). `pages.list` provides scoped lists.
 2. Read its Markdown and revision before a change.
 3. Use `pages.write` for a target body, `pages.append` for Markdown at the end,
    or `pages.patch` for exact `old_text` and `new_text` edits. Each operation
@@ -88,13 +91,21 @@ rename before retrying. Updates to other metadata do not require a title base.
 4. If the write conflicts, read again and reconsider the change. Do not
    overwrite a newer revision or claim the old write succeeded.
 
-Create child content where it belongs: pass the intended document's
-`parent_id` to `pages.create`, then add a reference to it. Use
-`<mention page="<document-page-id>" />` for a child document and an embed for
-an interactive Base, File Page, or Applet. Do not create elsewhere and move it
-merely to create a child. If inserting the reference fails, the child remains
-in the page tree. Removing a reference from Markdown removes only the reference.
-The page link form is `ankole:page/<page-id>`.
+`pages.create` without `parent_id` or `private_owner_uid` creates at the shared
+Workspace (`Space`) root. Before creating a new Page, inspect `pages.tree` (and
+relevant user memory when available) to judge where it fits best and pick a
+suitable `parent_id`: a personal assistant weighs its owner's Private section
+(`private_owner_uid` equal to `principal_uid` from `pages.tree`, or a `parent_id`
+inside Private) against the shared Workspace—leaning toward Private for ad-hoc,
+rough, or purely personal work that others do not need to see—and asks the user
+(`request_parent_input` in a background job) when genuinely unsure. Do not
+create elsewhere and move it merely to create a child. Passing `parent_id`
+already lists the child in the sidebar tree and subpages view; add
+`<mention page="<document-page-id>" />` for a child document or an embed for an
+interactive Base, File Page, or Applet only when authoring or updating a parent
+document to reference it inline. If inserting a reference fails, the child
+remains in the page tree. Removing a reference from Markdown removes only the
+reference. The page link form is `ankole:page/<page-id>`.
 
 In document Markdown, put each inline embed on its own line. For an Applet,
 use `<embed ref="<applet-page-id>" />`. For a Base view (including `grid`,

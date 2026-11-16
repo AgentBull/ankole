@@ -27,9 +27,7 @@ pub use search::{ReciprocalRankFusionResult, reciprocal_rank_fusion};
 pub use token::{estimate_o200k_base_tokens, truncate_o200k_base_tokens};
 #[cfg(feature = "web_proxy")]
 pub(crate) use web_url::validate_host;
-pub use web_url::{
-    HostClass, WebURLFacts, WebURLRejection, validate_ip_addresses, validate_web_url, web_url_facts,
-};
+pub use web_url::{WebURLRejection, validate_ip_addresses, validate_web_url};
 
 #[cfg(test)]
 mod tests {

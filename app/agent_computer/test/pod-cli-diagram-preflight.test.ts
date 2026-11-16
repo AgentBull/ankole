@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { POD_CLI_HELP } from '../src/cli/pod/pod-cli'
+import { commandFromArgs, POD_CLI_HELP } from '../src/cli/pod/pod-cli'
 import { startPodCLIBridge } from '../src/cli/pod/pod-cli-bridge'
 import { requestSocketLineBridge } from '../src/core/socket-line-bridge'
 import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope-proto'
@@ -46,6 +46,37 @@ describe('Pod CLI help & incremental diagram syntax preflight', () => {
     expect(POD_CLI_HELP).toContain('recordsToFinancialSeries')
     expect(POD_CLI_HELP).toContain('densifyTimeBuckets')
     expect(POD_CLI_HELP).toContain('formatMetricValue')
+    expect(POD_CLI_HELP).toContain(
+      'Omitting both parent_id and private_owner_uid creates at the shared Space (Workspace) root'
+    )
+    expect(POD_CLI_HELP).toContain('pages.tree')
+  })
+
+  it('supports bare ankole-pod pages.tree and routes pages.tree as a read operation', async () => {
+    const cmd = await commandFromArgs(['pages.tree'], '/tmp')
+    expect(cmd).toEqual({
+      operation: 'pages.tree',
+      params: {},
+      cwd: '/tmp'
+    })
+
+    const root = await mkdtemp(join(tmpdir(), 'pod-tree-bridge-'))
+    const frame = { run: { session: { session_id: 'conversation:pod' }, signal_id: 'signal' } }
+    const seen: { method: string; operation?: string }[] = []
+    const rpc = (async (method, raw) => {
+      const payload = raw as RPCRequestInit<'pod.read'>
+      seen.push({ method, operation: payload.operation })
+      return respond({ space: [], private: [], can_create_private: true })
+    }) as RPCRequester
+    const bridge = startPodCLIBridge({ rpc, frame, drive: new FakeDrive(root).drive(), socketRoot: root })
+    try {
+      const res = await requestSocketLineBridge(bridge.socketPath, JSON.stringify(cmd), 'invalid')
+      expect(res).toEqual({ space: [], private: [], can_create_private: true })
+      expect(seen).toEqual([{ method: 'pod.read', operation: 'pages.tree' }])
+    } finally {
+      await bridge.close()
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('passes valid Mermaid and Infographic blocks with zero extra pages.read RPCs and rejects new broken blocks before mutating', async () => {

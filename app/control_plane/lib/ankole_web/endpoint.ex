@@ -143,7 +143,9 @@ defmodule AnkoleWeb.Endpoint do
   # Dedicated CDN / static hosts (`cdn.<saas_domain>` and optional `ANKOLE_SAAS_CDN_HOST`)
   # resolve only static files; root `/` and all dynamic or internal endpoints return 404.
   defp static_host_admission(conn, _opts) do
-    if AnkoleWeb.Plugs.RequestHost.static_host?(conn) do
+    {conn, classification} = AnkoleWeb.Plugs.RequestHost.classify_conn(conn)
+
+    if classification == {:ok, :static} do
       if conn.method in ["GET", "HEAD"] and static_request_path?(conn.path_info) do
         Plug.Conn.assign(conn, :host_context, :static)
       else

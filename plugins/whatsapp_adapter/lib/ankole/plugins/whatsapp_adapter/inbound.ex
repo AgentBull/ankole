@@ -4,7 +4,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   alias Ankole.Conversations.Delivery.PreviewState
 
   alias Ankole.Conversations.Delivery.PreviewStates
-  alias Ankole.{Logging, Principals}
+  alias Ankole.Logging
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.WhatsAppAdapter.Client
@@ -200,7 +200,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
              prefix: "wa1"
            ),
          {:ok, operator_principal_uid} <-
-           resolve_action_operator("whatsapp", wa_id, action_value),
+           AdapterContext.resolve_action_operator("whatsapp", wa_id, action_value),
          true <- reply_surface?(action_value, surface_entry_id),
          conversation_id <- Presentation.conversation_id(phone_number_id, wa_id),
          :ok <- record_interactive_reply_time(conversation_id, message),
@@ -263,18 +263,6 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   # gateway decides accepted, duplicate, or stale, which makes the fact
   # idempotent under redelivery. A message with no parsable timestamp writes
   # nothing and therefore cannot re-open the window.
-  defp resolve_action_operator(provider, external_id, value) do
-    case Principals.resolve_platform_subject(provider, external_id) do
-      {:ok, principal} ->
-        {:ok, principal.uid}
-
-      {:error, :not_found} ->
-        if Ankole.Conversations.ActionCards.action_card_interaction_id?(value["interactionId"]),
-          do: {:ok, nil},
-          else: {:error, :not_found}
-    end
-  end
-
   defp record_interactive_reply_time(conversation_id, message) do
     case unix_seconds(message["timestamp"]) do
       %DateTime{} = tapped_at -> put_interactive_reply_time(conversation_id, tapped_at)

@@ -184,6 +184,26 @@ describe('HTML and code source previews', () => {
       expect(html).toContain(`aria-label="${i18n.t('pod.content.full_screen_preview')}"`)
       expect(html).not.toContain('data-testid="search-truncated-notice"')
       expect(html).toContain('ankole-pod-page-applet.html · 3.3 MB')
+      const fillHtml = renderToStaticMarkup(
+        <I18nextProvider i18n={i18n}>
+          <QueryClientProvider client={client}>
+            <HtmlFilePreview
+              cacheKey={cacheKey}
+              url={url}
+              name="ankole-pod-page-applet.html"
+              size={3_500_000}
+              canComment
+              layout="fill"
+              fileMeta={<span>ankole-pod-page-applet.html · 3.3 MB</span>}
+            />
+          </QueryClientProvider>
+        </I18nextProvider>
+      )
+
+      expect(html).not.toContain('data-html-file-preview')
+      expect(html).toContain('h-[min(68dvh,640px)]')
+      expect(fillHtml).toContain('data-html-file-preview=""')
+      expect(fillHtml).not.toContain('h-[min(68dvh,640px)]')
     } finally {
       client.clear()
     }

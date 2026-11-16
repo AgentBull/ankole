@@ -237,6 +237,7 @@ install_linux_packages() {
       openssl \
       pkg-config \
       perl \
+      protobuf-compiler \
       unzip \
       unixodbc-dev \
       xz-utils \
@@ -262,6 +263,7 @@ install_linux_packages() {
       openssl-devel \
       perl \
       pkgconf-pkg-config \
+      protobuf-compiler \
       unixODBC-devel \
       unzip \
       wxGTK3-devel \
@@ -287,6 +289,7 @@ install_linux_packages() {
       openssl-devel \
       perl \
       pkgconfig \
+      protobuf-compiler \
       unixODBC-devel \
       unzip \
       wxGTK3-devel \
@@ -311,6 +314,7 @@ install_linux_packages() {
       openssl \
       perl \
       pkgconf \
+      protobuf \
       unixodbc \
       unzip \
       wxwidgets-gtk3 \
@@ -336,6 +340,7 @@ install_linux_packages() {
       m4 \
       ncurses-devel \
       pkg-config \
+      protobuf-devel \
       unixODBC-devel \
       unzip \
       wxWidgets-3_2-devel \
@@ -353,7 +358,7 @@ install_system_packages() {
   if [[ "$OS" == "macos" ]]; then
     ensure_homebrew
     log "Installing macOS build packages."
-    brew_install_missing autoconf automake cmake curl fop git libtool libxslt openssl@3 pkg-config unixodbc wxwidgets zstd
+    brew_install_missing autoconf automake cmake curl fop git libtool libxslt openssl@3 pkg-config protobuf unixodbc wxwidgets zstd
     return
   fi
 

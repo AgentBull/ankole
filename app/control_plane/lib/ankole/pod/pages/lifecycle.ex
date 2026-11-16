@@ -24,6 +24,18 @@ defmodule Ankole.Pod.Pages.Lifecycle do
 
   @batch_size 1000
 
+  def release_applet_owners_for_principal_in_tx(uid) when is_binary(uid) do
+    :ok = Ankole.Repo.require_transaction()
+
+    Ankole.Pod.Page
+    |> Ash.Query.filter(owner_uid == ^uid)
+    |> Ankole.Ash.update_where(:transfer_owner, %{owner_uid: nil})
+    |> case do
+      {:ok, _pages} -> :ok
+      error -> error
+    end
+  end
+
   def release_applet_owners_for_tenant_deletion do
     Ankole.Pod.Page
     |> Ash.Query.filter(not is_nil(owner_uid))

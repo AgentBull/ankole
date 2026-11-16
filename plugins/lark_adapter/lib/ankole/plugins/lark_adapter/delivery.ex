@@ -201,22 +201,14 @@ defmodule Ankole.Plugins.LarkAdapter.Delivery do
   end
 
   defp perform_requests(requests, client, intent) when is_list(requests) do
-    requests
-    |> Enum.reduce_while([], fn request, results ->
-      case request
-           |> perform(client)
-           |> maybe_reply_fallback(client, intent, request)
-           |> maybe_final_edit_fallback(client, intent, request) do
-        {:ok, result} -> {:cont, [result | results]}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:error, _reason} = error ->
-        error
-
-      results ->
-        {:ok, combined_send_results(Enum.reverse(results))}
+    with {:ok, results} <-
+           Ankole.Conversations.Delivery.send_chunks(requests, fn request ->
+             request
+             |> perform(client)
+             |> maybe_reply_fallback(client, intent, request)
+             |> maybe_final_edit_fallback(client, intent, request)
+           end) do
+      {:ok, combined_send_results(results)}
     end
   end
 

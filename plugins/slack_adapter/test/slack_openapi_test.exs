@@ -105,6 +105,51 @@ defmodule SlackOpenAPITest do
              |> Enum.to_list()
   end
 
+  test "cursor pagination halts cleanly when a server repeats a cursor", %{client: client} do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      page = Agent.get_and_update(counter, &{&1, &1 + 1})
+
+      case page do
+        0 ->
+          Req.Test.json(conn, %{
+            "ok" => true,
+            "members" => [%{"id" => "U1"}],
+            "response_metadata" => %{"next_cursor" => "loop"}
+          })
+
+        1 ->
+          Req.Test.json(conn, %{
+            "ok" => true,
+            "members" => [%{"id" => "U2"}],
+            "response_metadata" => %{"next_cursor" => "loop"}
+          })
+      end
+    end)
+
+    assert [{:ok, %{"id" => "U1"}}, {:ok, %{"id" => "U2"}}] =
+             Pagination.stream(client, "users.list", items: ["members"])
+             |> Enum.to_list()
+
+    assert Agent.get(counter, & &1) == 2
+  end
+
+  test "interactive event normalizes out-of-range action timestamps to nil" do
+    envelope = %{
+      "envelope_id" => "env-1",
+      "type" => "interactive",
+      "payload" => %{
+        "type" => "block_actions",
+        "actions" => [%{"action_ts" => "1.0e100"}]
+      }
+    }
+
+    event = SlackOpenAPI.Event.from_envelope(envelope)
+    assert event.id == "env-1"
+    assert event.created_at == nil
+  end
+
   test "external upload follows Slack's URL request and completion protocol", %{client: client} do
     Req.Test.stub(__MODULE__, fn conn ->
       case conn.request_path do

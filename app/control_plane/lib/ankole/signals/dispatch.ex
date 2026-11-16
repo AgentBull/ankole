@@ -3,7 +3,7 @@ defmodule Ankole.Signals.Dispatch do
   require Ash.Query
   alias Ankole.{AutomationJobs, Repo}
   alias Ankole.Principals.WorkAccess
-  alias Ankole.Signals.{Binding, BindingFilters, BindingReceipt, Intake, Target, Signal}
+  alias Ankole.Signals.{Binding, BindingFilters, BindingReceipt, Coalesce, Intake, Target, Signal}
 
   def applet(context, page, actor, caller, "call", args),
     do: Ankole.Signals.AppletDispatch.dispatch(context, page, actor, caller, :wait_result, args)
@@ -75,9 +75,17 @@ defmodule Ankole.Signals.Dispatch do
 
     with {:ok, deliveries} <- select_bindings(bindings, signal),
          {:ok, jobs} <- prepare_jobs(deliveries),
+         {:ok, routines} <- prepare_routines(deliveries),
          {:ok, deliveries} <- prepare_keys(deliveries, jobs) do
       {:ok,
-       %{reference: reference, signal: signal, deliveries: deliveries, jobs: jobs, opts: opts}}
+       %{
+         reference: reference,
+         signal: signal,
+         deliveries: deliveries,
+         jobs: jobs,
+         routines: routines,
+         opts: opts
+       }}
     end
   end
 
@@ -145,6 +153,27 @@ defmodule Ankole.Signals.Dispatch do
     end
   end
 
+  defp prepare_routines(deliveries) do
+    ids =
+      deliveries
+      |> Enum.map(& &1.binding.agent_routine_id)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    case ids do
+      [] ->
+        {:ok, %{}}
+
+      ids ->
+        with {:ok, routines} <-
+               Ankole.Schedule.list_agent_routines(query: [filter: [id: [in: ids]]]) do
+          if length(routines) == length(ids),
+            do: {:ok, Map.new(routines, &{&1.id, &1})},
+            else: {:error, :binding_changed}
+        end
+    end
+  end
+
   defp prepare_keys(deliveries, jobs) do
     Enum.reduce_while(deliveries, {:ok, []}, fn
       %{binding: %{automation_job_id: nil}} = delivery, {:ok, prepared} ->
@@ -177,13 +206,27 @@ defmodule Ankole.Signals.Dispatch do
         & &1.id
       )
 
+    routines =
+      Enum.uniq_by(
+        Map.values(Map.get(plan, :routines, %{})) ++
+          Enum.filter(source_work, &is_struct(&1, Ankole.Schedule.Schemas.AgentRoutine)),
+        & &1.id
+      )
+
     authorization = Keyword.get(plan.opts, :authorization, WorkAccess.service())
 
-    with :ok <- WorkAccess.lock_authorizers_in_tx([authorization | jobs ++ source_work]),
+    with :ok <-
+           WorkAccess.lock_authorizers_in_tx([authorization | jobs ++ routines ++ source_work]),
          :ok <- WorkAccess.check_in_tx(authorization),
          :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()) do
       locked_jobs =
         Map.new(Enum.sort_by(jobs, & &1.id), &{&1.id, AutomationJobs.lock_job_in_tx(&1.id)})
+
+      locked_routines =
+        routines
+        |> Enum.map(& &1.id)
+        |> Ankole.Schedule.lock_routines_in_tx("FOR SHARE")
+        |> Map.new(&{&1.id, &1})
 
       ids = Enum.map(plan.deliveries, & &1.binding.id)
 
@@ -194,14 +237,26 @@ defmodule Ankole.Signals.Dispatch do
         |> Ash.Query.lock("FOR KEY SHARE")
         |> Ankole.Ash.read!(lock_identity: {"signal_bindings", ids})
 
-      if bindings == Enum.map(plan.deliveries, & &1.binding) and
-           Enum.all?(jobs, &(locked_jobs[&1.id] == &1)) do
+      if same_records?(bindings, Enum.map(plan.deliveries, & &1.binding)) and
+           Enum.all?(jobs, &same_record?(locked_jobs[&1.id], &1)) and
+           Enum.all?(routines, &same_record?(locked_routines[&1.id], &1)) do
         {:ok, plan}
       else
         {:error, :binding_changed}
       end
     end
   end
+
+  defp same_records?(left, right) when is_list(left) and is_list(right) do
+    length(left) == length(right) and
+      Enum.all?(Enum.zip(left, right), fn {a, b} -> same_record?(a, b) end)
+  end
+
+  defp same_record?(%struct{} = a, %struct{} = b) do
+    Map.drop(a, [:__meta__, :__metadata__]) == Map.drop(b, [:__meta__, :__metadata__])
+  end
+
+  defp same_record?(_, _), do: false
 
   def deliver_in_tx(plan) do
     deliveries = Enum.filter(plan.deliveries, &active_delivery?(plan, &1.binding))
@@ -227,6 +282,22 @@ defmodule Ankole.Signals.Dispatch do
   defp active_delivery?(plan, %{routing_mode: :action, automation_job_id: id}) do
     job = plan.jobs[id]
     job.status == :active and WorkAccess.check_in_tx(job) == :ok
+  end
+
+  defp active_delivery?(plan, %{agent_routine_id: routine_id, agent_uid: uid} = binding)
+       when is_binary(routine_id) and is_binary(uid) do
+    routine = get_in(plan, [:routines, routine_id])
+
+    manual_schedule_fire? =
+      String.starts_with?(binding.name || "", "source:schedule://") and
+        get_in(plan.signal, ["data", "trigger"]) == "manual"
+
+    allowed_statuses = if manual_schedule_fire?, do: [:active, :paused], else: [:active]
+
+    not is_nil(routine) and
+      routine.status in allowed_statuses and
+      WorkAccess.check_in_tx(routine) == :ok and
+      WorkAccess.check_execution_target(uid, WorkAccess.fields(routine)) == :ok
   end
 
   defp active_delivery?(plan, %{agent_uid: uid}) when is_binary(uid) do
@@ -336,6 +407,30 @@ defmodule Ankole.Signals.Dispatch do
         do: signal["id"] <> ":binding:#{binding.id}",
         else: signal["id"]
 
+    routine =
+      if is_binary(binding.agent_routine_id),
+        do: get_in(plan, [:routines, binding.agent_routine_id])
+
+    authorization =
+      if routine,
+        do: WorkAccess.fields(routine),
+        else: Keyword.get(plan.opts, :authorization, WorkAccess.service())
+
+    internal_extensions =
+      if routine != nil and not String.starts_with?(binding.name || "", "source:") do
+        %{
+          "ankole_routine" => %{
+            "routine_id" => routine.id,
+            "routine_name" => routine.name,
+            "task" => routine.task,
+            "delivery" => routine.delivery || %{},
+            "definition_version" => routine.definition_version
+          }
+        }
+      else
+        %{}
+      end
+
     with {:ok, target, route} <- agent_target(binding, plan.opts) do
       {:ok,
        %{
@@ -353,7 +448,9 @@ defmodule Ankole.Signals.Dispatch do
              signal,
              ~w(specversion id signal_id source type subject time data causation_id correlation_id)
            ),
-         authorization: Keyword.get(plan.opts, :authorization, WorkAccess.service()),
+         internal_extensions: internal_extensions,
+         coalesce_spec: Coalesce.spec(binding, routine, authorization, signal),
+         authorization: authorization,
          reply_route: route || Keyword.get(plan.opts, :reply_route, %{})
        }}
     end

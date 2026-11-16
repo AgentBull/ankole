@@ -363,22 +363,6 @@ To dispatch a raw HTTP webhook payload directly:
 FeishuOpenAPI.Event.Dispatcher.dispatch(dispatcher, {:raw, raw_body, headers})
 ```
 
-### Optional Plug Adapter
-
-In a `Plug` pipeline, `FeishuOpenAPI.Event.Server` reads the raw request body, verifies and decrypts it, and writes the JSON response:
-
-```elixir
-plug FeishuOpenAPI.Event.Server, dispatcher: dispatcher
-```
-
-Response mapping:
-
-- `url_verification` challenge -> `{"challenge": "..."}`
-- handler returns a map -> serialized directly as the JSON response body
-- handler returns `{:ok, _}` -> `{"msg": "success"}`
-- handler returns `{:error, _}` or raises -> HTTP 500 so Feishu retries delivery
-- handler returns any other value -> `{"msg": "success"}`
-
 For HTTP interactive-card callbacks, use `FeishuOpenAPI.CardAction.Handler` rather than `Event.Dispatcher.on_callback/3`, because card callbacks use a different signature scheme from event-subscription webhooks.
 
 ## Interactive Card Callbacks
@@ -407,12 +391,6 @@ card_handler =
   )
 
 FeishuOpenAPI.CardAction.Handler.dispatch(card_handler, {:raw, raw_body, headers})
-```
-
-In a `Plug` router, mount the companion server plug:
-
-```elixir
-plug FeishuOpenAPI.CardAction.Server, handler: card_handler
 ```
 
 ## WebSocket Event Push

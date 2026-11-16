@@ -1,11 +1,20 @@
 import { defineCatalog, defineSchema, type PromptContext } from '@json-render/core'
 import { z } from 'zod'
 
-const cell = z.union([z.string(), z.number(), z.boolean()]).nullable()
+export const cell = z.union([z.string(), z.number(), z.boolean()]).nullable()
 const row = z.record(z.string(), cell)
 
 type CatalogData = {
-  components: Record<string, { props: z.ZodType; slots?: string[]; description: string }>
+  components: Record<
+    string,
+    {
+      props: z.ZodType
+      slots?: string[]
+      switcherOptionsProp?: string
+      autoBindUncontrolled?: boolean
+      description: string
+    }
+  >
   actions: Record<string, { params: z.ZodType; description: string }>
 }
 
@@ -16,7 +25,7 @@ const EXAMPLE = [
   '{"op":"add","path":"/elements/region","value":{"type":"ToggleGroup","props":{"options":[{"value":"east","label":"East"},{"value":"west","label":"West"}],"value":{"$bindState":"/region"}},"children":[]}}',
   '{"op":"add","path":"/elements/east","value":{"type":"Stat","props":{"label":"East revenue","value":"1.28M","delta":"+12%"},"visible":{"$state":"/region","eq":"east"},"children":[]}}',
   '{"op":"add","path":"/elements/west","value":{"type":"Stat","props":{"label":"West revenue","value":"0.94M","delta":"-3%"},"visible":{"$state":"/region","eq":"west"},"children":[]}}',
-  '{"op":"add","path":"/elements/more","value":{"type":"Button","props":{"label":"Break down by team","variant":"outline"},"on":{"press":{"action":"reply","params":{"text":"Break the east region down by team"}}},"children":[]}}'
+  '{"op":"add","path":"/elements/more","value":{"type":"Button","props":{"label":"Break down by team","variant":"outline"},"on":{"press":{"action":"reply","params":{"text":{"$template":"Break the ${/region} region down by team"}}}},"children":[]}}'
 ].join('\n')
 
 /**
@@ -48,18 +57,19 @@ function reference({ catalog, formatZodType }: PromptContext<CatalogData>) {
       '- Write one complete JSON object per line, with no blank lines, comments or wrapped lines.',
       '- Set `/root` first, then add each element at `/elements/<key>`, parents before children. Add each `/state/<name>` value before the first element that reads it.',
       '- Every element has `type`, `props` and `children`. `children` lists element keys in order and is `[]` for a leaf. Every key in `children` must be defined in the same block, and every element must be reachable from the root.',
-      '- `visible` and `on` are fields of the element, beside `props`, never inside it.',
-      '- State paths are JSON Pointers such as `/region`. A prop reads state with `{"$state": "/path"}`, and `ToggleGroup` reads and writes its `value` with `{"$bindState": "/path"}`.',
+      '- `visible`, `on` and `repeat` are fields of the element, beside `props`, never inside it.',
+      '- State paths are JSON Pointers such as `/region`. Props and action `params` read state with `{"$state": "/path"}`, interpolate strings with `{"$template": "Break ${/region} down"}`, or branch with `{"$cond": <condition>, "$then": <value>, "$else": <value>}` instead of duplicating elements. `ToggleGroup`, `Select` and `Tabs` read and write their `value` with `{"$bindState": "/path"}`.',
+      '- A container element may set `"repeat": {"statePath": "/items", "key": "id"}` to render its `children` once per array item; inside that subtree, `{"$item": "field"}` (`""` for the whole item) and `{"$index": true}` read the current item and zero-based index.',
       '- `visible` takes `{"$state": "/path", "eq": "value"}` (also `neq`, `gt`, `gte`, `lt`, `lte`, or no operator for truthiness; add `"not": true` to invert), or a list of such conditions that must all hold.',
       '- `on` maps an event name to `{"action": "<name>", "params": {...}}`. `Button` emits `press`.',
       '- Keep a block under about 40 elements, and inline at most 50 table or chart rows.',
-      '- Use only what this reference describes. Pod shows a block as code when it names an unknown component, gives a component invalid props, leaves a child undefined, nests an element inside itself, expands to more than 500 elements, binds an action other than `setState` and `reply`, or uses `repeat`, `watch` or named slots.'
+      '- Use only what this reference describes. Pod shows a block as code when it names an unknown component, gives a component or action invalid parameters, leaves a child undefined, nests an element inside itself, nests JSON deeper than 32 levels, expands past 500 elements (counting repeated items), binds an action other than `setState` and `reply`, or uses `watch` or named slots.'
     ].join('\n'),
     '## Components',
     components.join('\n'),
     '## Actions',
     [
-      '- `setState`: `{ statePath: string, value: any }`. Sets the value at a state path. Use it with `visible` to switch what the block shows.',
+      '- `setState`: `{ statePath: string, value: string | number | boolean | null }`. Sets the value at a state path. Use it with `visible` to switch what the block shows.',
       ...actions
     ].join('\n')
   ].join('\n\n')
@@ -75,12 +85,19 @@ const schema = defineSchema(
           type: s.ref('catalog.components'),
           props: s.propsOf('catalog.components'),
           children: s.array(s.string()),
-          visible: { ...s.any(), ...s.optional() }
+          visible: { ...s.any(), ...s.optional() },
+          repeat: { ...s.any(), ...s.optional() }
         })
       )
     }),
     catalog: s.object({
-      components: s.map({ props: s.zod(), slots: s.array(s.string()), description: s.string() }),
+      components: s.map({
+        props: s.zod(),
+        slots: s.array(s.string()),
+        switcherOptionsProp: { ...s.string(), ...s.optional() },
+        autoBindUncontrolled: { ...s.boolean(), ...s.optional() },
+        description: s.string()
+      }),
       actions: s.map({ params: s.zod(), description: s.string() })
     })
   }),
@@ -115,9 +132,15 @@ export const uiBlockCatalog = defineCatalog(schema, {
       description: 'A bordered group with an optional title and description.'
     },
     Tabs: {
-      props: z.object({ tabs: z.array(z.object({ value: z.string(), label: z.string() })) }),
+      props: z.object({
+        tabs: z.array(z.object({ value: z.string(), label: z.string() })),
+        value: z.union([z.string(), z.object({ $bindState: z.string() })]).nullish()
+      }),
       slots: ['default'],
-      description: 'Tabbed sections; the first tab starts open. Children are TabPanel elements, one per tab value.'
+      switcherOptionsProp: 'tabs',
+      autoBindUncontrolled: true,
+      description:
+        'Tabbed sections; the first tab starts open unless `value` selects or binds another. Children are TabPanel elements, one per tab value.'
     },
     TabPanel: {
       props: z.object({ value: z.string() }),
@@ -162,12 +185,19 @@ export const uiBlockCatalog = defineCatalog(schema, {
     },
     Table: {
       props: z.object({
-        columns: z.array(z.object({ key: z.string(), label: z.string(), align: z.enum(['start', 'end']).nullish() })),
+        columns: z.array(
+          z.object({
+            key: z.string(),
+            label: z.string(),
+            align: z.enum(['start', 'end']).nullish(),
+            format: z.enum(['number', 'compact', 'percent']).nullish()
+          })
+        ),
         rows: z.array(row),
         sortable: z.boolean().nullish()
       }),
       description:
-        'A data table. Each row maps column keys to a string, number, boolean or null. With sortable, the reader sorts by clicking a column header. Align numbers to the end.'
+        'A data table. Each row maps column keys to a string, number, boolean or null. Keep numeric cells as numbers and optionally set column format ("number", "compact" or "percent", where 0.12 formats as "12%") so sorting stays numeric. With sortable, the reader sorts by clicking a column header. Align numbers to the end.'
     },
     Chart: {
       props: z.object({
@@ -203,7 +233,19 @@ export const uiBlockCatalog = defineCatalog(schema, {
         options: z.array(z.object({ value: z.string(), label: z.string() })),
         value: z.union([z.string(), z.object({ $bindState: z.string() })]).nullish()
       }),
-      description: 'A segmented single choice. Bind `value` to a state path and switch other elements with `visible`.'
+      switcherOptionsProp: 'options',
+      description:
+        'A segmented single choice for two to four options. Bind `value` to a state path and switch other elements with `visible` or `$state`.'
+    },
+    Select: {
+      props: z.object({
+        options: z.array(z.object({ value: z.string(), label: z.string() })),
+        value: z.union([z.string(), z.object({ $bindState: z.string() })]).nullish(),
+        label: z.string().nullish()
+      }),
+      switcherOptionsProp: 'options',
+      description:
+        'A compact dropdown choice for switching views when there are too many options for ToggleGroup. Bind `value` to a state path and switch other elements with `visible` or `$state`.'
     }
   },
   actions: {

@@ -447,8 +447,10 @@ Page itself. The Page's path renders that list as returned; UI controls gate act
 displaying role names as human summaries. Move pickers list writable Page
 destinations while excluding the moving Page and its descendants, and root
 create, move, and copy options read `can_create_space` and `can_create_private`
-from the directory using the exact destination check enforced on write (loading
-those root capabilities even while the sidebar section is collapsed). Base,
+from the directory using the exact destination check enforced on write—resolving
+personal-assistant actors to their owning Human member alongside direct Human
+callers—while loading
+those root capabilities even while the sidebar section is collapsed. Base,
 knowledge, and Applet Pages provide child-page navigation in their header—listing
 visible children, paging additional children via the directory cursor, and
 offering child creation when the Page grants `node_edit`—which lets
@@ -1008,7 +1010,10 @@ with the same authorization filter as the returned entries, and passing
 with creator display names, timestamps, plain-text document excerpts, and
 primary file descriptors while keeping default sidebar navigation on its
 index-only scan. The Worker `pages.children` RPC uses the same directory
-projection, including the caller's actions, role, and visible-child indicator.
+projection, including the caller's actions, role, and visible-child indicator,
+and `pages.tree` builds a bounded multi-level directory skeleton across `space`,
+`private`, or a parent subtree while retaining container branches ahead of
+excess leaf siblings.
 Hidden descendants and deleted children do not make a Page expandable. The sidebar renders an
 expand button for branches and an equally wide spacer for leaves; users with
 edit permission can create a child through the row's add button in either case.
@@ -1508,7 +1513,9 @@ room disclosure checks. See
 [Brain](BrainV3.md) for indexing and source semantics and
 [Agent Workers](AgentWorkers.md) for runtime contract assembly.
 
-Main conversations use the lightweight Pod page tools; Workers use `ankole-pod`.
+Main conversations use the lightweight Pod page tools (`pod_get_page`,
+`pod_list_pages` across `space`, `private`, or `all` with nested `depth`,
+`pod_save_page`, and `pod_create_page`); Workers use `ankole-pod`.
 Both save complete Markdown through the same knowledge codec and revision check.
 The Session commits each page write and its tool receipt in one transaction;
 replaying a committed call returns the saved result without repeating the edit.
@@ -2887,9 +2894,10 @@ generation owning the frame's subscriptions, channels, and observers:
 - Publishing a new revision or unmounting closes the generation (a publication
   conflict refreshes the Page snapshot without replaying a write).
 - Permission, theme, and title changes push updated `actions`, `theme`
-  (`'light' | 'dark'`), and `title` props—alongside live `data-theme` and
-  `color-scheme` attributes read by `@ankole/uikit`—into the live iframe and
-  React root without losing form inputs or component state, and `embedded` tells
+  (`'light' | 'dark'`), and `title` props—alongside the iframe's accessible
+  `title` attribute and live `data-theme` and `color-scheme` attributes read by
+  `@ankole/uikit`—into the live iframe and React root without losing form inputs
+  or component state, and `embedded` tells
   the Applet whether a document embeds it; individual denied business writes likewise leave the frame
   intact, whereas losing `node_view` (via Page reads or realtime checks) closes
   the generation.

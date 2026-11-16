@@ -106,10 +106,6 @@ defmodule Ankole.OIDC.LogoutDelivery do
   actions do
     defaults([:read])
 
-    read :lookup_across_tenants do
-      multitenancy(:allow_global)
-    end
-
     # The Console list of the deliveries of one client, the newest first.
     read :console_list do
       argument(:client_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)

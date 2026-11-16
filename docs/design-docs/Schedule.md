@@ -5,15 +5,15 @@ event to the subscribed Agent Sessions and Automation Jobs. PostgreSQL is the
 durable authority for what must run and when, while Oban acts strictly as the
 timer that wakes the control plane when a deadline arrives.
 
-Users and Agents can create two kinds of schedules:
+Users and Agents can create three scheduled primitives:
 
 - **`check_back_later`**: Wakes the originating Agent Session once.
-- **`cron`**: Triggers recurring work. A Job-owned rule targets its Applet Action;
-  a direct-Agent rule runs in a dedicated execution Session derived from the rule.
+- **`AgentRoutine` (`agent_routines`)**: Owns a standing Agent duty (`routine:<routine_id>`) that can wake from a recurring Cron schedule, external Connector/event `Binding`s, or both, sharing one transcript, Workspace, standing `task`, and `delivery` contract.
+- **`cron`**: Triggers recurring work. A Job-owned or Action-targeted rule routes to its Applet Action without an Agent Session; an Agent-targeted rule belongs to its owning `AgentRoutine` (`owner_routine_id`) and executes in `routine:<routine_id>`.
 
 Checkbacks and manual cron triggers persist a `scheduled_events` row *before*
 wake-up, whereas automatic cron triggers insert a `scheduled_events` history row
-at fire time. Both `CronSchedule` and `ScheduledEvent` model their lifecycles
+at fire time. `AgentRoutine`, `CronSchedule`, and `ScheduledEvent` model their lifecycles
 with `AshStateMachine`: pausing, deleting, or completing a cron rule clears
 `next_fire_at` in the same statement, a PostgreSQL `CHECK` constraint forbids a
 non-null `next_fire_at` on any Cron status other than `active`, and updates,
@@ -23,14 +23,14 @@ order.
 `Ankole.Schedule` is the root Ash domain:
 
 - Every public write entry point opens `Repo.transact_top_level/2`—covering
-  checkback `create`, `update`, and `cancel`; cron `create`, `update`, `pause`,
+  checkback `create`, `update`, and `cancel`; routine and cron `create`, `update`, `pause`,
   `resume`, `remove`, and `run`; plus `fire_due_event` and `fire_cron`—while
   Console `/api/v2` routes expose generic actions on `ScheduledEvent` and
-  `CronSchedule`. If a fire fails, Ankole rolls back the attempt transaction and
+  `CronSchedule` and Pod `/api/v2/pod/jobs` exposes routine creation, updates, and lifecycle controls. If a fire fails, Ankole rolls back the attempt transaction and
   records the failure diagnostic in a second top-level transaction.
 - Callers already inside an open transaction—such as the Sessions schedule tools
   committing inside their tool-receipt transaction—compose `*_in_tx` helpers on
-  `Schedule.Checkbacks` and `Schedule.Cron`. Reads and row locks use Ash
+  `Schedule.Checkbacks`, `Schedule.Routines`, and `Schedule.Cron`. Reads and row locks use Ash
   queries.
 - `ScheduledEvent` actions type-check durable attributes directly: structured
   provenance, wake payloads, and error diagnostics use the shared strict JSON
@@ -121,7 +121,7 @@ JavaScript's `Number.MAX_SAFE_INTEGER` (exposed to model tools as numeric
 
 Each row records the Agent, the execution Session (the Session in which the
 wake-up runs: the originating Session for `check_back_later`, or the derived
-`cron:<schedule_id>` Session for `cron_fire`), Binding, due timestamp, time
+`routine:<routine_id>` Session for Agent `cron_fire` runs), Binding, due timestamp, time
 zone, deduplication key, optional source Signal, AI message, and provider reply
 route. `wake_payload` holds the prompt/input for the future execution,
 `source_provenance` captures the authenticated request and turn-fence metadata
@@ -187,69 +187,34 @@ Deduplication separates request retries from recurring time slots:
   `cancelled` row frees its slot, a `fired` or `failed` row permanently consumes
   its slot, and manual runs bypass the slot index entirely.
 
-### One Recurring Rule
+### Agent Routines and Recurring Rules
 
-`cron_schedules` stores recurring rules. Its UUID primary key stays internal:
-model tools address a rule by its non-blank `name` (unique across the Agent's
-active rules), and a turn running inside that rule's execution Session can
-inspect its own rule without passing either identifier.
+`agent_routines` (`Ankole.Schedule.Schemas.AgentRoutine`) owns standing Agent duties, while `cron_schedules` (`Ankole.Schedule.Schemas.CronSchedule`) stores recurring time rules. Each direct-Agent `CronSchedule` points to its parent `AgentRoutine` via `owner_routine_id` (Job-owned Applet schedules keep `owner_job_id` with `owner_routine_id = NULL`). Model tools address a routine or rule by its non-blank `name` (unique across the Agent's non-deleted routines and active rules), and a turn running inside that routine's execution Session can inspect its own routine without passing an identifier.
 
-PostgreSQL restricts `cron_schedules.status` to four values (individual fire
-failures live on `ScheduledEvent` history rows rather than adding a fifth Cron
-status):
+PostgreSQL restricts both `agent_routines.status` and `cron_schedules.status` to four values (`active`, `paused`, `deleted`, `completed`; individual fire failures live on `ScheduledEvent` history rows and execution `Signal`s):
 
-- `active`
-- `paused`
-- `deleted`
-- `completed`
+- `agent_routines` stores the Agent, `owner_session_id` (management scope), `binding_name`, `name`, standing `task`, `delivery`, `definition_version` (incremented whenever `task` or `delivery` changes), `idempotency_key`, and work authorization.
+- `cron_schedules` stores the Agent, `owner_session_id`, optional `owner_routine_id` or `owner_job_id`, Binding, recurrence rule, time zone, task input, delivery targets, and the prior and next planned wake-up timestamps, deduplicated on creation by `(agent_uid, owner_session_id, idempotency_key)`.
 
-Each row stores the Agent, `owner_session_id` (management scope), Binding,
-recurrence rule, time zone, task input, delivery targets, and the prior and next
-planned wake-up timestamps, deduplicated on creation by:
+### The Routine Execution Session
 
-```text
-(agent_uid, owner_session_id, idempotency_key)
-```
-
-### The Cron Execution Session
-
-Because a Session serializes Turns that share one linear model transcript, a
-cron fire must not run inside `owner_session_id`. Instead, every rule derives a
-dedicated execution Session `cron:<schedule_id>` while `owner_session_id`
-tracks management ownership (and cannot itself be a `cron:*` Session).
+Because a Session serializes Turns that share one linear model transcript, routine triggers never run inside `owner_session_id`. Instead, every `AgentRoutine` derives a dedicated execution Session `routine:<routine_id>` (and any standalone `CronSchedule` without `owner_routine_id` derives `cron:<schedule_id>`), while `owner_session_id` tracks management ownership (and cannot itself be a `routine:*` or `cron:*` Session).
 
 Separating the two Sessions provides three guarantees:
 
-- Fires of a single rule execute sequentially with the rule's own AIGateway
-  conversation, transcript, and Workspace.
-- Long-running cron turns never block interactive user turns in
-  `owner_session_id`, and separate cron rules never block one another.
-- Output targets use public Conversation UUIDs: Pod output commits as native
-  Agent Messages, and external channel output writes Delivery intents for the
-  configured routes.
+- Cron fires, coalesced Connector event batches, manual runs, and `check_back_later` follow-ups of the same routine execute sequentially inside `routine:<routine_id>`, sharing one AIGateway conversation (`kind: :routine`), transcript, and Workspace.
+- Long-running routine turns never block interactive user turns in `owner_session_id`, and separate routines never block one another.
+- Output targets use public Conversation UUIDs: Pod output commits as native Agent Messages, and external channel output writes Delivery intents for the configured routes.
 
-Because a cron fire never sees the `owner_session_id` transcript, a rule whose
-default Binding routes to an Agent must store a self-contained standing
-instruction in `payload.task`. Action destinations carry their own code, and
-removing a default Action Binding does not create an Agent destination. When a
-human replies to a delivered cron message in chat, that reply routes to
-`owner_session_id`, which sees the committed cron Message as shared Conversation
-context rather than the cron Session's internal tool history.
+Because a routine turn never sees the `owner_session_id` transcript, `routine.task` (and `payload.task` on standalone Cron rules) stores a self-contained standing instruction. Action destinations carry their own code, and removing a default Action Binding does not create an Agent destination. When a human replies to a delivered routine message in chat, that reply routes to `owner_session_id`, which sees the committed Message as shared Conversation context rather than the routine Session's internal tool history.
 
-Active and paused Cron rules created by a Pod member appear as Living Routine
-cards on the Pod [Jobs Board](JobsBoard.md) (`/jobs`). Status changes of a
-`cron:<schedule_id>` Session refresh the Pod's room and job summaries, moving
-the routine card into `running` while a fire or delegated child run executes
-and returning that same card to `scheduled` once the fire settles cleanly. On
-`/jobs`, the Human whose authority a rule runs on pauses, resumes, runs, or
-removes it through the same `Ankole.Schedule` operations that the Console uses.
+Active and paused routines created by a Pod member appear as Living Routine cards on the Pod [Jobs Board](JobsBoard.md) (`/jobs`). Status changes of a `routine:<routine_id>` Session refresh the Pod's room and job summaries, moving the routine card into `running` while a turn or delegated child run executes and returning that card to `scheduled` once execution settles cleanly.
 
-Editing `payload` or `delivery` closes the rule's active AIGateway conversation
-so the next fire starts a fresh conversation from the updated definition,
-whereas time-only edits keep the conversation open. Deleting or completing a
-rule likewise closes its AIGateway conversation; if a fire is already mid-turn
-when the conversation closes, that turn finishes writing into the closed
-conversation by ID.
+Lifecycle transitions coordinate `AgentRoutine`, child `CronSchedule` rows, and linked external `Binding`s together:
+
+- **Edits**: Changing `task` or `delivery` increments `definition_version`, closes the routine's active AIGateway conversation so the next turn starts from the updated rubric, and seals any open unstarted coalesced `Signal` batch in `routine:<routine_id>`; time-only Cron edits preserve the conversation and `definition_version`.
+- **Pause and resume**: Pausing a routine transitions `AgentRoutine` and its child `CronSchedule`s to `paused`, clears `next_fire_at`, cancels pending `cron_fire` and `check_back_later` `ScheduledEvent`s in `routine:<routine_id>`, and revokes unstarted `queued` `Signal`s (`dead_letter` with `reason: "routine_paused"`, while an already running turn finishes normally). Resuming sets `status = active` and computes `next_fire_at` forward from `now` without backfilling missed intervals or replaying events dropped while paused.
+- **Finite Cron exhaustion and removal**: Exhausting an occurrence-bounded `CronSchedule` marks that `CronSchedule` `completed`; if the parent `AgentRoutine` still has enabled external `Binding`s, the routine stays `active` so Connector events continue waking `routine:<routine_id>`, whereas if zero triggers remain, the routine transitions to `completed` and closes its AIGateway conversation. Removing a routine disables its external `Binding`s, marks child `CronSchedule`s and the routine `deleted`, cancels pending `ScheduledEvent`s, revokes unstarted `queued` `Signal`s, and closes its AIGateway conversation.
 
 ## Set the Time for One Checkback
 
@@ -309,10 +274,12 @@ five fields:
 - `reason` (up to `2,000` characters)
 - `check` (up to `4,000` characters)
 - `context_summary` (optional, up to `8,000` characters)
-- `quiet_success` (boolean, default `false`)
+- `quiet_success` (boolean, default `true`)
 
-Scheduled turns end through the `finish_scheduled(outcome, reply)` termination
-tool. Ankole declares the same tool on Main turns as well, so the Main and
+When a turn inside `routine:<routine_id>` schedules a `check_back_later` follow-up (for example, 15 minutes after triaging a Connector event batch), the wakeup inherits `routine:<routine_id>` and reads the live `routine.delivery` target list at fire time so any `outcome: "reply"` fans out across all configured native and external routine destinations.
+
+Scheduled and routine turns end through the `finish_scheduled(outcome, reply, summary?)` termination
+tool (`required: ["outcome", "reply"]`, with optional `summary` up to `500` characters). Ankole declares the same tool on Main turns as well, so the Main and
 scheduled turns of one conversation share one tool list and one instruction
 prefix under its prompt-cache key (see
 [Sessions](Sessions.md#prepare-a-model-request)). On a Main turn the tool
@@ -321,18 +288,18 @@ instructions state the completion rule once and key it to the
 `schedule_turn_mode` field in the input environment of the newest message:
 
 - For a user-visible update, the model calls `outcome: "reply"` with a non-empty
-  `reply` string. Whenever a check fails, observes changed state, or needs human
-  action, the model must send a visible reply.
-- Only when `quiet_success` is `true` and nothing noteworthy changed may the
-  model call `outcome: "silent_success"` with `reply: null`.
+  `reply` string (and optional `summary`). Whenever a check fails, observes actionable anomalies, or needs human
+  intervention, the model sends a visible reply.
+- When `quiet_success` is `true` and nothing requires notifying the room, the
+  model calls `outcome: "silent_success"` with `reply: null`—either omitting `summary` for a silent check or supplying a concise 1–3 sentence `summary` to record structured audit progress in `signals.turn_summary` without posting a chat message.
 - Invalid arguments or disallowed `silent_success` calls return a standard tool
   error so the model can self-correct within its tool loop; scheduled turns do
   not use constrained JSON response formats or extra rounds to repair output
   formatting.
 
-Accepting `finish_scheduled` ends the turn and records its outcome and reply
-text alongside the tool journal in Sessions' typed round state so recovery reads
-that committed outcome without re-running `finish_scheduled`. If a scheduled
+Accepting `finish_scheduled` ends the turn and records its outcome, reply
+text, and optional `turn_summary` alongside the tool journal in Sessions' typed round state so recovery reads
+that committed outcome and summary without re-running `finish_scheduled`, persisting `turn_summary` onto `signals.turn_summary` inside the terminal commit transaction. If a scheduled
 turn finishes with non-empty assistant prose and no accepted `finish_scheduled`
 call, Ankole treats that prose as a visible reply; silent completion always
 requires an accepted `finish_scheduled` call. If a turn produces neither, Ankole
@@ -396,13 +363,15 @@ Conversation UUIDs (never raw provider room IDs):
       "provider_thread_id": "thread-b"
     }
   ],
-  "quiet_success": false
+  "quiet_success": true
 }
 ```
 
 Every target requires `conversation_id`: native Pod targets omit provider route
 fields, while external targets identify the binding by `binding_id`, carry its
-`binding_name`, and may include `provider_thread_id`. Duplicate
+`binding_name`, and may include `provider_thread_id`. `quiet_success` defaults
+to `true` when omitted so recurring routines notify chat rooms only when an
+anomaly, blocker, or requested deliverable warrants human attention. Duplicate
 `(conversation_id, binding_id, provider_thread_id)` tuples are rejected. The
 first entry is the primary target; its binding must match the rule's binding.
 Schedule copies that primary route
@@ -470,10 +439,11 @@ revocation, Schedule enforces one strict lock order:
    and changing a Binding. Cron creation locks its requested destination; an
    idempotent creation request preserves the rule and its subscriptions without
    locking their other consumers.
-3. Source `Binding` rows when dispatching or changing a destination
-4. `CronSchedule`
-5. `ScheduledEvent` and delivery receipts
-6. `Session`, `Workspace`, and `Signal`
+3. `AgentRoutine` rows in ascending ID order
+4. Source and external `Binding` rows when dispatching or changing a destination
+5. `CronSchedule`
+6. `ScheduledEvent` and delivery receipts
+7. `Session`, `Workspace`, and `Signal`
 
 Because `FireCron` re-checks the locked rule's status and `next_fire_at`, stale
 Oban jobs harmlessly skip paused, deleted, completed, or rescheduled rules;
@@ -482,16 +452,17 @@ for the retained slot and computes the next `next_fire_at` forward from `now`.
 
 ## Tell the Agent Why It Woke Up
 
-Sessions maps scheduled Signals to dedicated turn kinds:
+Sessions maps scheduled and routine Signals to dedicated turn kinds:
 
 | Signal type | Turn kind | Agent schedule mode |
 | --- | --- | --- |
 | `check_back_later.wakeup` | `checkback_generation` | `check_back_later` |
 | `cron.fire` | `scheduled_task` | `cron` |
+| External event / `routine.manual_run` in `routine:<id>` | `scheduled_task` | `routine` |
 
-The control plane derives the schedule mode from the Signal type and passes the
+The control plane derives the schedule mode from the Signal type (or `ankole_routine` extension for routine-targeted external events and manual runs) and passes the
 schedule origin and `quiet_success` permission in request context without
-duplicating the mode. For `cron.fire`, the prompt also tells the Agent that
+duplicating the mode. For `cron.fire` and `routine` turns, the prompt also tells the Agent that
 Ankole will fan out its final reply automatically: the Agent executes a single
 turn regardless of target count, `Sessions.Presentation` writes a native Agent
 Message or external Delivery intent per target upon completion (and propagates
@@ -507,15 +478,16 @@ Control-plane Drivers execute `check_back_later` (`create`, `list`, `get`,
 `resume`, `remove`, `run`) directly under the Driver's fenced `Run`:
 
 - Queries and mutations are scoped to the current `(agent, session)` or the
-  rule's `owner_session_id`; reply routes come from the active input, cron
+  routine/rule's `owner_session_id`; `runs` projections include each run's `turn_outcome` and `turn_summary` alongside trigger and execution timestamps so a daily wrap-up or self-inspecting routine can review prior execution summaries directly; reply routes come from the active input, cron
   provenance records `driver_epoch` and the frozen route, and an optional
   `automation_job_id` must name an active Applet Job whose Page and personal authority the caller may use (clearable
   or replaceable on update).
-- Inside a derived `cron:<schedule_id>` execution Session, the turn may call
-  only `list`, `get`, `runs`, and `pause`—and strictly on its own rule. Calling
+- In an owner conversation, `cron` `pause` and `remove` operate on the timer schedule of a Hybrid Routine (`AgentRoutine` with both a Cron schedule and enabled external event `Binding`s) while keeping the Routine and its external `Binding`s active; when a Routine has only external `Binding`s (no non-deleted Cron schedule), `pause` and `remove` pause or delete the Routine itself.
+- Inside a derived `routine:<routine_id>` execution Session, the turn may call
+  only `list`, `get`, `runs`, and `pause`—and strictly on its own routine (where `pause` pauses the entire Routine so self-stopping duties halt both scheduled recurrences and external event wakes). Calling
   `pause` lets a self-stopping task halt future recurrences once a condition is
   met while keeping its AIGateway conversation open so the current turn can
-  still deliver its reply; by contrast, a cron turn cannot create rules, edit
+  still deliver its reply; by contrast, a routine turn cannot create rules, edit
   its own task, resume or trigger itself, or `remove` its rule (since `remove`
   closes the active AIGateway conversation).
 
@@ -523,7 +495,7 @@ Control-plane Drivers execute `check_back_later` (`create`, `list`, `get`,
 
 - Persist every user-affecting schedule in PostgreSQL; use Oban strictly to trigger due checks, keeping at most one pending `FireCron` job at `next_fire_at` per active rule.
 - Store only historical fires in automatic cron run lists, never re-fire a `fired` or `failed` slot, and emit at most one `Signal` or `AutomationJob` run per scheduled event and Binding.
-- Execute every cron fire in its derived `cron:<schedule_id>` Session (never in `owner_session_id`), keeping the complete standing prompt in `payload.task` for direct-Agent rules and running one Agent turn regardless of target count.
+- Execute every Agent cron fire in its derived `routine:<routine_id>` Session (never in `owner_session_id`), keeping the complete standing prompt in `payload.task` for direct-Agent rules and running one Agent turn regardless of target count.
 - Restrict Agent schedule tools to the current turn's route, and restrict cron-originated turns to inspecting or pausing their own rule.
 - Cancel pending checkbacks whenever their source provider entry is canceled or removed.
 - Allow silent completion without a reply only when the schedule explicitly enables `quiet_success`.

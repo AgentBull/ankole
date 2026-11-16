@@ -223,8 +223,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       {:conversation, conversation_id} ->
         Ankole.Conversations.Events.publish_status(conversation_id)
 
-      # Cron-owned and standalone Pod Jobs refresh open Pod Jobs views.
-      {kind, _id} when kind in [:cron, :pod_job] ->
+      # Routine-owned and standalone Pod Jobs refresh open Pod Jobs views.
+      {kind, _id} when kind in [:routine, :pod_job] ->
         Ankole.Conversations.Events.publish_rooms_changed()
 
       _ ->

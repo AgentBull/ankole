@@ -353,14 +353,15 @@ defmodule AnkoleWeb.BrowserAuth do
 
   defp perform_bearer_session(conn, token) do
     with {:ok, requested_tenant} <- WebSession.request_tenant(conn),
-         {:ok, %{client: client, session: session}} <- Ankole.OIDC.Tokens.verify_pod_access(token),
+         {:ok,
+          %{
+            client: client,
+            session: session,
+            principal: %{type: :human, status: :active} = principal
+          }} <- Ankole.OIDC.Tokens.verify_pod_access(token),
          true <- is_nil(requested_tenant) or requested_tenant == client.tenant_id,
          {:ok, tenant} <- Ankole.Tenants.get(client.tenant_id),
-         true <- Ankole.Tenants.accepting_work?(tenant),
-         {:ok, %{type: :human, status: :active} = principal} <-
-           Ankole.Repo.with_tenant(tenant.id, fn ->
-             Ankole.Principals.get_principal(session.principal_uid)
-           end) do
+         true <- Ankole.Tenants.accepting_work?(tenant) do
       uid = principal.uid
 
       account = %{
@@ -413,9 +414,9 @@ defmodule AnkoleWeb.BrowserAuth do
       Enum.each(references, &BrowserSessions.renew/1)
 
       account =
-        with %{"tenant_id" => tenant_id} = authentication <-
-               WebSession.current_authentication(conn),
-             {:ok, account} <- browser_account(conn, authentication, tenant_id),
+        with {%{"tenant_id" => tenant_id} = authentication, principal} <-
+               WebSession.current_authentication_with_principal(conn),
+             {:ok, account} <- browser_account(conn, authentication, tenant_id, principal),
              do: account,
              else: (_ -> nil)
 
@@ -437,7 +438,7 @@ defmodule AnkoleWeb.BrowserAuth do
               AuthZ.site_admin?(uid),
             do: AnkoleWeb.SiteAdminConsole.url(conn)
           ),
-        accounts: browser_accounts(conn),
+        accounts: browser_accounts(conn, references),
         pendingAccounts: pending_accounts(conn, references),
         siteAuthentications: site_authentications(references)
       })
@@ -641,12 +642,12 @@ defmodule AnkoleWeb.BrowserAuth do
     end
   end
 
-  defp browser_accounts(conn) do
-    conn
-    |> WebSession.authentication_references()
+  defp browser_accounts(conn, references) do
+    references
     |> Enum.flat_map(fn reference ->
-      Enum.flat_map(BrowserSessions.identities(reference), fn identity ->
-        case browser_account(conn, identity, identity["tenant_id"]) do
+      Enum.flat_map(BrowserSessions.identities_with_principals(reference), fn {identity,
+                                                                               principal} ->
+        case browser_account(conn, identity, identity["tenant_id"], principal) do
           {:ok, account} ->
             [Map.put(account, :authenticationRef, BrowserSessions.encode_reference(reference))]
 
@@ -658,10 +659,8 @@ defmodule AnkoleWeb.BrowserAuth do
     |> Enum.uniq_by(&{&1.tenant.id, &1.principalUID})
   end
 
-  defp browser_account(conn, %{"principal_uid" => uid} = identity, tenant_id) do
-    with {:ok, tenant} <- Ankole.Tenants.get(tenant_id),
-         {:ok, principal} <-
-           Ankole.Repo.with_tenant(tenant_id, fn -> Ankole.Principals.get_principal(uid) end) do
+  defp browser_account(conn, %{"principal_uid" => uid} = identity, tenant_id, principal) do
+    with {:ok, tenant} <- Ankole.Tenants.get(tenant_id) do
       {:ok,
        %{
          principalUID: uid,
@@ -881,9 +880,9 @@ defmodule AnkoleWeb.BrowserAuth do
 
   defp list_tenant_identities(conn, tenant_id, allow_source) do
     Enum.flat_map(WebSession.authentication_references(conn), fn reference ->
-      with %{} = authentication <- BrowserSessions.identity(reference, tenant_id),
-           :ok <- allow_source.(authentication),
-           {:ok, principal} <- Ankole.Principals.get_principal(authentication["principal_uid"]) do
+      with {authentication, %Ankole.Principals.Principal{} = principal} <-
+             BrowserSessions.identity_with_principal(reference, tenant_id),
+           :ok <- allow_source.(authentication) do
         [
           %{
             authenticationRef: BrowserSessions.encode_reference(reference),
@@ -900,10 +899,15 @@ defmodule AnkoleWeb.BrowserAuth do
   end
 
   defp current_identity(conn) do
-    with %{"principal_uid" => uid, "provider_id" => provider, "tenant_id" => tenant_id} <-
-           WebSession.current_authentication(conn),
-         {:ok, principal} <-
-           Ankole.Repo.with_tenant(tenant_id, fn -> Ankole.Principals.get_principal(uid) end) do
+    with {
+           %{
+             "principal_uid" => uid,
+             "provider_id" => provider,
+             "tenant_id" => tenant_id
+           },
+           %Ankole.Principals.Principal{} = principal
+         } <-
+           WebSession.current_authentication_with_principal(conn) do
       %{
         principalUID: uid,
         displayName: principal.display_name || uid,

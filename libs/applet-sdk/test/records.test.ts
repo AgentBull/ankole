@@ -22,6 +22,11 @@ test('a record list keeps its identity until a pending write changes a row', () 
   expect(next[0]).not.toBe(records[0])
   expect(next[0]?.data.name).toBe('edited')
   expect(next[1]).toBe(records[1])
+
+  expect(previewRecordList(records, [{ deletes: [{ id: 'missing', expected_versions: {} }] }])).toBe(records)
+  const afterDelete = previewRecordList(records, [{ deletes: [{ id: 'a', expected_versions: {} }] }])
+  expect(afterDelete).toEqual([records[1]!])
+  expect(afterDelete[0]).toBe(records[1])
 })
 
 function record(id: string, name: string): BaseRecord {

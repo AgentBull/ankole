@@ -243,3 +243,110 @@ fn cloudflare_web_search_reads_bare_and_enveloped_results() {
         );
     }
 }
+
+#[test]
+fn cloudflare_web_fetch_builds_single_url_body_and_strips_browser_selector() {
+    let resolver = APIResolver::new(
+        APIResolverKind::CloudflareWebFetch,
+        ResponseContext {
+            model: "default".to_string(),
+            request: json!({
+                "urls": ["https://example.com/kitesurf"],
+                "browser": "kitesurf"
+            }),
+            provider_options: json!({
+                "browser": "kitesurf",
+                "waitForSelector": {"selector": "main", "timeout": 5000},
+                "rejectRequestPattern": ["/^.*\\.(css)$/"]
+            }),
+            stream: None,
+            include_model: false,
+            ..ResponseContext::default()
+        },
+    );
+
+    let body = Value::Object(resolver.build_body().unwrap());
+
+    assert_eq!(
+        body,
+        json!({
+            "url": "https://example.com/kitesurf",
+            "waitForSelector": {"selector": "main", "timeout": 5000},
+            "rejectRequestPattern": ["/^.*\\.(css)$/"]
+        })
+    );
+}
+
+#[test]
+fn cloudflare_web_fetch_normalizes_markdown_string_and_structured_results() {
+    let mut markdown_resolver = APIResolver::new(
+        APIResolverKind::CloudflareWebFetch,
+        ResponseContext {
+            model: "default".to_string(),
+            request: json!({"urls": ["https://example.com/kitesurf"]}),
+            provider_options: json!({}),
+            stream: None,
+            include_model: false,
+            ..ResponseContext::default()
+        },
+    );
+
+    let normalized_markdown = markdown_resolver
+        .normalize_body(
+            200,
+            json!({
+                "success": true,
+                "result": "# Kitesurf\n\nAgent-first stateless browser."
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(
+        normalized_markdown,
+        json!({
+            "success": true,
+            "results": [{
+                "url": "https://example.com/kitesurf",
+                "title": "",
+                "text": "# Kitesurf\n\nAgent-first stateless browser.",
+                "truncated": false
+            }]
+        })
+    );
+
+    let mut structured_resolver = APIResolver::new(
+        APIResolverKind::CloudflareWebFetch,
+        ResponseContext {
+            model: "default".to_string(),
+            request: json!({"urls": ["https://example.com/kitesurf"]}),
+            provider_options: json!({}),
+            stream: None,
+            include_model: false,
+            ..ResponseContext::default()
+        },
+    );
+
+    let normalized_structured = structured_resolver
+        .normalize_body(
+            200,
+            json!({
+                "success": true,
+                "result": {"markdown": "# Kitesurf\n\nStructured payload."},
+                "meta": {"title": "Kitesurf Docs", "url": "https://example.com/final"}
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(
+        normalized_structured,
+        json!({
+            "success": true,
+            "results": [{
+                "url": "https://example.com/final",
+                "title": "Kitesurf Docs",
+                "text": "# Kitesurf\n\nStructured payload.",
+                "truncated": false
+            }]
+        })
+    );
+}

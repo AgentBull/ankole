@@ -52,7 +52,8 @@ try {
             if (!name) throw new BrowserDataError('invalid_command', 'batch command cannot be empty')
             return parseBatchItem(name, rest)
           }),
-          bail: parsed.bail
+          bail: parsed.bail,
+          ...(parsed.snap ? { snap: parsed.snap } : {})
         }
       }
     } else if (parsed.kind === 'eval-stdin') {

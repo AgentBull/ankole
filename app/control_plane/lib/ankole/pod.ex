@@ -34,6 +34,7 @@ defmodule Ankole.Pod do
     to: Ankole.Pod.Applets,
     as: :transfer_owner
 
+  defdelegate release_applet_owners_for_principal_in_tx(uid), to: Ankole.Pod.Pages.Lifecycle
   defdelegate release_applet_owners_for_tenant_deletion(), to: Ankole.Pod.Pages.Lifecycle
 
   defdelegate call_applet_function(actor, page_id, request, parent),
@@ -317,6 +318,11 @@ defmodule Ankole.Pod do
 
         route(:get, "/routines/:kind/:raw_id", :routine_detail,
           name: "podJobRoutine",
+          wrap_in_result?: false
+        )
+
+        route(:put, "/routines/cron/:raw_id", :update_routine,
+          name: "updatePodJobRoutine",
           wrap_in_result?: false
         )
 

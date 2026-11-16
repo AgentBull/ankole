@@ -1,3 +1,4 @@
+import { isRecord, safeJsonParse } from '@agentbull/active-support'
 import { Button } from '@ankole/uikit'
 import { ArrowUpRightRegular, ChevronRightRegular, RecordStopRegular } from '@ankole/uikit/icons'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -15,6 +16,7 @@ import { CollapsedWorkView, ActivityView } from './collapsed-work-view'
 import { formatElapsed } from './elapsed'
 import { ExecutionStatusMark } from './execution-status'
 import type { ExecutionSummary, InspectorTarget, TimelineMessage } from './types'
+import { activityPayload } from '../use-conversation-events'
 
 type Peer = { exchange_id: string; agent_uid: string }
 const active = (status?: string) => ['running', 'queued', 'retrying'].includes(status ?? '')
@@ -260,24 +262,23 @@ function PeerLog({
     }
     for (const type of ['started', 'snapshot', 'delta']) {
       events.addEventListener(type, event => {
-        const frame = JSON.parse((event as MessageEvent<string>).data) as {
-          agentUID: string
-          responseID: string
-          text?: string
-        }
+        const parsed = safeJsonParse((event as MessageEvent<string>).data)
+        if (parsed.isErr() || !isRecord(parsed.value)) return
+        const frame = parsed.value
+        if (typeof frame.agentUID !== 'string' || typeof frame.responseID !== 'string') return
         if (frame.agentUID !== peer.agent_uid) return
+        const frameText = typeof frame.text === 'string' ? frame.text : ''
+        const responseID = frame.responseID
         setLive(previous => ({
-          responseID: frame.responseID,
-          text:
-            type === 'delta'
-              ? (previous?.responseID === frame.responseID ? previous.text : '') + (frame.text ?? '')
-              : (frame.text ?? '')
+          responseID,
+          text: type === 'delta' ? (previous?.responseID === responseID ? previous.text : '') + frameText : frameText
         }))
       })
     }
     events.addEventListener('activity', event => {
-      const frame = JSON.parse((event as MessageEvent<string>).data) as PodActivity
-      if (frame.agentUID === peer.agent_uid) setActivity(frame)
+      const parsed = safeJsonParse((event as MessageEvent<string>).data)
+      if (parsed.isErr() || !activityPayload(parsed.value)) return
+      if (parsed.value.agentUID === peer.agent_uid) setActivity(parsed.value)
     })
     events.addEventListener('conversation', () => {
       setLive(null)

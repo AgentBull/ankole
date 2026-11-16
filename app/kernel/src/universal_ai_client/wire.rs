@@ -237,16 +237,6 @@ impl AWSEventStreamParser {
 
     pub(crate) fn push(&mut self, bytes: &[u8]) -> Result<Vec<EventStreamMessage>, StreamError> {
         self.buffer.extend_from_slice(bytes);
-        if self.buffer.len() > self.max_frame_bytes && self.buffer.len() < 12 {
-            return Err(StreamError::new(
-                "eventstream_frame_too_large",
-                "wire",
-                format!(
-                    "AWS eventstream frame exceeded {} bytes before the prelude completed",
-                    self.max_frame_bytes
-                ),
-            ));
-        }
         let mut messages = Vec::new();
 
         loop {

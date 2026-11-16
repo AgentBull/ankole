@@ -93,6 +93,9 @@ defmodule Ankole.Conversations do
 
   defdelegate stop_peer_exchange(actor, origin, id), to: Ankole.Conversations.Peers, as: :stop
 
+  defdelegate stopped_delivery_signal_ids(signal_ids),
+    to: Ankole.Conversations.Delivery.Queries
+
   defdelegate stop_execution(actor, conversation_id, kind, run_id),
     to: Ankole.Conversations.Executions,
     as: :stop

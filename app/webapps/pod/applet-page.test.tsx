@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToReadableStream, renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../common/i18n'
+import { resolveAppletFrameTitle } from './applet-host'
 import { AppletPage } from './applet-page'
 import { contentKeys, type PageDetail } from './content-api'
 import { PageEmbed } from './document-embeds'
@@ -87,5 +88,13 @@ describe('Trashed Applet Pages remain inactive', () => {
         client.clear()
       }
     }
+  })
+})
+
+describe('Applet iframe accessible title', () => {
+  test('resolveAppletFrameTitle uses the trimmed Page title and falls back to the localized Applet label when blank', () => {
+    expect(resolveAppletFrameTitle('  Revenue Simulator  ')).toBe('Revenue Simulator')
+    expect(resolveAppletFrameTitle('')).toBe(t('pod.content.applet'))
+    expect(resolveAppletFrameTitle('   ')).toBe(t('pod.content.applet'))
   })
 })

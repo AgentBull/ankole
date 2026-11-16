@@ -140,28 +140,39 @@ defmodule Ankole.BrowserSessions.Identity do
     end
   end
 
-  def identity(ref, tenant_id, opts \\ [])
+  def identity(ref, tenant_id) when is_binary(tenant_id) do
+    case identity_with_principal(ref, tenant_id) do
+      {authentication, _principal} -> authentication
+      nil -> nil
+    end
+  end
 
-  def identity(ref, tenant_id, opts) when is_binary(tenant_id) do
+  def identity(_, _), do: nil
+
+  def identity_with_principal(ref, tenant_id) when is_binary(tenant_id) do
     with {:ok, authentication} <- get_authentication(ref) do
-      identity_for_authentication(authentication, tenant_id, opts)
+      identity_and_principal_for_authentication(authentication, tenant_id)
     else
       _ -> nil
     end
   end
 
-  def identity(_, _, _), do: nil
+  def identity_with_principal(_, _), do: nil
 
   def identities(ref) do
+    for {authentication, _principal} <- identities_with_principals(ref), do: authentication
+  end
+
+  def identities_with_principals(ref) do
     with {:ok, authentication} <- get_authentication(ref) do
       PodAuthentication
       |> Ash.Query.for_read(:lookup_across_tenants)
       |> Ash.Query.filter(authentication_id == ^authentication.id)
       |> Ankole.Ash.read_across_tenants!()
       |> Enum.flat_map(fn proof ->
-        case identity_for_authentication(authentication, proof.tenant_id) do
+        case identity_and_principal_for_authentication(authentication, proof.tenant_id) do
           nil -> []
-          identity -> [identity]
+          pair -> [pair]
         end
       end)
     else
@@ -171,13 +182,17 @@ defmodule Ankole.BrowserSessions.Identity do
 
   @doc false
   def authentication_identity(%Authentication{} = authentication, tenant_id)
-      when is_binary(tenant_id),
-      do: identity_for_authentication(authentication, tenant_id)
+      when is_binary(tenant_id) do
+    case identity_and_principal_for_authentication(authentication, tenant_id) do
+      {identity, _principal} -> identity
+      nil -> nil
+    end
+  end
 
-  defp identity_for_authentication(authentication, tenant_id, opts \\ []),
-    do: Repo.with_tenant(tenant_id, fn -> identity_in_tenant(authentication, opts) end)
+  defp identity_and_principal_for_authentication(authentication, tenant_id),
+    do: Repo.with_tenant(tenant_id, fn -> identity_in_tenant(authentication) end)
 
-  defp identity_in_tenant(authentication, opts) do
+  defp identity_in_tenant(authentication) do
     with %PodAuthentication{} = proof <-
            PodAuthentication
            |> Ash.Query.filter(authentication_id == ^authentication.id)
@@ -192,7 +207,7 @@ defmodule Ankole.BrowserSessions.Identity do
              authentication.provider_id,
              Map.from_struct(authentication)
            ) do
-      %{
+      identity = %{
         "authentication_id" => authentication.id,
         "authentication_revision" => authentication.revision,
         "browser_id" => authentication.browser_id,
@@ -210,9 +225,8 @@ defmodule Ankole.BrowserSessions.Identity do
         "verified_phone" => authentication.verified_phone,
         "expires_at" => DateTime.to_unix(authentication.expires_at)
       }
-      |> then(fn identity ->
-        if opts[:include_principal], do: Map.put(identity, :principal, principal), else: identity
-      end)
+
+      {identity, principal}
     else
       _ -> nil
     end

@@ -151,7 +151,9 @@ defmodule Ankole.Sessions.Context do
         {:ok,
          %{
            display_name: principal.display_name || principal.uid,
-           role: agent_role(agent)
+           role: agent_role(agent),
+           type: agent.type,
+           owner_principal_uid: agent.owner_principal_uid
          }}
 
       {:error, _reason} ->

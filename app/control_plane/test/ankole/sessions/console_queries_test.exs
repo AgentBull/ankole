@@ -322,15 +322,15 @@ defmodule Ankole.Sessions.ConsoleQueriesTest do
       assert projection.display_name == "ghost"
     end
 
-    test "cron execution sessions read as kind cron" do
+    test "routine execution sessions read as kind routine" do
       %{principal: agent} = PrincipalsFixtures.agent_fixture()
 
       conversation =
-        conversation_fixture(agent.uid, "cron:#{Ecto.UUID.generate()}")
+        conversation_fixture(agent.uid, "routine:#{Ecto.UUID.generate()}")
 
       projection = reload(conversation)
 
-      assert projection.kind == :cron
+      assert projection.kind == :routine
       assert projection.channel_kind == nil
       assert projection.signal_adapter == nil
     end

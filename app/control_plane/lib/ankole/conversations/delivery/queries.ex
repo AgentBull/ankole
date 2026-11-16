@@ -85,6 +85,23 @@ defmodule Ankole.Conversations.Delivery.Queries do
     {:ok, deliveries}
   end
 
+  @doc "Returns source Signal IDs whose durable outbound AI reply stopped without delivery."
+  @spec stopped_delivery_signal_ids([Ecto.UUID.t()]) :: MapSet.t(Ecto.UUID.t())
+  def stopped_delivery_signal_ids([]), do: MapSet.new()
+
+  def stopped_delivery_signal_ids(signal_ids) when is_list(signal_ids) do
+    Intent
+    |> Ash.Query.filter(
+      source_signal_id in ^signal_ids and delivery_class == :durable_ai_reply and
+        (status == :expired or
+           (status in [:failed, :unknown] and is_nil(next_attempt_at) and
+              (not is_nil(recovery_status) or possible_duplicate == true)))
+    )
+    |> Ash.Query.select([:source_signal_id])
+    |> Ankole.Ash.read!()
+    |> MapSet.new(& &1.source_signal_id)
+  end
+
   defp maybe_where_agent(query, nil), do: query
 
   defp maybe_where_agent(query, agent_uid) do

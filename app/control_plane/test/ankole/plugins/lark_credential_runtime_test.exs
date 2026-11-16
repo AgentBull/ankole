@@ -19,66 +19,10 @@ defmodule Ankole.Plugins.LarkCredentialRuntimeTest do
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
-  alias Ankole.Plugins.Config, as: PluginsConfig
-  alias Ankole.Plugins.Registry, as: PluginsRegistry
   alias Ankole.Repo
 
-  alias Ankole.AgentWorkers.BindingWorkerEnv
-  alias Ankole.AgentWorkers.WorkerEnv
   alias Ankole.Signals.Binding
   alias Ankole.Signals.Bindings
-
-  defmodule FailingWorkerEnv do
-    @moduledoc false
-
-    def resolve_worker_env(_binding), do: {:error, :credentials_unavailable}
-  end
-
-  defmodule FailingWorkerEnvPlugin do
-    @moduledoc false
-
-    @behaviour Ankole.Plugins.Plugin
-
-    @impl true
-    def plugin_id, do: "failing-worker-env"
-
-    @impl true
-    def adapter_declarations do
-      [
-        %{
-          contract_id: "signals.adapter",
-          id: "failing-env",
-          adapter_category: "enterprise_im",
-          plugin_id: plugin_id(),
-          worker_env_module: Ankole.Plugins.LarkCredentialRuntimeTest.FailingWorkerEnv
-        }
-      ]
-    end
-  end
-
-  defmodule ReservedWorkerEnv do
-    @moduledoc false
-    def resolve_worker_env(_binding), do: {:ok, %{"PATH" => "/binding-owned/path"}}
-  end
-
-  defmodule ReservedWorkerEnvPlugin do
-    @moduledoc false
-    @behaviour Ankole.Plugins.Plugin
-    @impl true
-    def plugin_id, do: "reserved-worker-env"
-    @impl true
-    def adapter_declarations do
-      [
-        %{
-          contract_id: "signals.adapter",
-          id: "reserved-env",
-          adapter_category: "enterprise_im",
-          plugin_id: plugin_id(),
-          worker_env_module: Ankole.Plugins.LarkCredentialRuntimeTest.ReservedWorkerEnv
-        }
-      ]
-    end
-  end
 
   setup do
     AppConfigureRegistry.clear_for_test()
@@ -568,94 +512,6 @@ defmodule Ankole.Plugins.LarkCredentialRuntimeTest do
       assert {:ok, env} = Ankole.SessionsCase.effective_worker_env(agent.uid, binding_name: name)
       refute Enum.any?(Map.keys(env), &String.starts_with?(&1, "LARKSUITE_CLI_"))
     end
-  end
-
-  test "an available binding env failure is returned instead of silently omitting identity" do
-    %{principal: agent} = agent_fixture()
-
-    assert {:ok, ["failing-worker-env"]} =
-             PluginsConfig.put_enabled_ids([FailingWorkerEnvPlugin.plugin_id()])
-
-    registry =
-      start_supervised!(
-        {PluginsRegistry, name: :failing_worker_env_registry, modules: [FailingWorkerEnvPlugin]},
-        id: :failing_worker_env_registry
-      )
-
-    assert is_pid(registry)
-
-    assert {:ok, _binding} =
-             Ankole.SignalsFixtures.raw_binding_fixture(%{
-               agent_uid: agent.uid,
-               name: "failing-main",
-               adapter: "failing-env",
-               config_ref: "app-config://failing-env",
-               filters: %{},
-               unaddressed_group_message_policy: :record_only,
-               unmatched_sender_policy: :create_standalone,
-               enabled: true
-             })
-
-    assert {:error,
-            {:binding_worker_env_unavailable, "failing-env", "failing-main",
-             :credentials_unavailable}} =
-             BindingWorkerEnv.resolve(agent.uid,
-               adapter_server: :failing_worker_env_registry
-             )
-  end
-
-  test "a residual binding for a disabled plugin does not block unrelated worker env" do
-    %{principal: agent} = agent_fixture()
-    registry_name = :"empty_worker_env_registry_#{System.unique_integer([:positive])}"
-
-    start_supervised!(
-      {PluginsRegistry, name: registry_name, modules: []},
-      id: registry_name
-    )
-
-    assert {:ok, _binding} =
-             Ankole.SignalsFixtures.raw_binding_fixture(%{
-               agent_uid: agent.uid,
-               name: "disabled-main",
-               adapter: "disabled-env",
-               config_ref: "app-config://disabled-env",
-               filters: %{},
-               unaddressed_group_message_policy: :record_only,
-               unmatched_sender_policy: :create_standalone,
-               enabled: true
-             })
-
-    assert {:ok, %{}} =
-             BindingWorkerEnv.resolve(agent.uid, adapter_server: registry_name)
-  end
-
-  test "a binding provider cannot replace the Worker PATH" do
-    %{principal: agent} = agent_fixture()
-
-    assert {:ok, ["reserved-worker-env"]} =
-             PluginsConfig.put_enabled_ids([ReservedWorkerEnvPlugin.plugin_id()])
-
-    registry_name = :reserved_worker_env_registry
-
-    start_supervised!(
-      {PluginsRegistry, name: registry_name, modules: [ReservedWorkerEnvPlugin]},
-      id: registry_name
-    )
-
-    assert {:ok, _binding} =
-             Ankole.SignalsFixtures.raw_binding_fixture(%{
-               agent_uid: agent.uid,
-               name: "reserved-main",
-               adapter: "reserved-env",
-               config_ref: "app-config://reserved-env",
-               filters: %{},
-               unaddressed_group_message_policy: :record_only,
-               unmatched_sender_policy: :create_standalone,
-               enabled: true
-             })
-
-    assert {:error, {:reserved_worker_env_name, "PATH"}} =
-             BindingWorkerEnv.resolve(agent.uid, adapter_server: registry_name)
   end
 
   defp binding_attrs(config) do

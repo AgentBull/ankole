@@ -117,6 +117,14 @@ defmodule AnkoleWeb.Session do
     %{"id" => identity["authentication_id"], "revision" => identity["authentication_revision"]}
   end
 
+  def authentication_reference(%{
+        assigns: %{site_admin_authentication: identity},
+        private: private
+      })
+      when not is_map_key(private, :browser_authentication_ref) do
+    %{"id" => identity["authentication_id"], "revision" => identity["authentication_revision"]}
+  end
+
   def authentication_reference(conn) do
     candidate = authentication_candidate(conn)
     if authentication_proven?(conn, candidate), do: candidate
@@ -280,16 +288,15 @@ defmodule AnkoleWeb.Session do
     oauth_scope = get_in(conn.assigns, [:oidc_claims, "scope"]) || "openid pod"
     ip = conn.remote_ip |> :inet.ntoa() |> to_string()
 
-    with {:ok, _session} <- Ankole.OIDC.Sessions.validate(sid, client_id, uid, oauth_scope),
-         {:ok, principal} <- Ankole.Principals.get_principal(uid),
-         {:ok, actor} <- Ankole.OIDC.actor_for_session(sid, principal, ip),
+    with {:ok, session} <- Ankole.OIDC.Sessions.validate(sid, client_id, uid, oauth_scope),
+         %{type: :human} = principal <- Ankole.OIDC.Sessions.validated_principal(session),
+         {:ok, actor} <- Ankole.OIDC.actor_for_session(session, principal, ip),
          do: {:ok, actor},
          else: (_ -> :error)
   end
 
   def pod_stream_actor(conn, actor) do
-    with %{"principal_uid" => uid, :principal => principal} <-
-           pod_session(conn, include_principal: true),
+    with {%{"principal_uid" => uid}, principal} <- pod_session_with_principal(conn),
          true <- uid == conn.assigns.current_principal_uid,
          do: {:ok, %{actor | principal: principal}},
          else: (_ -> :error)
@@ -420,11 +427,22 @@ defmodule AnkoleWeb.Session do
   end
 
   def current_authentication(conn) do
+    case current_authentication_with_principal(conn) do
+      {authentication, _principal} -> authentication
+      nil -> nil
+    end
+  end
+
+  def current_authentication_with_principal(conn) do
     with %BrowserSessions.Authentication{} = authentication <-
            proven_authentication(conn, authentication_candidate(conn)),
          tenant_id when is_binary(tenant_id) <-
            selected_tenant(conn, authentication),
-         do: BrowserSessions.identity(BrowserSessions.reference(authentication), tenant_id),
+         do:
+           BrowserSessions.identity_with_principal(
+             BrowserSessions.reference(authentication),
+             tenant_id
+           ),
          else: (_ -> nil)
   end
 
@@ -474,7 +492,7 @@ defmodule AnkoleWeb.Session do
 
   def site_admin_session(conn) do
     with {:ok, privileged} <- Ankole.Tenants.privileged(),
-         {:ok, identity, _ref} <-
+         {:ok, identity, _principal, _ref} <-
            site_admin_for_reference(conn, authentication_candidate(conn), privileged.id) do
       identity
     else
@@ -491,8 +509,8 @@ defmodule AnkoleWeb.Session do
       case Ankole.Tenants.privileged() do
         {:ok, privileged} ->
           case site_admin_for_reference(conn, candidate, privileged.id) do
-            {:ok, identity, _ref} ->
-              {:ok, identity}
+            {:ok, identity, principal, _ref} ->
+              {:ok, %{authentication: identity, principal: principal, tenant: privileged}}
 
             :forbidden ->
               :forbidden
@@ -525,7 +543,7 @@ defmodule AnkoleWeb.Session do
       candidate = authentication_candidate(conn)
       result = site_admin_for_reference(conn, candidate, privileged.id)
 
-      if match?({:ok, _, _}, result) or
+      if match?({:ok, _, _, _}, result) or
            get_req_header(conn, "x-ankole-authentication") != [] or candidate == :invalid do
         result
       else
@@ -534,7 +552,7 @@ defmodule AnkoleWeb.Session do
         |> Enum.reject(&(&1 == candidate))
         |> Enum.reduce_while(result, fn ref, result ->
           case site_admin_for_reference(conn, ref, privileged.id) do
-            {:ok, _, _} = resolved ->
+            {:ok, _, _, _} = resolved ->
               {:halt, resolved}
 
             :forbidden ->
@@ -574,10 +592,17 @@ defmodule AnkoleWeb.Session do
       end
   end
 
-  def pod_session(conn, opts \\ []) do
+  def pod_session(conn) do
+    case pod_session_with_principal(conn) do
+      {identity, _principal} -> identity
+      nil -> nil
+    end
+  end
+
+  def pod_session_with_principal(conn) do
     case Ankole.Repo.tenant_id() do
       tenant_id when is_binary(tenant_id) ->
-        reference_identity(conn, authentication_candidate(conn), tenant_id, opts)
+        reference_identity_with_principal(conn, authentication_candidate(conn), tenant_id)
 
       nil ->
         nil
@@ -585,10 +610,10 @@ defmodule AnkoleWeb.Session do
   end
 
   defp site_admin_for_reference(conn, reference, privileged_tenant_id) do
-    case reference_identity(conn, reference, privileged_tenant_id) do
-      %{"principal_uid" => uid} = identity ->
+    case reference_identity_with_principal(conn, reference, privileged_tenant_id) do
+      {%{"principal_uid" => uid} = identity, principal} ->
         if Ankole.Repo.with_tenant(privileged_tenant_id, fn -> AuthZ.site_admin?(uid) end),
-          do: {:ok, identity, reference},
+          do: {:ok, identity, principal, reference},
           else: :forbidden
 
       nil ->
@@ -596,12 +621,19 @@ defmodule AnkoleWeb.Session do
     end
   end
 
-  defp reference_identity(conn, reference, tenant_id, opts \\ []) do
+  defp reference_identity(conn, reference, tenant_id) do
+    case reference_identity_with_principal(conn, reference, tenant_id) do
+      {identity, _principal} -> identity
+      nil -> nil
+    end
+  end
+
+  defp reference_identity_with_principal(conn, reference, tenant_id) do
     with true <- authentication_cookie_proven?(conn, reference),
          %{"id" => browser_id} <- browser_reference(conn),
-         %{"browser_id" => ^browser_id} = identity <-
-           BrowserSessions.identity(reference, tenant_id, opts),
-         do: identity,
+         {%{"browser_id" => ^browser_id} = identity, principal} <-
+           BrowserSessions.identity_with_principal(reference, tenant_id),
+         do: {identity, principal},
          else: (_ -> nil)
   end
 

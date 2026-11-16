@@ -88,6 +88,9 @@ defmodule Ankole.Connectors.ProviderProtocolTest do
           "/repos/owner/failing/issues" ->
             {500, %{"message" => "Server lost outcome after saving issue"}}
 
+          "/repos/owner/incomplete-output/issues" ->
+            {201, %{"id" => 1}}
+
           "/repos/owner/invalid/issues" ->
             {422,
              %{
@@ -1166,5 +1169,33 @@ defmodule Ankole.Connectors.ProviderProtocolTest do
              GitHub.webhook(ctx.config, %{"webhookSecret" => "hook-secret"}, body <> " ", headers)
 
     assert {:error, :invalid_webhook_signature} = Connector.webhook(ctx.config, %{}, body, [])
+  end
+
+  test "Gateway marks invalid_upstream_output with request_sent: true and preflight skill errors with request_sent: false",
+       ctx do
+    connections = download_connections(ctx)
+    context = %{actor: ctx.context.actor, read_only: false}
+
+    assert {:error, %{code: "invalid_upstream_output", retryable: false, request_sent: true}} =
+             Gateway.request(
+               {:toolkit, "github"},
+               tool_request("issues_create", %{
+                 "owner" => "owner",
+                 "repo" => "incomplete-output",
+                 "title" => "Created upstream"
+               }),
+               context,
+               %{"connection" => connections["github"]}
+             )
+
+    assert_receive {:request, "POST", "/repos/owner/incomplete-output/issues", _, _, _}
+
+    assert {:error, %{request_sent: false, retryable: false}} =
+             Gateway.request(
+               {:skill, "nonexistent-skill", "main"},
+               tool_request("ping", %{}),
+               context,
+               %{}
+             )
   end
 end

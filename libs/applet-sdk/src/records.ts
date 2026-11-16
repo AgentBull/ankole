@@ -22,16 +22,29 @@ export function withRecordIDs(changes: RecordWrite): RecordWrite {
 export function previewRecordList(records: readonly BaseRecord[], pending: readonly RecordWrite[]): BaseRecord[] {
   if (pending.length === 0) return records as BaseRecord[]
   let changed = false
-  const next = records.map(record => {
+  const next: BaseRecord[] = []
+  for (const record of records) {
+    let deleted = false
     let data = record.data
     for (const changes of pending) {
+      if (changes.deletes?.some(item => item.id === record.id)) {
+        deleted = true
+        break
+      }
       const update = changes.updates?.find(item => item.id === record.id)
       if (!update) continue
       data = { ...data, ...update.data }
     }
-    if (data === record.data) return record
+    if (deleted) {
+      changed = true
+      continue
+    }
+    if (data === record.data) {
+      next.push(record)
+      continue
+    }
     changed = true
-    return { ...record, data }
-  })
+    next.push({ ...record, data })
+  }
   return changed ? next : (records as BaseRecord[])
 }

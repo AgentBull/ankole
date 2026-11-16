@@ -146,4 +146,41 @@ defmodule Ankole.Plugins.MapHelpers do
 
   @spec collect_results([term()]) :: {:ok, [term()]} | {:error, term()}
   defdelegate collect_results(results), to: Ankole.Attrs
+
+  @doc """
+  Parses an integer Unix timestamp (seconds or milliseconds, split at 10^10) or
+  a decimal-seconds string (such as Slack `ts`) into a UTC `DateTime`, returning
+  `nil` for unrecognized or out-of-range values.
+  """
+  @spec unix_datetime(term()) :: DateTime.t() | nil
+  def unix_datetime(%DateTime{} = value), do: value
+
+  def unix_datetime(value) when is_integer(value) do
+    unit = if value >= 10_000_000_000, do: :millisecond, else: :second
+
+    case DateTime.from_unix(value, unit) do
+      {:ok, datetime} -> datetime
+      {:error, _reason} -> nil
+    end
+  end
+
+  def unix_datetime(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    case Integer.parse(trimmed) do
+      {int, ""} ->
+        unix_datetime(int)
+
+      _ ->
+        with {seconds, ""} <- Float.parse(trimmed),
+             true <- abs(seconds) < 253_402_300_800,
+             {:ok, datetime} <- DateTime.from_unix(round(seconds * 1_000_000), :microsecond) do
+          datetime
+        else
+          _invalid -> nil
+        end
+    end
+  end
+
+  def unix_datetime(_other), do: nil
 end

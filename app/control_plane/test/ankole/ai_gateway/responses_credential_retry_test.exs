@@ -288,6 +288,110 @@ defmodule Ankole.AIGateway.ResponsesCredentialRetryTest do
     refute_receive {:gateway_request, _request}, 100
   end
 
+  test "Cloudflare web_fetch targets Browser Run Kitesurf by default and supports Chromium override" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        {:json, 200,
+         %{
+           "success" => true,
+           "result" => "# Markdown for #{request.body["url"]}"
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "cloudflare-kitesurf",
+               provider_kind: "cloudflare",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "cf-1", "label" => "Main", "api_key" => "cf-token"}
+                 ]
+               },
+               connection_options: %{
+                 "account_id" => "acc-123",
+                 "transport" => %{}
+               }
+             })
+
+    assert {:ok, %{body: %{"success" => true, "results" => results}}} =
+             AIGateway.create_web_fetch(
+               agent.uid,
+               %{
+                 "model" => "cloudflare-kitesurf/default",
+                 "urls" => ["https://example.com/a", "https://example.com/b"]
+               }
+             )
+
+    assert Enum.map(results, &{&1["url"], &1["text"]}) == [
+             {"https://example.com/a", "# Markdown for https://example.com/a"},
+             {"https://example.com/b", "# Markdown for https://example.com/b"}
+           ]
+
+    assert_receive {:gateway_request,
+                    %{
+                      request_path: "/accounts/acc-123/browser-run/markdown",
+                      query_string: "browser=kitesurf",
+                      headers: %{"authorization" => "Bearer cf-token"},
+                      body: %{"url" => "https://example.com/a"}
+                    }}
+
+    assert_receive {:gateway_request,
+                    %{
+                      request_path: "/accounts/acc-123/browser-run/markdown",
+                      query_string: "browser=kitesurf",
+                      body: %{"url" => "https://example.com/b"}
+                    }}
+
+    assert {:error, _reason} =
+             ModelProfiles.put_model_profile(agent.uid, "web_fetch", %{
+               provider_id: "cloudflare-kitesurf",
+               model: "default",
+               provider_options: %{"waitForSelector" => "article"}
+             })
+
+    assert {:error, _reason} =
+             ModelProfiles.put_model_profile(agent.uid, "web_fetch", %{
+               provider_id: "cloudflare-kitesurf",
+               model: "default",
+               provider_options: %{"rejectRequestPattern" => "/^.*\\.(css)$/"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "web_fetch", %{
+               provider_id: "cloudflare-kitesurf",
+               model: "default",
+               provider_options: %{
+                 "browser" => "chromium",
+                 "waitForSelector" => %{"selector" => "article"},
+                 "rejectRequestPattern" => ["/^.*\\.(css)$/"]
+               }
+             })
+
+    assert {:ok, %{body: %{"success" => true, "results" => [_single]}}} =
+             AIGateway.create_web_fetch(
+               agent.uid,
+               %{"model" => "default", "urls" => ["https://example.com/c"]}
+             )
+
+    assert_receive {:gateway_request,
+                    %{
+                      request_path: "/accounts/acc-123/browser-run/markdown",
+                      query_string: query_string,
+                      body:
+                        %{
+                          "url" => "https://example.com/c",
+                          "waitForSelector" => %{"selector" => "article"},
+                          "rejectRequestPattern" => ["/^.*\\.(css)$/"]
+                        } = body
+                    }}
+
+    assert query_string == ""
+    refute Map.has_key?(body, "browser")
+  end
+
   test "a single-entry pool retries once and then preserves a non-quota failure" do
     %{principal: agent} = agent_fixture()
     test_pid = self()

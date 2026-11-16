@@ -138,6 +138,21 @@ defmodule Ankole.Conversations.Route do
     end
   end
 
+  defp authorization_owner(%Signal{
+         extensions: %{"ankole_routine" => %{"routine_id" => id}},
+         agent_uid: uid,
+         session_id: session
+       })
+       when is_binary(id) do
+    case Ankole.Work.Owner.get(Ankole.Schedule.Schemas.AgentRoutine, id) do
+      %{agent_uid: ^uid} = routine ->
+        if session == Ankole.Sessions.Key.routine(id), do: routine
+
+      _ ->
+        nil
+    end
+  end
+
   defp authorization_owner(_signal), do: nil
 
   @doc "Returns the creation source Message through Job wakeups and continuations."
@@ -457,6 +472,29 @@ defmodule Ankole.Conversations.Route do
       resolve_owner(agent_uid, run.owner_session_id, reply_route, visited)
     else
       _missing -> {:error, :long_lived_reply_owner_not_found}
+    end
+  end
+
+  defp resolve_session_owner({:routine, routine_id}, agent_uid, session_id, _route, _visited) do
+    case Ankole.Schedule.get_agent_routine_record!(routine_id) do
+      %{agent_uid: ^agent_uid, status: status} = routine when status in [:active, :paused] ->
+        case Ankole.Schedule.Delivery.primary_target(
+               routine.delivery || %{},
+               routine.binding_name
+             ) do
+          {:ok, primary} ->
+            {:ok,
+             %{
+               session_id: session_id,
+               reply_route: Map.put(primary, "delivery", routine.delivery || %{})
+             }}
+
+          _ ->
+            {:ok, %{session_id: session_id, reply_route: nil}}
+        end
+
+      _ ->
+        {:error, :long_lived_reply_owner_not_found}
     end
   end
 

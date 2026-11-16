@@ -377,6 +377,12 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     assert {:ok, %{display_name: "Alice"}} = Principals.get_principal(person.uid)
   end
 
+  test "BrowserAPI maps unavailable invitations to HTTP 410 Gone" do
+    assert {:error, error} = AnkoleWeb.BrowserAPI.Error.login(:invitation_unavailable)
+    assert error.status == 410
+    assert error.code == "invitation_unavailable"
+  end
+
   test "email reauthentication preserves site Console access, pinned Pod reference and RP session",
        %{
          conn: conn,

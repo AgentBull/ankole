@@ -209,11 +209,6 @@ defmodule Ankole.Brain.Knowledge do
       |> Ash.Query.filter(source_node_id in ^ids and claim_type == :fact and is_nil(expired_at))
       |> Ankole.Ash.update_where(:expire_fact, %{at: now})
 
-    {:ok, _} =
-      Claim
-      |> Ash.Query.filter(source_node_id in ^ids and claim_type == :take and active)
-      |> Ankole.Ash.update_where(:deactivate_take, %{at: now})
-
     :ok
   end
 

@@ -479,25 +479,25 @@ CREATE TABLE public.sessions (
     name text,
     background_job_id bigint,
     workflow_agent_call_id bigint,
-    cron_schedule_id uuid,
+    agent_routine_id uuid,
     session_id text GENERATED ALWAYS AS (
 CASE kind
     WHEN 'named'::text THEN name
     WHEN 'conversation'::text THEN ('conversation:'::text || (conversation_id)::text)
     WHEN 'background_job'::text THEN ('job:'::text || (background_job_id)::text)
     WHEN 'workflow_task'::text THEN ('wf_task:'::text || (workflow_agent_call_id)::text)
-    WHEN 'cron'::text THEN ('cron:'::text || (cron_schedule_id)::text)
+    WHEN 'routine'::text THEN ('routine:'::text || (agent_routine_id)::text)
     ELSE NULL::text
 END) STORED NOT NULL,
     CONSTRAINT sessions_epoch_non_negative CHECK ((epoch >= 0)),
     CONSTRAINT sessions_id_range CHECK (((id >= 10000) AND (id <= '9007199254740991'::bigint))),
-    CONSTRAINT sessions_owner_check CHECK (((num_nonnulls(name, conversation_id, background_job_id, workflow_agent_call_id, cron_schedule_id) = 1) AND
+    CONSTRAINT sessions_owner_check CHECK (((num_nonnulls(name, conversation_id, background_job_id, workflow_agent_call_id, agent_routine_id) = 1) AND
 CASE kind
-    WHEN 'named'::text THEN ((name IS NOT NULL) AND (btrim(name) <> ''::text) AND (name !~ '^(conversation|job|wf_task|cron):'::text))
+    WHEN 'named'::text THEN ((name IS NOT NULL) AND (btrim(name) <> ''::text) AND (name !~ '^(conversation|job|wf_task|routine):'::text))
     WHEN 'conversation'::text THEN (conversation_id IS NOT NULL)
     WHEN 'background_job'::text THEN (background_job_id IS NOT NULL)
     WHEN 'workflow_task'::text THEN (workflow_agent_call_id IS NOT NULL)
-    WHEN 'cron'::text THEN (cron_schedule_id IS NOT NULL)
+    WHEN 'routine'::text THEN (agent_routine_id IS NOT NULL)
     ELSE false
 END)),
     CONSTRAINT sessions_session_id_present CHECK ((btrim(session_id) <> ''::text))
@@ -616,6 +616,47 @@ CREATE TABLE public.agent_plugin_overrides (
     tenant_id uuid NOT NULL,
     CONSTRAINT agent_plugin_overrides_agent_plugin_id_format CHECK ((agent_plugin_id ~ '^[a-z][a-z0-9_-]{0,63}$'::text))
 );
+
+
+--
+-- Name: agent_routines; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.agent_routines (
+    id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    status text NOT NULL,
+    agent_uid text NOT NULL,
+    owner_session_id text NOT NULL,
+    binding_name text,
+    name text NOT NULL,
+    task text NOT NULL,
+    delivery jsonb NOT NULL,
+    definition_version bigint DEFAULT 1 NOT NULL,
+    idempotency_key text NOT NULL,
+    created_by jsonb DEFAULT '{}'::jsonb NOT NULL,
+    authorization_kind text DEFAULT 'review_required'::text NOT NULL,
+    human_uid text,
+    human_access_version bigint,
+    inserted_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL,
+    CONSTRAINT agent_routines_created_by_object CHECK ((jsonb_typeof(created_by) = 'object'::text)),
+    CONSTRAINT agent_routines_definition_version_positive CHECK ((definition_version >= 1)),
+    CONSTRAINT agent_routines_delivery_object CHECK ((jsonb_typeof(delivery) = 'object'::text)),
+    CONSTRAINT agent_routines_idempotency_key_present CHECK ((length(btrim(idempotency_key)) > 0)),
+    CONSTRAINT agent_routines_name_present CHECK ((length(btrim(name)) > 0)),
+    CONSTRAINT agent_routines_owner_session_present CHECK ((length(btrim(owner_session_id)) > 0)),
+    CONSTRAINT agent_routines_status_check CHECK ((status = ANY (ARRAY['active'::text, 'paused'::text, 'deleted'::text, 'completed'::text]))),
+    CONSTRAINT agent_routines_task_present CHECK ((length(btrim(task)) > 0)),
+    CONSTRAINT agent_routines_work_authorization_check CHECK ((((authorization_kind = 'human'::text) AND (human_uid IS NOT NULL) AND (human_access_version IS NOT NULL) AND (human_access_version > 0)) OR ((authorization_kind = ANY (ARRAY['service'::text, 'review_required'::text])) AND (human_uid IS NULL) AND (human_access_version IS NULL))))
+);
+
+
+--
+-- Name: TABLE agent_routines; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.agent_routines IS 'Standing Agent routines triggered by Cron schedules and external Signal bindings.';
 
 
 --
@@ -2983,6 +3024,7 @@ CREATE TABLE public.cron_schedules (
     human_access_version bigint,
     tenant_id uuid NOT NULL,
     owner_job_id bigint,
+    owner_routine_id uuid,
     CONSTRAINT cron_schedules_created_by_object CHECK ((jsonb_typeof(created_by) = 'object'::text)),
     CONSTRAINT cron_schedules_delivery_object CHECK (((delivery IS NULL) OR (jsonb_typeof(delivery) = 'object'::text))),
     CONSTRAINT cron_schedules_idempotency_key_present CHECK ((length(btrim(idempotency_key)) > 0)),
@@ -2990,6 +3032,7 @@ CREATE TABLE public.cron_schedules (
     CONSTRAINT cron_schedules_name_present CHECK ((length(btrim(name)) > 0)),
     CONSTRAINT cron_schedules_owner_scope_check CHECK ((((owner_job_id IS NOT NULL) AND (agent_uid IS NULL) AND (owner_session_id IS NULL) AND (delivery IS NULL) AND (binding_name IS NULL)) OR ((owner_job_id IS NULL) AND (agent_uid IS NOT NULL) AND (owner_session_id IS NOT NULL) AND (delivery IS NOT NULL)))),
     CONSTRAINT cron_schedules_payload_object CHECK ((jsonb_typeof(payload) = 'object'::text)),
+    CONSTRAINT cron_schedules_routine_exclusive_check CHECK ((NOT ((owner_job_id IS NOT NULL) AND (owner_routine_id IS NOT NULL)))),
     CONSTRAINT cron_schedules_schedule_object CHECK ((jsonb_typeof(schedule) = 'object'::text)),
     CONSTRAINT cron_schedules_status_check CHECK ((status = ANY (ARRAY['active'::text, 'paused'::text, 'deleted'::text, 'completed'::text]))),
     CONSTRAINT cron_schedules_timezone_present CHECK ((length(btrim(timezone)) > 0)),
@@ -4645,10 +4688,14 @@ CREATE TABLE public.signal_bindings (
     automation_job_id bigint,
     watched_field_ids text[],
     auth_config_id uuid,
+    agent_routine_id uuid,
+    "coalesce" jsonb,
     CONSTRAINT signal_bindings_adapter_present CHECK ((length(btrim(adapter)) > 0)),
+    CONSTRAINT signal_bindings_coalesce_object CHECK ((("coalesce" IS NULL) OR (jsonb_typeof("coalesce") = 'object'::text))),
     CONSTRAINT signal_bindings_config_ref_present CHECK ((length(btrim(config_ref)) > 0)),
     CONSTRAINT signal_bindings_filters_object CHECK ((jsonb_typeof(filters) = 'object'::text)),
     CONSTRAINT signal_bindings_name_present CHECK ((length(btrim(name)) > 0)),
+    CONSTRAINT signal_bindings_routine_mode_check CHECK (((agent_routine_id IS NULL) OR ((routing_mode = 'ai_colleague'::text) AND (automation_job_id IS NULL)))),
     CONSTRAINT signal_bindings_routing_target CHECK ((((routing_mode = 'ai_colleague'::text) AND (agent_uid IS NOT NULL) AND (automation_job_id IS NULL)) OR ((routing_mode = 'sender_personal_assistant'::text) AND (agent_uid IS NULL) AND (automation_job_id IS NULL) AND (adapter = ANY (ARRAY['lark'::text, 'slack'::text])) AND (unmatched_sender_policy = 'manual_review'::public.signal_unmatched_sender_policy)) OR ((routing_mode = 'action'::text) AND (automation_job_id IS NOT NULL) AND (agent_uid IS NULL)))),
     CONSTRAINT signal_bindings_target_object CHECK ((jsonb_typeof(target) = 'object'::text))
 );
@@ -4815,6 +4862,7 @@ CREATE TABLE public.signals (
     ambient_asked_message_id uuid,
     status text DEFAULT 'queued'::text NOT NULL,
     reply_binding_id uuid,
+    turn_summary text,
     CONSTRAINT signals_attempt_count_non_negative CHECK ((attempt_count >= 0)),
     CONSTRAINT signals_capacity_attempt_count_check CHECK (((provider_capacity_attempt_count >= 0) AND (provider_capacity_attempt_count <= attempt_count))),
     CONSTRAINT signals_completion_anchor_check CHECK ((((final_response_id IS NULL) AND (turn_outcome IS NULL)) OR ((final_response_id IS NULL) AND (turn_outcome = 'silent'::text) AND (completed_at IS NOT NULL)) OR ((final_response_id IS NOT NULL) AND (final_response_id ~~ 'resp_%'::text) AND (turn_outcome IS NOT NULL) AND (completed_at IS NOT NULL)))),
@@ -4822,6 +4870,7 @@ CREATE TABLE public.signals (
     CONSTRAINT signals_producer_check CHECK ((producer = ANY (ARRAY['kernel'::text, 'external'::text]))),
     CONSTRAINT signals_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'dead_letter'::text]))),
     CONSTRAINT signals_turn_outcome_check CHECK (((turn_outcome IS NULL) OR (turn_outcome = ANY (ARRAY['loop_finished'::text, 'iteration_exhausted'::text, 'silent'::text])))),
+    CONSTRAINT signals_turn_summary_length_check CHECK (((turn_summary IS NULL) OR (length(turn_summary) <= 500))),
     CONSTRAINT signals_work_authorization_check CHECK ((((authorization_kind = 'human'::text) AND (human_uid IS NOT NULL) AND (human_access_version IS NOT NULL) AND (human_access_version > 0)) OR ((authorization_kind = ANY (ARRAY['service'::text, 'review_required'::text])) AND (human_uid IS NULL) AND (human_access_version IS NULL))))
 );
 
@@ -5177,6 +5226,14 @@ ALTER TABLE ONLY public.agent_contracts
 
 ALTER TABLE ONLY public.agent_plugin_overrides
     ADD CONSTRAINT agent_plugin_overrides_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: agent_routines agent_routines_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_routines
+    ADD CONSTRAINT agent_routines_pkey PRIMARY KEY (id);
 
 
 --
@@ -6398,6 +6455,55 @@ CREATE INDEX agent_plugin_overrides_tenant_id_index ON public.agent_plugin_overr
 
 
 --
+-- Name: agent_routines_actor_status_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_routines_actor_status_index ON public.agent_routines USING btree (tenant_id, agent_uid, owner_session_id, status);
+
+
+--
+-- Name: agent_routines_agent_name_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX agent_routines_agent_name_index ON public.agent_routines USING btree (tenant_id, agent_uid, owner_session_id, name) WHERE (status <> 'deleted'::text);
+
+
+--
+-- Name: agent_routines_human_uid_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_routines_human_uid_index ON public.agent_routines USING btree (tenant_id, human_uid);
+
+
+--
+-- Name: agent_routines_idempotency_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX agent_routines_idempotency_index ON public.agent_routines USING btree (tenant_id, agent_uid, owner_session_id, idempotency_key);
+
+
+--
+-- Name: agent_routines_pod_board_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX agent_routines_pod_board_idx ON public.agent_routines USING btree (tenant_id, updated_at DESC) WHERE (status = ANY (ARRAY['active'::text, 'paused'::text]));
+
+
+--
+-- Name: agent_routines_session_owner_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX agent_routines_session_owner_index ON public.agent_routines USING btree (tenant_id, agent_uid, id);
+
+
+--
+-- Name: agent_routines_tenant_id_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX agent_routines_tenant_id_id_index ON public.agent_routines USING btree (tenant_id, id);
+
+
+--
 -- Name: agent_skill_lessons_active_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7007,6 +7113,13 @@ CREATE UNIQUE INDEX brain_chunks_object_position_key ON public.brain_chunks USIN
 
 
 --
+-- Name: brain_chunks_source_node_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX brain_chunks_source_node_id_index ON public.brain_chunks USING btree (tenant_id, source_node_id);
+
+
+--
 -- Name: brain_chunks_tenant_id_index; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7060,6 +7173,13 @@ CREATE INDEX brain_claims_scorecard_idx ON public.brain_claims USING btree (tena
 --
 
 CREATE INDEX brain_claims_source_subject_idx ON public.brain_claims USING btree (tenant_id, source_node_id, subject_page_id);
+
+
+--
+-- Name: brain_claims_subject_page_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX brain_claims_subject_page_id_index ON public.brain_claims USING btree (tenant_id, subject_page_id) WHERE (subject_page_id IS NOT NULL);
 
 
 --
@@ -7133,6 +7253,13 @@ CREATE UNIQUE INDEX brain_links_dedup_key ON public.brain_links USING btree (ten
 
 
 --
+-- Name: brain_links_origin_page_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX brain_links_origin_page_id_index ON public.brain_links USING btree (tenant_id, origin_page_id) WHERE (origin_page_id IS NOT NULL);
+
+
+--
 -- Name: brain_links_source_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7144,6 +7271,13 @@ CREATE INDEX brain_links_source_idx ON public.brain_links USING btree (tenant_id
 --
 
 CREATE INDEX brain_links_tenant_id_index ON public.brain_links USING btree (tenant_id);
+
+
+--
+-- Name: brain_links_to_page_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX brain_links_to_page_id_index ON public.brain_links USING btree (tenant_id, to_page_id);
 
 
 --
@@ -7193,6 +7327,13 @@ CREATE UNIQUE INDEX brain_object_aliases_dedup_key ON public.brain_object_aliase
 --
 
 CREATE INDEX brain_object_aliases_lookup_idx ON public.brain_object_aliases USING btree (tenant_id, alias_norm);
+
+
+--
+-- Name: brain_object_aliases_subject_page_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX brain_object_aliases_subject_page_id_index ON public.brain_object_aliases USING btree (tenant_id, subject_page_id);
 
 
 --
@@ -7284,6 +7425,13 @@ CREATE INDEX brain_schema_types_tenant_id_index ON public.brain_schema_types USI
 --
 
 CREATE UNIQUE INDEX brain_slug_aliases_alias_key ON public.brain_slug_aliases USING btree (tenant_id, alias_slug);
+
+
+--
+-- Name: brain_slug_aliases_canonical_page_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX brain_slug_aliases_canonical_page_id_index ON public.brain_slug_aliases USING btree (tenant_id, canonical_page_id);
 
 
 --
@@ -7382,6 +7530,13 @@ CREATE UNIQUE INDEX brain_timelines_dedup_key ON public.brain_timelines USING bt
 --
 
 CREATE UNIQUE INDEX brain_timelines_event_dedup_key ON public.brain_timelines USING btree (tenant_id, event_page_id, source_node_id, date) WHERE (event_page_id IS NOT NULL);
+
+
+--
+-- Name: brain_timelines_source_node_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX brain_timelines_source_node_id_index ON public.brain_timelines USING btree (tenant_id, source_node_id);
 
 
 --
@@ -7539,6 +7694,20 @@ CREATE UNIQUE INDEX conversation_action_cards_signal_interaction_index ON public
 
 
 --
+-- Name: conversation_inbound_batches_conversation_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX conversation_inbound_batches_conversation_id_index ON public.conversation_inbound_batches USING btree (tenant_id, conversation_id);
+
+
+--
+-- Name: conversation_inbound_batches_entries_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX conversation_inbound_batches_entries_index ON public.conversation_inbound_batches USING gin (entries jsonb_path_ops);
+
+
+--
 -- Name: conversation_inbound_batches_message_lookup_index; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7574,10 +7743,24 @@ CREATE INDEX conversation_input_tombstones_tombstoned_until_index ON public.conv
 
 
 --
+-- Name: conversation_messages_author_uid_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX conversation_messages_author_uid_index ON public.conversation_messages USING btree (tenant_id, author_uid) WHERE (author_uid IS NOT NULL);
+
+
+--
 -- Name: conversation_messages_native_text_trgm_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX conversation_messages_native_text_trgm_idx ON public.conversation_messages USING gin (text public.gin_trgm_ops) WHERE (origin = 'native'::text);
+
+
+--
+-- Name: conversation_messages_reply_to_message_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX conversation_messages_reply_to_message_id_index ON public.conversation_messages USING btree (tenant_id, conversation_id, reply_to_message_id) WHERE (reply_to_message_id IS NOT NULL);
 
 
 --
@@ -7693,6 +7876,13 @@ CREATE UNIQUE INDEX cron_schedules_job_name_index ON public.cron_schedules USING
 
 
 --
+-- Name: cron_schedules_owner_routine_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX cron_schedules_owner_routine_index ON public.cron_schedules USING btree (tenant_id, owner_routine_id) WHERE (owner_routine_id IS NOT NULL);
+
+
+--
 -- Name: cron_schedules_pod_board_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7735,10 +7925,31 @@ CREATE INDEX deliveries_ai_message_id_index ON public.deliveries USING btree (te
 
 
 --
+-- Name: deliveries_conversation_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX deliveries_conversation_id_index ON public.deliveries USING btree (tenant_id, conversation_id) WHERE (conversation_id IS NOT NULL);
+
+
+--
+-- Name: deliveries_created_message_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX deliveries_created_message_id_index ON public.deliveries USING btree (tenant_id, created_message_id) WHERE (created_message_id IS NOT NULL);
+
+
+--
 -- Name: deliveries_delivery_class_status_next_attemp; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX deliveries_delivery_class_status_next_attemp ON public.deliveries USING btree (tenant_id, delivery_class, status, next_attempt_at);
+
+
+--
+-- Name: deliveries_reply_to_message_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX deliveries_reply_to_message_id_index ON public.deliveries USING btree (tenant_id, reply_to_message_id) WHERE (reply_to_message_id IS NOT NULL);
 
 
 --
@@ -7760,6 +7971,13 @@ CREATE INDEX deliveries_status_next_attempt_at_index ON public.deliveries USING 
 --
 
 CREATE INDEX deliveries_stopped_index ON public.deliveries USING btree (tenant_id, updated_at, binding_name, outbound_key) WHERE ((delivery_class = 'durable_ai_reply'::text) AND ((status = 'expired'::public.delivery_status) OR ((status = ANY (ARRAY['failed'::public.delivery_status, 'unknown'::public.delivery_status])) AND (next_attempt_at IS NULL) AND ((recovery_status IS NOT NULL) OR possible_duplicate))));
+
+
+--
+-- Name: deliveries_target_message_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX deliveries_target_message_id_index ON public.deliveries USING btree (tenant_id, target_message_id) WHERE (target_message_id IS NOT NULL);
 
 
 --
@@ -7808,7 +8026,7 @@ CREATE UNIQUE INDEX external_message_refs_provider_identity_index ON public.exte
 -- Name: file_objects_collection_index; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX file_objects_collection_index ON public.file_objects USING btree (created_at, tenant_id, id);
+CREATE INDEX file_objects_collection_index ON public.file_objects USING btree (tenant_id, id) INCLUDE (created_at);
 
 
 --
@@ -8337,6 +8555,13 @@ CREATE INDEX pages_acl_anchors_index ON public.pages USING btree (tenant_id, id)
 
 
 --
+-- Name: pages_conversation_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX pages_conversation_id_index ON public.pages USING btree (tenant_id, conversation_id) WHERE (conversation_id IS NOT NULL);
+
+
+--
 -- Name: pages_conversation_root_index; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8358,6 +8583,13 @@ CREATE UNIQUE INDEX pages_live_name_index ON public.pages USING btree (tenant_id
 
 
 --
+-- Name: pages_message_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX pages_message_id_index ON public.pages USING btree (tenant_id, message_id) WHERE (message_id IS NOT NULL);
+
+
+--
 -- Name: pages_name_trgm_index; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8369,6 +8601,13 @@ CREATE INDEX pages_name_trgm_index ON public.pages USING gin (name public.gin_tr
 --
 
 CREATE INDEX pages_object_index ON public.pages USING btree (tenant_id, object_id) WHERE (object_id IS NOT NULL);
+
+
+--
+-- Name: pages_owner_uid_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX pages_owner_uid_index ON public.pages USING btree (tenant_id, owner_uid) WHERE (owner_uid IS NOT NULL);
 
 
 --
@@ -8397,6 +8636,13 @@ CREATE UNIQUE INDEX pages_private_root_index ON public.pages USING btree (tenant
 --
 
 CREATE UNIQUE INDEX pages_public_root_index ON public.pages USING btree (tenant_id) WHERE ((parent_id IS NULL) AND (private_owner_uid IS NULL) AND (conversation_id IS NULL) AND (system_key IS NULL));
+
+
+--
+-- Name: pages_source_conversation_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX pages_source_conversation_id_index ON public.pages USING btree (tenant_id, source_conversation_id) WHERE (source_conversation_id IS NOT NULL);
 
 
 --
@@ -8764,6 +9010,13 @@ CREATE INDEX scheduled_events_tenant_id_index ON public.scheduled_events USING b
 
 
 --
+-- Name: session_ambient_judgments_asked_by_message_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX session_ambient_judgments_asked_by_message_id_index ON public.session_ambient_judgments USING btree (tenant_id, asked_by_message_id) WHERE (asked_by_message_id IS NOT NULL);
+
+
+--
 -- Name: session_ambient_judgments_conversation_index; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8806,17 +9059,17 @@ CREATE UNIQUE INDEX sessions_session_index ON public.sessions USING btree (tenan
 
 
 --
+-- Name: sessions_tenant_id_agent_routine_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sessions_tenant_id_agent_routine_id_index ON public.sessions USING btree (tenant_id, agent_routine_id);
+
+
+--
 -- Name: sessions_tenant_id_background_job_id_index; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX sessions_tenant_id_background_job_id_index ON public.sessions USING btree (tenant_id, background_job_id);
-
-
---
--- Name: sessions_tenant_id_cron_schedule_id_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX sessions_tenant_id_cron_schedule_id_index ON public.sessions USING btree (tenant_id, cron_schedule_id);
 
 
 --
@@ -8866,6 +9119,13 @@ CREATE UNIQUE INDEX signal_bindings_agent_name_index ON public.signal_bindings U
 --
 
 CREATE UNIQUE INDEX signal_bindings_event_target_unique ON public.signal_bindings USING btree (tenant_id, config_ref, agent_uid, target) WHERE (enabled AND (adapter = ANY (ARRAY['internal'::text, 'cloudevents'::text])) AND (agent_uid IS NOT NULL));
+
+
+--
+-- Name: signal_bindings_routine_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX signal_bindings_routine_index ON public.signal_bindings USING btree (tenant_id, agent_routine_id) WHERE (agent_routine_id IS NOT NULL);
 
 
 --
@@ -8932,10 +9192,31 @@ CREATE UNIQUE INDEX signal_webhook_endpoints_token_digest_index ON public.signal
 
 
 --
+-- Name: signals_ambient_asked_message_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX signals_ambient_asked_message_id_index ON public.signals USING btree (tenant_id, ambient_asked_message_id) WHERE (ambient_asked_message_id IS NOT NULL);
+
+
+--
+-- Name: signals_conversation_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX signals_conversation_id_index ON public.signals USING btree (tenant_id, conversation_id) WHERE (conversation_id IS NOT NULL);
+
+
+--
 -- Name: signals_human_uid_index; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX signals_human_uid_index ON public.signals USING btree (tenant_id, human_uid);
+
+
+--
+-- Name: signals_message_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX signals_message_id_index ON public.signals USING btree (tenant_id, message_id) WHERE (message_id IS NOT NULL);
 
 
 --
@@ -9179,6 +9460,22 @@ ALTER TABLE ONLY public.agent_plugin_overrides
 
 ALTER TABLE ONLY public.agent_plugin_overrides
     ADD CONSTRAINT agent_plugin_overrides_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: agent_routines agent_routines_agent_uid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_routines
+    ADD CONSTRAINT agent_routines_agent_uid_fkey FOREIGN KEY (tenant_id, agent_uid) REFERENCES public.principals(tenant_id, uid) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: agent_routines agent_routines_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agent_routines
+    ADD CONSTRAINT agent_routines_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
 
 
 --
@@ -10430,6 +10727,14 @@ ALTER TABLE ONLY public.cron_schedules
 
 
 --
+-- Name: cron_schedules cron_schedules_owner_routine_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.cron_schedules
+    ADD CONSTRAINT cron_schedules_owner_routine_fkey FOREIGN KEY (tenant_id, owner_routine_id) REFERENCES public.agent_routines(tenant_id, id) ON DELETE CASCADE;
+
+
+--
 -- Name: cron_schedules cron_schedules_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11606,6 +11911,14 @@ ALTER TABLE ONLY public.session_tool_receipts
 
 
 --
+-- Name: sessions sessions_agent_routine_owner_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sessions
+    ADD CONSTRAINT sessions_agent_routine_owner_fkey FOREIGN KEY (tenant_id, agent_uid, agent_routine_id) REFERENCES public.agent_routines(tenant_id, agent_uid, id) ON DELETE CASCADE;
+
+
+--
 -- Name: sessions sessions_agent_uid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11627,14 +11940,6 @@ ALTER TABLE ONLY public.sessions
 
 ALTER TABLE ONLY public.sessions
     ADD CONSTRAINT sessions_conversation_id_fkey FOREIGN KEY (conversation_id, tenant_id) REFERENCES public.conversations(id, tenant_id) ON DELETE CASCADE;
-
-
---
--- Name: sessions sessions_cron_schedule_owner_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sessions
-    ADD CONSTRAINT sessions_cron_schedule_owner_fkey FOREIGN KEY (tenant_id, agent_uid, cron_schedule_id) REFERENCES public.cron_schedules(tenant_id, agent_uid, id) ON DELETE CASCADE;
 
 
 --
@@ -11691,6 +11996,14 @@ ALTER TABLE ONLY public.signal_bindings
 
 ALTER TABLE ONLY public.signal_bindings
     ADD CONSTRAINT signal_bindings_job_fkey FOREIGN KEY (tenant_id, automation_job_id) REFERENCES public.automation_jobs(tenant_id, id) ON DELETE CASCADE;
+
+
+--
+-- Name: signal_bindings signal_bindings_routine_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.signal_bindings
+    ADD CONSTRAINT signal_bindings_routine_fkey FOREIGN KEY (tenant_id, agent_uid, agent_routine_id) REFERENCES public.agent_routines(tenant_id, agent_uid, id) ON DELETE CASCADE;
 
 
 --

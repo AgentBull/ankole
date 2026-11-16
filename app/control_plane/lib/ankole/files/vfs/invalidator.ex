@@ -8,6 +8,14 @@ defmodule Ankole.Files.Vfs.Invalidator do
     :ok = Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-vfs-access:" <> tenant)
   end
 
+  def notify_page_updated(id) when is_binary(id) do
+    Phoenix.PubSub.broadcast(
+      Ankole.PubSub,
+      "drive-vfs-access:" <> Ankole.Repo.tenant_id!(),
+      {:page_updated, id}
+    )
+  end
+
   def envelope(ids, all?) do
     %Proto.Envelope{
       message_id: "vfs-" <> Ecto.UUID.generate(),

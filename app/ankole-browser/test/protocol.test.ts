@@ -188,3 +188,35 @@ test('workspace fetch accepts one URL and keeps the default five-URL contract', 
     'workspace fetch requires exactly one URL'
   )
 })
+
+test('wire schema validates snapshot filters, inline snap modes, diagnostics, network, and webmcp', () => {
+  const accepted: BrowserCommand[] = [
+    { name: 'snapshot', args: { interactive: true, diff: true, query: 'Dialog' } },
+    { name: 'click', args: { selector: '@e2', snap: 'diff' } },
+    { name: 'select', args: { selector: '@e4', value: 'Pro', snap: 'interactive' } },
+    { name: 'diagnostics', args: { all: true, include_static: false, url: '/api/', clear: true } },
+    { name: 'network', args: { mode: 'no-media' } },
+    { name: 'webmcp', args: { action: 'list' } },
+    { name: 'webmcp', args: { action: 'call', tool: 'lookup_order', input: { id: 'ord_1' }, snap: 'diff' } },
+    {
+      name: 'batch',
+      args: {
+        commands: [
+          { name: 'fill', args: { selector: '@e1', text: 'alice@example.com' } },
+          { name: 'select', args: { selector: '@e2', value: 'Enterprise' } },
+          { name: 'diagnostics', args: {} }
+        ],
+        bail: true,
+        snap: 'diff'
+      }
+    }
+  ]
+  for (const command of accepted) {
+    expect(parseBrowserRequest(request(command)).command).toEqual(command)
+  }
+
+  expect(rejectionMessage({ name: 'click', args: { selector: '@e1', snap: 'full' } })).toContain('snap Invalid option')
+  expect(rejectionMessage({ name: 'network', args: { mode: 'turbo' } })).toContain('mode Invalid option')
+  expect(rejectionMessage({ name: 'webmcp', args: { action: 'call' } })).toBe('tool must be a non-empty string')
+  expect(rejectionMessage({ name: 'webmcp', args: { action: 'list', tool: 'extra' } })).toContain('Unrecognized key')
+})
