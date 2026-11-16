@@ -486,7 +486,7 @@ export function DeclarativeDashboardView({
     window: windowValue,
     granularity,
     timezone,
-    ...(schema?.staticQueryParams ?? {})
+    ...schema?.staticQueryParams
   })
   const endpoint = schema ? `${surface.endpoint}?${queryParams}` : undefined
   const report = useDeclarativeRecords(endpoint, 0, surface.responseEnvelope ?? 'flat')

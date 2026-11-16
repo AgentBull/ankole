@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { identityHeaders, sessionIdentityKey } from '../../common/browser-context'
 import { csrfToken } from '../../common/internal-api-client'
-import { draftAt, setDraftAt } from './fields'
 import type { DeclarativeEnvelope, DeclarativeFieldDescriptor, DeclarativeSurfaceDescriptor } from './types'
 
 export type DeclarativeRecord = Readonly<Record<string, unknown>>
@@ -18,6 +17,22 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function asRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? { ...value } : {}
+}
+
+export function draftAt(root: unknown, path: readonly string[]): Record<string, unknown> {
+  return asRecord(path.reduce<unknown>((cursor, segment) => asRecord(cursor)[segment], root))
+}
+
+export function setDraftAt(
+  root: Record<string, unknown>,
+  path: readonly string[],
+  value: unknown
+): Record<string, unknown> {
+  if (path.length === 0) return asRecord(value)
+  const [head, ...tail] = path
+  if (!head) return root
+  if (tail.length === 0) return { ...root, [head]: value }
+  return { ...root, [head]: setDraftAt(asRecord(root[head]), tail, value) }
 }
 
 export function formatIdentifierLabel(name: string): string {

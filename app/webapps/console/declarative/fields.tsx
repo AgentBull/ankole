@@ -2,7 +2,7 @@ import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, Select
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LabeledField } from '../console-form'
-import { asRecord, formatIdentifierLabel } from './transport'
+import { asRecord, draftAt, formatIdentifierLabel, setDraftAt } from './transport'
 import type { DeclarativeFieldDescriptor, DeclarativeRuleSection, DeclarativeRuleTreeConfig } from './types'
 
 export type DeclarativeDraft = Record<string, unknown>
@@ -40,18 +40,6 @@ export function DeclarativeSelect({
       </SelectContent>
     </Select>
   )
-}
-
-export function draftAt(root: unknown, path: readonly string[]): DeclarativeDraft {
-  return asRecord(path.reduce<unknown>((cursor, segment) => asRecord(cursor)[segment], root))
-}
-
-export function setDraftAt(root: DeclarativeDraft, path: readonly string[], value: unknown): DeclarativeDraft {
-  if (path.length === 0) return asRecord(value)
-  const [head, ...tail] = path
-  if (!head) return root
-  if (tail.length === 0) return { ...root, [head]: value }
-  return { ...root, [head]: setDraftAt(asRecord(root[head]), tail, value) }
 }
 
 export function deleteDraftAt(root: DeclarativeDraft, path: readonly string[]): DeclarativeDraft {

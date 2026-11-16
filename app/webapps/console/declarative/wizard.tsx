@@ -104,8 +104,9 @@ function sanitizeConfirmValue(value: unknown): string {
   if (typeof value === 'string') {
     return /^https?:\/\/|^socks5?:\/\//i.test(value) ? redactUrlCredentials(value) : value
   }
-  if (Array.isArray(value))
+  if (Array.isArray(value)) {
     return JSON.stringify(value.map(item => (typeof item === 'string' ? sanitizeConfirmValue(item) : item)))
+  }
   if (value && typeof value === 'object') {
     const sanitized = Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([k, v]) => [
