@@ -543,25 +543,31 @@ defmodule AnkoleWeb.Session do
       candidate = authentication_candidate(conn)
       result = site_admin_for_reference(conn, candidate, privileged.id)
 
-      if match?({:ok, _, _, _}, result) or
-           get_req_header(conn, "x-ankole-authentication") != [] or candidate == :invalid do
-        result
-      else
-        conn
-        |> authentication_references()
-        |> Enum.reject(&(&1 == candidate))
-        |> Enum.reduce_while(result, fn ref, result ->
-          case site_admin_for_reference(conn, ref, privileged.id) do
-            {:ok, _, _, _} = resolved ->
-              {:halt, resolved}
+      resolved =
+        if match?({:ok, _, _, _}, result) or
+             get_req_header(conn, "x-ankole-authentication") != [] or candidate == :invalid do
+          result
+        else
+          conn
+          |> authentication_references()
+          |> Enum.reject(&(&1 == candidate))
+          |> Enum.reduce_while(result, fn ref, result ->
+            case site_admin_for_reference(conn, ref, privileged.id) do
+              {:ok, _, _, _} = resolved ->
+                {:halt, resolved}
 
-            :forbidden ->
-              {:cont, :forbidden}
+              :forbidden ->
+                {:cont, :forbidden}
 
-            :unauthenticated ->
-              {:cont, result}
-          end
-        end)
+              :unauthenticated ->
+                {:cont, result}
+            end
+          end)
+        end
+
+      case resolved do
+        {:ok, identity, _principal, ref} -> {:ok, identity, ref}
+        other -> other
       end
     else
       _ -> :unauthenticated
