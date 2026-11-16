@@ -18,7 +18,7 @@
   justify-content: space-between;
   gap: 4px 16px;
   min-height: 40px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .pod-base-view-navigation,
@@ -89,7 +89,7 @@
 .pod-base-grid [data-slot='table-cell'] {
   height: 32px;
   padding: 1px 4px;
-  border-inline-end: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border-subtle);
 }
 
 .pod-base-grid :is([data-slot='input'], [data-slot='select-trigger'], [data-slot='combobox-trigger']) {
@@ -125,8 +125,8 @@
 
 .pod-base-draft {
   margin-block: 8px;
-  border-block: 1px solid var(--border);
-  background: var(--muted);
+  border-block: 1px solid var(--border-subtle);
+  background: var(--layer-03);
 }
 
 @media (hover: hover) and (pointer: fine) {

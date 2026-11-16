@@ -4,8 +4,8 @@
 .ankole-editor,
 .ankole-editor-overlay {
   --editor-callout-bg: var(--layer-01);
-  --editor-callout-border: var(--border);
-  --editor-callout-fg: var(--foreground);
+  --editor-callout-border: var(--border-subtle);
+  --editor-callout-fg: var(--fg-primary);
   --editor-callout-info-bg: var(--color-blue-10);
   --editor-callout-info-fg: var(--color-blue-100);
   --editor-callout-warning-bg: var(--color-yellow-10);
@@ -17,13 +17,13 @@
 }
 [data-theme='dark'] :where(.ankole-editor, .ankole-editor-overlay) {
   --editor-callout-info-bg: var(--info-subtle);
-  --editor-callout-info-fg: var(--foreground);
+  --editor-callout-info-fg: var(--fg-primary);
   --editor-callout-warning-bg: var(--warning-subtle);
-  --editor-callout-warning-fg: var(--foreground);
+  --editor-callout-warning-fg: var(--fg-primary);
   --editor-callout-success-bg: var(--success-subtle);
-  --editor-callout-success-fg: var(--foreground);
+  --editor-callout-success-fg: var(--fg-primary);
   --editor-callout-danger-bg: var(--destructive-subtle);
-  --editor-callout-danger-fg: var(--foreground);
+  --editor-callout-danger-fg: var(--fg-primary);
 }
 
 /* The text starts 64px in: 24px of padding, the icon's 32px box, and an 8px gap. Its first line sits 4px inside
@@ -53,7 +53,7 @@
   cursor: pointer;
 }
 :where(.ankole-editor, .ankole-editor-overlay) button.callout-icon:hover {
-  background: var(--accent);
+  background: var(--layer-hover);
   border-radius: var(--radius-control);
 }
 :where(.ankole-editor, .ankole-editor-overlay) .callout-content > :first-child {
@@ -91,5 +91,5 @@
   margin-top: 8px;
 }
 :where(.ankole-editor-overlay) .callout-tone-options [aria-pressed='true'] {
-  background: var(--accent);
+  background: var(--layer-hover);
 }

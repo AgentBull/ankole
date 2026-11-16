@@ -58,20 +58,20 @@ export function InviteCollaboratorsView({
 
       <div className="grid gap-3.5 overflow-y-auto px-4 pb-3.5">
         {model.staged.value.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 rounded-control border border-border bg-muted/35 p-2">
+          <div className="flex flex-wrap gap-1.5 rounded-control border border-border-subtle bg-layer-03/35 p-2">
             {model.staged.value.map(subject => {
               const key = subjectKey(subject)
               return (
                 <span
                   key={key}
-                  className="inline-flex max-w-full items-center gap-1.5 rounded-control bg-background px-2 py-1 text-xs text-foreground shadow-2xs ring-1 ring-border">
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-control bg-page px-2 py-1 text-xs text-fg-primary shadow-2xs ring-1 ring-border-subtle">
                   <span className="truncate font-medium">{subject.name}</span>
                   <button
                     type="button"
                     aria-label={t('pod.content.remove_2', { value1: subject.name })}
                     disabled={mutations.pending}
                     onClick={() => model.unstageSubject(key)}
-                    className="inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-mini text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed">
+                    className="inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-mini text-fg-secondary hover:bg-layer-hover hover:text-fg-primary disabled:cursor-not-allowed">
                     <DismissRegular aria-hidden className="size-3.5" />
                   </button>
                 </span>
@@ -94,9 +94,9 @@ export function InviteCollaboratorsView({
           onSelectSubject={subject => model.stageSubject(subject)}
         />
 
-        <div className="grid gap-3 rounded-control border border-border p-3">
+        <div className="grid gap-3 rounded-control border border-border-subtle p-3">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-xs font-medium text-muted-foreground">{t('pod.content.permission_to_grant')}</span>
+            <span className="text-xs font-medium text-fg-secondary">{t('pod.content.permission_to_grant')}</span>
             <Select<PageRole>
               value={model.stagedRole.value}
               disabled={mutations.pending}
@@ -119,7 +119,7 @@ export function InviteCollaboratorsView({
           </div>
 
           <div className="grid gap-2">
-            <span className="text-xs font-medium text-muted-foreground">{t('pod.sharing.scope_label')}</span>
+            <span className="text-xs font-medium text-fg-secondary">{t('pod.sharing.scope_label')}</span>
             <RadioGroup
               value={model.stagedScope.value}
               disabled={mutations.pending}
@@ -140,8 +140,8 @@ export function InviteCollaboratorsView({
         </div>
 
         {model.hasStagedAgents.value && (
-          <div className="flex items-start gap-2 rounded-control bg-muted/55 p-2.5 text-xs leading-4 text-muted-foreground">
-            <BotRegular aria-hidden className="mt-0.5 size-4 shrink-0 text-foreground" />
+          <div className="flex items-start gap-2 rounded-control bg-layer-03/55 p-2.5 text-xs leading-4 text-fg-secondary">
+            <BotRegular aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-primary" />
             <span>{t('pod.sharing.agent_hint')}</span>
           </div>
         )}
@@ -149,7 +149,7 @@ export function InviteCollaboratorsView({
         <ContentError error={mutations.error} />
       </div>
 
-      <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
+      <div className="flex items-center justify-end gap-2 border-t border-border-subtle px-4 py-2.5">
         <Button variant="ghost" size="sm" disabled={mutations.pending} onClick={onBack}>
           {t('pod.content.cancel')}
         </Button>

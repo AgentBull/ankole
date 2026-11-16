@@ -121,9 +121,7 @@ describe('InputGroup composer', () => {
 
     const ready = tagWith(composer(true), 'data-slot="input-group-send"')
     expect(attributeOf(ready, 'data-ready')).toBe('true')
-    expect(classesOf(ready)).toEqual(
-      expect.arrayContaining(['data-ready:bg-primary', 'data-ready:text-primary-foreground'])
-    )
+    expect(classesOf(ready)).toEqual(expect.arrayContaining(['data-ready:bg-primary', 'data-ready:text-primary-fg']))
   })
 
   test('draws the stop button as the same pill with a secondary icon that never submits the draft', () => {
@@ -140,7 +138,7 @@ describe('InputGroup composer', () => {
     expect(classes).toEqual(
       expect.arrayContaining(['h-5', 'min-w-13', 'px-4', 'rounded-surface', 'bg-field-hover', 'text-fg-secondary'])
     )
-    expect(classes).toEqual(expect.arrayContaining(['hover:bg-layer-hover', 'hover:text-foreground']))
+    expect(classes).toEqual(expect.arrayContaining(['hover:bg-layer-hover', 'hover:text-fg-primary']))
     expect(classes).not.toContain('text-fg-disabled')
   })
 

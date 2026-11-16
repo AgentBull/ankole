@@ -192,7 +192,7 @@ export function EnterpriseCredentialDialog({
           </DialogHeader>
           <div className="grid gap-4">
             {validationError || requestError ? (
-              <p className="text-sm text-destructive-foreground" aria-live="assertive">
+              <p className="text-sm text-destructive-fg" aria-live="assertive">
                 {validationError ?? requestErrorMessage(requestError)}
               </p>
             ) : null}

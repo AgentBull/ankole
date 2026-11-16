@@ -470,7 +470,7 @@ function RoutineInspectorContent({
                   type="button"
                   size="xs"
                   variant="ghost"
-                  className="hover:bg-destructive/10 hover:text-destructive-foreground"
+                  className="hover:bg-destructive/10 hover:text-destructive-fg"
                   disabled={actionMutation.isPending}
                   onClick={() => actionMutation.mutate('remove')}>
                   <DeleteRegular aria-hidden />
@@ -510,11 +510,11 @@ function RoutineInspectorContent({
                 </div>
               )}
 
-              <section className="divide-y divide-border/60 rounded-surface border border-border/80 bg-background-secondary/45 px-3 text-xs">
+              <section className="divide-y divide-border-subtle/60 rounded-surface border border-border-subtle/80 bg-layer-01/45 px-3 text-xs">
                 {item?.triggerSummary && (
                   <div className="flex items-baseline justify-between gap-3 py-2.5">
                     <span className="text-fg-tertiary">{t('pod.jobs.field_schedule')}</span>
-                    <span className="font-mono text-foreground">
+                    <span className="font-mono text-fg-primary">
                       {item.triggerSummary}
                       {item.timezone ? ` (${item.timezone})` : ''}
                     </span>
@@ -524,7 +524,7 @@ function RoutineInspectorContent({
                   <div className="flex items-baseline justify-between gap-3 py-2.5">
                     <span className="text-fg-tertiary">{t('pod.jobs.next_run')}</span>
                     <span
-                      className="text-foreground tabular-nums"
+                      className="text-fg-primary tabular-nums"
                       title={formatDateTime(item.nextRunAt, i18n.language)}>
                       {formatDateTime(item.nextRunAt, i18n.language)}
                     </span>
@@ -534,7 +534,7 @@ function RoutineInspectorContent({
                   <div className="flex items-baseline justify-between gap-3 py-2.5">
                     <span className="text-fg-tertiary">{t('pod.jobs.last_run')}</span>
                     <span
-                      className="text-foreground tabular-nums"
+                      className="text-fg-primary tabular-nums"
                       title={formatDateTime(item.lastRunAt, i18n.language)}>
                       {formatRelativeTime(item.lastRunAt, i18n.language)}
                     </span>
@@ -566,12 +566,12 @@ function RoutineInspectorContent({
                         key={`${exec.kind}:${exec.id}`}
                         type="button"
                         onClick={() => selectRun({ kind: exec.kind, id: exec.id })}
-                        className="group/exec flex min-w-0 cursor-pointer flex-col gap-1 rounded-surface border border-border/80 bg-card px-3 py-2.5 text-start text-xs transition-[border-color,box-shadow] duration-(--duration-feedback) hover:border-control-edge hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                        className="group/exec flex min-w-0 cursor-pointer flex-col gap-1 rounded-surface border border-border-subtle/80 bg-page px-3 py-2.5 text-start text-xs transition-[border-color,box-shadow] duration-(--duration-feedback) hover:border-control-edge hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
                         <div className="flex w-full min-w-0 items-center gap-2">
                           <span className="flex shrink-0 [&>svg]:size-3.5">
                             <ExecutionStatusMark status={exec.status} />
                           </span>
-                          <span className="min-w-0 flex-1 truncate font-medium text-foreground">{exec.title}</span>
+                          <span className="min-w-0 flex-1 truncate font-medium text-fg-primary">{exec.title}</span>
                           <span className="shrink-0 text-[11px] text-fg-tertiary tabular-nums">
                             {formatRelativeTime(exec.completedAt ?? exec.startedAt ?? exec.createdAt, i18n.language)}
                           </span>
@@ -594,14 +594,14 @@ function RoutineInspectorContent({
                     {detail.runs.map(entry => (
                       <div
                         key={entry.id}
-                        className="grid gap-1.5 rounded-surface border border-border/80 bg-card px-3 py-2.5 text-xs">
+                        className="grid gap-1.5 rounded-surface border border-border-subtle/80 bg-page px-3 py-2.5 text-xs">
                         <div className="flex items-center gap-2">
                           <span className="flex shrink-0 [&>svg]:size-3.5">
                             <ExecutionStatusMark status={entry.status} />
                           </span>
-                          <span className="font-medium text-foreground">{routineStatusLabel(entry.status, t)}</span>
+                          <span className="font-medium text-fg-primary">{routineStatusLabel(entry.status, t)}</span>
                           {entry.trigger && (
-                            <span className="rounded-mini bg-background-secondary px-1.5 py-0.5 font-mono text-[11px] leading-3.5 text-fg-tertiary">
+                            <span className="rounded-mini bg-layer-01 px-1.5 py-0.5 font-mono text-[11px] leading-3.5 text-fg-tertiary">
                               {entry.trigger}
                             </span>
                           )}
@@ -610,7 +610,7 @@ function RoutineInspectorContent({
                           </span>
                         </div>
                         {entry.error ? (
-                          <p className="line-clamp-3 ps-5.5 text-destructive-foreground">{entry.error}</p>
+                          <p className="line-clamp-3 ps-5.5 text-destructive-fg">{entry.error}</p>
                         ) : entry.summary ? (
                           <p className="line-clamp-2 ps-5.5 text-fg-secondary">{entry.summary}</p>
                         ) : null}

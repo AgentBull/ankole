@@ -58,7 +58,7 @@ export function DocumentPresence({
   const failing = label === 'offline' || label === 'error'
   return (
     <div
-      className="flex items-center text-xs text-muted-foreground"
+      className="flex items-center text-xs text-fg-secondary"
       data-document-presence
       role="region"
       aria-label={t('pod.collaboration.region')}>
@@ -96,13 +96,13 @@ export function DocumentPresence({
           <span className="hidden tabular-nums @max-[860px]:inline">{members.length}</span>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-64">
-          <p className="mb-2 text-xs text-muted-foreground">{statusLabel}</p>
+          <p className="mb-2 text-xs text-fg-secondary">{statusLabel}</p>
           <p className="mb-2 font-medium">{peopleLabel}</p>
           {members.map(member => (
             <div key={member.uid} className="flex items-center gap-2 py-1.5 text-sm">
               <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: peerColor(member.uid) }} />
               <span className="min-w-0 flex-1 truncate">{member.name}</span>
-              <span className="text-xs text-muted-foreground">{t(`pod.collaboration.${member.mode}`)}</span>
+              <span className="text-xs text-fg-secondary">{t(`pod.collaboration.${member.mode}`)}</span>
             </div>
           ))}
         </PopoverContent>

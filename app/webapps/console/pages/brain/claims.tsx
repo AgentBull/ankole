@@ -188,10 +188,10 @@ export function BrainClaimsPage() {
               <TableCell>
                 <ClaimStateBadge claim={claim} />
               </TableCell>
-              <TableCell className="text-xs text-muted-foreground">{formatConsoleDate(claim.created_at)}</TableCell>
+              <TableCell className="text-xs text-fg-secondary">{formatConsoleDate(claim.created_at)}</TableCell>
               {resolved ? (
                 <TableCell className="text-right">
-                  <span className="pr-2 text-xs text-muted-foreground">{t('console.brain.read_only')}</span>
+                  <span className="pr-2 text-xs text-fg-secondary">{t('console.brain.read_only')}</span>
                 </TableCell>
               ) : (
                 <TableCell className="text-right">
@@ -415,7 +415,7 @@ function ResolveTakeDialog({ claim, onClose }: { claim?: BrainClaim; onClose: ()
           </DialogHeader>
           <div className="grid gap-4">
             {claim?.graded_quality ? (
-              <p className="border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              <p className="border border-border-subtle bg-layer-03/30 px-3 py-2 text-xs text-fg-secondary">
                 {t('console.brain.graded_reference', {
                   quality: claim.graded_quality,
                   confidence: claim.graded_confidence ?? '—'
@@ -449,11 +449,11 @@ function ResolveTakeDialog({ claim, onClose }: { claim?: BrainClaim; onClose: ()
                   className="flex items-center gap-6 pt-1"
                   value={outcome ? 'true' : 'false'}
                   onValueChange={value => setOutcome(value === 'true')}>
-                  <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-primary">
                     <RadioGroupItem value="true" />
                     {t('common.boolean_true')}
                   </label>
-                  <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-primary">
                     <RadioGroupItem value="false" />
                     {t('common.boolean_false')}
                   </label>

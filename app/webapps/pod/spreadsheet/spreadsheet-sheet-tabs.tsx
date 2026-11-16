@@ -98,7 +98,7 @@ export function SpreadsheetSheetTabs({ model }: { model: SpreadsheetSession }) {
   return (
     <nav
       aria-label={t('pod.spreadsheet.sheets')}
-      className="flex min-h-9 items-center gap-1 overflow-x-auto border-t border-border bg-background-secondary px-2 py-1">
+      className="flex min-h-9 items-center gap-1 overflow-x-auto border-t border-border-subtle bg-layer-01 px-2 py-1">
       {editable && (
         <Button
           size="icon-xs"

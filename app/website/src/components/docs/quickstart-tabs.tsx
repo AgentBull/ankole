@@ -103,10 +103,10 @@ interface QuickstartAgentPromptProps {
 
 export function QuickstartAgentPrompt({ labels, prompt }: QuickstartAgentPromptProps) {
   return (
-    <div className="not-prose my-6 w-full min-w-0 max-w-4xl border-y border-border/80">
+    <div className="not-prose my-6 w-full min-w-0 max-w-4xl border-y border-border-subtle/80">
       <div className="grid gap-4 py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
         <blockquote className="m-0 border-0 p-0">
-          <p className="m-0 max-w-3xl text-sm leading-6 text-foreground">{prompt}</p>
+          <p className="m-0 max-w-3xl text-sm leading-6 text-fg-primary">{prompt}</p>
         </blockquote>
         <CopyButton labels={labels} value={prompt} />
       </div>
@@ -134,7 +134,7 @@ export function QuickstartTabs({ ariaLabel, defaultValue, labels, queryParam, ta
   }
 
   return (
-    <div className="not-prose my-10 w-full min-w-0 max-w-4xl border-y border-border/80">
+    <div className="not-prose my-10 w-full min-w-0 max-w-4xl border-y border-border-subtle/80">
       <Tabs value={value} onValueChange={changeTab} className="w-full min-w-0 gap-0">
         <TabsList
           aria-label={ariaLabel}
@@ -143,19 +143,19 @@ export function QuickstartTabs({ ariaLabel, defaultValue, labels, queryParam, ta
             <TabsTrigger
               key={tab.value}
               value={tab.value}
-              className="h-auto flex-none gap-1.5 px-0 py-4 text-[13px] after:bg-foreground group-data-horizontal/tabs:after:h-px">
+              className="h-auto flex-none gap-1.5 px-0 py-4 text-[13px] after:bg-fg-primary group-data-horizontal/tabs:after:h-px">
               <span>{tab.label}</span>
               {tab.badge ? (
-                <span className="font-mono text-[9px] tracking-[0.06em] text-muted-foreground">· {tab.badge}</span>
+                <span className="font-mono text-[9px] tracking-[0.06em] text-fg-secondary">· {tab.badge}</span>
               ) : null}
             </TabsTrigger>
           ))}
         </TabsList>
 
         {tabs.map(tab => (
-          <TabsContent key={tab.value} value={tab.value} className="w-full min-w-0 pt-0 text-foreground">
+          <TabsContent key={tab.value} value={tab.value} className="w-full min-w-0 pt-0 text-fg-primary">
             <div className="py-7">
-              <p className="m-0 max-w-3xl text-[15px] leading-7 text-foreground">{tab.summary}</p>
+              <p className="m-0 max-w-3xl text-[15px] leading-7 text-fg-primary">{tab.summary}</p>
               {tab.alert ? (
                 <Alert variant="warning" className="mt-6 max-w-3xl">
                   <ErrorCircleRegular aria-hidden="true" />
@@ -168,16 +168,16 @@ export function QuickstartTabs({ ariaLabel, defaultValue, labels, queryParam, ta
                 </Alert>
               ) : null}
               {tab.prerequisites?.length ? (
-                <div className="mt-6 grid gap-3 border-t border-border/70 pt-4 sm:grid-cols-[6rem_minmax(0,1fr)] sm:gap-5">
-                  <p className="m-0 font-mono text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
+                <div className="mt-6 grid gap-3 border-t border-border-subtle/70 pt-4 sm:grid-cols-[6rem_minmax(0,1fr)] sm:gap-5">
+                  <p className="m-0 font-mono text-[10px] tracking-[0.08em] text-fg-secondary uppercase">
                     {labels.prerequisites}
                   </p>
                   <ul className="m-0 grid list-none gap-x-6 gap-y-2 p-0 md:grid-cols-[repeat(auto-fit,minmax(9rem,1fr))]">
                     {tab.prerequisites.map((item, index) => (
                       <li
                         key={item}
-                        className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-1 text-[13px] leading-5 text-muted-foreground">
-                        <span aria-hidden="true" className="font-mono text-[9px] leading-5 text-muted-foreground/70">
+                        className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-1 text-[13px] leading-5 text-fg-secondary">
+                        <span aria-hidden="true" className="font-mono text-[9px] leading-5 text-fg-secondary/70">
                           {String(index + 1).padStart(2, '0')}
                         </span>
                         <span>{item}</span>
@@ -188,8 +188,8 @@ export function QuickstartTabs({ ariaLabel, defaultValue, labels, queryParam, ta
               ) : null}
             </div>
 
-            <div className="border-t border-border/80 py-7">
-              <p className="m-0 font-mono text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
+            <div className="border-t border-border-subtle/80 py-7">
+              <p className="m-0 font-mono text-[10px] tracking-[0.08em] text-fg-secondary uppercase">
                 {labels.basicSettings}
               </p>
               <SectionContent section={tab.basic} labels={labels} showHeading />
@@ -226,22 +226,22 @@ function AdvancedSection({
     <Collapsible
       open={open}
       onOpenChange={nextOpen => setOpen(nextOpen)}
-      className={standalone ? 'border-y border-border/80' : 'mt-2 border-t border-border/80'}>
-      <CollapsibleTrigger className="group flex w-full cursor-pointer items-start justify-between gap-5 py-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+      className={standalone ? 'border-y border-border-subtle/80' : 'mt-2 border-t border-border-subtle/80'}>
+      <CollapsibleTrigger className="group flex w-full cursor-pointer items-start justify-between gap-5 py-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-page">
         <span className="min-w-0 flex-1 sm:grid sm:grid-cols-[6rem_minmax(0,1fr)] sm:gap-5">
-          <span className="block font-mono text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
+          <span className="block font-mono text-[10px] tracking-[0.08em] text-fg-secondary uppercase">
             {labels.advancedSettings}
           </span>
           <span className="mt-1 block sm:mt-0">
-            <span className="block text-sm leading-5 font-medium text-foreground">{section.title}</span>
+            <span className="block text-sm leading-5 font-medium text-fg-primary">{section.title}</span>
             {section.summary ? (
-              <span className="mt-1 block max-w-2xl text-[13px] leading-5 font-normal text-muted-foreground">
+              <span className="mt-1 block max-w-2xl text-[13px] leading-5 font-normal text-fg-secondary">
                 {section.summary}
               </span>
             ) : null}
           </span>
         </span>
-        <span className="mt-0.5 inline-flex shrink-0 items-center gap-1.5 font-mono text-[10px] font-normal text-muted-foreground">
+        <span className="mt-0.5 inline-flex shrink-0 items-center gap-1.5 font-mono text-[10px] font-normal text-fg-secondary">
           {open ? labels.hideAdvanced : labels.showAdvanced}
           <ChevronDownRegular
             aria-hidden="true"
@@ -249,7 +249,7 @@ function AdvancedSection({
           />
         </span>
       </CollapsibleTrigger>
-      <CollapsibleContent className="border-t border-border/70 pb-2">
+      <CollapsibleContent className="border-t border-border-subtle/70 pb-2">
         <SectionContent section={section} labels={labels} />
       </CollapsibleContent>
     </Collapsible>
@@ -269,27 +269,25 @@ function SectionContent({
     <>
       {showHeading ? (
         <div className="mt-2 max-w-3xl">
-          <h3 className="m-0 text-base leading-6 font-medium text-foreground">{section.title}</h3>
-          {section.intro ? (
-            <p className="mt-2 mb-0 text-[13px] leading-5 text-muted-foreground">{section.intro}</p>
-          ) : null}
+          <h3 className="m-0 text-base leading-6 font-medium text-fg-primary">{section.title}</h3>
+          {section.intro ? <p className="mt-2 mb-0 text-[13px] leading-5 text-fg-secondary">{section.intro}</p> : null}
         </div>
       ) : section.intro ? (
-        <p className="mt-4 mb-0 max-w-3xl text-sm leading-6 text-muted-foreground">{section.intro}</p>
+        <p className="mt-4 mb-0 max-w-3xl text-sm leading-6 text-fg-secondary">{section.intro}</p>
       ) : null}
       <ol className="m-0 mt-3 max-w-3xl list-none p-0">
         {section.steps.map((step, index) => (
           <li
             key={`${index}-${step.title}`}
-            className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3 border-b border-border/70 py-5 last:border-b-0 sm:grid-cols-[2rem_minmax(0,1fr)] sm:gap-4">
-            <span className="pt-0.5 font-mono text-[10px] text-muted-foreground/70">
+            className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3 border-b border-border-subtle/70 py-5 last:border-b-0 sm:grid-cols-[2rem_minmax(0,1fr)] sm:gap-4">
+            <span className="pt-0.5 font-mono text-[10px] text-fg-secondary/70">
               {String(index + 1).padStart(2, '0')}
             </span>
             <div className="min-w-0">
-              <h4 className="m-0 text-sm leading-6 font-medium text-foreground">{step.title}</h4>
+              <h4 className="m-0 text-sm leading-6 font-medium text-fg-primary">{step.title}</h4>
 
               {step.body?.map(paragraph => (
-                <p key={paragraph} className="mt-2 mb-0 max-w-3xl text-sm leading-6 text-muted-foreground">
+                <p key={paragraph} className="mt-2 mb-0 max-w-3xl text-sm leading-6 text-fg-secondary">
                   {paragraph}
                 </p>
               ))}
@@ -297,8 +295,8 @@ function SectionContent({
               {step.bullets?.length ? (
                 <ul className="mt-3 list-none space-y-2 p-0">
                   {step.bullets.map(item => (
-                    <li key={item} className="flex gap-3 text-sm leading-6 text-muted-foreground">
-                      <span aria-hidden="true" className="mt-[0.7em] size-1 shrink-0 bg-muted-foreground/60" />
+                    <li key={item} className="flex gap-3 text-sm leading-6 text-fg-secondary">
+                      <span aria-hidden="true" className="mt-[0.7em] size-1 shrink-0 bg-fg-secondary/60" />
                       <span>{item}</span>
                     </li>
                   ))}
@@ -316,7 +314,7 @@ function SectionContent({
               ))}
 
               {step.caution ? (
-                <p className="mt-4 mb-0 border-l-2 border-amber-500/70 pl-4 text-sm leading-6 text-foreground">
+                <p className="mt-4 mb-0 border-l-2 border-amber-500/70 pl-4 text-sm leading-6 text-fg-primary">
                   {step.caution}
                 </p>
               ) : null}
@@ -346,12 +344,12 @@ function SectionContent({
 
 function BatchImport({ block, labels }: { block: QuickstartBatchImport; labels: QuickstartLabels }) {
   return (
-    <div className="mt-4 border-y border-border/80">
+    <div className="mt-4 border-y border-border-subtle/80">
       <div className="flex items-center justify-between gap-4 py-2.5">
-        <span className="font-mono text-[10px] tracking-[0.08em] text-muted-foreground uppercase">{block.label}</span>
+        <span className="font-mono text-[10px] tracking-[0.08em] text-fg-secondary uppercase">{block.label}</span>
         <CopyButton itemLabel={block.label} labels={labels} value={block.content} />
       </div>
-      <pre className="m-0 overflow-x-auto border-0 border-t border-border/70 bg-muted/20 px-4 py-3 text-xs leading-6 text-foreground">
+      <pre className="m-0 overflow-x-auto border-0 border-t border-border-subtle/70 bg-layer-03/20 px-4 py-3 text-xs leading-6 text-fg-primary">
         <code>{block.content}</code>
       </pre>
     </div>
@@ -360,15 +358,15 @@ function BatchImport({ block, labels }: { block: QuickstartBatchImport; labels: 
 
 function CopyItemList({ items, labels }: { items: QuickstartCopyItem[]; labels: QuickstartLabels }) {
   return (
-    <ul className="mt-4 list-none border-y border-border/80 p-0">
+    <ul className="mt-4 list-none border-y border-border-subtle/80 p-0">
       {items.map(item => (
         <li
           key={item.value}
-          className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 border-b border-border/70 py-3 last:border-b-0">
+          className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 border-b border-border-subtle/70 py-3 last:border-b-0">
           <div className="min-w-0">
-            <code className="break-all font-mono text-xs leading-5 text-foreground">{item.value}</code>
+            <code className="break-all font-mono text-xs leading-5 text-fg-primary">{item.value}</code>
             {item.description ? (
-              <p className="mt-1 mb-0 text-xs leading-5 text-muted-foreground">{item.description}</p>
+              <p className="mt-1 mb-0 text-xs leading-5 text-fg-secondary">{item.description}</p>
             ) : null}
           </div>
           <CopyButton labels={labels} value={item.value} />
@@ -380,14 +378,14 @@ function CopyItemList({ items, labels }: { items: QuickstartCopyItem[]; labels: 
 
 function FieldList({ fields }: { fields: QuickstartField[] }) {
   return (
-    <dl className="mt-4 grid gap-x-6 border-t border-border sm:grid-cols-2">
+    <dl className="mt-4 grid gap-x-6 border-t border-border-subtle sm:grid-cols-2">
       {fields.map(field => (
-        <div key={field.name} className="border-b border-border py-3">
-          <dt className="font-mono text-xs text-foreground">{field.name}</dt>
+        <div key={field.name} className="border-b border-border-subtle py-3">
+          <dt className="font-mono text-xs text-fg-primary">{field.name}</dt>
           {field.value ? (
             <dd className="mt-1 font-mono text-xs text-brand-60 dark:text-brand-40">{field.value}</dd>
           ) : null}
-          <dd className="mt-1 text-sm leading-6 text-muted-foreground">{field.description}</dd>
+          <dd className="mt-1 text-sm leading-6 text-fg-secondary">{field.description}</dd>
         </div>
       ))}
     </dl>
@@ -396,7 +394,7 @@ function FieldList({ fields }: { fields: QuickstartField[] }) {
 
 function CodeBlock({ block, labels }: { block: QuickstartCode; labels: QuickstartLabels }) {
   return (
-    <div className="mt-4 border border-border bg-gray-100 dark:bg-gray-100">
+    <div className="mt-4 border border-border-subtle bg-gray-100 dark:bg-gray-100">
       <div className="flex items-center justify-between border-b border-gray-90 px-3 py-2 dark:border-gray-90">
         <span className="font-mono text-[11px] tracking-[0.14em] text-gray-70 uppercase">
           {block.language ?? 'text'}
@@ -438,7 +436,7 @@ function CopyButton({
       className={`inline-flex h-7 w-fit shrink-0 cursor-pointer items-center gap-1.5 border px-2 font-mono text-[10px] transition-colors focus-visible:ring-2 focus-visible:outline-none ${
         inverted
           ? 'border-gray-90 text-gray-50 hover:bg-gray-90 hover:text-white focus-visible:ring-brand-40'
-          : 'border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground focus-visible:ring-ring/50'
+          : 'border-border-subtle text-fg-secondary hover:border-fg-primary/40 hover:text-fg-primary focus-visible:ring-ring/50'
       }`}>
       {copied ? (
         <CheckmarkRegular aria-hidden="true" className="size-3.5" />

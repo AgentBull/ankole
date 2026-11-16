@@ -154,7 +154,7 @@ export function ResourceEditorPage({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="grid gap-1">
             <h2 className="title-page">{title}</h2>
-            {description ? <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
+            {description ? <p className="max-w-2xl text-sm leading-6 text-fg-secondary">{description}</p> : null}
           </div>
           {secondary}
         </div>
@@ -180,7 +180,7 @@ export function ResourceEditorPage({
             <ErrorBlock error={error} />
           </div>
         ) : null}
-        <div className="grid gap-5 border border-border bg-card p-5 md:p-6">
+        <div className="grid gap-5 border border-border-subtle bg-page p-5 md:p-6">
           {readOnly || fieldsDisabled ? (
             <fieldset className="contents" disabled>
               {children}
@@ -190,7 +190,7 @@ export function ResourceEditorPage({
           )}
         </div>
         {readOnly ? null : (
-          <div className="sticky bottom-0 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-background/95 py-4 backdrop-blur">
+          <div className="sticky bottom-0 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border-subtle bg-page/95 py-4 backdrop-blur">
             <SaveButton
               aria-describedby={disabledReason ? disabledReasonID : undefined}
               disabled={saveDisabled}
@@ -201,13 +201,10 @@ export function ResourceEditorPage({
               {submitLabel ?? t('common.save')}
             </SaveButton>
             {dirty && !submitting ? (
-              <span className="text-xs text-muted-foreground">{t('common.unsaved_changes')}</span>
+              <span className="text-xs text-fg-secondary">{t('common.unsaved_changes')}</span>
             ) : null}
             {disabledReason ? (
-              <p
-                id={disabledReasonID}
-                className="basis-full text-xs leading-5 text-muted-foreground"
-                aria-live="polite">
+              <p id={disabledReasonID} className="basis-full text-xs leading-5 text-fg-secondary" aria-live="polite">
                 {disabledReason}
               </p>
             ) : null}
@@ -373,7 +370,7 @@ export function SaveButton({
   return (
     // A saving button stays focusable and ignores clicks, so keyboard focus stays on Save while the write runs.
     <Button
-      className={cn(disabled && !loading && 'disabled:bg-muted disabled:text-muted-foreground', className)}
+      className={cn(disabled && !loading && 'disabled:bg-layer-03 disabled:text-fg-secondary', className)}
       disabled={disabled}
       loading={loading}
       size={size}
@@ -397,12 +394,14 @@ export function FormSection({
   const titleID = useId()
 
   return (
-    <section className="grid gap-4 border-t border-border pt-5 first:border-t-0 first:pt-0" aria-labelledby={titleID}>
+    <section
+      className="grid gap-4 border-t border-border-subtle pt-5 first:border-t-0 first:pt-0"
+      aria-labelledby={titleID}>
       <div className="grid gap-1">
-        <h3 id={titleID} className="text-sm font-semibold text-foreground">
+        <h3 id={titleID} className="text-sm font-semibold text-fg-primary">
           {title}
         </h3>
-        {description ? <p className="text-xs leading-5 text-muted-foreground">{description}</p> : null}
+        {description ? <p className="text-xs leading-5 text-fg-secondary">{description}</p> : null}
       </div>
       {children}
     </section>
@@ -505,7 +504,7 @@ export function LabeledField({
         {required ? (
           <>
             {' '}
-            <span className="font-normal text-muted-foreground">{t('common.required')}</span>
+            <span className="font-normal text-fg-secondary">{t('common.required')}</span>
           </>
         ) : null}
       </FieldLabel>
@@ -540,8 +539,8 @@ export function DetailFact({
   className?: string
 }) {
   return (
-    <div className={cn('grid content-start gap-1 bg-card px-4 py-3', className)}>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+    <div className={cn('grid content-start gap-1 bg-page px-4 py-3', className)}>
+      <dt className="text-xs text-fg-secondary">{label}</dt>
       <dd className={cn('break-all text-sm', mono && 'font-mono text-xs leading-5')}>{value}</dd>
     </div>
   )
@@ -551,7 +550,7 @@ export function ReadOnlyValue({ children, mono = false }: { children: ReactNode;
   return (
     <div
       className={cn(
-        'flex min-h-8 cursor-default items-center rounded-control border border-field-edge border-b-input bg-muted px-3 py-1.5 text-sm leading-5 text-muted-foreground',
+        'flex min-h-8 cursor-default items-center rounded-control border border-field-edge border-b-field-border bg-layer-03 px-3 py-1.5 text-sm leading-5 text-fg-secondary',
         mono && 'font-mono text-xs leading-5'
       )}>
       {children === null || children === undefined || children === '' ? '—' : children}

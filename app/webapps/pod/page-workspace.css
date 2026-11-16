@@ -155,7 +155,7 @@ img.pod-page-title-icon.pod-page-icon {
   outline: none;
   resize: none;
   overflow: hidden;
-  color: var(--foreground);
+  color: var(--fg-primary);
   background: transparent;
   font-family: inherit;
   font-size: 32px;
@@ -193,7 +193,7 @@ img.pod-page-title-icon.pod-page-icon {
 }
 
 textarea.pod-page-title:hover:not(:disabled) {
-  box-shadow: 0 1px 0 var(--input);
+  box-shadow: 0 1px 0 var(--field-border);
 }
 
 textarea.pod-page-title:focus-visible {
@@ -214,7 +214,7 @@ textarea.pod-page-title:focus-visible {
 }
 
 .pod-page-origin a:hover {
-  color: var(--foreground);
+  color: var(--fg-primary);
   text-decoration: underline;
 }
 
@@ -239,7 +239,7 @@ textarea.pod-page-title:focus-visible {
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 
 .pod-document .ankole-editor .embed::before {
@@ -255,7 +255,7 @@ textarea.pod-page-title:focus-visible {
   border-radius: var(--radius-control);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  color: var(--foreground);
+  color: var(--fg-primary);
   text-decoration: underline;
   text-decoration-color: var(--divider-strong);
   text-underline-offset: 3px;
@@ -264,7 +264,7 @@ textarea.pod-page-title:focus-visible {
 
 .pod-mention-page:hover {
   background: var(--layer-hover);
-  text-decoration-color: var(--foreground);
+  text-decoration-color: var(--fg-primary);
 }
 
 /* The icon centres on the first line of the mention whatever that line's height. */
@@ -297,7 +297,7 @@ textarea.pod-page-title:focus-visible {
   padding: 1px 0.44em 1px 2px;
   border-radius: 9999px;
   background: var(--layer-hover);
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-size: 0.94em;
   font-weight: 500;
   line-height: 1.35;
@@ -366,8 +366,8 @@ textarea.pod-page-title:focus-visible {
 }
 
 .pod-document .drag-handle:is(:hover, [data-menu-open='true']) {
-  background: var(--accent);
-  color: var(--foreground);
+  background: var(--layer-hover);
+  color: var(--fg-primary);
 }
 
 @media (max-width: 760px) {
@@ -429,12 +429,12 @@ textarea.pod-page-title:focus-visible {
 
 ::highlight(pod-page-find) {
   background-color: var(--selection);
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 
 ::highlight(pod-page-find-current) {
-  background-color: var(--foreground);
-  color: var(--background);
+  background-color: var(--fg-primary);
+  color: var(--page);
 }
 
 @media (forced-colors: active) {

@@ -89,7 +89,7 @@ export function BrainSettingsEditor({
         saving={saving}
         onRestore={onRestore}>
         {key === BRAIN_KEYS.searchTokenizer ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-fg-secondary">
             {t('console.settings.index_rebuild_hint')}{' '}
             <Link className="link" to="/brain/health">
               {t('console.settings.index_health')}
@@ -106,8 +106,8 @@ export function BrainSettingsEditor({
       {field(
         BRAIN_KEYS.enabled,
         t('console.settings.brain_enabled'),
-        <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
-          <span className="text-sm text-foreground">
+        <div className="flex min-h-12 items-center justify-between border border-border-subtle bg-layer-03/30 px-4 py-3">
+          <span className="text-sm text-fg-primary">
             {enabled ? t('console.status.enabled') : t('console.status.disabled')}
           </span>
           <Switch
@@ -137,10 +137,10 @@ export function BrainSettingsEditor({
         ) : null
       )}
 
-      <div className="grid gap-3 border border-border bg-muted/30 px-4 py-4">
+      <div className="grid gap-3 border border-border-subtle bg-layer-03/30 px-4 py-4">
         <div className="grid gap-1">
           <h3 className="text-sm font-medium">{t('console.settings.brain_model_dependencies')}</h3>
-          <p className="text-xs leading-5 text-muted-foreground">
+          <p className="text-xs leading-5 text-fg-secondary">
             {t('console.settings.brain_model_dependencies_description')}
           </p>
         </div>
@@ -258,8 +258,8 @@ export function BrainSettingsEditor({
       {field(
         BRAIN_KEYS.skillLearningEnabled,
         t('console.settings.brain_skill_learning_enabled'),
-        <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
-          <span className="text-sm text-foreground">
+        <div className="flex min-h-12 items-center justify-between border border-border-subtle bg-layer-03/30 px-4 py-3">
+          <span className="text-sm text-fg-primary">
             {skillLearningEnabled ? t('console.status.enabled') : t('console.status.disabled')}
           </span>
           <Switch
@@ -323,9 +323,9 @@ function BrainModelFieldGroup({
       description={(item && settingDescription(t, item)) ?? ''}
       saving={saving}
       onRestore={onRestore}>
-      <div className="grid gap-3 border border-border bg-muted/20 p-4">
+      <div className="grid gap-3 border border-border-subtle bg-layer-03/20 p-4">
         <div className="flex min-h-8 items-center justify-between">
-          <span className="text-sm text-foreground">
+          <span className="text-sm text-fg-primary">
             {draft.configured ? t('console.settings.brain_model_configured') : t('console.settings.brain_model_off')}
           </span>
           <Switch

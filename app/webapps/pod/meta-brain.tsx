@@ -103,7 +103,7 @@ function BrainLayersCard({
   const { t } = useTranslation()
 
   return (
-    <div className="ceramic w-56 rounded-control border border-border p-3 text-xs shadow-sm">
+    <div className="ceramic w-56 rounded-control border border-border-subtle p-3 text-xs shadow-sm">
       <div className="mb-2.5 flex items-center justify-between gap-2">
         <span className="font-semibold text-fg-primary">{t('pod.meta.toggle_layers')}</span>
         <div className="flex items-center gap-1">
@@ -155,7 +155,7 @@ function BrainLayersCard({
       )}
 
       {relationLayers.length > 0 && (
-        <div className="mt-3 space-y-1 border-t border-border/70 pt-2.5">
+        <div className="mt-3 space-y-1 border-t border-border-subtle/70 pt-2.5">
           <div className="px-1 text-[11px] font-medium text-fg-tertiary uppercase">{t('pod.meta.layers_edges')}</div>
           {relationLayers.map(layer => {
             const swatch = palette.ramps[layer.ramp].fill
@@ -210,7 +210,7 @@ function BrainInspectorCard({
 
   if (selection.kind === 'hub') {
     return (
-      <div className="ceramic w-72 space-y-3 rounded-control border border-border p-3.5 text-xs shadow-sm">
+      <div className="ceramic w-72 space-y-3 rounded-control border border-border-subtle p-3.5 text-xs shadow-sm">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -280,7 +280,7 @@ function BrainInspectorCard({
   const { object, category, ancestors, children, relations } = selection
 
   return (
-    <div className="ceramic w-72 space-y-3 rounded-control border border-border p-3.5 text-xs shadow-sm">
+    <div className="ceramic w-72 space-y-3 rounded-control border border-border-subtle p-3.5 text-xs shadow-sm">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -326,7 +326,7 @@ function BrainInspectorCard({
       </div>
 
       {(category || ancestors.length > 0) && (
-        <div className="space-y-1 border-t border-border/70 pt-2.5">
+        <div className="space-y-1 border-t border-border-subtle/70 pt-2.5">
           <div className="text-[11px] font-medium text-fg-tertiary">{t('pod.meta.inspector_hierarchy')}</div>
           <div className="flex flex-wrap items-center gap-1 text-[11px] text-fg-secondary">
             {category && (
@@ -356,7 +356,7 @@ function BrainInspectorCard({
       )}
 
       {children.length > 0 && (
-        <div className="space-y-1 border-t border-border/70 pt-2.5">
+        <div className="space-y-1 border-t border-border-subtle/70 pt-2.5">
           <div className="text-[11px] font-medium text-fg-tertiary">
             {t('pod.meta.inspector_children')} ({children.length})
           </div>
@@ -387,7 +387,7 @@ function BrainInspectorCard({
       )}
 
       {relations.length > 0 && (
-        <div className="space-y-1 border-t border-border/70 pt-2.5">
+        <div className="space-y-1 border-t border-border-subtle/70 pt-2.5">
           <div className="text-[11px] font-medium text-fg-tertiary">
             {t('pod.meta.inspector_relations')} ({relations.length})
           </div>
@@ -769,7 +769,7 @@ export function MetaBrain() {
             }
             bottomOverlay={
               projection.visibleObjects.length > 0 ? (
-                <div className="ceramic rounded-full border border-border px-3 py-1 text-xs text-fg-secondary shadow-xs">
+                <div className="ceramic rounded-full border border-border-subtle px-3 py-1 text-xs text-fg-secondary shadow-xs">
                   {t('pod.meta.graph_stats', {
                     nodes: projection.visibleObjects.length,
                     edges: projection.edges.length
@@ -792,7 +792,7 @@ export function MetaBrain() {
                     onMouseEnter={() => setHoveredDirectoryId(node.id)}
                     onMouseLeave={() => setHoveredDirectoryId(prev => (prev === node.id ? null : prev))}
                     className={`nav-row flex items-center justify-between gap-2 rounded-control px-2.5 py-1.5 transition-opacity ${
-                      isSelected ? 'bg-bg-secondary ring-1 ring-border' : ''
+                      isSelected ? 'bg-bg-secondary ring-1 ring-border-subtle' : ''
                     } ${dimmed ? 'opacity-45' : ''}`}>
                     <Link to={`/meta/brain/${node.id}`} className="flex min-w-0 flex-1 items-center gap-2">
                       <span

@@ -89,7 +89,7 @@ function Summary({
     metrics: [{ operation, ...(operation === 'count' && !fieldID ? {} : { field_id: fieldID }), alias: 'value' }]
   }
   return (
-    <div className="space-y-3 rounded border border-border p-3">
+    <div className="space-y-3 rounded border border-border-subtle p-3">
       <div className="flex flex-wrap gap-2">
         <Choice<Metric['operation']>
           label={t('pod.content.calculation')}

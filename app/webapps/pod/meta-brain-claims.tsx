@@ -86,7 +86,7 @@ function BrainClaimRow({
   const inputId = `claim-edit-${claim.id}`
 
   return (
-    <li className="rounded-control border border-border/80 bg-bg-primary/65 p-2.5 text-xs">
+    <li className="rounded-control border border-border-subtle/80 bg-bg-primary/65 p-2.5 text-xs">
       {editing ? (
         <form
           className="space-y-2"
@@ -122,7 +122,7 @@ function BrainClaimRow({
                 setDraft(claim.claim)
               }
             }}
-            className="w-full rounded-control border border-border bg-bg-primary px-2.5 py-1.5 text-xs text-fg-primary focus-visible:outline-2 focus-visible:outline-offset-1"
+            className="w-full rounded-control border border-border-subtle bg-bg-primary px-2.5 py-1.5 text-xs text-fg-primary focus-visible:outline-2 focus-visible:outline-offset-1"
           />
           <div className="flex items-center justify-end gap-1.5">
             <Button
@@ -209,7 +209,7 @@ export function BrainNodeClaimsSection({ pageId }: { pageId: string }) {
   const claims = claimsQuery.data?.claims ?? []
 
   return (
-    <div className="space-y-1.5 border-t border-border/70 pt-2.5">
+    <div className="space-y-1.5 border-t border-border-subtle/70 pt-2.5">
       <div className="flex items-center justify-between gap-2 text-[11px] font-medium text-fg-tertiary">
         <span>{t('pod.meta.active_claims')}</span>
         {!claimsQuery.isPending && <span className="font-mono">{claims.length}</span>}
@@ -270,7 +270,7 @@ export function BrainMyContextView() {
 
   return (
     <div className="space-y-6">
-      <div className="ceramic rounded-control border border-border p-4 shadow-xs">
+      <div className="ceramic rounded-control border border-border-subtle p-4 shadow-xs">
         <h2 id="brain-add-memory-heading" className="text-sm font-semibold text-fg-primary">
           {t('pod.meta.add_personal_memory')}
         </h2>
@@ -353,7 +353,7 @@ export function BrainMyContextView() {
 
       {!contextQuery.isPending && !contextQuery.error && (
         <div className="grid gap-6 lg:grid-cols-2">
-          <section className="space-y-3 rounded-control border border-border p-4">
+          <section className="space-y-3 rounded-control border border-border-subtle p-4">
             <div className="flex items-start justify-between gap-2">
               <div className="space-y-0.5">
                 <h2 className="flex items-center gap-1.5 text-sm font-semibold text-fg-primary">
@@ -377,7 +377,7 @@ export function BrainMyContextView() {
             )}
           </section>
 
-          <section className="space-y-3 rounded-control border border-border p-4">
+          <section className="space-y-3 rounded-control border border-border-subtle p-4">
             <div className="flex items-start justify-between gap-2">
               <div className="space-y-0.5">
                 <h2 className="flex items-center gap-1.5 text-sm font-semibold text-fg-primary">

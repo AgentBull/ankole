@@ -32,7 +32,7 @@ export function AccessWaterfallView({ explain, compact = false }: { explain: Pag
       <div
         className={cn(
           'flex items-start justify-between gap-2.5 rounded-control border px-3 py-2 text-xs',
-          explain.allowed ? 'border-border bg-bg-secondary/55' : 'border-destructive/35 bg-destructive/5'
+          explain.allowed ? 'border-border-subtle bg-bg-secondary/55' : 'border-destructive/35 bg-destructive/5'
         )}>
         <div className="flex min-w-0 items-start gap-2">
           <VerdictIcon
@@ -78,8 +78,8 @@ export function AccessWaterfallView({ explain, compact = false }: { explain: Pag
             <li
               key={stage.id}
               className={cn(
-                'rounded-control border border-border/80 px-2.5 py-2 text-xs',
-                stage.status === 'skip' ? 'bg-muted/25 opacity-70' : 'bg-bg-primary/60'
+                'rounded-control border border-border-subtle/80 px-2.5 py-2 text-xs',
+                stage.status === 'skip' ? 'bg-layer-03/25 opacity-70' : 'bg-bg-primary/60'
               )}>
               <div className="flex items-center justify-between gap-2">
                 <span className="inline-flex min-w-0 items-center gap-1.5 font-medium text-fg-primary">

@@ -33,7 +33,7 @@ function PaginationLink({ className, isActive, size = 'icon', ...props }: Pagina
       variant="ghost"
       size={size}
       className={cn(
-        'relative size-8! min-w-0! justify-center! p-0! text-foreground! hover:bg-accent! data-[active=true]:bg-transparent! data-[active=true]:font-semibold data-[active=true]:after:absolute data-[active=true]:after:inset-x-2 data-[active=true]:after:bottom-0 data-[active=true]:after:h-0.5 data-[active=true]:after:bg-foreground',
+        'relative size-8! min-w-0! justify-center! p-0! text-fg-primary! hover:bg-layer-hover! data-[active=true]:bg-transparent! data-[active=true]:font-semibold data-[active=true]:after:absolute data-[active=true]:after:inset-x-2 data-[active=true]:after:bottom-0 data-[active=true]:after:h-0.5 data-[active=true]:after:bg-fg-primary',
         className
       )}
       nativeButton={false}
@@ -87,7 +87,7 @@ function PaginationEllipsis({ className, label, ...props }: React.ComponentProps
       aria-hidden={hidden}
       data-slot="pagination-ellipsis"
       className={cn(
-        "flex size-8 items-center justify-center text-muted-foreground [&_svg:not([class*='size-'])]:size-4",
+        "flex size-8 items-center justify-center text-fg-secondary [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}>

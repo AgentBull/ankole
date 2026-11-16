@@ -34,7 +34,7 @@ function ReferenceCard({
     props: mergeProps<'a'>(
       {
         className: cn(
-          'group/reference surface-outline inline-flex h-7 max-w-[min(318px,100%)] min-w-0 items-center gap-1.5 py-0 ps-[7px] pe-[5px] align-[calc(0.38em-10px)] text-75 leading-5 text-foreground no-underline transition-colors duration-(--duration-feedback) hover:bg-layer-hover active:bg-layer-pressed',
+          'group/reference surface-outline inline-flex h-7 max-w-[min(318px,100%)] min-w-0 items-center gap-1.5 py-0 ps-[7px] pe-[5px] align-[calc(0.38em-10px)] text-75 leading-5 text-fg-primary no-underline transition-colors duration-(--duration-feedback) hover:bg-layer-hover active:bg-layer-pressed',
           className
         ),
         children: (
@@ -51,7 +51,7 @@ function ReferenceCard({
             <ChevronRightRegular
               aria-hidden
               data-slot="reference-card-chevron"
-              className="size-4 shrink-0 text-fg-tertiary transition-colors duration-(--duration-feedback) group-hover/reference:text-foreground"
+              className="size-4 shrink-0 text-fg-tertiary transition-colors duration-(--duration-feedback) group-hover/reference:text-fg-primary"
             />
           </>
         )

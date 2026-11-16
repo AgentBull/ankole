@@ -89,7 +89,7 @@ function EmojiPickerSearch({ clearLabel = 'Clear' }: { clearLabel?: string }) {
         </InputGroupAddon>
         <SearchInput
           data-slot="input-group-control"
-          className="h-full min-w-0 flex-1 bg-transparent pr-1 pl-2 text-sm leading-5 text-foreground outline-none placeholder:text-fg-placeholder"
+          className="h-full min-w-0 flex-1 bg-transparent pr-1 pl-2 text-sm leading-5 text-fg-primary outline-none placeholder:text-fg-placeholder"
         />
         <InputGroupAddon align="inline-end" className="gap-0.5 py-0">
           {search.length > 0 && (
@@ -156,13 +156,13 @@ export function EmojiPicker({
           <List />
           <Empty className="ankole-emoji-picker-status" />
           <Loading className="ankole-emoji-picker-status">
-            <Spinner aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+            <Spinner aria-hidden className="size-4 shrink-0 text-fg-secondary" />
             <span>{labels?.loading ?? 'Loading…'}</span>
           </Loading>
           <LoadError className="ankole-emoji-picker-error">
             {({ retry }) => (
               <>
-                <p className="text-center text-sm leading-5 text-muted-foreground">
+                <p className="text-center text-sm leading-5 text-fg-secondary">
                   {labels?.loadingError ?? "Couldn't load emojis."}
                 </p>
                 <Button variant="outline" size="sm" onClick={retry}>

@@ -201,7 +201,7 @@ export function EnvVarDotEnvImportForm({
       </Field>
       <Field
         orientation="horizontal"
-        className="items-center justify-between rounded-md border border-border bg-muted/30 p-3">
+        className="items-center justify-between rounded-md border border-border-subtle bg-layer-03/30 p-3">
         <div className="grid gap-0.5 pr-3">
           <FieldLabel htmlFor={importSecretId}>{t('pod.env_vars.secret_storage')}</FieldLabel>
           <FieldDescription>
@@ -550,7 +550,7 @@ export function EnvVarSingleEntryForm({
 
       <Field
         orientation="horizontal"
-        className="items-center justify-between rounded-md border border-border bg-muted/30 p-3">
+        className="items-center justify-between rounded-md border border-border-subtle bg-layer-03/30 p-3">
         <div className="grid gap-0.5 pr-3">
           <FieldLabel htmlFor={secretId}>{t('pod.env_vars.secret_storage')}</FieldLabel>
           <FieldDescription id={secretHintId}>

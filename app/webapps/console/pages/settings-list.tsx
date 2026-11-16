@@ -48,7 +48,7 @@ function useSettingsTenantName() {
 export function SettingsTenantContext() {
   const { t } = useTranslation()
   const name = useSettingsTenantName()
-  return <span className="text-xs text-muted-foreground">{t('console.settings.data_tenant', { name })}</span>
+  return <span className="text-xs text-fg-secondary">{t('console.settings.data_tenant', { name })}</span>
 }
 
 export function SettingsList() {
@@ -105,7 +105,7 @@ export function SettingsList() {
           ? ((!registry ? duration(item) : undefined) ?? formatJSON(item.value ?? null))
           : t('console.settings.source_missing')
   const source = (item: AppConfigurationItem) => (
-    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
       <span>{t(`console.settings.source_${item.source}`)}</span>
       {item.overridden ? <Badge variant="outline">{t('console.settings.independent_override')}</Badge> : null}
       {item.agent_override_supported ? <span>{t('console.settings.agent_override_hint')}</span> : null}
@@ -152,7 +152,7 @@ export function SettingsList() {
               </span>
             ) : null}
             <code className="break-all text-xs">{item.key}</code>
-            <span className="text-xs text-muted-foreground">{settingDescription(t, item)}</span>
+            <span className="text-xs text-fg-secondary">{settingDescription(t, item)}</span>
             {registry && !item.editable ? (
               <span className="text-xs">
                 {t(
@@ -204,7 +204,7 @@ export function SettingsList() {
                 {t('console.settings.open_task')}
               </Link>
             ) : (
-              <span className="text-xs text-muted-foreground">{t('console.settings.read_only')}</span>
+              <span className="text-xs text-fg-secondary">{t('console.settings.read_only')}</span>
             ))}
         </TableCell>
       </TableRow>
@@ -229,7 +229,7 @@ export function SettingsList() {
         <TableCell className="max-w-lg whitespace-normal">
           <div className="grid gap-1.5">
             <span className="font-medium">{t(`console.settings.group_${group.id}`)}</span>
-            <span className="text-xs text-muted-foreground">{t(`console.settings.group_${group.id}_description`)}</span>
+            <span className="text-xs text-fg-secondary">{t(`console.settings.group_${group.id}_description`)}</span>
             {focus ? (
               <code className="break-all text-xs">{t('console.settings.matched_field', { key: focus })}</code>
             ) : null}

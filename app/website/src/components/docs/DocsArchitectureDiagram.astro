@@ -13,7 +13,7 @@ const copy = ARCHITECTURE_DIAGRAM_COPY[lang]
 const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.key], href: docs(node.slug) }))
 ---
 
-<figure class="not-prose my-10 w-full min-w-0 max-w-5xl border-y border-border/80 py-6">
+<figure class="not-prose my-10 w-full min-w-0 max-w-5xl border-y border-border-subtle/80 py-6">
 	<svg
 		class="architecture-map hidden h-auto w-full lg:block"
 		viewBox="0 0 1000 840"
@@ -142,7 +142,7 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 
 	<div class="architecture-mobile lg:hidden">
 		<p class="mobile-layer-label">{copy.external}</p>
-		<div class="grid grid-cols-2 gap-px bg-border">
+		<div class="grid grid-cols-2 gap-px bg-border-subtle">
 			<div class="mobile-node">
 				<strong>{copy.channels[0]}</strong>
 				<span>{copy.channels[1]}</span>
@@ -162,12 +162,12 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 		</div>
 
 		<div class="mobile-connector" aria-hidden="true">↓</div>
-		<section class="border border-border bg-background-secondary/40 p-3">
+		<section class="border border-border-subtle bg-layer-01/40 p-3">
 			<p class="mobile-layer-label mb-3">{copy.control}</p>
 			<div class="grid grid-cols-2 gap-2">
 				{
 					controlNodes.map(node => (
-						<a href={node.href} class="mobile-node border border-border">
+						<a href={node.href} class="mobile-node border border-border-subtle">
 							<strong>{node.copy[0]}</strong>
 							<span>{node.copy[1]}</span>
 						</a>
@@ -195,18 +195,18 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 		<div class="mobile-connector" aria-hidden="true">↓</div>
 		<p class="mobile-layer-label">{copy.data}</p>
 		<div class="grid grid-cols-2 gap-2">
-			<div class="mobile-node border border-border">
+			<div class="mobile-node border border-border-subtle">
 				<strong>{copy.postgres[0]}</strong>
 				<span>{copy.postgres[1]}</span>
 			</div>
-			<div class="mobile-node border border-border">
+			<div class="mobile-node border border-border-subtle">
 				<strong>{copy.home[0]}</strong>
 				<span>{copy.home[1]}</span>
 			</div>
 		</div>
 	</div>
 
-	<figcaption class="mt-5 max-w-3xl text-xs leading-5 text-muted-foreground">{copy.caption}</figcaption>
+	<figcaption class="mt-5 max-w-3xl text-xs leading-5 text-fg-secondary">{copy.caption}</figcaption>
 </figure>
 
 <style>
@@ -215,14 +215,14 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 	}
 
 	.architecture-map .zone {
-		fill: color-mix(in oklab, var(--background-secondary) 56%, transparent);
-		stroke: var(--border);
+		fill: color-mix(in oklab, var(--layer-01) 56%, transparent);
+		stroke: var(--border-subtle);
 		stroke-width: 1;
 	}
 
 	.architecture-map .node {
-		fill: var(--background);
-		stroke: var(--border);
+		fill: var(--page);
+		stroke: var(--border-subtle);
 		stroke-width: 1;
 		vector-effect: non-scaling-stroke;
 	}
@@ -232,7 +232,7 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 	}
 
 	.architecture-map .storage-node {
-		fill: var(--background-secondary);
+		fill: var(--layer-01);
 	}
 
 	.architecture-map .node-link {
@@ -243,26 +243,26 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 
 	.architecture-map a:hover .node-link,
 	.architecture-map a:focus-visible .node-link {
-		fill: color-mix(in oklab, var(--primary) 7%, var(--background));
+		fill: color-mix(in oklab, var(--primary) 7%, var(--page));
 		stroke: var(--primary);
 	}
 
 	.architecture-map .node-title {
-		fill: var(--foreground);
+		fill: var(--fg-primary);
 		font-family: var(--font-sans);
 		font-size: 15px;
 		font-weight: 600;
 	}
 
 	.architecture-map .node-detail {
-		fill: var(--muted-foreground);
+		fill: var(--fg-secondary);
 		font-family: var(--font-sans);
 		font-size: 12px;
 	}
 
 	.architecture-map .layer-label,
 	.mobile-layer-label {
-		fill: var(--muted-foreground);
+		fill: var(--fg-secondary);
 		font-family: var(--font-mono);
 		font-size: 10px;
 		font-weight: 500;
@@ -274,7 +274,7 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 	.architecture-map .policy-flow,
 	.architecture-map .storage-flow {
 		fill: none;
-		stroke: var(--muted-foreground);
+		stroke: var(--fg-secondary);
 		stroke-width: 1;
 		vector-effect: non-scaling-stroke;
 		marker-end: url('#architecture-arrow');
@@ -290,32 +290,32 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 	}
 
 	.architecture-map .arrow-head {
-		fill: var(--muted-foreground);
+		fill: var(--fg-secondary);
 	}
 
 	.architecture-map .flow-label {
-		fill: var(--muted-foreground);
+		fill: var(--fg-secondary);
 		font-family: var(--font-mono);
 		font-size: 10px;
 		letter-spacing: 0.03em;
 	}
 
 	.architecture-mobile {
-		color: var(--foreground);
+		color: var(--fg-primary);
 	}
 
 	.mobile-layer-label {
 		margin-block: 0 0.5rem;
-		color: var(--muted-foreground);
+		color: var(--fg-secondary);
 	}
 
 	.mobile-node {
 		display: grid;
 		min-width: 0;
 		gap: 0.25rem;
-		background: var(--background);
+		background: var(--page);
 		padding: 0.75rem;
-		color: var(--foreground);
+		color: var(--fg-primary);
 		text-decoration: none;
 	}
 
@@ -328,13 +328,13 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 	.mobile-node span {
 		font-size: 0.6875rem;
 		line-height: 1rem;
-		color: var(--muted-foreground);
+		color: var(--fg-secondary);
 	}
 
 	a.mobile-node:hover,
 	a.mobile-node:focus-visible {
 		border-color: var(--primary);
-		background: color-mix(in oklab, var(--primary) 7%, var(--background));
+		background: color-mix(in oklab, var(--primary) 7%, var(--page));
 	}
 
 	.mobile-connector {
@@ -345,7 +345,7 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 		font-family: var(--font-mono);
 		font-size: 0.625rem;
 		line-height: 1rem;
-		color: var(--muted-foreground);
+		color: var(--fg-secondary);
 		text-align: center;
 	}
 

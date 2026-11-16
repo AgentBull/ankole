@@ -69,7 +69,7 @@ export function AgentFilter({ scope }: { scope: AgentScope }) {
       onValueChange={value => scope.selectAgent(value == null ? '' : String(value))}>
       {/* The all-agents state is the null value, which the trigger styles as an
           unfilled placeholder; it is a real scope, so keep the label readable. */}
-      <SelectTrigger aria-label={t('console.agents.agent')} className="w-56 data-placeholder:text-foreground">
+      <SelectTrigger aria-label={t('console.agents.agent')} className="w-56 data-placeholder:text-fg-primary">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

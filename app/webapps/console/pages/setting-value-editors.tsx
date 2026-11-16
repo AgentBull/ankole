@@ -93,7 +93,7 @@ function OptionalTokensEditor({ value, onChange }: SettingValueEditorProps) {
           onChange={event => onChange(event.target.value)}
         />
       ) : null}
-      <p className="text-xs text-muted-foreground">{t('console.settings.model_limits_still_apply')}</p>
+      <p className="text-xs text-fg-secondary">{t('console.settings.model_limits_still_apply')}</p>
     </div>
   )
 }
@@ -148,7 +148,7 @@ function DurationSettingEditor({ item, value, onChange }: SettingValueEditorProp
           </Select>
         </div>
       ) : null}
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-fg-secondary">
         {t('console.settings.stored_duration', {
           value: value || '—',
           unit:
@@ -166,7 +166,7 @@ function DurationSettingEditor({ item, value, onChange }: SettingValueEditorProp
       {['drive.trash_retention_days', 'brain.soft_delete_retention_hours'].includes(item.key) &&
       value.trim() !== '' &&
       retentionLength(item.key, value) < retentionLength(item.key, item.value) ? (
-        <p role="status" className="text-sm text-warning-foreground">
+        <p role="status" className="text-sm text-warning-fg">
           {t('console.settings.value_change', {
             current: item.value,
             next: Number(value),
@@ -247,8 +247,8 @@ function BooleanSettingEditor({ onChange, value }: SettingValueEditorProps) {
   const { t } = useTranslation()
   return (
     <LabeledField label={t('console.settings.value')}>
-      <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
-        <span className="text-sm text-foreground">
+      <div className="flex min-h-12 items-center justify-between border border-border-subtle bg-layer-03/30 px-4 py-3">
+        <span className="text-sm text-fg-primary">
           {value === 'true' ? t('common.boolean_true') : t('common.boolean_false')}
         </span>
         <Switch
@@ -347,7 +347,7 @@ function SystemLocaleEditor({ onChange, value }: SettingValueEditorProps) {
           {locales.map(option => (
             <SelectItem key={option} value={option}>
               <span>{nativeLocaleLabel(option)}</span>
-              <span className="font-mono text-xs text-muted-foreground">{option}</span>
+              <span className="font-mono text-xs text-fg-secondary">{option}</span>
             </SelectItem>
           ))}
         </SelectContent>
@@ -381,8 +381,8 @@ function SystemTimeZoneEditor({ onChange, value }: SettingValueEditorProps) {
           required
         />
         {currentTime ? (
-          <div className="grid gap-1 border border-border bg-muted/20 px-4 py-3">
-            <span className="text-xs text-muted-foreground">{t('console.settings.timezone_current_time')}</span>
+          <div className="grid gap-1 border border-border-subtle bg-layer-03/20 px-4 py-3">
+            <span className="text-xs text-fg-secondary">{t('console.settings.timezone_current_time')}</span>
             <span className="font-mono text-sm tabular-nums">{currentTime}</span>
           </div>
         ) : null}

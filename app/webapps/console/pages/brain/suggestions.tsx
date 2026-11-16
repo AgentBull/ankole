@@ -117,7 +117,7 @@ export function BrainSuggestionsPage() {
         onClearFilters={() => setStatus('pending')}
         toolbarCanRevealRows
         toolbar={
-          <div className="flex items-center gap-3 border border-border bg-card p-2">
+          <div className="flex items-center gap-3 border border-border-subtle bg-page p-2">
             <Select
               value={status}
               onValueChange={value => {
@@ -146,10 +146,10 @@ export function BrainSuggestionsPage() {
             </TableCell>
             <TableCell className="text-xs">{suggestion.target_type ?? '—'}</TableCell>
             <TableCell className="text-xs">{suggestion.evidence_count}</TableCell>
-            <TableCell className="max-w-[320px] whitespace-normal text-xs text-muted-foreground">
+            <TableCell className="max-w-[320px] whitespace-normal text-xs text-fg-secondary">
               {suggestion.rationale ?? '—'}
             </TableCell>
-            <TableCell className="text-xs text-muted-foreground">{formatConsoleDate(suggestion.created_at)}</TableCell>
+            <TableCell className="text-xs text-fg-secondary">{formatConsoleDate(suggestion.created_at)}</TableCell>
             <TableCell className="text-right">
               {status === 'pending' ? (
                 <div className="flex justify-end gap-1">
@@ -170,7 +170,7 @@ export function BrainSuggestionsPage() {
                   </Button>
                 </div>
               ) : (
-                <span className="pr-2 text-xs text-muted-foreground">{t('console.brain.read_only')}</span>
+                <span className="pr-2 text-xs text-fg-secondary">{t('console.brain.read_only')}</span>
               )}
             </TableCell>
           </TableRow>

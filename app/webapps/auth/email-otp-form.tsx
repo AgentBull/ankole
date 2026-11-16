@@ -277,7 +277,7 @@ function EmailOtpFields({
         </SlotBoundary>
       )}
       {errorText && (
-        <p role="alert" className="text-sm text-destructive-foreground">
+        <p role="alert" className="text-sm text-destructive-fg">
           {errorText}
         </p>
       )}

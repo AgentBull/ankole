@@ -9,8 +9,8 @@
   --epr-emoji-padding: 5px;
   --epr-skin-tone-size: 24px;
   --epr-emoji-variation-picker-height: 42px;
-  --ankole-emoji-sticky-bg: var(--popover);
-  color: var(--foreground);
+  --ankole-emoji-sticky-bg: var(--layer-01);
+  color: var(--fg-primary);
   font-family: var(--font-family-sans);
   user-select: none;
 }
@@ -66,7 +66,7 @@
 
   @media (hover: hover) and (pointer: fine) {
     &:hover {
-      background-color: var(--accent);
+      background-color: var(--layer-hover);
     }
   }
 
@@ -113,7 +113,7 @@
 
 .ankole-emoji-picker [data-epr-part='category-nav'] {
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .ankole-emoji-picker [data-epr-part='category-nav'] > [role='tablist'] {
@@ -152,14 +152,14 @@
   @media (hover: hover) and (pointer: fine) {
     &:hover {
       background-color: var(--layer-hover);
-      color: var(--foreground);
+      color: var(--fg-primary);
     }
   }
 
   &[data-epr-active] {
     background-color: var(--layer-current);
     box-shadow: inset 0 0 0 0.2px var(--layer-current-edge);
-    color: var(--foreground);
+    color: var(--fg-primary);
   }
 
   @media (forced-colors: active) {
@@ -185,7 +185,7 @@
 
 .ankole-emoji-picker [data-epr-part='category-label'] {
   background: var(--ankole-emoji-sticky-bg);
-  color: var(--muted-foreground);
+  color: var(--fg-secondary);
   font-size: 12px;
   line-height: 16px;
   font-weight: 400;
@@ -203,7 +203,7 @@
 
   @media (hover: hover) and (pointer: fine) {
     &:hover {
-      background-color: var(--accent);
+      background-color: var(--layer-hover);
     }
   }
 
@@ -212,7 +212,7 @@
   }
 
   &:is(:focus-visible, [data-epr-highlighted]) {
-    background-color: var(--accent);
+    background-color: var(--layer-hover);
     outline: 2px solid var(--ring);
     outline-offset: -2px;
   }
@@ -240,7 +240,7 @@
 
 .ankole-emoji-picker
   [data-epr-part='emoji'].epr-emoji-has-variations:is(:hover, :focus-visible, [data-epr-highlighted])::after {
-  background-color: var(--muted-foreground);
+  background-color: var(--fg-secondary);
   opacity: 1;
 }
 
@@ -269,7 +269,7 @@
 .ankole-emoji-picker-status {
   gap: 8px;
   padding: 32px 16px;
-  color: var(--muted-foreground);
+  color: var(--fg-secondary);
   font-size: 14px;
   line-height: 20px;
   text-align: center;

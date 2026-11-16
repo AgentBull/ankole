@@ -225,7 +225,7 @@ function SpreadsheetWorkspace({
   }, [status, sheets, initialSheet, initialFind, model])
   if (status === 'too_large') {
     return (
-      <p className="rounded-control border border-dashed border-border px-6 py-10 text-center text-sm text-fg-secondary">
+      <p className="rounded-control border border-dashed border-border-subtle px-6 py-10 text-center text-sm text-fg-secondary">
         {t('pod.spreadsheet.too_large')}
       </p>
     )
@@ -258,7 +258,7 @@ function SpreadsheetWorkspace({
       <div
         {...{ [WORKSPACE_ATTRIBUTE]: '' }}
         aria-busy={status === 'loading'}
-        className="flex h-[min(78vh,880px)] min-h-[420px] flex-col overflow-hidden rounded-control border border-border bg-background">
+        className="flex h-[min(78vh,880px)] min-h-[420px] flex-col overflow-hidden rounded-control border border-border-subtle bg-page">
         <SpreadsheetToolbar model={model} pageID={pageID} canEdit={canEdit} gridInput={gridInput} onFind={setFind} />
         <SpreadsheetCanvas model={model} pageID={pageID} inputRef={gridInput} onFind={setFind} />
         <SpreadsheetSheetTabs model={model} />

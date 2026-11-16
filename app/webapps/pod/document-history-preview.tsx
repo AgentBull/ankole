@@ -53,7 +53,7 @@ function DocumentComparison({ pageID, version, current }: Props) {
       {changes.every(change => change.kind === 'unchanged') && !iconChanged ? (
         <p>{t('pod.document.no_changes')}</p>
       ) : (
-        <div className="overflow-hidden rounded border border-border font-mono text-sm">
+        <div className="overflow-hidden rounded border border-border-subtle font-mono text-sm">
           {changes.map((change, index) => (
             <div
               key={index}
@@ -147,7 +147,7 @@ function DocumentVersion({ pageID, version, editorKey }: Props) {
         const reference = attributes.ref && references.data?.get(attributes.ref)
         const accessible = reference && !reference.restricted
         const link = document.createElement(accessible ? 'a' : 'span')
-        link.className = 'block rounded border border-border px-4 py-3 text-sm'
+        link.className = 'block rounded border border-border-subtle px-4 py-3 text-sm'
         link.textContent = reference ? reference.title : t('pod.content.cannot_display')
         if (accessible && link instanceof HTMLAnchorElement) {
           link.href = reference.href

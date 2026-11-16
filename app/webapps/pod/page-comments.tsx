@@ -196,7 +196,7 @@ export function PageComments({
       </header>
       <ErrorBoundary variant="panel" className="m-4" resetKeys={[detail.page.id, focused, effectiveStatus]}>
         {!!summary.data?.unread_count && (
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2 text-xs">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-4 py-2 text-xs">
             <Button
               variant="ghost"
               size="xs"
@@ -217,7 +217,7 @@ export function PageComments({
           </div>
         )}
         {!!selectedThreads.length && (
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2 text-xs">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-4 py-2 text-xs">
             <span>
               {t('pod.document.comments_here')} · {selectedThreads.length}
             </span>
@@ -266,7 +266,7 @@ export function PageComments({
             </Button>
           )}
         </div>
-        <div className="pod-comments-compose max-h-[45%] shrink-0 overflow-auto border-t border-border px-4 py-3">
+        <div className="pod-comments-compose max-h-[45%] shrink-0 overflow-auto border-t border-border-subtle px-4 py-3">
           {model.anchor.value && (
             <div className="pod-comment-draft-quote">
               {model.anchor.value.fileAnchor && (
@@ -275,7 +275,7 @@ export function PageComments({
                 </div>
               )}
               {(docSelection?.quote ?? model.anchor.value.quote) && (
-                <blockquote className="mb-3 block max-h-[100px] overflow-auto border-l-2 border-border pl-2 text-start text-xs leading-normal whitespace-pre-wrap text-fg-secondary [overflow-wrap:anywhere]">
+                <blockquote className="mb-3 block max-h-[100px] overflow-auto border-l-2 border-border-subtle pl-2 text-start text-xs leading-normal whitespace-pre-wrap text-fg-secondary [overflow-wrap:anywhere]">
                   {docSelection?.quote ?? model.anchor.value.quote}
                 </blockquote>
               )}
@@ -332,7 +332,7 @@ export function PageComments({
   }
   return (
     <PodPanelSurface
-      className="pod-comments flex min-h-0 w-[296px] shrink-0 flex-col border-s border-border"
+      className="pod-comments flex min-h-0 w-[296px] shrink-0 flex-col border-s border-border-subtle"
       aria-label={t('pod.document.comments')}
       onKeyDown={event => {
         if (event.key === 'Escape') {

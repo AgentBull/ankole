@@ -86,9 +86,9 @@ export default function JSONObjectEditor({
 }
 
 const ICON_CLASS =
-  'inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+  'inline-flex size-6 items-center justify-center border border-transparent text-fg-secondary transition-colors hover:bg-layer-03 hover:text-fg-primary'
 const DANGER_ICON_CLASS =
-  'inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-destructive'
+  'inline-flex size-6 items-center justify-center border border-transparent text-fg-secondary transition-colors hover:bg-layer-03 hover:text-destructive'
 
 const THEME: Theme = {
   displayName: 'Ankole',
@@ -107,16 +107,16 @@ const THEME: Theme = {
     },
     collection: {
       content: <ChevronRightRegular width={16} height={16} />,
-      svgProps: { className: 'size-4 text-muted-foreground' }
+      svgProps: { className: 'size-4 text-fg-secondary' }
     }
   },
   styles: {
     container: {
       width: '100%',
       backgroundColor: 'var(--field)',
-      border: '1px solid var(--input)',
+      border: '1px solid var(--field-border)',
       borderRadius: '0',
-      color: 'var(--foreground)',
+      color: 'var(--fg-primary)',
       fontFamily: 'var(--font-family-mono)',
       fontSize: '0.8125rem',
       lineHeight: '1.25rem',
@@ -125,7 +125,7 @@ const THEME: Theme = {
     collection: { backgroundColor: 'transparent' },
     collectionInner: { backgroundColor: 'transparent' },
     collectionElement: { backgroundColor: 'transparent' },
-    dropZone: 'var(--border)',
+    dropZone: 'var(--border-subtle)',
     property: 'var(--ankole-json-key)',
     bracket: 'var(--ankole-json-punctuation)',
     itemCount: 'var(--ankole-json-punctuation)',
@@ -134,18 +134,18 @@ const THEME: Theme = {
     boolean: 'var(--ankole-json-boolean)',
     null: 'var(--ankole-json-null)',
     input: {
-      backgroundColor: 'var(--background)',
+      backgroundColor: 'var(--page)',
       border: '1px solid var(--ring)',
-      color: 'var(--foreground)',
+      color: 'var(--fg-primary)',
       padding: '0.125rem 0.375rem'
     },
-    inputHighlight: 'var(--muted)',
-    error: 'var(--destructive-foreground)',
-    iconCollection: 'var(--muted-foreground)',
+    inputHighlight: 'var(--layer-03)',
+    error: 'var(--destructive-fg)',
+    iconCollection: 'var(--fg-secondary)',
     iconEdit: 'var(--primary)',
     iconDelete: 'var(--destructive)',
     iconAdd: 'var(--primary)',
-    iconCopy: 'var(--muted-foreground)',
+    iconCopy: 'var(--fg-secondary)',
     iconOk: 'var(--ankole-json-boolean)',
     iconCancel: 'var(--destructive)'
   }

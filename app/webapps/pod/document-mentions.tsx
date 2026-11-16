@@ -86,7 +86,7 @@ function PrincipalAvatar({
       aria-hidden
       style={disabled ? undefined : { color: peerColor(uid) }}
       className={cn(
-        'inline-flex shrink-0 items-center justify-center bg-muted font-semibold leading-none select-none',
+        'inline-flex shrink-0 items-center justify-center bg-layer-03 font-semibold leading-none select-none',
         shape,
         disabled && 'text-fg-tertiary',
         className
@@ -194,7 +194,7 @@ function InlinePageMention({
             page={{ type: pageType, icon: resolved.icon ?? null, system_key: resolved.system_key }}
             className="mt-0.5 size-4.5 shrink-0"
           />
-          <span className="line-clamp-2 min-w-0 flex-1 font-medium leading-snug text-foreground">{title}</span>
+          <span className="line-clamp-2 min-w-0 flex-1 font-medium leading-snug text-fg-primary">{title}</span>
           {trashed && <Badge variant="warning">{t('pod.mention.trashed_badge')}</Badge>}
         </div>
         {pathLabel && <p className="truncate text-xs text-fg-tertiary">{pathLabel}</p>}
@@ -307,7 +307,7 @@ function InlinePrincipalMention({
           />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="truncate font-medium text-foreground">{displayName}</span>
+              <span className="truncate font-medium text-fg-primary">{displayName}</span>
               <Badge variant="secondary">
                 {isAgent
                   ? t('pod.mention.agent_role')

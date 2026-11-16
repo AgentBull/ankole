@@ -137,13 +137,13 @@ export function TokenQuotaEditor({
     <section className="grid gap-4">
       <div className="grid gap-1">
         <h3 className="title-section">{t('console.agents.token_quota_title')}</h3>
-        <p className="text-sm leading-6 text-muted-foreground">{t('console.agents.token_quota_description')}</p>
+        <p className="text-sm leading-6 text-fg-secondary">{t('console.agents.token_quota_description')}</p>
       </div>
       <ErrorBlock error={quota.error ?? save.error} />
       {draftStatus === 'loading' ? (
         <Skeleton className="h-56 w-full" aria-busy="true" />
       ) : (
-        <div className="grid gap-5 border border-border bg-card p-5 md:p-6">
+        <div className="grid gap-5 border border-border-subtle bg-page p-5 md:p-6">
           {storedQuota && usage ? (
             <div className="grid gap-4">
               <QuotaUsageBar
@@ -163,7 +163,7 @@ export function TokenQuotaEditor({
               </dl>
             </div>
           ) : (
-            <p className="text-sm leading-6 text-muted-foreground">{t('console.agents.token_quota_none')}</p>
+            <p className="text-sm leading-6 text-fg-secondary">{t('console.agents.token_quota_none')}</p>
           )}
 
           <div className="grid gap-5 md:grid-cols-3">
@@ -246,7 +246,7 @@ export function TokenQuotaEditor({
               {t('common.save')}
             </SaveButton>
             {model.dirty.value && !pending ? (
-              <span className="text-xs text-muted-foreground">{t('common.unsaved_changes')}</span>
+              <span className="text-xs text-fg-secondary">{t('common.unsaved_changes')}</span>
             ) : null}
             {storedQuota ? (
               <>
@@ -320,9 +320,7 @@ function QuotaUsageBar({
         </span>
         {exceeded ? <StatusIndicator tone="danger">{exceededLabel}</StatusIndicator> : null}
       </ProgressLabel>
-      <ProgressValue className={cn(tone === 'danger' && 'text-destructive-foreground')}>
-        {() => `${percent}%`}
-      </ProgressValue>
+      <ProgressValue className={cn(tone === 'danger' && 'text-destructive-fg')}>{() => `${percent}%`}</ProgressValue>
     </Progress>
   )
 }
@@ -330,7 +328,7 @@ function QuotaUsageBar({
 function QuotaFact({ children, label }: { children: ReactNode; label: string }) {
   return (
     <div className="grid content-start gap-1">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dt className="text-xs text-fg-secondary">{label}</dt>
       <dd className="flex flex-wrap items-center gap-2 text-sm tabular-nums">{children}</dd>
     </div>
   )

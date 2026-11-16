@@ -91,7 +91,7 @@ export function MainSharingView({
       <div className="grid gap-4 overflow-y-auto px-4 pb-3.5">
         <section className="grid gap-2">
           <div className="flex min-h-7 items-center justify-between gap-2">
-            <span className="text-[13px] font-medium text-foreground">
+            <span className="text-[13px] font-medium text-fg-primary">
               {canManage ? t('pod.sharing.invite_collaborators') : t('pod.sharing.collaborators')}
             </span>
             {(preview.total > 0 || ordinaryGrants.length > 0) && (
@@ -100,7 +100,7 @@ export function MainSharingView({
                 aria-label={t('pod.sharing.manage_collaborators')}
                 disabled={mutations.pending}
                 onClick={onOpenCollaborators}
-                className="group inline-flex cursor-pointer items-center gap-1 rounded-control px-1.5 py-0.5 transition-colors hover:bg-accent focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50">
+                className="group inline-flex cursor-pointer items-center gap-1 rounded-control px-1.5 py-0.5 transition-colors hover:bg-layer-hover focus-visible:outline-offset-1 disabled:cursor-not-allowed disabled:opacity-50">
                 <AvatarGroup className="-space-x-1.5">
                   {preview.items.map(item => (
                     <SubjectAvatar key={item.key} subject={item} size="sm" />
@@ -111,7 +111,7 @@ export function MainSharingView({
                 </AvatarGroup>
                 <ChevronRightRegular
                   aria-hidden
-                  className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+                  className="size-4 text-fg-secondary transition-transform group-hover:translate-x-0.5"
                 />
               </button>
             )}
@@ -162,7 +162,7 @@ export function MainSharingView({
         <ContentError error={mutations.error} />
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-2.5">
+      <div className="flex items-center justify-between gap-2 border-t border-border-subtle px-4 py-2.5">
         <Button variant="outline" size="sm" onClick={() => void copyLink()}>
           <LinkRegular aria-hidden className="size-4" />
           {t('pod.content.copy_link')}
@@ -204,14 +204,14 @@ function AccessScopeSection({
   if (isPrivateRoot) {
     return (
       <section className="grid gap-1.5">
-        <span className="text-[13px] font-medium text-foreground">{t('pod.sharing.access_scope')}</span>
-        <div className="flex items-start gap-2.5 rounded-control bg-muted/45 px-3 py-2.5">
-          <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <span className="text-[13px] font-medium text-fg-primary">{t('pod.sharing.access_scope')}</span>
+        <div className="flex items-start gap-2.5 rounded-control bg-layer-03/45 px-3 py-2.5">
+          <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-layer-03 text-fg-secondary">
             <LockClosedRegular aria-hidden className="size-4" />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-foreground">{t('pod.sharing.scope_private_root')}</div>
-            <p className="text-xs leading-4 text-muted-foreground">{t('pod.sharing.scope_private_root_desc')}</p>
+            <div className="text-sm font-medium text-fg-primary">{t('pod.sharing.scope_private_root')}</div>
+            <p className="text-xs leading-4 text-fg-secondary">{t('pod.sharing.scope_private_root_desc')}</p>
           </div>
         </div>
       </section>
@@ -225,9 +225,9 @@ function AccessScopeSection({
 
   return (
     <section className="grid gap-1.5">
-      <span className="text-[13px] font-medium text-foreground">{t('pod.sharing.access_scope')}</span>
-      <div className="flex items-start gap-2.5 rounded-control bg-muted/45 px-3 py-2.5">
-        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-foreground">
+      <span className="text-[13px] font-medium text-fg-primary">{t('pod.sharing.access_scope')}</span>
+      <div className="flex items-start gap-2.5 rounded-control bg-layer-03/45 px-3 py-2.5">
+        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-layer-03 text-fg-primary">
           <ActiveIcon aria-hidden className="size-4" />
         </span>
         <div className="min-w-0 flex-1 grid gap-1">
@@ -248,9 +248,9 @@ function AccessScopeSection({
               </SelectContent>
             </Select>
           ) : (
-            <div className="text-sm font-medium text-foreground">{activeTitle}</div>
+            <div className="text-sm font-medium text-fg-primary">{activeTitle}</div>
           )}
-          <p className="text-xs leading-4 text-muted-foreground">{activeDescription}</p>
+          <p className="text-xs leading-4 text-fg-secondary">{activeDescription}</p>
         </div>
       </div>
     </section>

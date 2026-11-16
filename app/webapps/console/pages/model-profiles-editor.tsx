@@ -282,9 +282,9 @@ function AgentModelProfilesEditor({
     <section id="model-profiles" className="grid min-w-0 scroll-mt-16 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
       <div className="grid gap-1">
         <h3 className="title-section">{t('console.models.title')}</h3>
-        <p className="text-sm leading-6 text-muted-foreground">{t('console.models.description')}</p>
+        <p className="text-sm leading-6 text-fg-secondary">{t('console.models.description')}</p>
         {!loading && providers.length === 0 ? (
-          <p className="text-sm leading-6 text-muted-foreground">
+          <p className="text-sm leading-6 text-fg-secondary">
             {t('console.models.provider_none_hint')}{' '}
             <Link className="link" to="/providers/new">
               {t('console.models.provider_none_action')}

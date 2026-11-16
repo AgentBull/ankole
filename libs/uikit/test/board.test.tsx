@@ -62,7 +62,7 @@ describe('Board', () => {
   test('draws a column as a quiet surface that its label names, and supports an empty lane placeholder', () => {
     const column = tagWith(board(), 'data-slot="board-column"')
     expect(column).toContain('aria-label="In progress"')
-    expect(classesOf(column)).toContain('bg-background-secondary')
+    expect(classesOf(column)).toContain('bg-layer-01')
 
     const empty = renderToStaticMarkup(<BoardColumnEmpty>Nothing queued</BoardColumnEmpty>)
     expect(tagWith(empty, 'data-slot="board-column-empty"')).toBeDefined()

@@ -392,8 +392,8 @@ function BaseWorkspace({
           <div
             role="alert"
             data-slot="missing-embed-table"
-            className="space-y-2 rounded-control border border-border bg-layer-01 p-4 text-sm">
-            <p className="font-medium text-foreground">
+            className="space-y-2 rounded-control border border-border-subtle bg-layer-01 p-4 text-sm">
+            <p className="font-medium text-fg-primary">
               {t('pod.content.embed_bound_table_missing', {
                 defaultValue: 'The bound table was deleted or is inaccessible.'
               })}
@@ -1058,7 +1058,7 @@ function TableWorkspace({
                       return (
                         <div
                           key={field.id}
-                          className="flex items-center gap-1 rounded-control px-1.5 py-1 hover:bg-accent/60">
+                          className="flex items-center gap-1 rounded-control px-1.5 py-1 hover:bg-layer-hover/60">
                           <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm">
                             <Checkbox
                               checked={checked}
@@ -1090,7 +1090,7 @@ function TableWorkspace({
                     })}
                   </div>
                   {schemaEditable && (
-                    <div className="shrink-0 border-t border-border pt-2">
+                    <div className="shrink-0 border-t border-border-subtle pt-2">
                       <FieldEditorButton
                         tableID={tableID}
                         pageID={page.page.id}
@@ -1121,7 +1121,7 @@ function TableWorkspace({
         </div>
       )}
       {copiedLocation && (
-        <div className="mt-2 flex items-center justify-between gap-2 rounded-control border border-border bg-muted/50 px-3 py-2 text-sm">
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-control border border-border-subtle bg-layer-03/50 px-3 py-2 text-sm">
           <p role="status">
             {t('pod.content.copied_to_an_independent_page')}{' '}
             <a className="link" href={copiedLocation}>

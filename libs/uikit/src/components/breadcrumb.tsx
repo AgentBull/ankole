@@ -42,7 +42,7 @@ function BreadcrumbLink({ className, render, ...props }: useRender.ComponentProp
       {
         className: cn(
           crumbClassName,
-          'rounded-mini text-fg-secondary no-underline transition-colors duration-(--duration-feedback) ease-productive hover:text-foreground',
+          'rounded-mini text-fg-secondary no-underline transition-colors duration-(--duration-feedback) ease-productive hover:text-fg-primary',
           className
         )
       },
@@ -89,7 +89,7 @@ function BreadcrumbEllipsis({
     props: mergeProps<'span'>(
       {
         className: cn(
-          'inline-flex shrink-0 items-center rounded-mini text-75 text-fg-secondary transition-colors duration-(--duration-feedback) ease-productive [&:is(a,button)]:cursor-pointer [&:is(a,button)]:hover:text-foreground',
+          'inline-flex shrink-0 items-center rounded-mini text-75 text-fg-secondary transition-colors duration-(--duration-feedback) ease-productive [&:is(a,button)]:cursor-pointer [&:is(a,button)]:hover:text-fg-primary',
           className
         ),
         children: (

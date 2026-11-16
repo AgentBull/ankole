@@ -26,13 +26,13 @@ export function WorkAccessReview() {
   const { t } = useTranslation()
   const work = useQuery(listWorkAccessReviewsOptions())
   return (
-    <details className="border border-border p-4">
+    <details className="border border-border-subtle p-4">
       <summary className="cursor-pointer text-sm font-medium">{t('console.human_access.legacy_work')}</summary>
-      <p className="my-3 text-sm text-muted-foreground">{t('console.human_access.legacy_hint')}</p>
+      <p className="my-3 text-sm text-fg-secondary">{t('console.human_access.legacy_hint')}</p>
       <ErrorBlock error={work.error} />
       {work.isLoading ? <p role="status">{t('common.loading')}</p> : null}
       {work.data?.work.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('console.human_access.no_legacy')}</p>
+        <p className="text-sm text-fg-secondary">{t('console.human_access.no_legacy')}</p>
       ) : null}
       {work.data?.work.map(item => (
         <WorkReviewRow key={`${item.kind}:${item.id}`} work={item} />
@@ -64,7 +64,7 @@ function WorkReviewRow({ work }: { work: HumanWorkItem }) {
   const responsibleHumanLabel = t('console.human_access.responsible_human', { defaultValue: 'Responsible person' })
 
   return (
-    <div className="my-4 grid gap-3 border-t border-border pt-4">
+    <div className="my-4 grid gap-3 border-t border-border-subtle pt-4">
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
         <span>{humanizeTechnicalLabel(work.kind)}</span>
         {work.agent_uid ? (
@@ -76,7 +76,7 @@ function WorkReviewRow({ work }: { work: HumanWorkItem }) {
         <span aria-hidden>·</span>
         <span>{t(`console.status.${work.status}`, { defaultValue: humanizeTechnicalLabel(work.status) })}</span>
       </p>
-      <code className="text-xs break-all text-muted-foreground">{work.id}</code>
+      <code className="text-xs break-all text-fg-secondary">{work.id}</code>
       {work.human_uid ? (
         <p className="text-sm break-all">
           {t('console.human_access.authority')}:{' '}

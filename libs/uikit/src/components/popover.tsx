@@ -50,7 +50,7 @@ function PopoverContent({
         <PopoverPrimitive.Popup
           data-slot="popover-content"
           className={cn(
-            'ceramic z-50 flex w-72 origin-(--transform-origin) flex-col gap-4 p-4 text-sm text-popover-foreground outline-hidden transition-[opacity,scale] duration-(--duration-overlay) ease-out data-starting-style:opacity-0 data-starting-style:scale-[0.96] data-ending-style:opacity-0 data-ending-style:scale-[0.96]',
+            'ceramic z-50 flex w-72 origin-(--transform-origin) flex-col gap-4 p-4 text-sm text-fg-primary outline-hidden transition-[opacity,scale] duration-(--duration-overlay) ease-out data-starting-style:opacity-0 data-starting-style:scale-[0.96] data-ending-style:opacity-0 data-ending-style:scale-[0.96]',
             className
           )}
           {...props}
@@ -72,7 +72,7 @@ function PopoverDescription({ className, ...props }: PopoverPrimitive.Descriptio
   return (
     <PopoverPrimitive.Description
       data-slot="popover-description"
-      className={cn('mt-0.5 text-sm leading-5 text-muted-foreground', className)}
+      className={cn('mt-0.5 text-sm leading-5 text-fg-secondary', className)}
       {...props}
     />
   )

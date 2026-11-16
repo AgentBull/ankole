@@ -108,13 +108,13 @@ export function SpreadsheetFunctionsDialog({
         <ul
           role="listbox"
           aria-label={t('pod.spreadsheet.functions')}
-          className="h-56 overflow-y-auto rounded-control border border-border py-1">
+          className="h-56 overflow-y-auto rounded-control border border-border-subtle py-1">
           {shown.map(fn => (
             <li
               key={fn.name}
               role="option"
               aria-selected={fn === selected}
-              className={cn('cursor-pointer px-3 py-1 font-mono text-sm', fn === selected && 'bg-accent')}
+              className={cn('cursor-pointer px-3 py-1 font-mono text-sm', fn === selected && 'bg-layer-hover')}
               onClick={() => setChosen(fn.name)}
               onDoubleClick={() => insert(fn)}>
               {fn.name}

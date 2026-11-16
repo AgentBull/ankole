@@ -31,7 +31,7 @@ test('draws chip tabs as a 24px icon with a label that opens only on the current
   expect(trigger).toContain("group-data-[variant=chip]/tabs-list:[&_svg:not([class*='size-'])]:size-6")
   // A closed tab draws in the secondary colour; the open tab draws its icon and Medium label in the primary colour.
   expect(trigger).toContain('group-data-[variant=chip]/tabs-list:text-fg-secondary')
-  expect(trigger).toContain('group-data-[variant=chip]/tabs-list:data-active:text-foreground')
+  expect(trigger).toContain('group-data-[variant=chip]/tabs-list:data-active:text-fg-primary')
   expect(trigger).toContain('group-data-[variant=chip]/tabs-list:data-active:font-medium')
   expect(trigger).not.toContain('group-data-[variant=chip]/tabs-list:data-active:text-fg-secondary')
   // A label column is closed by default and opens with its tab's active state.

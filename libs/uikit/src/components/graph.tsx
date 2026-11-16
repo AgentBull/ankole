@@ -512,7 +512,7 @@ export function AnkoleGraph({
               latestOnNavigateRef.current(node, event)
             }
           }}
-          className="pointer-events-auto absolute rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="pointer-events-auto absolute rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-page"
         />
       )),
     [enterNodeHover, forwardWheelToCanvas, leaveNodeHover, linkableNodes]
@@ -522,7 +522,7 @@ export function AnkoleGraph({
     <div
       ref={stageRef}
       className={cn(
-        'relative isolate min-h-[520px] w-full overflow-hidden rounded-control border border-border bg-background select-none overscroll-contain',
+        'relative isolate min-h-[520px] w-full overflow-hidden rounded-control border border-border-subtle bg-page select-none overscroll-contain',
         className
       )}>
       <div role="group" aria-label={ariaLabel} className="absolute inset-0">

@@ -101,7 +101,7 @@ export function SinglePrincipalPicker({
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate">{candidate.label ?? candidate.id}</span>
                   {candidate.description && candidate.description !== candidate.label ? (
-                    <span className="truncate text-xs text-muted-foreground">{candidate.description}</span>
+                    <span className="truncate text-xs text-fg-secondary">{candidate.description}</span>
                   ) : null}
                 </span>
               </ComboboxItem>

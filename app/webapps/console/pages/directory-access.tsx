@@ -53,9 +53,9 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
     snapshot?.snapshot_fingerprint && model.approvedFingerprint.value === snapshot.snapshot_fingerprint
   )
   return (
-    <section className="grid gap-4 border-t border-border pt-6">
+    <section className="grid gap-4 border-t border-border-subtle pt-6">
       <h3 className="title-section">{t('console.directory_access.title')}</h3>
-      <p className="text-sm text-muted-foreground">{t('console.directory_access.hint')}</p>
+      <p className="text-sm text-fg-secondary">{t('console.directory_access.hint')}</p>
       <ErrorBlock error={directory.error} />
       {directory.isLoading ? <p role="status">{t('common.loading')}</p> : null}
       {snapshot ? (
@@ -84,7 +84,7 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
             })}
           </p>
           {snapshot.missing_uids.length > 0 ? (
-            <div className="max-h-64 overflow-auto border border-border p-3">
+            <div className="max-h-64 overflow-auto border border-border-subtle p-3">
               <ul className="grid gap-1 text-sm">
                 {snapshot.missing_uids.map(uid => {
                   const person = principals.data?.find(person => person.id === uid)
@@ -99,7 +99,7 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
           ) : null}
         </>
       ) : (
-        <p className="text-sm text-muted-foreground">{t('console.directory_access.no_snapshot')}</p>
+        <p className="text-sm text-fg-secondary">{t('console.directory_access.no_snapshot')}</p>
       )}
       {snapshot?.status === 'review_required' && snapshot.snapshot_fingerprint ? (
         <>
@@ -171,7 +171,7 @@ function DirectoryEventReview({
   const pending = review.isPending
   const eventTypeKey = event.event_type.replace(/[^a-zA-Z0-9]+/g, '_')
   return (
-    <div className="grid gap-3 border border-border p-4">
+    <div className="grid gap-3 border border-border-subtle p-4">
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <span className="font-medium" title={event.event_type}>
           {t(`console.directory_access.event_type_${eventTypeKey}`, {
@@ -185,7 +185,7 @@ function DirectoryEventReview({
         </Badge>
       </div>
       <p className="text-sm">{event.reason ?? event.last_error}</p>
-      <code className="text-xs break-all text-muted-foreground">{event.external_ids.join(', ')}</code>
+      <code className="text-xs break-all text-fg-secondary">{event.external_ids.join(', ')}</code>
       {event.status === 'pending' || event.status === 'review_required' ? (
         <div className="grid gap-3">
           <LabeledField label={t('console.human_access.reason')} required>
@@ -228,7 +228,7 @@ function DirectoryEventReview({
         </div>
       ) : null}
       {event.review_reason ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-fg-secondary">
           <ActorLabel actor={event.reviewed_by} /> · {event.review_reason}
         </p>
       ) : null}

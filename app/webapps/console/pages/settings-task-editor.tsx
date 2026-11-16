@@ -47,7 +47,7 @@ export function SettingsTaskEditor({
   return (
     <div className="grid gap-7">
       {group === 'pod-access' ? (
-        <p className="text-sm text-muted-foreground">{t('console.settings.guest_access_warning')}</p>
+        <p className="text-sm text-fg-secondary">{t('console.settings.guest_access_warning')}</p>
       ) : null}
       {items.map(item => (
         <SettingGroupField
@@ -66,7 +66,7 @@ export function SettingsTaskEditor({
         </SettingGroupField>
       ))}
       {group === 'turnstile' ? (
-        <p className="text-sm text-muted-foreground">{t('console.settings.turnstile_disable_hint')}</p>
+        <p className="text-sm text-fg-secondary">{t('console.settings.turnstile_disable_hint')}</p>
       ) : null}
     </div>
   )
@@ -145,14 +145,14 @@ function SmtpSettingsEditor({
         onCheckedChange={next => set('ssl', next)}
         aria-label={t('console.settings.smtp_implicit_tls')}
       />
-      <p className="text-xs text-muted-foreground">{t('console.settings.smtp_tls_hint')}</p>
+      <p className="text-xs text-fg-secondary">{t('console.settings.smtp_tls_hint')}</p>
       <details>
         <summary className="text-sm">{t('console.settings.advanced')}</summary>
         <LabeledField label={t('console.settings.smtp_cacertfile')}>
           <Input value={String(draft.cacertfile ?? '')} onChange={event => set('cacertfile', event.target.value)} />
         </LabeledField>
       </details>
-      <div className="grid gap-3 border-t border-border pt-5">
+      <div className="grid gap-3 border-t border-border-subtle pt-5">
         <LabeledField label={t('console.settings.test_recipient')}>
           <Input inputMode="email" value={recipient} onChange={event => setRecipient(event.target.value)} />
         </LabeledField>
@@ -171,7 +171,7 @@ function SmtpSettingsEditor({
               : t('console.settings.mail_draft_changed')}
           </p>
         ) : null}
-        <p className="text-xs text-muted-foreground">{t('console.settings.mail_draft_hint')}</p>
+        <p className="text-xs text-fg-secondary">{t('console.settings.mail_draft_hint')}</p>
       </div>
     </section>
   )

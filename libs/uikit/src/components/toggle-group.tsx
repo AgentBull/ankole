@@ -43,7 +43,7 @@ function ToggleGroup({
       style={{ '--gap': spacing } as React.CSSProperties}
       className={cn(
         // With no spacing, the group is a segmented choice: a slot that holds the chosen object.
-        'group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] data-[spacing=0]:gap-0.5 data-[spacing=0]:rounded-control data-[spacing=0]:border data-[spacing=0]:border-field-edge data-[spacing=0]:border-b-input data-[spacing=0]:bg-field data-[spacing=0]:p-0.5 data-vertical:flex-col data-vertical:items-stretch',
+        'group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] data-[spacing=0]:gap-0.5 data-[spacing=0]:rounded-control data-[spacing=0]:border data-[spacing=0]:border-field-edge data-[spacing=0]:border-b-field-border data-[spacing=0]:bg-field data-[spacing=0]:p-0.5 data-vertical:flex-col data-vertical:items-stretch',
         className
       )}
       {...props}>

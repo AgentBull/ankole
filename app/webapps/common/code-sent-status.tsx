@@ -6,7 +6,7 @@ export function CodeSentStatus({ email }: { email: string }) {
   const mailboxPath = devMailboxPath()
 
   return (
-    <p role="status" className="break-words text-sm text-muted-foreground">
+    <p role="status" className="break-words text-sm text-fg-secondary">
       {t('auth.code_sent', { email })}
       {mailboxPath && (
         <>

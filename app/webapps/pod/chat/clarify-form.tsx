@@ -70,9 +70,7 @@ export function ClarifyFieldControl({ element, bindings }: ComponentRenderProps<
     <Field data-disabled={disabled || undefined}>
       <FieldLabel htmlFor={field.type === 'multi_select' ? undefined : controlID} id={`${controlID}-label`}>
         {field.label}
-        {!field.required && (
-          <span className="ml-1 font-normal text-muted-foreground">{t('pod.chat_form.optional')}</span>
-        )}
+        {!field.required && <span className="ml-1 font-normal text-fg-secondary">{t('pod.chat_form.optional')}</span>}
       </FieldLabel>
       {control(field, value, change, common, t)}
       {field.help && <FieldDescription id={`${controlID}-help`}>{field.help}</FieldDescription>}

@@ -87,7 +87,7 @@ export function BrainHealthPage() {
                 {t(`console.settings.runtime_${snapshot.search_indexes}`)}
               </Badge>
             </HealthItem>
-            <p className="text-xs text-muted-foreground">{t('console.settings.index_rebuild_hint')}</p>
+            <p className="text-xs text-fg-secondary">{t('console.settings.index_rebuild_hint')}</p>
           </HealthSection>
 
           <HealthSection title={t('console.brain.health_signals')}>
@@ -126,10 +126,10 @@ export function BrainHealthPage() {
 
           <HealthSection title={t('console.brain.health_channels')}>
             {snapshot.channels_without_member_group.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('console.brain.all_channels_have_groups')}</p>
+              <p className="text-sm text-fg-secondary">{t('console.brain.all_channels_have_groups')}</p>
             ) : (
               <div className="grid gap-2">
-                <p className="text-sm text-warning-foreground">
+                <p className="text-sm text-warning-fg">
                   {t('console.brain.channels_without_group', {
                     count: snapshot.channels_without_member_group.length
                   })}
@@ -140,7 +140,7 @@ export function BrainHealthPage() {
                       item => item.id === channelID || item.conversation_key.includes(channelID)
                     )
                     return (
-                      <li key={channelID} className="text-xs text-muted-foreground">
+                      <li key={channelID} className="text-xs text-fg-secondary">
                         {matched ? (
                           <Link
                             className="link"
@@ -174,7 +174,7 @@ function SkillLessonsSection({ lessons }: { lessons: BrainHealth['skill_lessons'
 
   return (
     <HealthSection title={t('console.brain.health_skill_lessons')}>
-      <p className="text-sm text-muted-foreground">{t('console.brain.skill_lessons_description')}</p>
+      <p className="text-sm text-fg-secondary">{t('console.brain.skill_lessons_description')}</p>
       <HealthItem label={t('console.brain.skill_learning')}>
         {lessons.enabled ? (
           <Badge variant="success">{t('console.status.enabled')}</Badge>
@@ -186,7 +186,7 @@ function SkillLessonsSection({ lessons }: { lessons: BrainHealth['skill_lessons'
         <span className="inline-flex flex-wrap items-baseline gap-2">
           <span>{totalActive}</span>
           {perAgent.length > 0 ? (
-            <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-secondary">
               {perAgent.map(([agentUID, count], index) => (
                 <span key={agentUID} className="inline-flex items-baseline gap-1">
                   {index > 0 ? <span aria-hidden>·</span> : null}
@@ -219,7 +219,7 @@ function SkillLessonsSection({ lessons }: { lessons: BrainHealth['skill_lessons'
 
 function HealthSection({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <section className="grid gap-3 border border-border bg-card p-5">
+    <section className="grid gap-3 border border-border-subtle bg-page p-5">
       <h3 className="text-sm font-semibold">{title}</h3>
       {children}
     </section>
@@ -229,7 +229,7 @@ function HealthSection({ children, title }: { children: ReactNode; title: string
 function HealthItem({ children, label }: { children: ReactNode; label: string }) {
   return (
     <div className="flex flex-wrap items-baseline gap-3 text-sm">
-      <span className="min-w-56 text-muted-foreground">{label}</span>
+      <span className="min-w-56 text-fg-secondary">{label}</span>
       <span className="min-w-0">{children}</span>
     </div>
   )
@@ -243,7 +243,7 @@ function ModelStatusItem({ label, status }: { label: string; status: BrainModelS
       {status.configured ? (
         <span className="inline-flex flex-wrap items-center gap-2">
           <Badge variant="success">{t('console.brain.model_configured')}</Badge>
-          <span className="font-mono text-xs text-muted-foreground">
+          <span className="font-mono text-xs text-fg-secondary">
             {status.provider_id} · {status.model}
           </span>
           {status.provider_available === false ? (
@@ -273,10 +273,10 @@ function InvalidConfigKeys({ config }: { config: Record<string, unknown> }) {
 
   return (
     <div className="grid gap-1">
-      <p className="text-sm text-destructive-foreground">{t('console.brain.invalid_config_keys')}</p>
+      <p className="text-sm text-destructive-fg">{t('console.brain.invalid_config_keys')}</p>
       <ul className="grid gap-1">
         {invalid.map(([key, status]) => (
-          <li key={key} className="text-xs text-destructive-foreground">
+          <li key={key} className="text-xs text-destructive-fg">
             <code>{key}</code>: {t(configStatusKey(status))}
           </li>
         ))}
@@ -296,13 +296,13 @@ function EmbeddingSignature({ value }: { value: unknown }) {
   if (value == null) return <Badge variant="warning">{t('console.brain.model_not_configured')}</Badge>
   if (error) return <HealthReason reason={error} />
 
-  return <code className="text-xs break-all text-muted-foreground">{formatJSON(value)}</code>
+  return <code className="text-xs break-all text-fg-secondary">{formatJSON(value)}</code>
 }
 
 function HealthReason({ reason }: { reason: string }) {
   const { t } = useTranslation()
 
-  return <span className="text-xs text-destructive-foreground">{t(healthReasonKey(reason))}</span>
+  return <span className="text-xs text-destructive-fg">{t(healthReasonKey(reason))}</span>
 }
 
 function healthReasonKey(reason: string) {

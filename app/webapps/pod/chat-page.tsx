@@ -890,7 +890,7 @@ function EditRecovery({
       {conflict && (
         <>
           <p>{t('pod.chat.saved_message_changed')}</p>
-          <blockquote className="max-h-28 overflow-auto border-l-2 border-border pl-3 whitespace-pre-wrap break-words">
+          <blockquote className="max-h-28 overflow-auto border-l-2 border-border-subtle pl-3 whitespace-pre-wrap break-words">
             {saved.text}
           </blockquote>
           <Button type="button" size="sm" variant="outline" disabled={recovery.loading} onClick={recovery.useSaved}>

@@ -13,8 +13,8 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
     <section className="grid min-w-0 gap-4">
       <div className="grid gap-1">
         <h3 className="title-section">{t('console.agent_library.title')}</h3>
-        <p className="text-sm leading-6 text-muted-foreground">{t('console.agent_library.description')}</p>
-        <p className="text-xs leading-5 text-muted-foreground">{t('console.agent_library.effect_hint')}</p>
+        <p className="text-sm leading-6 text-fg-secondary">{t('console.agent_library.description')}</p>
+        <p className="text-xs leading-5 text-fg-secondary">{t('console.agent_library.effect_hint')}</p>
       </div>
       <ErrorBlock error={documents.error} />
       {documents.isPending ? <Skeleton className="h-20 w-full" /> : null}
@@ -23,7 +23,7 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
           {(['agents', 'design'] as const).map(kind => (
             <li key={kind} className="grid gap-2">
               <span className="font-medium">{kind === 'agents' ? 'AGENTS.md' : 'DESIGN.md'}</span>
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded border border-border p-3 text-xs">
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded border border-border-subtle p-3 text-xs">
                 {documents.data.library_documents[kind].content}
               </pre>
             </li>

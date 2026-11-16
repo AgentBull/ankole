@@ -111,7 +111,7 @@ function SpaceSettings({
         </p>
         <h3 className="text-sm font-semibold">{t('pod.content.agents_in_this_space')}</h3>
         {space.agents.length > 0 && (
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-border-subtle">
             {space.agents.map(grantedAgent => (
               <li
                 key={grantedAgent.principal_uid ?? grantedAgent.group_id}

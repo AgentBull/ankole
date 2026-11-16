@@ -963,7 +963,7 @@ export function WordDocumentSurface({
 
   if (status === 'too_large') {
     return (
-      <p className="rounded-control border border-dashed border-border px-6 py-10 text-center text-sm text-fg-secondary">
+      <p className="rounded-control border border-dashed border-border-subtle px-6 py-10 text-center text-sm text-fg-secondary">
         {t('pod.office.too_large')}
       </p>
     )
@@ -1019,7 +1019,7 @@ export function WordDocumentSurface({
         {...{ [WORD_WORKSPACE_ATTRIBUTE]: '' }}
         aria-busy={status === 'loading'}
         className={cn(
-          'flex flex-col overflow-hidden rounded-control border border-border bg-background',
+          'flex flex-col overflow-hidden rounded-control border border-border-subtle bg-page',
           preview ? 'h-[min(68vh,720px)] min-h-[360px]' : 'h-[min(80vh,900px)] min-h-[460px]'
         )}>
         <WordToolbar
@@ -1049,7 +1049,7 @@ export function WordDocumentSurface({
         />
 
         {findOpen && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-background-secondary px-3 py-1.5">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle bg-layer-01 px-3 py-1.5">
             <Input
               ref={findInputRef}
               aria-label={t('pod.office.find_what')}
@@ -1124,7 +1124,7 @@ export function WordDocumentSurface({
           ref={scrollerRef}
           role="region"
           aria-label={t('pod.word.canvas_label')}
-          className="relative min-h-0 flex-1 overflow-auto bg-background-secondary/60 select-none"
+          className="relative min-h-0 flex-1 overflow-auto bg-layer-01/60 select-none"
           onScroll={event => setScrollTop(event.currentTarget.scrollTop)}
           onMouseDown={event => {
             if (event.target === event.currentTarget) {
@@ -1198,7 +1198,7 @@ export function WordDocumentSurface({
                     count: pages.length
                   })}
                   className={cn(
-                    'absolute left-1/2 -translate-x-1/2 bg-white shadow-sm ring-1 ring-border/70',
+                    'absolute left-1/2 -translate-x-1/2 bg-white shadow-sm ring-1 ring-border-subtle/70',
                     editable ? 'cursor-text' : 'cursor-default'
                   )}
                   style={{
@@ -1325,7 +1325,7 @@ export function WordDocumentSurface({
 
           {pages.length > 0 && (
             <div className="pointer-events-none sticky bottom-2 left-0 flex justify-end px-3">
-              <span className="rounded-control border border-border bg-background/90 px-2 py-0.5 text-xs text-fg-secondary shadow-xs backdrop-blur-xs">
+              <span className="rounded-control border border-border-subtle bg-page/90 px-2 py-0.5 text-xs text-fg-secondary shadow-xs backdrop-blur-xs">
                 {t('pod.word.page_label', {
                   page: activeVisiblePage + 1,
                   count: pages.length

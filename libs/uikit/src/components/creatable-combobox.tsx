@@ -133,9 +133,9 @@ export function CreatableCombobox({
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate leading-5">{option.label || option.value}</span>
                   {option.description ? (
-                    <span className="truncate text-xs leading-4 text-muted-foreground">{option.description}</span>
+                    <span className="truncate text-xs leading-4 text-fg-secondary">{option.description}</span>
                   ) : option.creatable ? (
-                    <span className="truncate text-xs leading-4 text-muted-foreground">{option.value}</span>
+                    <span className="truncate text-xs leading-4 text-fg-secondary">{option.value}</span>
                   ) : null}
                 </span>
               </ComboboxItem>

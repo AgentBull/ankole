@@ -128,7 +128,7 @@ export function BrainContradictionsPage() {
           <BrainPageLink pageID={objectSlug} />
         ) : text ? (
           <Link
-            className="link text-[11px] text-muted-foreground"
+            className="link text-[11px] text-fg-secondary"
             {...linkTarget(`/brain/claims?search=${encodeURIComponent(text)}`)}>
             {t('console.brain.claims')}
           </Link>
@@ -161,7 +161,7 @@ export function BrainContradictionsPage() {
         onClearFilters={() => setStatus('open')}
         toolbarCanRevealRows
         toolbar={
-          <div className="flex items-center gap-3 border border-border bg-card p-2">
+          <div className="flex items-center gap-3 border border-border-subtle bg-page p-2">
             <Select
               value={status}
               onValueChange={value => {
@@ -196,9 +196,7 @@ export function BrainContradictionsPage() {
             </TableCell>
             <TableCell className="text-xs">{contradiction.severity ?? '—'}</TableCell>
             <TableCell className="text-xs">{contradiction.confidence ?? '—'}</TableCell>
-            <TableCell className="text-xs text-muted-foreground">
-              {formatConsoleDate(contradiction.created_at)}
-            </TableCell>
+            <TableCell className="text-xs text-fg-secondary">{formatConsoleDate(contradiction.created_at)}</TableCell>
             <TableCell className="text-right">
               {status === 'open' ? (
                 <div className="flex justify-end gap-1">
@@ -214,7 +212,7 @@ export function BrainContradictionsPage() {
                   </Button>
                 </div>
               ) : (
-                <span className="pr-2 text-xs text-muted-foreground">{t('console.brain.read_only')}</span>
+                <span className="pr-2 text-xs text-fg-secondary">{t('console.brain.read_only')}</span>
               )}
             </TableCell>
           </TableRow>

@@ -64,7 +64,7 @@ function SheetContent({
         data-slot="sheet-content"
         data-side={side}
         className={cn(
-          'ceramic fixed z-50 flex max-w-[calc(100%-1rem)] flex-col overflow-hidden text-sm outline-none text-popover-foreground transition-[translate,opacity] duration-(--duration-drawer) ease-drawer data-starting-style:opacity-0 data-ending-style:opacity-0 data-[side=bottom]:inset-x-2 data-[side=bottom]:bottom-2 data-[side=bottom]:h-auto data-[side=bottom]:data-ending-style:translate-y-[calc(100%+--spacing(2))] data-[side=bottom]:data-starting-style:translate-y-[calc(100%+--spacing(2))] data-[side=left]:inset-y-2 data-[side=left]:left-2 data-[side=left]:w-3/4 data-[side=left]:data-ending-style:-translate-x-[calc(100%+--spacing(2))] data-[side=left]:data-starting-style:-translate-x-[calc(100%+--spacing(2))] data-[side=right]:inset-y-2 data-[side=right]:right-2 data-[side=right]:w-3/4 data-[side=right]:data-ending-style:translate-x-[calc(100%+--spacing(2))] data-[side=right]:data-starting-style:translate-x-[calc(100%+--spacing(2))] data-[side=top]:inset-x-2 data-[side=top]:top-2 data-[side=top]:h-auto data-[side=top]:data-ending-style:-translate-y-[calc(100%+--spacing(2))] data-[side=top]:data-starting-style:-translate-y-[calc(100%+--spacing(2))] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm',
+          'ceramic fixed z-50 flex max-w-[calc(100%-1rem)] flex-col overflow-hidden text-sm outline-none text-fg-primary transition-[translate,opacity] duration-(--duration-drawer) ease-drawer data-starting-style:opacity-0 data-ending-style:opacity-0 data-[side=bottom]:inset-x-2 data-[side=bottom]:bottom-2 data-[side=bottom]:h-auto data-[side=bottom]:data-ending-style:translate-y-[calc(100%+--spacing(2))] data-[side=bottom]:data-starting-style:translate-y-[calc(100%+--spacing(2))] data-[side=left]:inset-y-2 data-[side=left]:left-2 data-[side=left]:w-3/4 data-[side=left]:data-ending-style:-translate-x-[calc(100%+--spacing(2))] data-[side=left]:data-starting-style:-translate-x-[calc(100%+--spacing(2))] data-[side=right]:inset-y-2 data-[side=right]:right-2 data-[side=right]:w-3/4 data-[side=right]:data-ending-style:translate-x-[calc(100%+--spacing(2))] data-[side=right]:data-starting-style:translate-x-[calc(100%+--spacing(2))] data-[side=top]:inset-x-2 data-[side=top]:top-2 data-[side=top]:h-auto data-[side=top]:data-ending-style:-translate-y-[calc(100%+--spacing(2))] data-[side=top]:data-starting-style:-translate-y-[calc(100%+--spacing(2))] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm',
           className
         )}
         {...props}>
@@ -96,7 +96,10 @@ function SheetFooter({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot="sheet-footer"
-      className={cn('mt-auto flex flex-row items-center justify-end gap-2 border-t border-border px-6 py-4', className)}
+      className={cn(
+        'mt-auto flex flex-row items-center justify-end gap-2 border-t border-border-subtle px-6 py-4',
+        className
+      )}
       {...props}
     />
   )
@@ -106,7 +109,7 @@ function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
   return (
     <SheetPrimitive.Title
       data-slot="sheet-title"
-      className={cn('title-overlay text-foreground', className)}
+      className={cn('title-overlay text-fg-primary', className)}
       {...props}
     />
   )
@@ -116,7 +119,7 @@ function SheetDescription({ className, ...props }: SheetPrimitive.Description.Pr
   return (
     <SheetPrimitive.Description
       data-slot="sheet-description"
-      className={cn('mt-0.5 text-sm leading-5 text-muted-foreground', className)}
+      className={cn('mt-0.5 text-sm leading-5 text-fg-secondary', className)}
       {...props}
     />
   )

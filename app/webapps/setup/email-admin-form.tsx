@@ -91,10 +91,10 @@ export function EmailAdminForm() {
         <fieldset className="grid gap-6" disabled={pending || Boolean(model.challenge.value)}>
           <div className="grid gap-4">
             <div className="grid gap-1">
-              <h3 className="text-sm font-semibold uppercase tracking-normal text-muted-foreground">
+              <h3 className="text-sm font-semibold uppercase tracking-normal text-fg-secondary">
                 {t('setup.smtp_section_title', { defaultValue: 'Outgoing mail (SMTP)' })}
               </h3>
-              <p className="text-sm leading-6 text-muted-foreground">{t('setup.email_verification_required')}</p>
+              <p className="text-sm leading-6 text-fg-secondary">{t('setup.email_verification_required')}</p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               {smtpFields.map(renderField)}
@@ -110,18 +110,18 @@ export function EmailAdminForm() {
             </div>
           </div>
 
-          <div className="grid gap-4 border-t border-border/70 pt-5">
+          <div className="grid gap-4 border-t border-border-subtle/70 pt-5">
             <div className="grid gap-1">
-              <h3 className="text-sm font-semibold uppercase tracking-normal text-muted-foreground">
+              <h3 className="text-sm font-semibold uppercase tracking-normal text-fg-secondary">
                 {t('setup.admin_section_title')}
               </h3>
-              <p className="text-sm leading-6 text-muted-foreground">{t('setup.admin_section_hint')}</p>
+              <p className="text-sm leading-6 text-fg-secondary">{t('setup.admin_section_hint')}</p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">{adminFields.map(renderField)}</div>
           </div>
         </fieldset>
         {!model.challenge.value && (
-          <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
+          <div className="flex flex-wrap items-center gap-3 border-t border-border-subtle/70 pt-5">
             <Button type="submit" disabled={pending}>
               {t('auth.send_code')}
             </Button>
@@ -130,7 +130,7 @@ export function EmailAdminForm() {
       </form>
       {model.challenge.value && (
         <form
-          className="grid gap-4 border-t border-border/70 pt-5"
+          className="grid gap-4 border-t border-border-subtle/70 pt-5"
           onSubmit={event => {
             event.preventDefault()
             if (pending || model.code.value.length !== 6) return

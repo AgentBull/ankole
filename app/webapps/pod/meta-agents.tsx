@@ -55,7 +55,7 @@ export function MetaAgents() {
       </div>
       {creating && <AgentIdentity />}
       {agents.error && <ContentError error={agents.error} retry={() => void agents.refetch()} />}
-      <ul className="divide-y divide-border rounded-lg border border-border">
+      <ul className="divide-y divide-border-subtle rounded-lg border border-border-subtle">
         {agents.data?.agents
           .filter(agent => agent.type === 'ai_colleague')
           .map(agent => (
@@ -64,8 +64,8 @@ export function MetaAgents() {
                 <AgentAvatar agent={agent} />
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-foreground">{agent.display_name}</span>
-                    <code className="rounded-mini bg-muted px-1.5 py-0.5 font-mono text-xs text-fg-secondary">
+                    <span className="font-medium text-fg-primary">{agent.display_name}</span>
+                    <code className="rounded-mini bg-layer-03 px-1.5 py-0.5 font-mono text-xs text-fg-secondary">
                       @{agent.uid}
                     </code>
                   </span>
@@ -124,7 +124,7 @@ function AgentIdentity({ agent }: { agent?: MetaAgent }) {
   })
   if (agent && !agent.can_edit) {
     return (
-      <section className="space-y-3 rounded-lg border border-border p-5">
+      <section className="space-y-3 rounded-lg border border-border-subtle p-5">
         <AgentAvatar agent={agent} />
         <h2 className="font-semibold">{t('pod.meta.identity')}</h2>
         <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-sm">
@@ -140,7 +140,7 @@ function AgentIdentity({ agent }: { agent?: MetaAgent }) {
   }
   return (
     <form
-      className="space-y-3 rounded-lg border border-border p-5"
+      className="space-y-3 rounded-lg border border-border-subtle p-5"
       onSubmit={event => {
         event.preventDefault()
         mutation.mutate()
@@ -229,7 +229,7 @@ function AgentSettings({ uid, title }: { uid: string; title?: string }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2.5">
           <h1 className="text-2xl font-semibold">{title ?? agent.data?.display_name}</h1>
-          <code className="rounded-mini bg-muted px-2 py-0.5 font-mono text-xs text-fg-secondary">@{uid}</code>
+          <code className="rounded-mini bg-layer-03 px-2 py-0.5 font-mono text-xs text-fg-secondary">@{uid}</code>
         </div>
         {agent.data && (
           <Link to={chatHref} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
@@ -270,9 +270,9 @@ function AgentSkillsSection({ agent }: { agent: MetaAgent }) {
   if (items.length === 0) return null
 
   return (
-    <fieldset className="space-y-3 rounded-lg border border-border p-5">
+    <fieldset className="space-y-3 rounded-lg border border-border-subtle p-5">
       <legend className="font-semibold">{t('pod.meta.enabled_skills')}</legend>
-      <div className="divide-y divide-border">
+      <div className="divide-y divide-border-subtle">
         {items.map(skill => {
           const isPersonal = skill.agent_uid === agent.uid
           const boundUids = skill.agent_uids ?? []
@@ -283,10 +283,10 @@ function AgentSkillsSection({ agent }: { agent: MetaAgent }) {
             <div key={skill.id} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <label htmlFor={switchId} className="font-medium text-sm text-foreground">
+                  <label htmlFor={switchId} className="font-medium text-sm text-fg-primary">
                     {skill.name}
                   </label>
-                  <code className="rounded-mini bg-muted px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
+                  <code className="rounded-mini bg-layer-03 px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
                     /{skill.slug}
                   </code>
                   {isPersonal && (
@@ -407,7 +407,7 @@ function Contract({
         }
       </MetaDocument>
       {uid !== null && (
-        <details className="rounded-lg border border-border p-5">
+        <details className="rounded-lg border border-border-subtle p-5">
           <summary className="cursor-pointer text-sm font-medium">
             {t('pod.meta.effective_contract', { slot: `${contract.slot.toUpperCase()}.md` })}
           </summary>

@@ -382,7 +382,7 @@ function AgentsTree({ pathname, searchStr, activeSection, onNavigate }: MetaTree
         </MetaTreeItem>
       ))}
       <MetaTreeItem
-        className={colleagues.length > 0 ? 'mt-1 border-t border-border pt-1' : undefined}
+        className={colleagues.length > 0 ? 'mt-1 border-t border-border-subtle pt-1' : undefined}
         to="/meta/agents/assistant"
         pathname={pathname}
         searchStr={searchStr}

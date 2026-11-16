@@ -10,10 +10,10 @@ const alertVariants = cva(
   {
     variants: {
       variant: {
-        default: 'border-info/40 bg-info-subtle text-foreground after:bg-info *:[svg]:text-info',
+        default: 'border-info/40 bg-info-subtle text-fg-primary after:bg-info *:[svg]:text-info',
         destructive:
-          'border-destructive/40 bg-destructive-subtle text-foreground after:bg-destructive *:data-[slot=alert-description]:text-foreground *:[svg]:text-destructive',
-        warning: 'border-warning/40 bg-warning-subtle text-foreground after:bg-warning *:[svg]:text-warning'
+          'border-destructive/40 bg-destructive-subtle text-fg-primary after:bg-destructive *:data-[slot=alert-description]:text-fg-primary *:[svg]:text-destructive',
+        warning: 'border-warning/40 bg-warning-subtle text-fg-primary after:bg-warning *:[svg]:text-warning'
       }
     },
     defaultVariants: {
@@ -31,7 +31,7 @@ function AlertTitle({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="alert-title"
       className={cn(
-        'title-inline group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground',
+        'title-inline group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-fg-primary',
         className
       )}
       {...props}
@@ -44,7 +44,7 @@ function AlertDescription({ className, ...props }: React.ComponentProps<'div'>) 
     <div
       data-slot="alert-description"
       className={cn(
-        'text-sm leading-5 text-pretty text-foreground group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4',
+        'text-sm leading-5 text-pretty text-fg-primary group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-fg-primary [&_p:not(:last-child)]:mb-4',
         className
       )}
       {...props}

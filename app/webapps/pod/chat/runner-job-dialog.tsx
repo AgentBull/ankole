@@ -77,7 +77,7 @@ export function RunnerJobDialog({
           <Label htmlFor="runner-job-device">{t('pod.runner.device_name')}</Label>
           <select
             id="runner-job-device"
-            className="min-h-9 rounded-md border border-input bg-background px-2 text-sm"
+            className="min-h-9 rounded-md border border-field-border bg-page px-2 text-sm"
             required
             value={runnerID}
             onChange={event => setRunnerID(event.target.value)}>

@@ -112,8 +112,8 @@ function AppletEnvironmentTab({ detail }: { detail: PageDetail }) {
   return (
     <div className="grid gap-4">
       <header className="grid gap-1">
-        <h2 className="text-base font-semibold text-foreground">{t('pod.env_vars.applet_title')}</h2>
-        <p className="text-sm leading-5 text-muted-foreground">{t('pod.env_vars.applet_description')}</p>
+        <h2 className="text-base font-semibold text-fg-primary">{t('pod.env_vars.applet_title')}</h2>
+        <p className="text-sm leading-5 text-fg-secondary">{t('pod.env_vars.applet_description')}</p>
       </header>
       <EnvVarsEditor
         items={envs.data?.envs ?? []}
@@ -249,14 +249,14 @@ export function AppletSettingsDialog({
       <DialogContent
         className="pod-applet-settings-dialog flex h-[min(780px,calc(100dvh-2rem))] w-[min(1040px,calc(100vw-2rem))] max-w-none sm:max-w-none flex-col gap-0 overflow-hidden overscroll-contain p-0"
         showCloseButton={false}>
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3.5">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border-subtle px-5 py-3.5">
           <div className="flex min-w-0 items-center gap-2.5">
-            <SettingsRegular aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+            <SettingsRegular aria-hidden className="size-4 shrink-0 text-fg-secondary" />
             <DialogTitle className="p-0!">{t('pod.applet_settings.title')}</DialogTitle>
-            <span aria-hidden className="text-muted-foreground">
+            <span aria-hidden className="text-fg-secondary">
               ·
             </span>
-            <span className="truncate text-sm text-muted-foreground">
+            <span className="truncate text-sm text-fg-secondary">
               <BdiLabel value={pageTitle} />
             </span>
           </div>
@@ -282,7 +282,7 @@ export function AppletSettingsDialog({
             value={activeTab}
             onValueChange={switchTab}
             className="flex min-h-0 flex-1 flex-col gap-0 md:flex-row">
-            <aside className="shrink-0 border-b border-border bg-muted/20 px-3 py-2 md:w-52 md:border-r md:border-b-0 md:p-3">
+            <aside className="shrink-0 border-b border-border-subtle bg-layer-03/20 px-3 py-2 md:w-52 md:border-r md:border-b-0 md:p-3">
               <TabsList
                 variant="object"
                 aria-label={t('pod.applet_settings.navigation')}
@@ -320,8 +320,8 @@ export function AppletSettingsDialog({
               <div hidden={!jobTabHeader} className="mb-5 grid gap-5 [&[hidden]]:hidden">
                 {jobTabHeader ? (
                   <header className="grid gap-1">
-                    <h2 className="text-base font-semibold text-foreground">{jobTabHeader.title}</h2>
-                    <p className="text-sm text-muted-foreground">{jobTabHeader.description}</p>
+                    <h2 className="text-base font-semibold text-fg-primary">{jobTabHeader.title}</h2>
+                    <p className="text-sm text-fg-secondary">{jobTabHeader.description}</p>
                   </header>
                 ) : null}
                 <AppletJobSelectorBar controller={jobsController} isActive={Boolean(jobTabHeader)} />

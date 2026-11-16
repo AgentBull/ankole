@@ -28,9 +28,9 @@ export function OIDCSessionSettings({
   const { t } = useTranslation()
   const providers = useQuery(listOidcLoginSourcesOptions())
   return (
-    <section className="grid gap-5 border-b border-border pb-6">
+    <section className="grid gap-5 border-b border-border-subtle pb-6">
       <h3 className="title-inline">{t('console.access_sessions.title')}</h3>
-      <p className="text-sm text-muted-foreground">{t('console.access_sessions.providers_hint')}</p>
+      <p className="text-sm text-fg-secondary">{t('console.access_sessions.providers_hint')}</p>
       <ErrorBlock error={providers.error} />
       <div className="grid gap-3">
         {(providers.data?.sources ?? []).map(provider => (
@@ -143,13 +143,13 @@ export function OIDCLogoutDeliveries({ clientID }: { clientID: string }) {
     onError: error => toast.error(requestErrorMessage(error))
   })
   return (
-    <section className="grid gap-4 border-t border-border pt-6">
+    <section className="grid gap-4 border-t border-border-subtle pt-6">
       <h3 className="title-inline">{t('console.access_sessions.deliveries')}</h3>
-      <p className="text-sm text-muted-foreground">{t('console.access_sessions.delivery_hint')}</p>
+      <p className="text-sm text-fg-secondary">{t('console.access_sessions.delivery_hint')}</p>
       <ErrorBlock error={deliveries.error} />
       {deliveries.isLoading ? <p role="status">{t('common.loading')}</p> : null}
       {deliveries.data?.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('console.access_sessions.no_deliveries')}</p>
+        <p className="text-sm text-fg-secondary">{t('console.access_sessions.no_deliveries')}</p>
       ) : null}
       {deliveries.data?.map(item => {
         const principal = item.principal_uid ? principalByUID.get(item.principal_uid) : undefined
@@ -157,15 +157,17 @@ export function OIDCLogoutDeliveries({ clientID }: { clientID: string }) {
         const statusDisplay = t(`console.access_sessions.status_${item.status}`, { defaultValue: item.status })
         const timestamp = item.delivered_at ?? item.next_attempt_at ?? item.deadline
         return (
-          <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border border-border p-4">
+          <div
+            key={item.id}
+            className="flex flex-wrap items-center justify-between gap-3 border border-border-subtle p-4">
             <div className="grid gap-1 text-sm">
               <span>
                 <span title={item.principal_uid ?? undefined}>{actorDisplay}</span> · {statusDisplay} ·{' '}
                 {t('console.access_sessions.attempts', { count: item.attempt_count })}
               </span>
-              <code className="text-xs break-all text-muted-foreground">{item.session_id}</code>
+              <code className="text-xs break-all text-fg-secondary">{item.session_id}</code>
               {item.last_error ? <span role="status">{item.last_error}</span> : null}
-              <span className="text-xs text-muted-foreground">{formatConsoleDate(timestamp)}</span>
+              <span className="text-xs text-fg-secondary">{formatConsoleDate(timestamp)}</span>
             </div>
             {item.status !== 'delivered' ? (
               <Button

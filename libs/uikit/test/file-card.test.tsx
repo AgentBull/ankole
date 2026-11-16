@@ -45,7 +45,7 @@ describe('FileCard', () => {
     )
     // The name speaks in the family's title step and the type line in its meta step.
     expect(classesOf(tagWith(html, 'data-slot="file-card-name"'))).toEqual(
-      expect.arrayContaining(['text-75', 'font-medium', 'text-foreground'])
+      expect.arrayContaining(['text-75', 'font-medium', 'text-fg-primary'])
     )
     expect(classesOf(tagWith(html, 'data-slot="file-card-description"'))).toEqual(
       expect.arrayContaining(['text-50', 'text-fg-tertiary'])
@@ -91,7 +91,7 @@ describe('FileCard', () => {
       <FileCard mark={null} name="a.txt" description="Upload failed" progress={0.42} invalid />
     )
     expect(attributeOf(tagWith(failed, 'data-slot="file-card"'), 'data-invalid')).toBe('true')
-    expect(classesOf(tagWith(failed, 'data-slot="file-card-description"'))).toContain('text-destructive-foreground')
+    expect(classesOf(tagWith(failed, 'data-slot="file-card-description"'))).toContain('text-destructive-fg')
     expect(failed).toContain('bg-destructive')
   })
 })

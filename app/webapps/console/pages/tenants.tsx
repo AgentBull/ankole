@@ -68,7 +68,7 @@ export function TenantsListPage() {
       {rows.map(tenant => (
         <TableRow key={tenant.id}>
           <TableCell>
-            <Link data-row-link className="text-foreground" to={`/tenants/${tenant.id}`}>
+            <Link data-row-link className="text-fg-primary" to={`/tenants/${tenant.id}`}>
               {tenant.display_name}
             </Link>
             {privileged.data?.id === tenant.id ? (
@@ -248,11 +248,11 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
           </LabeledField>
         ) : (
           <div className="grid gap-3">
-            <p className="text-sm text-muted-foreground">{t('console.tenants.packs_hint')}</p>
+            <p className="text-sm text-fg-secondary">{t('console.tenants.packs_hint')}</p>
             {brainPacks.data?.map(pack => (
               <SwitchRow
                 key={pack}
-                rowClassName="flex min-h-11 cursor-pointer items-center justify-between gap-3 border border-border bg-muted/30 px-4 py-2.5 text-sm font-medium text-foreground"
+                rowClassName="flex min-h-11 cursor-pointer items-center justify-between gap-3 border border-border-subtle bg-layer-03/30 px-4 py-2.5 text-sm font-medium text-fg-primary"
                 label={<span className="font-mono text-xs">{pack}</span>}
                 labelFirst
                 checked={model.brainPacks.value.includes(pack)}
@@ -265,12 +265,12 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
             ))}
           </div>
         )}
-        {isPrivileged ? <p className="text-sm text-muted-foreground">{t('console.tenants.protected')}</p> : null}
+        {isPrivileged ? <p className="text-sm text-fg-secondary">{t('console.tenants.protected')}</p> : null}
         {selected?.suspended_at ? (
-          <p className="text-sm text-muted-foreground">{t('console.tenants.suspended_hint')}</p>
+          <p className="text-sm text-fg-secondary">{t('console.tenants.suspended_hint')}</p>
         ) : null}
         {selected?.deleting_at ? (
-          <p className="text-sm text-muted-foreground">{t('console.tenants.deleting_hint')}</p>
+          <p className="text-sm text-fg-secondary">{t('console.tenants.deleting_hint')}</p>
         ) : null}
       </fieldset>
     </ResourceEditorPage>
@@ -296,9 +296,9 @@ function TransferAdministration({ tenant }: { tenant: Tenant }) {
     }
   })
   return (
-    <section className="grid gap-4 border-t border-border pt-6">
+    <section className="grid gap-4 border-t border-border-subtle pt-6">
       <h2 className="title-inline">{t('console.tenants.transfer')}</h2>
-      <p className="text-sm text-muted-foreground">{t('console.tenants.transfer_description')}</p>
+      <p className="text-sm text-fg-secondary">{t('console.tenants.transfer_description')}</p>
       <ErrorBlock error={principals.error ?? transfer.error} />
       <LabeledField label={t('console.tenants.new_site_admin')}>
         <SinglePrincipalPicker
@@ -316,7 +316,7 @@ function TransferAdministration({ tenant }: { tenant: Tenant }) {
         />
       </LabeledField>
       {!principals.error && !principals.isLoading && !humans.length ? (
-        <p className="text-sm text-muted-foreground">{t('console.tenants.no_humans')}</p>
+        <p className="text-sm text-fg-secondary">{t('console.tenants.no_humans')}</p>
       ) : null}
       {principalUID ? (
         <ConfirmDeleteButton

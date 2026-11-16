@@ -61,7 +61,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          'ceramic fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto p-6 text-sm text-popover-foreground outline-none transition-[opacity,scale] duration-(--duration-dialog) ease-out sm:max-w-3xl data-starting-style:opacity-0 data-starting-style:scale-[0.96] data-ending-style:opacity-0 data-ending-style:scale-[0.96]',
+          'ceramic fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto p-6 text-sm text-fg-primary outline-none transition-[opacity,scale] duration-(--duration-dialog) ease-out sm:max-w-3xl data-starting-style:opacity-0 data-starting-style:scale-[0.96] data-ending-style:opacity-0 data-ending-style:scale-[0.96]',
           className
         )}
         {...props}>
@@ -103,7 +103,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        '-mx-6 -mb-6 mt-2 flex flex-row items-center justify-end gap-2 border-t border-border px-6 py-4',
+        '-mx-6 -mb-6 mt-2 flex flex-row items-center justify-end gap-2 border-t border-border-subtle px-6 py-4',
         className
       )}
       {...props}>
@@ -124,7 +124,7 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
     <DialogPrimitive.Description
       data-slot="dialog-description"
       className={cn(
-        'mt-0.5 text-sm leading-5 text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
+        'mt-0.5 text-sm leading-5 text-fg-secondary *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-fg-primary',
         className
       )}
       {...props}

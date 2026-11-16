@@ -78,7 +78,7 @@ export function SkillBindings({ skill }: { skill: MetaSkill }) {
   })
   const disabled = current.enabled_for_all || !detail.data || change.isPending
   return (
-    <fieldset className="mt-4 space-y-4 border-t border-border pt-4">
+    <fieldset className="mt-4 space-y-4 border-t border-border-subtle pt-4">
       <legend className="text-sm font-medium">{t('pod.meta.enablement')}</legend>
       <div className="flex items-center justify-between gap-4 text-sm">
         <label htmlFor={`${id}-all`}>{t('pod.meta.all_agents')}</label>

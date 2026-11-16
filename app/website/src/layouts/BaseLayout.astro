@@ -37,10 +37,10 @@ const { lang, title, description, path = '', markdownPath } = Astro.props
 			</style>
 		</noscript>
 	</head>
-	<body class="bg-background font-sans text-foreground antialiased">
+	<body class="bg-page font-sans text-fg-primary antialiased">
 		<a
 			href="#main-content"
-			class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+			class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-fg"
 		>
 			{t(lang, 'a11y.skipToContent')}
 		</a>

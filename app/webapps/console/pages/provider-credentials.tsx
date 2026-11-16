@@ -186,11 +186,11 @@ export function CredentialPoolEditor({
   }
 
   return (
-    <section className="grid gap-5 border border-border bg-card p-5 md:p-6">
+    <section className="grid gap-5 border border-border-subtle bg-page p-5 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="grid gap-1">
           <h3 className="title-section">{t('console.providers.pool_title')}</h3>
-          <p className="max-w-2xl text-sm text-muted-foreground">{t('console.providers.pool_description')}</p>
+          <p className="max-w-2xl text-sm text-fg-secondary">{t('console.providers.pool_description')}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {isChatGPT ? (
@@ -243,13 +243,13 @@ export function CredentialPoolEditor({
       </LabeledField>
 
       {provider.credential_pool.entries.length === 0 ? (
-        <div className="border border-dashed border-border p-6 text-sm text-muted-foreground">
+        <div className="border border-dashed border-border-subtle p-6 text-sm text-fg-secondary">
           {t('console.providers.pool_empty')}
         </div>
       ) : (
         <div className="grid gap-3">
           {provider.credential_pool.entries.map(entry => (
-            <article key={entry.id} className="grid gap-4 border border-border bg-background p-4">
+            <article key={entry.id} className="grid gap-4 border border-border-subtle bg-page p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="grid gap-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -261,7 +261,7 @@ export function CredentialPoolEditor({
                       <Badge variant="warning">{t('console.providers.reauth_required')}</Badge>
                     ) : null}
                   </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-fg-secondary">
                     <span>{entry.id}</span>
                     <span>{t('console.providers.priority_value', { priority: entry.priority })}</span>
                     <span>{credentialSourceLabel(t, entry.source)}</span>
@@ -382,7 +382,7 @@ export function CredentialPoolEditor({
                       .join(' · ')}
                   </span>
                   {entry.last_error_message ? (
-                    <span className="text-muted-foreground">{entry.last_error_message}</span>
+                    <span className="text-fg-secondary">{entry.last_error_message}</span>
                   ) : null}
                 </div>
               ) : null}
@@ -653,7 +653,7 @@ function CredentialEditorDialog({
           }}>
           <div className="grid max-h-[65vh] gap-4 overflow-y-auto py-1">
             {error ? (
-              <p className="text-sm text-destructive-foreground" aria-live="assertive">
+              <p className="text-sm text-destructive-fg" aria-live="assertive">
                 {requestErrorMessage(error)}
               </p>
             ) : null}
@@ -677,7 +677,7 @@ function CredentialEditorDialog({
               />
             ))}
             <Collapsible className="grid gap-4" defaultOpen={false}>
-              <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
+              <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 border border-border-subtle bg-layer-03/40 px-4 py-3 text-left text-sm font-medium">
                 <span>{t('common.advanced_settings')}</span>
                 <ChevronDownRegular
                   className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
@@ -714,7 +714,7 @@ function CredentialFact({ label, value }: { label: string; value: string | null 
 
   return (
     <div className="grid gap-1 sm:grid-cols-[minmax(8rem,0.4fr)_1fr] sm:gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
+      <dt className="text-fg-secondary">{label}</dt>
       <dd className="break-all font-mono tabular-nums">{value}</dd>
     </div>
   )
@@ -735,14 +735,14 @@ function CredentialSecretFact({
 }) {
   return (
     <div className="grid gap-1 sm:grid-cols-[minmax(8rem,0.4fr)_1fr] sm:gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
+      <dt className="text-fg-secondary">{label}</dt>
       <dd className="flex min-w-0 items-center gap-1.5 font-mono tabular-nums">
-        <span className={revealedValue === undefined ? 'text-muted-foreground' : 'break-all'}>
+        <span className={revealedValue === undefined ? 'text-fg-secondary' : 'break-all'}>
           {revealedValue ?? '••••••'}
         </span>
         <button
           aria-label={actionLabel}
-          className="grid size-8 shrink-0 place-items-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+          className="grid size-8 shrink-0 place-items-center text-fg-secondary hover:bg-layer-03 hover:text-fg-primary disabled:cursor-wait disabled:opacity-60"
           disabled={revealing}
           title={actionLabel}
           type="button"
@@ -766,7 +766,7 @@ function CredentialDiagnostics({ label, value }: { label: string; value: string 
   return (
     <details>
       <summary className="cursor-pointer text-sm font-medium">{label}</summary>
-      <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all border border-border bg-muted p-3 text-xs">
+      <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all border border-border-subtle bg-layer-03 p-3 text-xs">
         {value}
       </pre>
     </details>

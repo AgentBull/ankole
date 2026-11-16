@@ -135,7 +135,7 @@ export function PrincipalsListPage() {
           <TableCell>
             <Link
               data-row-link
-              className="flex items-center gap-2 text-foreground"
+              className="flex items-center gap-2 text-fg-primary"
               to={encodeURIComponent(principal.id)}>
               <PrincipalAvatar principal={principal} />
               <span className="truncate">{principalLabel(principal)}</span>
@@ -184,14 +184,14 @@ export function PrincipalDetailPage() {
       <DocumentTitle title={loadedPrincipal ? principalLabel(loadedPrincipal) : uid} />
       <div className="grid gap-3">
         <BackLink to="/access/principals" />
-        <div className="flex flex-wrap items-center gap-4 border-b border-border pb-5">
+        <div className="flex flex-wrap items-center gap-4 border-b border-border-subtle pb-5">
           {loadedPrincipal ? <PrincipalAvatar principal={loadedPrincipal} size="lg" /> : null}
           <div className="grid min-w-0 gap-1">
-            <h2 className="truncate title-page text-foreground">
+            <h2 className="truncate title-page text-fg-primary">
               {loadedPrincipal ? principalLabel(loadedPrincipal) : uid}
             </h2>
             {loadedPrincipal?.email || loadedPrincipal?.id ? (
-              <p className="truncate text-sm text-muted-foreground">{loadedPrincipal.email ?? loadedPrincipal.id}</p>
+              <p className="truncate text-sm text-fg-secondary">{loadedPrincipal.email ?? loadedPrincipal.id}</p>
             ) : null}
           </div>
           {loadedPrincipal ? (
@@ -246,9 +246,9 @@ function HumanMembershipSection({ principal }: { principal: PrincipalRecord }) {
     onError: error => toast.error(principalGroupErrorMessage(t, error))
   })
   return (
-    <section className="grid gap-3 border-b border-border pb-6">
+    <section className="grid gap-3 border-b border-border-subtle pb-6">
       <h3 className="title-section">{t('console.principals.membership')}</h3>
-      <p className="text-sm text-muted-foreground">{t('console.principals.membership_hint')}</p>
+      <p className="text-sm text-fg-secondary">{t('console.principals.membership_hint')}</p>
       <div className="flex items-center gap-3">
         <Badge variant="secondary">{t(`console.principals.membership_${principal.membership}`)}</Badge>
         <ConfirmDeleteButton
@@ -303,7 +303,7 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalRecord }) {
     <section className="grid gap-4">
       <div className="grid gap-1">
         <h3 className="title-section">{t('console.principals.groups_section_title')}</h3>
-        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+        <p className="max-w-2xl text-sm leading-6 text-fg-secondary">
           {t('console.principals.groups_section_description')}
         </p>
       </div>
@@ -323,11 +323,11 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalRecord }) {
       />
       <ErrorBlock error={groups.error} />
       {!groups.error && !groups.isLoading && memberships.length === 0 ? (
-        <p className="border border-border bg-card p-6 text-sm text-muted-foreground">
+        <p className="border border-border-subtle bg-page p-6 text-sm text-fg-secondary">
           {t('console.principals.groups_empty')}
         </p>
       ) : !groups.error ? (
-        <div className="overflow-x-auto border border-border bg-card">
+        <div className="overflow-x-auto border border-border-subtle bg-page">
           <Table className="min-w-[560px]" aria-busy={groups.isLoading}>
             <TableHeader>
               <TableRow>
@@ -356,13 +356,11 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalRecord }) {
                       <TableCell>
                         <Link
                           data-row-link
-                          className="font-mono text-xs text-foreground"
+                          className="font-mono text-xs text-fg-primary"
                           to={`/access/groups/${encodeURIComponent(group.name)}`}>
                           {group.name}
                         </Link>
-                        <span className="ml-2 text-sm text-muted-foreground">
-                          {principalGroupDisplayName(t, group)}
-                        </span>
+                        <span className="ml-2 text-sm text-fg-secondary">{principalGroupDisplayName(t, group)}</span>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-1">

@@ -135,12 +135,12 @@ export function SharePopover({
                 {activeSelected.map(item => (
                   <span
                     key={item.uid}
-                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs">
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border-subtle bg-layer-03/50 px-2 py-0.5 text-xs">
                     <ChatAvatar name={item.displayName} src={item.avatarURL} agent={item.agent} />
                     <span className="truncate">{item.displayName}</span>
                     <button
                       type="button"
-                      className="text-fg-tertiary hover:text-foreground"
+                      className="text-fg-tertiary hover:text-fg-primary"
                       aria-label={t('pod.chat_room.remove_member', { name: item.displayName })}
                       onClick={() => setSelected(current => current.filter(entry => entry.uid !== item.uid))}>
                       <DismissRegular aria-hidden className="size-3.5" />

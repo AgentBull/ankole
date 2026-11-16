@@ -114,9 +114,9 @@ export function ModelProfilesPage() {
         <TabsContent key={scope} value={scope} className="grid min-w-0 gap-6">
           <div className="grid gap-1">
             <h3 className="title-section">{t(`console.models.scope_${scope}`)}</h3>
-            <p className="text-sm leading-6 text-muted-foreground">{t(`console.models.scope_${scope}_description`)}</p>
+            <p className="text-sm leading-6 text-fg-secondary">{t(`console.models.scope_${scope}_description`)}</p>
             {providers.data?.length === 0 ? (
-              <p className="text-sm leading-6 text-muted-foreground">
+              <p className="text-sm leading-6 text-fg-secondary">
                 {t('console.models.provider_none_hint')}{' '}
                 <Link className="link" to="/providers/new">
                   {t('console.models.provider_none_action')}
@@ -126,7 +126,7 @@ export function ModelProfilesPage() {
           </div>
           {scope === 'tenant' ? <TenantSwitcher record search={Object.fromEntries(params)} /> : null}
           {scope === 'tenant' && !selectedTenantID ? (
-            <p role="status" className="text-sm text-muted-foreground">
+            <p role="status" className="text-sm text-fg-secondary">
               {t('console.tenants.choose_for_record')}
             </p>
           ) : (
@@ -176,7 +176,7 @@ export function ModelProfilesPage() {
                     <h2 id="system-principals-title" className="title-section">
                       {t('console.models.system_principals_title')}
                     </h2>
-                    <p className="text-sm leading-6 text-muted-foreground">
+                    <p className="text-sm leading-6 text-fg-secondary">
                       {t('console.models.system_principals_description')}
                     </p>
                   </div>
@@ -243,7 +243,7 @@ function SystemPrincipalEditor({
         <h3 id={`system-title-${service.uid}`} className="title-section">
           {service.uid}
         </h3>
-        <p className="text-sm leading-6 text-muted-foreground">
+        <p className="text-sm leading-6 text-fg-secondary">
           {t(`console.models.system_${service.uid}_description`, { defaultValue: service.purpose })}
         </p>
       </div>

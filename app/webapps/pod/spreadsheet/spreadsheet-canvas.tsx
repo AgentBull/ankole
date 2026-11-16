@@ -164,12 +164,12 @@ function readTokens(element: Element): Tokens {
   const style = getComputedStyle(element)
   const token = (name: string) => style.getPropertyValue(name).trim()
   return {
-    background: token('--background'),
-    text: token('--foreground'),
-    grid: token('--border'),
-    header: token('--background-secondary'),
+    background: token('--page'),
+    text: token('--fg-primary'),
+    grid: token('--border-subtle'),
+    header: token('--layer-01'),
     headerText: token('--fg-secondary'),
-    headerActive: token('--accent'),
+    headerActive: token('--layer-hover'),
     divider: token('--border-strong'),
     selection: token('--selection'),
     focus: token('--color-blue-60'),
@@ -2313,7 +2313,7 @@ export function SpreadsheetCanvas({
                   <button
                     key={item}
                     type="button"
-                    className="block w-full truncate rounded-control px-2 py-1 text-left text-sm hover:bg-background-secondary focus-visible:outline-offset-1"
+                    className="block w-full truncate rounded-control px-2 py-1 text-left text-sm hover:bg-layer-01 focus-visible:outline-offset-1"
                     onClick={() => {
                       void model.setCell(dropdown.cell, item)
                       setDropdown(undefined)

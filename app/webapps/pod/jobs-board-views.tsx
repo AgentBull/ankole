@@ -348,7 +348,7 @@ function JobCard({
             {t('pod.jobs.status_paused')}
           </Badge>
         ) : item.cardType === 'routine' && item.triggerSummary ? (
-          <span className="max-w-36 truncate rounded-mini bg-background-secondary px-1.5 py-0.5 font-mono text-[11px] leading-3.5 text-fg-secondary">
+          <span className="max-w-36 truncate rounded-mini bg-layer-01 px-1.5 py-0.5 font-mono text-[11px] leading-3.5 text-fg-secondary">
             {item.triggerSummary}
           </span>
         ) : metaDetail ? (
@@ -473,8 +473,8 @@ function attentionLabel(item: JobBoardItem, t: (key: string) => string): string 
 export function FilteredEmptyJobsState({ onReset }: { onReset: () => void }) {
   const { t } = useTranslation()
   return (
-    <div className="my-10 flex flex-col items-center justify-center gap-3 rounded-[10px] border border-dashed border-border/80 bg-background-secondary/50 px-6 py-14 text-center">
-      <span className="flex size-9 items-center justify-center rounded-full bg-background-overlay-secondary text-fg-tertiary">
+    <div className="my-10 flex flex-col items-center justify-center gap-3 rounded-[10px] border border-dashed border-border-subtle/80 bg-layer-01/50 px-6 py-14 text-center">
+      <span className="flex size-9 items-center justify-center rounded-full bg-overlay-secondary text-fg-tertiary">
         <FilterRegular aria-hidden className="size-4" />
       </span>
       <p className="max-w-md text-sm text-fg-secondary">{t('pod.jobs.no_matching_jobs')}</p>
@@ -498,7 +498,7 @@ export function EmptyJobsState({
   const starters: Array<{ key: string; icon: ReactNode; preset: JobStarterPreset; badge: string }> = [
     {
       key: 'briefing',
-      icon: <CalendarClockRegular aria-hidden className="size-4 text-info-foreground" />,
+      icon: <CalendarClockRegular aria-hidden className="size-4 text-info-fg" />,
       badge: t('pod.jobs.mode_cron'),
       preset: {
         mode: 'cron',
@@ -523,7 +523,7 @@ export function EmptyJobsState({
       : []),
     {
       key: 'monitor',
-      icon: <ClockRegular aria-hidden className="size-4 text-success-foreground" />,
+      icon: <ClockRegular aria-hidden className="size-4 text-success-fg" />,
       badge: t('pod.jobs.mode_cron'),
       preset: {
         mode: 'cron',
@@ -535,9 +535,9 @@ export function EmptyJobsState({
   ]
 
   return (
-    <div className="mx-auto my-8 grid w-full max-w-3xl gap-6 rounded-[12px] border border-border/75 bg-background-secondary/55 p-6 sm:p-8">
+    <div className="mx-auto my-8 grid w-full max-w-3xl gap-6 rounded-[12px] border border-border-subtle/75 bg-layer-01/55 p-6 sm:p-8">
       <div className="grid gap-1.5">
-        <h2 className="text-base font-semibold text-foreground">{t('pod.jobs.empty_title')}</h2>
+        <h2 className="text-base font-semibold text-fg-primary">{t('pod.jobs.empty_title')}</h2>
         <p className="max-w-2xl text-sm leading-relaxed text-fg-secondary">{t('pod.jobs.empty_description')}</p>
       </div>
 
@@ -548,9 +548,9 @@ export function EmptyJobsState({
               key={entry.key}
               type="button"
               onClick={() => onPickPreset(entry.preset)}
-              className="group/starter flex cursor-pointer flex-col items-start gap-2.5 rounded-surface border border-border/80 bg-card p-4 text-start shadow-[0_1px_2px_rgb(0_0_0/0.03)] transition-[border-color,box-shadow] duration-(--duration-feedback) hover:border-control-edge hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:shadow-none">
+              className="group/starter flex cursor-pointer flex-col items-start gap-2.5 rounded-surface border border-border-subtle/80 bg-page p-4 text-start shadow-[0_1px_2px_rgb(0_0_0/0.03)] transition-[border-color,box-shadow] duration-(--duration-feedback) hover:border-control-edge hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:shadow-none">
               <div className="flex w-full items-center gap-2">
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-control bg-background-secondary">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-control bg-layer-01">
                   {entry.icon}
                 </span>
                 <Badge variant="secondary" size="sm">
@@ -561,10 +561,10 @@ export function EmptyJobsState({
                   className="ms-auto size-3.5 text-fg-quaternary opacity-0 transition-[opacity,transform] duration-(--duration-feedback) group-hover/starter:translate-x-0.5 group-hover/starter:opacity-100 group-focus-visible/starter:opacity-100"
                 />
               </div>
-              <span className="text-[13.5px] leading-5 font-medium text-foreground">{entry.preset.title}</span>
+              <span className="text-[13.5px] leading-5 font-medium text-fg-primary">{entry.preset.title}</span>
               <span className="line-clamp-2 text-xs leading-[17px] text-fg-secondary">{entry.preset.task}</span>
               {entry.preset.expression && (
-                <span className="mt-auto rounded-mini bg-background-secondary px-1.5 py-0.5 font-mono text-[11px] leading-4 text-fg-tertiary">
+                <span className="mt-auto rounded-mini bg-layer-01 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-fg-tertiary">
                   {entry.preset.expression}
                 </span>
               )}

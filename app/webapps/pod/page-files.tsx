@@ -140,7 +140,7 @@ export function FilePage({
     <section
       className={cn(
         'space-y-4 rounded-control transition-colors',
-        dragOver && canEdit && 'bg-accent/30 ring-2 ring-primary ring-offset-2'
+        dragOver && canEdit && 'bg-layer-hover/30 ring-2 ring-primary ring-offset-2'
       )}
       onDragEnter={event => {
         if (canEdit && event.dataTransfer.types.includes('Files')) {
@@ -264,14 +264,16 @@ export function FilePage({
           }}
           className={cn(
             'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-control border-2 border-dashed px-6 py-12 text-center transition-colors',
-            dragOver ? 'border-primary bg-accent/50' : 'border-border hover:border-border-strong hover:bg-accent/30',
+            dragOver
+              ? 'border-primary bg-layer-hover/50'
+              : 'border-border-subtle hover:border-border-strong hover:bg-layer-hover/30',
             !canUpload && 'pointer-events-none opacity-60'
           )}>
           <CloudArrowUpRegular aria-hidden className="size-6 text-fg-tertiary" />
           <p className="text-sm text-fg-secondary">{t('pod.content.upload_a_file_to_preview_and_download_it_here')}</p>
         </div>
       ) : (
-        <p className="rounded-control border border-dashed border-border px-6 py-10 text-center text-sm text-fg-tertiary">
+        <p className="rounded-control border border-dashed border-border-subtle px-6 py-10 text-center text-sm text-fg-tertiary">
           {t('pod.content.upload_a_file_to_preview_and_download_it_here')}
         </p>
       )}
@@ -424,7 +426,7 @@ function FilePreview({
           }
         />
       ) : (
-        <p className="rounded border border-border p-8 text-sm text-fg-tertiary">
+        <p className="rounded border border-border-subtle p-8 text-sm text-fg-tertiary">
           {t('pod.content.online_preview_is_not_available_for_this_file_download_the')}
         </p>
       )}

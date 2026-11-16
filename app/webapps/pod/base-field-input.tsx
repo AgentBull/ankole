@@ -183,7 +183,7 @@ export function FieldInput({
           {labels.map(option => (
             <label
               key={option.id}
-              className="flex cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 text-sm hover:bg-accent">
+              className="flex cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 text-sm hover:bg-layer-hover">
               <Checkbox
                 disabled={disabled}
                 checked={Array.isArray(value) && value.includes(option.id)}
@@ -474,7 +474,7 @@ function ReferencePicker({
         <ul className="min-h-0 max-h-[min(18rem,40dvh)] space-y-2 overflow-y-auto">
           {items?.map(candidate => (
             <li key={candidate.id}>
-              <label className="flex min-h-10 items-center gap-2 rounded-control px-2 py-1 text-sm hover:bg-accent">
+              <label className="flex min-h-10 items-center gap-2 rounded-control px-2 py-1 text-sm hover:bg-layer-hover">
                 <Checkbox
                   disabled={disabled}
                   checked={value.includes(candidate.id)}
@@ -500,7 +500,7 @@ function ReferencePicker({
           {items?.map(candidate => (
             <label
               key={candidate.id}
-              className="flex min-h-10 items-center gap-2 rounded-control px-2 py-1 text-sm hover:bg-accent">
+              className="flex min-h-10 items-center gap-2 rounded-control px-2 py-1 text-sm hover:bg-layer-hover">
               <RadioGroupItem value={candidate.id} />
               {candidate.name}
             </label>

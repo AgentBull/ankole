@@ -5,7 +5,7 @@
   /* The body fits the taller visible pane up to the cap; the panes scroll, so their own minimum is 120px. */
   grid-template-rows: 36px fit-content(min(520px, 60vh));
   margin: var(--spacing-content-gap) 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   background: var(--editor-pre-bg);
   overflow: hidden;
@@ -19,7 +19,7 @@
   gap: 2px;
   height: 36px;
   padding: 0 6px 0 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
   color: var(--fg-tertiary);
   font-family: var(--font-family-sans);
   font-size: 12px;
@@ -46,7 +46,7 @@
 
 :where(.ankole-editor) .editor-content .mermaid-toolbar button:is(:hover, :focus-visible) {
   background: var(--layer-hover);
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 
 :where(.ankole-editor) .editor-content .mermaid-toolbar button:focus-visible {
@@ -97,17 +97,17 @@
   max-height: 100%;
   padding: 16px;
   overflow: auto;
-  border-left: 1px solid var(--border);
-  background: var(--background);
-  --pele-bg: var(--background);
-  --pele-fg: var(--foreground);
+  border-left: 1px solid var(--border-subtle);
+  background: var(--page);
+  --pele-bg: var(--page);
+  --pele-fg: var(--fg-primary);
   --pele-fg-on-light: var(--color-gray-100);
   --pele-fg-on-dark: var(--color-gray-20);
   --pele-muted: var(--fg-secondary);
   --pele-line: var(--border-strong);
   --pele-surface: var(--layer-01);
   --pele-surface-alt: var(--layer-03);
-  --pele-border: var(--border);
+  --pele-border: var(--border-subtle);
   --pele-accent: var(--brand);
   --pele-critical: var(--destructive);
   --pele-error: var(--destructive);
@@ -136,7 +136,7 @@
 :where(.ankole-editor-overlay).mermaid-expanded .editor-mermaid-error {
   max-width: 100%;
   padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--destructive) 35%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--destructive) 35%, var(--border-subtle));
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--destructive) 8%, transparent);
   color: var(--destructive);
@@ -217,7 +217,7 @@
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-family: var(--font-family-sans);
   font-size: 14px;
   line-height: 20px;
@@ -249,14 +249,14 @@
   margin: 0;
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sheet, 12px);
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--page);
+  color: var(--fg-primary);
 }
 
 dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
-  background: color-mix(in srgb, var(--foreground) 18%, transparent);
+  background: color-mix(in srgb, var(--fg-primary) 18%, transparent);
 }
 
 :where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-header {
@@ -265,13 +265,13 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   gap: 8px;
   height: 44px;
   padding: 0 10px 0 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
   color: var(--fg-secondary);
   font-size: 13px;
 }
 
 :where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-header strong {
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-weight: 500;
 }
 
@@ -288,7 +288,7 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   gap: 4px;
   height: 28px;
   padding: 0 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-mini);
   background: transparent;
   color: var(--fg-secondary);
@@ -299,7 +299,7 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
 
 :where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-export:hover {
   background: var(--layer-hover);
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 
 :where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-close {
@@ -317,7 +317,7 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
 
 :where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-close:hover {
   background: var(--layer-hover);
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 
 :where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-preview {
@@ -328,14 +328,14 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   min-height: 0;
   padding: 24px;
   overflow: auto;
-  background: var(--background);
-  --pele-bg: var(--background);
-  --pele-fg: var(--foreground);
+  background: var(--page);
+  --pele-bg: var(--page);
+  --pele-fg: var(--fg-primary);
   --pele-muted: var(--fg-secondary);
   --pele-line: var(--border-strong);
   --pele-surface: var(--layer-01);
   --pele-surface-alt: var(--layer-03);
-  --pele-border: var(--border);
+  --pele-border: var(--border-subtle);
   --pele-accent: var(--brand);
   --pele-error: var(--destructive);
   --pele-font: var(--font-family-sans);
@@ -381,18 +381,18 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   margin: var(--spacing-content-gap) 0;
   padding: 16px;
   overflow: auto;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
-  background: var(--background);
-  --pele-bg: var(--background);
-  --pele-fg: var(--foreground);
+  background: var(--page);
+  --pele-bg: var(--page);
+  --pele-fg: var(--fg-primary);
   --pele-fg-on-light: var(--color-gray-100);
   --pele-fg-on-dark: var(--color-gray-20);
   --pele-muted: var(--fg-secondary);
   --pele-line: var(--border-strong);
   --pele-surface: var(--layer-01);
   --pele-surface-alt: var(--layer-03);
-  --pele-border: var(--border);
+  --pele-border: var(--border-subtle);
   --pele-accent: var(--brand);
   --pele-critical: var(--destructive);
   --pele-error: var(--destructive);

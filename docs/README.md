@@ -247,6 +247,7 @@ tools/e2e/run --real-llm
 | [MCP-backed Skills](design-docs/MCPBackedSkills.md) | Executing MCP tools through Skills with scoped credential injection |
 | [Web tools](design-docs/WebTools.md) | `web_search`, HTTP `web_fetch`, and headless Chromium fallback |
 | [I18n](design-docs/I18n.md) | Locale resolution and shared translation catalogs |
+| [Design System](design-docs/DesignSystem.md) | `@ankole/uikit` layers from palette to business components, semantic token names, and the Applet CSS contract |
 | [Logger](design-docs/Logger.md) | Structured JSON and console log formatting |
 | [Tradeoffs and Known Limits](TradeoffsAndKnownLimits.md) | Deliberate non-goals, trust boundaries, and failure recovery limits |
 

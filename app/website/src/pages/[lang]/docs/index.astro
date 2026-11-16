@@ -24,14 +24,14 @@ const description = t(locale, 'docs.index.subtitle')
 ---
 
 <BaseLayout lang={locale} title={`${title} · ${getSiteTitle(locale)}`} description={description} path="docs">
-	<section class="relative overflow-hidden border-b border-border">
+	<section class="relative overflow-hidden border-b border-border-subtle">
 		<div
 			class="grid-field pointer-events-none absolute inset-0 [mask-image:radial-gradient(70%_70%_at_15%_0%,black,transparent)]"
 			aria-hidden="true"
 		>
 		</div>
 		<div class="relative mx-auto max-w-7xl px-4 sm:px-6">
-			<div class="border-x border-border px-4 py-16 sm:px-8 sm:py-20">
+			<div class="border-x border-border-subtle px-4 py-16 sm:px-8 sm:py-20">
 				<Reveal>
 					<p
 						class="flex items-center gap-3 font-mono text-xs tracking-[0.14em] text-brand-60 uppercase dark:text-brand-40"
@@ -39,15 +39,15 @@ const description = t(locale, 'docs.index.subtitle')
 						<span class="w-6 border-t border-current" aria-hidden="true"></span>
 						{t(locale, 'docs.sidebar.title')}
 					</p>
-					<h1 class="mt-5 max-w-3xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+					<h1 class="mt-5 max-w-3xl text-4xl font-semibold tracking-tight text-fg-primary sm:text-5xl">
 						{title}
 					</h1>
-					<p class="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">{description}</p>
+					<p class="mt-5 max-w-2xl text-lg leading-8 text-fg-secondary">{description}</p>
 					{
 						first && (
 							<a
 								href={localePath(locale, `docs/${first.slug}`)}
-								class="group mt-8 inline-flex items-center gap-2 border-b border-brand-60 pb-1 text-sm font-medium text-foreground no-underline dark:border-brand-40">
+								class="group mt-8 inline-flex items-center gap-2 border-b border-brand-60 pb-1 text-sm font-medium text-fg-primary no-underline dark:border-brand-40">
 								{t(locale, 'docs.index.start')}
 								<ArrowRightRegular className="size-4 transition-transform duration-200 ease-[var(--ease-productive)] group-hover:translate-x-1" />
 							</a>
@@ -59,32 +59,32 @@ const description = t(locale, 'docs.index.subtitle')
 	</section>
 
 	<div class="mx-auto max-w-7xl px-4 sm:px-6">
-		<div class="border-x border-border px-4 py-16 sm:px-8 sm:py-20">
+		<div class="border-x border-border-subtle px-4 py-16 sm:px-8 sm:py-20">
 			{
 				sections.map((section, sectionIndex) => (
 					<section class="mb-14 last:mb-0 lg:grid lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] lg:gap-10">
 						<Reveal>
-							<h2 class="flex items-center gap-3 font-mono text-xs tracking-[0.14em] text-muted-foreground uppercase lg:sticky lg:top-20">
+							<h2 class="flex items-center gap-3 font-mono text-xs tracking-[0.14em] text-fg-secondary uppercase lg:sticky lg:top-20">
 								<span class="text-brand-60 dark:text-brand-40">
 									{String(sectionIndex + 1).padStart(2, '0')}
 								</span>
 								{t(locale, `docs.section.${sectionKey(section.section)}`)}
 							</h2>
 						</Reveal>
-						<ul class="mt-6 list-none border-t border-border p-0 lg:mt-0">
+						<ul class="mt-6 list-none border-t border-border-subtle p-0 lg:mt-0">
 							{section.docs.map(doc => (
 								<li>
 									<Reveal>
 										<a
 											href={localePath(locale, `docs/${doc.slug}`)}
-											class="group relative flex items-center gap-6 border-b border-border py-6 pr-4 pl-5 no-underline transition-colors duration-150 ease-[var(--ease-productive)] hover:bg-background-secondary">
+											class="group relative flex items-center gap-6 border-b border-border-subtle py-6 pr-4 pl-5 no-underline transition-colors duration-150 ease-[var(--ease-productive)] hover:bg-layer-01">
 											<span
 											class="absolute inset-y-0 left-0 w-0.5 origin-center scale-y-0 bg-brand-60 transition-transform duration-200 ease-[var(--ease-productive)] group-hover:scale-y-100 dark:bg-brand-40"
 											aria-hidden="true"
 										/>
 										<span class="min-w-0 flex-1">
-											<span class="block text-base font-semibold text-foreground">{doc.title}</span>
-											<span class="mt-2 block text-sm leading-6 text-muted-foreground">
+											<span class="block text-base font-semibold text-fg-primary">{doc.title}</span>
+											<span class="mt-2 block text-sm leading-6 text-fg-secondary">
 												{doc.description}
 											</span>
 										</span>

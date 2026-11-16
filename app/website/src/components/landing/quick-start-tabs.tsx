@@ -122,11 +122,11 @@ export default function QuickStartTabs({ ariaLabel = 'Quick start', labels, depl
           <TabsTrigger value="source">{labels.source}</TabsTrigger>
         </TabsList>
         <TabsContent value="docker" className="pt-4">
-          <p className="mb-4 text-sm text-muted-foreground">{labels.dockerNote}</p>
+          <p className="mb-4 text-sm text-fg-secondary">{labels.dockerNote}</p>
           <CodeBlock code={DOCKER_COMMANDS} copyLabel={labels.copy} copiedLabel={labels.copied} />
         </TabsContent>
         <TabsContent value="kubernetes" className="pt-4">
-          <p className="text-sm text-muted-foreground">{labels.k8sBody}</p>
+          <p className="text-sm text-fg-secondary">{labels.k8sBody}</p>
           <a
             href={deploymentHref}
             className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-brand-60 no-underline hover:underline dark:text-brand-40">
@@ -135,7 +135,7 @@ export default function QuickStartTabs({ ariaLabel = 'Quick start', labels, depl
           </a>
         </TabsContent>
         <TabsContent value="source" className="pt-4">
-          <p className="mb-4 text-sm text-muted-foreground">{labels.sourceNote}</p>
+          <p className="mb-4 text-sm text-fg-secondary">{labels.sourceNote}</p>
           <CodeBlock code={SOURCE_COMMANDS} copyLabel={labels.copy} copiedLabel={labels.copied} />
         </TabsContent>
       </Tabs>

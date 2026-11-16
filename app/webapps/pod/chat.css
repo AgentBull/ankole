@@ -20,7 +20,7 @@
   height: 100%;
   min-width: 0;
   min-height: 0;
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 
 .pod-chat-header {
@@ -44,7 +44,7 @@
 
 .pod-chat-queue {
   min-width: 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 8px;
 }
 
@@ -392,7 +392,7 @@
   gap: 8px;
 }
 .pod-chat-starters button {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   padding: 5px 12px;
   font-size: 13px;
@@ -432,7 +432,7 @@
 }
 .pod-chat-next-step-title {
   margin-bottom: 2px;
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-size: var(--text-75);
   line-height: var(--text-75--line-height);
   font-weight: 500;
@@ -493,7 +493,7 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--layer-03);
   color: var(--fg-secondary);
   font-size: 9px;
 }
@@ -504,7 +504,7 @@
 /* In a cluster each avatar keeps a ring of the paper, and a small overlap keeps both letters of a two-letter initial
    readable. */
 .pod-chat-avatar-cluster .pod-chat-avatar {
-  border: 1px solid var(--background);
+  border: 1px solid var(--page);
 }
 .pod-chat-avatar-cluster .pod-chat-avatar + .pod-chat-avatar {
   margin-left: -4px;
@@ -541,7 +541,7 @@
   overflow: hidden;
   border-radius: var(--radius-mini);
   padding: 2px 6px;
-  background: var(--accent);
+  background: var(--layer-hover);
   font-size: 12px;
   color: var(--fg-secondary);
 }
@@ -572,8 +572,8 @@
   width: calc(100cqw - var(--pod-chat-split-width));
   min-width: 0;
   min-height: 0;
-  border-left: 1px solid var(--border);
-  background: var(--background);
+  border-left: 1px solid var(--border-subtle);
+  background: var(--page);
 }
 /* The background-work inspector is a column of the viewer's chosen width, 440px until they drag its left edge, and
    the chat keeps the rest of the room, never less than its 300px column. */
@@ -620,7 +620,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-chat-file-panel-header {
   @apply sheet-header;
   gap: 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .pod-chat-file-panel-title {
   flex: 1;
@@ -628,7 +628,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   margin: 0;
   overflow: hidden;
   padding-inline-start: 6px;
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-size: var(--text-75);
   line-height: var(--text-75--line-height);
   font-weight: 500;
@@ -664,7 +664,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   line-height: var(--text-25--line-height);
 }
 .pod-chat-summary section + section {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
   padding-top: 16px;
   margin-top: 16px;
 }
@@ -712,7 +712,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   max-height: 180px;
 }
 .pod-chat-members {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
   padding-top: 12px;
 }
 .pod-chat-members h3,
@@ -754,11 +754,11 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 }
 ::highlight(pod-chat-find) {
   background-color: var(--selection);
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 ::highlight(pod-chat-find-current) {
-  background-color: var(--foreground);
-  color: var(--background);
+  background-color: var(--fg-primary);
+  color: var(--page);
 }
 @media (forced-colors: active) {
   ::highlight(pod-chat-find) {
@@ -1050,7 +1050,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   align-items: center;
   gap: 3px;
   padding: 1px 5px;
-  border: 1px solid color-mix(in srgb, var(--fg-placeholder) 32%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--fg-placeholder) 32%, var(--border-subtle));
   border-radius: var(--radius-mini, 4px);
   font-family: var(--font-family-sans);
   font-size: 10px;
@@ -1101,7 +1101,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   gap: 8px;
   padding: 5px 10px;
   border-radius: var(--radius-control);
-  background: var(--muted);
+  background: var(--layer-03);
   color: var(--fg-secondary);
   font-size: 12px;
   line-height: 18px;
@@ -1398,7 +1398,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   max-width: 100%;
   border-radius: var(--radius-mini);
   padding: 2px 6px;
-  background: var(--accent);
+  background: var(--layer-hover);
   font-size: 12px;
   color: var(--fg-secondary);
 }
@@ -1458,7 +1458,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   white-space: nowrap;
 }
 .pod-chat-reply-source:hover {
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 .pod-chat-reply-source:focus-visible {
   outline: 2px solid var(--ring);
@@ -1472,7 +1472,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   font-weight: 600;
 }
 .pod-chat-archived {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-mini);
   padding: 0 4px;
   color: var(--fg-tertiary);
@@ -1535,7 +1535,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 }
 .pod-chat-queued-badge {
   align-self: flex-end;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-mini);
   padding: 0 6px;
   color: var(--fg-tertiary);
@@ -1560,10 +1560,10 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   right: 0;
   z-index: 2;
   pointer-events: none;
-  border: 1px solid color-mix(in srgb, var(--ring) 45%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--ring) 45%, var(--border-subtle));
   border-radius: var(--radius-mini);
   padding: 1px 8px;
-  background: var(--accent);
+  background: var(--layer-hover);
   color: var(--fg-secondary);
   font-size: 12px;
   line-height: 18px;
@@ -1670,7 +1670,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--layer-03);
   font-size: 8px;
 }
 /* Chat prose is 14px primary text on a 26px line in the regular weight, with blocks 12px apart, as in a document,
@@ -1680,7 +1680,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
    12px above themselves. */
 .pod-chat-markdown {
   min-width: 0;
-  color: var(--text-primary);
+  color: var(--fg-primary);
   font-size: var(--text-75);
   line-height: var(--text-75--line-height);
   overflow-wrap: anywhere;
@@ -1740,13 +1740,13 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-chat-markdown blockquote {
   border-left: 2px solid var(--layer-03);
   padding: --spacing(2) 0 --spacing(2) --spacing(4);
-  color: var(--text-secondary);
+  color: var(--fg-secondary);
 }
 .pod-chat-markdown :not(pre) > code {
   @apply code-inline;
 }
 .pod-chat-markdown hr {
-  border-color: var(--border);
+  border-color: var(--border-subtle);
 }
 /* A `ui` block lays out its own elements, so the prose rhythm of the message stops at its edge. */
 .pod-chat-markdown .pod-chat-ui-block :is(p, h1, h2, h3, h4, ul, ol, li) {
@@ -1771,7 +1771,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 /* A table stands in the document's block card, whose edge takes the place of the grid's outer lines. Its cells
    keep their form: the header row on the card's gray and the body on the paper. */
 .pod-chat-table td {
-  background: var(--background);
+  background: var(--page);
 }
 /* A header cell takes the Medium weight of a bold phrase in the message's text. */
 .pod-chat-table th {
@@ -1806,7 +1806,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 }
 .pod-chat-table-copy:hover {
   background-image: linear-gradient(var(--layer-hover), var(--layer-hover));
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 .pod-chat-table-frame:hover > .pod-chat-table-copy,
 .pod-chat-table-copy:focus-visible,
@@ -1968,7 +1968,7 @@ img.pod-page-icon.pod-page-mark {
   display: none;
 }
 .pod-chat-work[data-outcome='failed'] > summary {
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
 }
 .pod-chat-work[data-outcome='stopped'] > summary {
   color: var(--fg-secondary);
@@ -1985,7 +1985,7 @@ img.pod-page-icon.pod-page-mark {
   margin-inline-start: 0.3em;
   vertical-align: 0.14em;
   border-radius: 50%;
-  background: var(--foreground);
+  background: var(--fg-primary);
 
   @media (prefers-reduced-motion: no-preference) {
     animation: pod-chat-answer-pulse 1s ease-in-out infinite;
@@ -2053,7 +2053,7 @@ img.pod-page-icon.pod-page-mark {
 }
 .pod-chat-work-errors {
   margin-left: 4px;
-  color: var(--warning-foreground);
+  color: var(--warning-fg);
 }
 /* The open steps hang from a rail that runs down from the middle of the caret's glyph, and their icons start under
    the summary's label, 22px in. A step row's hover wash reaches 6px past its icon and its status mark, so it stays
@@ -2062,7 +2062,7 @@ img.pod-page-icon.pod-page-mark {
 .pod-chat-work-content {
   margin: 8px 6px 10px 5.5px;
   padding-left: 15.5px;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--border-subtle);
 }
 .pod-chat-thinking {
   margin-bottom: 7px;
@@ -2124,7 +2124,7 @@ details > .pod-chat-tool-line:hover,
 /* The steps of a group hang from a rail under the group's caret. */
 .pod-chat-tool-group > .pod-chat-tool-body > div > .pod-chat-tool-run {
   margin: 0 0 0 9px;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--border-subtle);
   padding-left: 13px;
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -2141,7 +2141,7 @@ details > .pod-chat-tool-line:hover,
       position: absolute;
       inset: 0 auto 0 -14px;
       width: 1px;
-      background: var(--border);
+      background: var(--border-subtle);
       transform-origin: top;
       animation: pod-chat-live-step-line 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
     }
@@ -2286,11 +2286,11 @@ details[open] > summary > .pod-chat-disclosure-caret {
   margin: 2px;
 }
 .pod-chat-tool-step[data-status='failed'] .pod-chat-tool-title {
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
 }
 .pod-chat-tool-step[data-status='blocked'] .pod-chat-tool-state,
 .pod-chat-tool-step[data-status='blocked'] .pod-chat-tool-title {
-  color: var(--warning-foreground);
+  color: var(--warning-fg);
 }
 /* A tool's output, a command's terminal, a diff, and a draft that an approval carries are block cards: the lightest
    gray inside a hairline at the control radius, labels of the 12px step, and 12px monospace source on a 26px line.
@@ -2299,7 +2299,7 @@ details[open] > summary > .pod-chat-disclosure-caret {
   @apply surface-block;
   min-width: 0;
   overflow: hidden;
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 .pod-chat-tool-detail,
 .pod-chat-command-terminal {
@@ -2335,7 +2335,7 @@ summary.pod-chat-block-card-header:hover {
 .pod-chat-block-card-header ~ *,
 .pod-chat-tool-detail > div + div,
 .pod-chat-command-terminal > div + div {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
 }
 .pod-chat-block-card-source,
 .pod-chat-tool-detail pre,
@@ -2366,7 +2366,7 @@ summary.pod-chat-block-card-header:hover {
 }
 .pod-chat-tool-detail > [data-tone='failed'],
 .pod-chat-tool-detail > [data-tone='failed'] > span:first-child {
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
 }
 .pod-chat-tool-detail pre,
 .pod-chat-command-terminal pre {
@@ -2377,7 +2377,7 @@ summary.pod-chat-block-card-header:hover {
 }
 .pod-chat-command-exit[data-failed],
 .pod-chat-command-stderr[data-failed] {
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
 }
 .pod-chat-command-stderr {
   color: var(--fg-secondary);
@@ -2416,10 +2416,10 @@ summary.pod-chat-block-card-header:hover {
   gap: 4px;
 }
 .pod-chat-patch-counts [data-marker='+'] {
-  color: var(--success-foreground);
+  color: var(--success-fg);
 }
 .pod-chat-patch-counts [data-marker='-'] {
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
 }
 .pod-chat-patch section + section {
   margin-top: 8px;
@@ -2484,7 +2484,7 @@ summary.pod-chat-block-card-header:hover {
   overflow: hidden;
 }
 .pod-chat-choice-card[data-state='pending'] {
-  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border-subtle));
 }
 .pod-chat-choice-header {
   display: flex;
@@ -2496,7 +2496,7 @@ summary.pod-chat-block-card-header:hover {
   line-height: var(--text-50--line-height);
 }
 .pod-chat-choice-card[data-state='pending'] .pod-chat-choice-header {
-  color: var(--warning-foreground);
+  color: var(--warning-fg);
 }
 .pod-chat-choice-header > svg {
   width: 20px;
@@ -2511,7 +2511,7 @@ summary.pod-chat-block-card-header:hover {
 }
 .pod-chat-choice-question {
   margin: 0;
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-size: var(--text-75);
   line-height: var(--text-75--line-height);
   font-weight: 500;
@@ -2545,7 +2545,7 @@ summary.pod-chat-block-card-header:hover {
   gap: 12px;
   border-width: 0;
   padding: 3px 6px;
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-size: var(--text-75);
   line-height: var(--text-75--line-height);
   font-weight: 400;
@@ -2579,7 +2579,7 @@ summary.pod-chat-block-card-header:hover {
   color: var(--fg-secondary);
 }
 .pod-chat-choice-card[data-state='answered'] .pod-chat-choice[aria-pressed='true'] {
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 .pod-chat-choice kbd {
   flex-shrink: 0;
@@ -2592,7 +2592,7 @@ summary.pod-chat-block-card-header:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
   padding-top: 4px;
 }
 .pod-chat-choice-custom input {
@@ -2618,7 +2618,7 @@ summary.pod-chat-block-card-header:hover {
   line-height: var(--text-50--line-height);
 }
 .pod-chat-choice-outcome[data-tone='warning'] {
-  color: var(--warning-foreground);
+  color: var(--warning-fg);
 }
 /* The person who answered appears as a 20px avatar, whose initial takes the 10px step on its 16px line. */
 .pod-chat-choice-outcome > .pod-chat-event-avatar {
@@ -2669,7 +2669,7 @@ summary.pod-chat-block-card-header:hover {
   align-items: flex-start;
   gap: 8px;
   margin-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 8px;
   font-size: 13px;
   line-height: 20px;
@@ -2694,7 +2694,7 @@ summary.pod-chat-block-card-header:hover {
   opacity: 0.55;
 }
 .pod-chat-tool-step-skill > .pod-chat-tool-line > svg:first-child {
-  color: var(--info-foreground);
+  color: var(--info-fg);
 }
 .pod-chat-exec-status-icon {
   width: 15px;
@@ -2703,16 +2703,16 @@ summary.pod-chat-block-card-header:hover {
   color: var(--fg-tertiary);
 }
 .pod-chat-exec-status-icon[data-tone='completed'] {
-  color: var(--success-foreground);
+  color: var(--success-fg);
 }
 .pod-chat-exec-status-icon[data-tone='waiting'] {
-  color: var(--warning-foreground);
+  color: var(--warning-fg);
 }
 .pod-chat-exec-status-icon[data-tone='failed'] {
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
 }
 .pod-chat-exec-status-icon[data-tone='sleeping'] {
-  color: var(--info-foreground);
+  color: var(--info-fg);
 }
 .pod-chat-exec-elapsed {
   flex-shrink: 0;
@@ -2753,7 +2753,7 @@ summary.pod-chat-block-card-header:hover {
   flex-direction: column;
   gap: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
 }
 .pod-chat-linked-run-answer > .pod-chat-choice-card {
   margin: 0;
@@ -2805,7 +2805,7 @@ summary.pod-chat-block-card-header:hover {
   font-size: var(--text-75);
   line-height: var(--text-75--line-height);
   font-weight: 500;
-  color: var(--foreground);
+  color: var(--fg-primary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2847,7 +2847,7 @@ summary.pod-chat-block-card-header:hover {
   height: 4px;
   width: 100%;
   border-radius: 999px;
-  background: var(--muted);
+  background: var(--layer-03);
   overflow: hidden;
 }
 .pod-chat-linked-run-main > .pod-chat-workflow-bar {
@@ -2859,14 +2859,14 @@ summary.pod-chat-block-card-header:hover {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--success-foreground);
+  background: var(--success-fg);
 
   @media (prefers-reduced-motion: no-preference) {
     transition: width 220ms ease;
   }
 }
 .pod-chat-workflow-bar > span[data-failed] {
-  background: var(--destructive-foreground);
+  background: var(--destructive-fg);
 }
 /* A delegation is an outline card with the run card's anatomy, at most 540px wide: a 20px state mark, 8px, who has
    the work in the 14px Medium step with the task after it, and at the end the state in the 12px step and a 16px
@@ -2906,7 +2906,7 @@ summary.pod-chat-block-card-header:hover {
   background: var(--layer-current);
 }
 .pod-peer-exchange[data-state='waiting'] {
-  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border-subtle));
 }
 /* The title and the state are two type steps on one baseline; the mark and the buttons stand in the middle of
    the row. */
@@ -2933,7 +2933,7 @@ summary.pod-chat-block-card-header:hover {
   flex: 1;
   margin: 0;
   overflow: hidden;
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2950,7 +2950,7 @@ summary.pod-chat-block-card-header:hover {
   font-variant-numeric: tabular-nums;
 }
 .pod-peer-exchange[data-state='waiting'] .pod-peer-exchange-state {
-  color: var(--warning-foreground);
+  color: var(--warning-fg);
 }
 /* The chevron keeps the 16px size of a run card's chevron inside its 24px button, 4px after the state. */
 .pod-peer-exchange-open {
@@ -3027,13 +3027,13 @@ summary.pod-chat-block-card-header:hover {
 }
 .pod-peer-log-note {
   margin: 0;
-  color: var(--warning-foreground);
+  color: var(--warning-fg);
 }
 .pod-peer-log-message {
   display: grid;
   gap: 4px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .pod-peer-log-message:last-of-type {
   border-bottom: 0;
@@ -3096,7 +3096,7 @@ summary.pod-chat-block-card-header:hover {
 .pod-chat-turn-rail button[aria-current] .pod-chat-turn-tick,
 .pod-chat-turn-rail button:hover .pod-chat-turn-tick,
 .pod-chat-turn-rail button:focus-visible .pod-chat-turn-tick {
-  color: var(--foreground);
+  color: var(--fg-primary);
   opacity: 1;
 }
 .pod-chat-turn-preview {
@@ -3111,7 +3111,7 @@ summary.pod-chat-block-card-header:hover {
   display: block;
   width: min(280px, 50vw);
   padding: 10px 12px;
-  color: var(--popover-foreground);
+  color: var(--fg-primary);
   text-align: left;
   font-size: 12px;
   line-height: 18px;
@@ -3166,10 +3166,10 @@ summary.pod-chat-block-card-header:hover {
 }
 
 .pod-chat-linked-run[data-status='waiting'] {
-  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border-subtle));
 }
 .pod-chat-linked-run[data-status='failed'] {
-  border-color: color-mix(in srgb, var(--destructive) 40%, var(--border));
+  border-color: color-mix(in srgb, var(--destructive) 40%, var(--border-subtle));
 }
 
 .pod-chat-inspector-panel {
@@ -3217,7 +3217,7 @@ summary.pod-chat-block-card-header:hover {
   flex-shrink: 0;
   flex-direction: column;
   gap: 6px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .pod-chat-inspector-header > :not(.pod-chat-inspector-title-row) {
   margin-inline: 18px;
@@ -3242,7 +3242,7 @@ summary.pod-chat-block-card-header:hover {
   height: 20px;
 }
 .pod-chat-panel-header {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .pod-chat-inspector-title,
 .pod-chat-panel-title {
@@ -3250,7 +3250,7 @@ summary.pod-chat-block-card-header:hover {
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-size: var(--text-75);
   line-height: var(--text-75--line-height);
   font-weight: 500;
@@ -3278,10 +3278,10 @@ summary.pod-chat-block-card-header:hover {
   white-space: pre;
 }
 .pod-chat-inspector-inner[data-status='waiting'] .pod-chat-inspector-status-text {
-  color: var(--warning-foreground);
+  color: var(--warning-fg);
 }
 .pod-chat-inspector-inner[data-status='failed'] .pod-chat-inspector-status-text {
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
 }
 .pod-chat-inspector-chain {
   display: grid;
@@ -3304,7 +3304,7 @@ summary.pod-chat-block-card-header:hover {
   line-height: var(--text-50--line-height);
 }
 .pod-chat-inspector-chain-row[data-followup] {
-  border-color: var(--border);
+  border-color: var(--border-subtle);
   background: transparent;
 }
 .pod-chat-inspector-threads {
@@ -3319,7 +3319,7 @@ summary.pod-chat-block-card-header:hover {
   flex-shrink: 0;
   align-items: center;
   gap: 4px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: 999px;
   padding: 1px 10px;
   font-size: var(--text-50);
@@ -3334,7 +3334,7 @@ summary.pod-chat-block-card-header:hover {
 .pod-chat-inspector-thread-pill[aria-selected='true'] {
   @apply selected-surface;
   border-color: var(--border-strong);
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-weight: 500;
 }
 .pod-chat-inspector-thread-pill > svg {
@@ -3391,7 +3391,7 @@ summary.pod-chat-block-card-header:hover {
   cursor: pointer;
 }
 .pod-chat-inspector-brief-toggle:hover {
-  color: var(--foreground);
+  color: var(--fg-primary);
 }
 .pod-chat-inspector-brief > p {
   margin: 0;
@@ -3431,7 +3431,7 @@ summary.pod-chat-block-card-header:hover {
   color: var(--fg-tertiary);
 }
 .pod-chat-inspector-plan > ol > li[data-status='in_progress'] {
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-weight: 500;
 }
 .pod-chat-inspector-plan-pending {
@@ -3474,11 +3474,11 @@ summary.pod-chat-block-card-header:hover {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  border: 1px solid color-mix(in srgb, var(--destructive) 45%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--destructive) 45%, var(--border-subtle));
   border-radius: var(--radius-control);
   background: var(--destructive-subtle);
   padding: 10px;
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
 }
 .pod-chat-inspector-error > svg {
   width: 20px;
@@ -3507,7 +3507,7 @@ summary.pod-chat-block-card-header:hover {
   gap: 8px;
 }
 .pod-chat-inspector-question + .pod-chat-inspector-question {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
   padding-top: 8px;
 }
 .pod-chat-inspector-workflow {
@@ -3529,7 +3529,7 @@ summary.pod-chat-block-card-header:hover {
   font-variant-numeric: tabular-nums;
 }
 .pod-chat-inspector-workflow-pills > [data-tone='failed'] {
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
 }
 .pod-chat-workflow-seq,
 .pod-chat-workflow-attempts {
@@ -3547,7 +3547,7 @@ summary.pod-chat-block-card-header:hover {
 }
 .pod-chat-inspector-composer-error {
   margin: 0 0 6px;
-  color: var(--destructive-foreground);
+  color: var(--destructive-fg);
   font-size: var(--text-50);
   line-height: var(--text-50--line-height);
 }
@@ -3555,9 +3555,9 @@ summary.pod-chat-block-card-header:hover {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
-  background: var(--card);
+  background: var(--page);
   padding: 2px 4px 2px 6px;
 }
 .pod-chat-inspector-composer-box:focus-within {

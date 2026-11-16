@@ -41,7 +41,7 @@ export function SelectShareLightbox({
         {loading && (
           <div
             role="status"
-            className="flex min-h-40 items-center justify-center rounded border border-border bg-layer-01 p-6 text-sm text-fg-secondary">
+            className="flex min-h-40 items-center justify-center rounded border border-border-subtle bg-layer-01 p-6 text-sm text-fg-secondary">
             {t('pod.chat_timeline.generating_share_card', { defaultValue: 'Generating share image…' })}
           </div>
         )}
@@ -49,7 +49,7 @@ export function SelectShareLightbox({
         {!loading && error && (
           <div
             role="alert"
-            className="flex items-start gap-2 rounded border border-border bg-layer-01 p-4 text-sm text-fg-secondary">
+            className="flex items-start gap-2 rounded border border-border-subtle bg-layer-01 p-4 text-sm text-fg-secondary">
             <WarningRegular className="mt-0.5 size-4 shrink-0 text-status-warning" aria-hidden />
             <span>{error}</span>
           </div>
@@ -59,7 +59,7 @@ export function SelectShareLightbox({
           <div
             role="status"
             data-testid="share-card-needs-pagination"
-            className="flex flex-col gap-2 rounded border border-border bg-layer-01 p-4 text-sm text-fg-primary">
+            className="flex flex-col gap-2 rounded border border-border-subtle bg-layer-01 p-4 text-sm text-fg-primary">
             <div className="flex items-start gap-2 font-medium">
               <WarningRegular className="mt-0.5 size-4 shrink-0 text-status-warning" aria-hidden />
               <span>
@@ -80,7 +80,7 @@ export function SelectShareLightbox({
         )}
 
         {!loading && !error && result?.kind === 'ok' && (
-          <div className="max-h-[60vh] overflow-auto rounded border border-border bg-layer-01 p-3">
+          <div className="max-h-[60vh] overflow-auto rounded border border-border-subtle bg-layer-01 p-3">
             <img
               src={result.dataUrl}
               alt={t('pod.chat_timeline.share_selection_title', { defaultValue: 'Share selected messages' })}

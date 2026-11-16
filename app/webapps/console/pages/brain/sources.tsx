@@ -157,12 +157,12 @@ export function BrainSourcesPage() {
               {source.default_source_node_id ? (
                 <BrainSourceLabel nodeID={source.default_source_node_id} />
               ) : (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-fg-secondary">
                   {source.kind === 'oidc_client' ? t('console.brain.source_scope_private') : '—'}
                 </span>
               )}
             </TableCell>
-            <TableCell className="text-xs text-muted-foreground">
+            <TableCell className="text-xs text-fg-secondary">
               {source.last_sync_at ? formatConsoleDate(source.last_sync_at) : t('console.brain.never_synced')}
             </TableCell>
             <TableCell>
@@ -174,7 +174,7 @@ export function BrainSourcesPage() {
             </TableCell>
             <TableCell className="text-right">
               {source.archived_at ? (
-                <span className="pr-2 text-xs text-muted-foreground">{t('console.brain.read_only')}</span>
+                <span className="pr-2 text-xs text-fg-secondary">{t('console.brain.read_only')}</span>
               ) : (
                 <div className="flex justify-end gap-1">
                   {source.kind === 'oidc_client' ? (

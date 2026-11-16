@@ -15,13 +15,13 @@ const badgeVariants = cva(
       },
       variant: {
         // A status badge is the status background with ink text, in both themes.
-        info: 'bg-badge-blue text-foreground hover:bg-badge-blue-hover [a]:hover:text-foreground',
-        success: 'bg-badge-green text-foreground hover:bg-badge-green-hover [a]:hover:text-foreground',
-        warning: 'bg-badge-yellow text-foreground hover:bg-badge-yellow-hover [a]:hover:text-foreground',
-        secondary: 'bg-muted text-foreground hover:bg-gray-50 [a]:hover:text-foreground dark:hover:bg-gray-80',
-        destructive: 'bg-badge-red text-foreground hover:bg-badge-red-hover [a]:hover:text-foreground',
-        outline: 'border-control-edge bg-transparent text-foreground hover:bg-muted [a]:hover:text-foreground',
-        ghost: 'bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
+        info: 'bg-badge-blue text-fg-primary hover:bg-badge-blue-hover [a]:hover:text-fg-primary',
+        success: 'bg-badge-green text-fg-primary hover:bg-badge-green-hover [a]:hover:text-fg-primary',
+        warning: 'bg-badge-yellow text-fg-primary hover:bg-badge-yellow-hover [a]:hover:text-fg-primary',
+        secondary: 'bg-layer-03 text-fg-primary hover:bg-gray-50 [a]:hover:text-fg-primary dark:hover:bg-gray-80',
+        destructive: 'bg-badge-red text-fg-primary hover:bg-badge-red-hover [a]:hover:text-fg-primary',
+        outline: 'border-control-edge bg-transparent text-fg-primary hover:bg-layer-03 [a]:hover:text-fg-primary',
+        ghost: 'bg-transparent text-fg-secondary hover:bg-layer-03 hover:text-fg-primary',
         link: 'link h-auto min-w-0 max-w-none rounded-none bg-transparent px-0'
       }
     },

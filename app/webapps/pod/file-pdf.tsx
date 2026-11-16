@@ -173,8 +173,8 @@ export default function PdfPreview({
   return (
     <div
       ref={root}
-      className={cn('flex h-[70dvh] flex-col overflow-hidden rounded-control border border-border', className)}>
-      <div className="flex items-center gap-1 border-b border-border px-2 py-1">
+      className={cn('flex h-[70dvh] flex-col overflow-hidden rounded-control border border-border-subtle', className)}>
+      <div className="flex items-center gap-1 border-b border-border-subtle px-2 py-1">
         <Button
           type="button"
           size="icon-sm"
@@ -302,7 +302,7 @@ export default function PdfPreview({
           <ZoomInRegular aria-hidden className="size-4" />
         </Button>
       </div>
-      <div className="relative min-h-0 flex-1 bg-background-secondary">
+      <div className="relative min-h-0 flex-1 bg-layer-01">
         {!ready && <ContentSkeleton variant="block" label={t('pod.content.loading_file')} className="h-full p-4" />}
         {/* pdf.js requires an absolutely positioned scroll container around the page list. It measures text
             without a language unless the PDF declares one, which it then sets on the page list. The undetermined

@@ -57,7 +57,7 @@ export function ApprovalCard({ title, summary, status, statusLabel, details, rev
               {review.rejectLabel}
             </Button>
             {review.submitting && review.submittingLabel && (
-              <span role="status" className="text-xs text-muted-foreground">
+              <span role="status" className="text-xs text-fg-secondary">
                 {review.submittingLabel}
               </span>
             )}

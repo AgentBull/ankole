@@ -58,9 +58,9 @@ function BoardColumn({
       data-slot="board-column"
       data-drop-target={dropTarget || undefined}
       className={cn(
-        'flex min-h-40 min-w-0 flex-col gap-2 rounded-[10px] border border-border/60 bg-background-secondary p-2.5 dark:border-white/8 dark:bg-white/[0.025]',
+        'flex min-h-40 min-w-0 flex-col gap-2 rounded-[10px] border border-border-subtle/60 bg-layer-01 p-2.5 dark:border-white/8 dark:bg-white/[0.025]',
         'transition-[background-color,border-color,box-shadow] duration-(--duration-feedback)',
-        'data-drop-target:border-primary/50 data-drop-target:bg-accent data-drop-target:ring-2 data-drop-target:ring-primary/30',
+        'data-drop-target:border-primary/50 data-drop-target:bg-layer-hover data-drop-target:ring-2 data-drop-target:ring-primary/30',
         className
       )}
       {...props}
@@ -86,7 +86,7 @@ function BoardColumnHeader({
     <h2
       data-slot="board-column-header"
       className={cn(
-        'flex min-h-7 min-w-0 items-center gap-2 px-1 text-[13px] leading-5 font-semibold text-foreground',
+        'flex min-h-7 min-w-0 items-center gap-2 px-1 text-[13px] leading-5 font-semibold text-fg-primary',
         className
       )}
       style={{ ...style, '--board-tone': tones[tone] } as CSSProperties}
@@ -98,7 +98,7 @@ function BoardColumnHeader({
       )}
       <span className="min-w-0 truncate">{children}</span>
       {count !== undefined && (
-        <span className="rounded-full bg-background-overlay-secondary px-1.5 py-0.5 text-[11px] leading-3.5 font-medium text-fg-secondary tabular-nums">
+        <span className="rounded-full bg-overlay-secondary px-1.5 py-0.5 text-[11px] leading-3.5 font-medium text-fg-secondary tabular-nums">
           {count}
         </span>
       )}
@@ -113,7 +113,7 @@ function BoardColumnEmpty({ className, ...props }: ComponentProps<'div'>) {
     <div
       data-slot="board-column-empty"
       className={cn(
-        'flex flex-1 flex-col items-center justify-center gap-1 rounded-surface border border-dashed border-border/60 px-3 py-8 text-center text-xs leading-4 text-fg-tertiary select-none',
+        'flex flex-1 flex-col items-center justify-center gap-1 rounded-surface border border-dashed border-border-subtle/60 px-3 py-8 text-center text-xs leading-4 text-fg-tertiary select-none',
         className
       )}
       {...props}
@@ -138,15 +138,15 @@ function BoardCard({
       data-selected={selected || undefined}
       data-tone={tone !== 'default' ? tone : undefined}
       className={cn(
-        'group/board-card relative flex min-w-0 flex-col gap-1.5 rounded-surface border border-border/80 bg-card p-3 text-[13px] leading-5 shadow-[0_1px_2px_rgb(0_0_0/0.03)] dark:border-white/10 dark:bg-control dark:shadow-none',
+        'group/board-card relative flex min-w-0 flex-col gap-1.5 rounded-surface border border-border-subtle/80 bg-page p-3 text-[13px] leading-5 shadow-[0_1px_2px_rgb(0_0_0/0.03)] dark:border-white/10 dark:bg-control dark:shadow-none',
         'transition-[border-color,box-shadow,background-color] duration-(--duration-feedback)',
         '[&_:is(a,button,input,select,textarea):not([data-slot=board-card-title])]:relative [&_:is(a,button,input,select,textarea):not([data-slot=board-card-title])]:z-1',
         'has-[[data-slot=board-card-title]:is(button,a):hover]:border-control-edge has-[[data-slot=board-card-title]:is(button,a):hover]:shadow-sm',
         'has-[[data-slot=board-card-title]:is(button,a):active]:bg-control-hover',
         'has-[[data-slot=board-card-title]:focus-visible]:outline-2 has-[[data-slot=board-card-title]:focus-visible]:outline-offset-2 has-[[data-slot=board-card-title]:focus-visible]:outline-ring',
-        'data-[tone=warning]:border-amber-50/75 data-[tone=warning]:bg-[linear-gradient(180deg,rgb(252_179_33/0.07),transparent_60%),var(--card)] dark:data-[tone=warning]:border-amber-60/50 dark:data-[tone=warning]:bg-[linear-gradient(180deg,rgb(252_179_33/0.09),transparent_65%),var(--control)]',
-        'data-[tone=danger]:border-red-40/65 data-[tone=danger]:bg-[linear-gradient(180deg,rgb(245_62_41/0.06),transparent_60%),var(--card)] dark:data-[tone=danger]:border-red-50/50 dark:data-[tone=danger]:bg-[linear-gradient(180deg,rgb(245_62_41/0.09),transparent_65%),var(--control)]',
-        'data-selected:border-foreground/55 data-selected:shadow-sm data-selected:ring-2 data-selected:ring-foreground/10 dark:data-selected:border-white/55 dark:data-selected:ring-white/15',
+        'data-[tone=warning]:border-amber-50/75 data-[tone=warning]:bg-[linear-gradient(180deg,rgb(252_179_33/0.07),transparent_60%),var(--page)] dark:data-[tone=warning]:border-amber-60/50 dark:data-[tone=warning]:bg-[linear-gradient(180deg,rgb(252_179_33/0.09),transparent_65%),var(--control)]',
+        'data-[tone=danger]:border-red-40/65 data-[tone=danger]:bg-[linear-gradient(180deg,rgb(245_62_41/0.06),transparent_60%),var(--page)] dark:data-[tone=danger]:border-red-50/50 dark:data-[tone=danger]:bg-[linear-gradient(180deg,rgb(245_62_41/0.09),transparent_65%),var(--control)]',
+        'data-selected:border-fg-primary/55 data-selected:shadow-sm data-selected:ring-2 data-selected:ring-fg-primary/10 dark:data-selected:border-white/55 dark:data-selected:ring-white/15',
         className
       )}
       {...props}
@@ -172,7 +172,7 @@ function BoardCardTitle({ className, render, ...props }: useRender.ComponentProp
     props: mergeProps<'div'>(
       {
         className: cn(
-          'line-clamp-2 w-full rounded-mini text-start text-[13.5px] leading-[19px] font-medium break-words text-foreground',
+          'line-clamp-2 w-full rounded-mini text-start text-[13.5px] leading-[19px] font-medium break-words text-fg-primary',
           "[:is(button,a)&]:cursor-pointer [:is(button,a)&]:focus-visible:outline-none [:is(button,a)&]:after:absolute [:is(button,a)&]:after:inset-0 [:is(button,a)&]:after:rounded-surface [:is(button,a)&]:after:content-['']",
           className
         )
@@ -264,7 +264,7 @@ function BoardPresence({ avatars, className, children, ...props }: ComponentProp
     <span
       data-slot="board-presence"
       className={cn(
-        'inline-flex h-7 max-w-full min-w-0 shrink-0 items-center gap-2 rounded-full border border-blue-30/60 bg-blue-10 ps-1 pe-3 text-xs leading-4 font-medium text-foreground dark:border-blue-80/60 dark:bg-blue-100/45',
+        'inline-flex h-7 max-w-full min-w-0 shrink-0 items-center gap-2 rounded-full border border-blue-30/60 bg-blue-10 ps-1 pe-3 text-xs leading-4 font-medium text-fg-primary dark:border-blue-80/60 dark:bg-blue-100/45',
         className
       )}
       {...props}>

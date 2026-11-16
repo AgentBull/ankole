@@ -52,7 +52,7 @@ export function ErrorFallback({
         role="alert"
         data-error-boundary="inline"
         className={cn(
-          'flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-control border border-border bg-muted/30 px-3 py-2 text-xs text-fg-secondary',
+          'flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-control border border-border-subtle bg-layer-03/30 px-3 py-2 text-xs text-fg-secondary',
           className
         )}>
         <span className="flex min-w-0 items-center gap-2">
@@ -76,10 +76,10 @@ export function ErrorFallback({
     return (
       <main
         data-error-boundary="shell"
-        className={cn('grid min-h-svh place-items-center bg-ground p-6 text-foreground', className)}>
+        className={cn('grid min-h-svh place-items-center bg-ground p-6 text-fg-primary', className)}>
         <div
           role="alert"
-          className="grid w-full max-w-lg gap-4 rounded-panel border border-border bg-card p-6 shadow-sm">
+          className="grid w-full max-w-lg gap-4 rounded-panel border border-border-subtle bg-page p-6 shadow-sm">
           <div className="flex items-center gap-2.5">
             <BrandIcon className="size-6 shrink-0" />
             <h1 className="text-base font-semibold leading-6">{t('common.app_error_title')}</h1>
@@ -108,7 +108,7 @@ export function ErrorFallback({
     <div
       role="alert"
       data-error-boundary="panel"
-      className={cn('grid min-w-0 gap-3 border border-border bg-card p-5 text-sm text-foreground', className)}>
+      className={cn('grid min-w-0 gap-3 border border-border-subtle bg-page p-5 text-sm text-fg-primary', className)}>
       <div className="flex min-w-0 items-start gap-2.5">
         <ErrorCircleRegular aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-secondary" />
         <div className="grid min-w-0 gap-1">
@@ -179,7 +179,7 @@ function CopyDiagnosticButton({ copyText }: { copyText: string }) {
 
 function DiagnosticLine({ copyText, detail }: { copyText: string; detail: string }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-2 rounded-control border border-border/70 bg-muted/30 px-2.5 py-1.5">
+    <div className="flex min-w-0 items-center justify-between gap-2 rounded-control border border-border-subtle/70 bg-layer-03/30 px-2.5 py-1.5">
       <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg-tertiary" title={detail}>
         {detail}
       </code>

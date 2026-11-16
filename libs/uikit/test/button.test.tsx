@@ -21,7 +21,7 @@ describe('Button toolbar sizes', () => {
         "[&_svg:not([class*='size-'])]:size-5",
         'bg-clip-content',
         'rounded-[calc(var(--radius-micro)+var(--spacing)*2)]',
-        'hover:bg-accent',
+        'hover:bg-layer-hover',
         'active:bg-layer-pressed'
       ])
     )
@@ -42,7 +42,7 @@ describe('Button toolbar sizes', () => {
         "[&_svg:not([class*='size-'])]:size-5",
         'bg-clip-content',
         'rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)]',
-        'hover:bg-accent'
+        'hover:bg-layer-hover'
       ])
     )
     expect(classes).not.toContain('rounded-control')

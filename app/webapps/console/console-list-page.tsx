@@ -207,7 +207,7 @@ export function ResourceListPage({
   const table = (
     <Table
       aria-busy={isLoading}
-      className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-card [&_td:last-child]:transition-colors fine-hover:[&_tbody_tr:hover_td:last-child]:bg-[image:linear-gradient(var(--color-accent),var(--color-accent))] [&_tbody_tr:has([aria-expanded=true])_td:last-child]:bg-[image:linear-gradient(var(--color-accent),var(--color-accent))] [&_tbody_tr[data-state=selected]_td:last-child]:bg-selection [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-card"
+      className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-page [&_td:last-child]:transition-colors fine-hover:[&_tbody_tr:hover_td:last-child]:bg-[image:linear-gradient(var(--color-layer-hover),var(--color-layer-hover))] [&_tbody_tr:has([aria-expanded=true])_td:last-child]:bg-[image:linear-gradient(var(--color-layer-hover),var(--color-layer-hover))] [&_tbody_tr[data-state=selected]_td:last-child]:bg-selection [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-page"
       containerLabel={t('console.table.region_label', { title })}>
       <TableHeader>
         <TableRow>
@@ -255,14 +255,12 @@ export function ResourceListPage({
 
       {subNav}
       <ErrorBlock error={pagination?.isFetchNextPageError ? undefined : listError} />
-      {showTable ? (
-        <p className="-mb-3 text-xs text-muted-foreground sm:hidden">{t('console.table.scroll_hint')}</p>
-      ) : null}
+      {showTable ? <p className="-mb-3 text-xs text-fg-secondary sm:hidden">{t('console.table.scroll_hint')}</p> : null}
 
       {/* The toolbar is the first row of the list frame, so the search, its
           count, and the rows it filters read as one object. */}
       {showToolbar || showEmpty || showTable ? (
-        <div className="divide-y divide-border border border-border bg-card">
+        <div className="divide-y divide-border-subtle border border-border-subtle bg-page">
           {showToolbar ? (
             <div ref={toolbarRef} className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 p-2">
               {toolbar}
@@ -299,7 +297,7 @@ export function SubNav({
 }) {
   const location = useLocation()
   return (
-    <nav aria-label={ariaLabel} className="-mt-1 flex min-w-0 flex-wrap gap-1 border-b border-border">
+    <nav aria-label={ariaLabel} className="-mt-1 flex min-w-0 flex-wrap gap-1 border-b border-border-subtle">
       {items.map(item => {
         const target = linkTarget(item.to)
         const isActive =
@@ -315,10 +313,10 @@ export function SubNav({
             aria-current={isActive ? 'page' : undefined}
             className={cn(
               'relative -mb-px border-b-2 border-transparent px-4 py-2 text-sm transition-colors focus-visible:-outline-offset-2',
-              'after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-foreground after:opacity-0 after:transition-opacity after:duration-(--duration-feedback) after:ease-productive',
+              'after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-fg-primary after:opacity-0 after:transition-opacity after:duration-(--duration-feedback) after:ease-productive',
               isActive
-                ? 'font-medium text-foreground after:opacity-100'
-                : 'text-muted-foreground fine-hover:hover:text-foreground'
+                ? 'font-medium text-fg-primary after:opacity-100'
+                : 'text-fg-secondary fine-hover:hover:text-fg-primary'
             )}>
             {item.label}
           </Link>
@@ -402,7 +400,7 @@ export function CursorPagination({
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <span aria-live="polite" className="text-xs text-muted-foreground">
+      <span aria-live="polite" className="text-xs text-fg-secondary">
         {t('console.pagination.page_results', { page, count: resultCount })}
       </span>
       <div className="flex items-center gap-2">
@@ -426,7 +424,7 @@ export function CursorPagination({
 export function ResultCount({ count }: { count: number }) {
   const { t } = useTranslation()
   return (
-    <p aria-live="polite" className="ml-auto shrink-0 px-2 text-sm text-muted-foreground">
+    <p aria-live="polite" className="ml-auto shrink-0 px-2 text-sm text-fg-secondary">
       {t('console.result_count', { count })}
     </p>
   )
@@ -499,7 +497,7 @@ export function SearchField({
   return (
     <div className={cn('relative min-w-0', className)}>
       <SearchRegular
-        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fg-secondary"
         aria-hidden
       />
       <Input
@@ -515,14 +513,14 @@ export function SearchField({
       {!value ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-10 left-10 flex items-center truncate text-sm leading-5 text-muted-foreground">
+          className="pointer-events-none absolute inset-y-0 right-10 left-10 flex items-center truncate text-sm leading-5 text-fg-secondary">
           {placeholder ?? label}
         </span>
       ) : null}
       {value ? (
         <button
           aria-label={clearLabel ?? t('console.empty.clear_search')}
-          className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground focus-visible:-outline-offset-2"
+          className="absolute inset-y-0 right-0 grid w-10 place-items-center text-fg-secondary hover:text-fg-primary focus-visible:-outline-offset-2"
           type="button"
           onClick={() => onChange('')}>
           <DismissRegular />
@@ -538,7 +536,9 @@ export function SearchField({
  * the operator brings rows back or leaves.
  */
 export function ScopeBar({ children }: { children: ReactNode }) {
-  return <div className="flex min-w-0 flex-wrap items-center gap-3 border border-border bg-card p-2">{children}</div>
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-3 border border-border-subtle bg-page p-2">{children}</div>
+  )
 }
 
 /** Labeled on/off filter, such as widening a list to finished rows. */
@@ -553,7 +553,7 @@ export function FilterSwitch({
 }) {
   return (
     <SwitchRow
-      rowClassName="flex shrink-0 items-center gap-2 text-sm text-muted-foreground"
+      rowClassName="flex shrink-0 items-center gap-2 text-sm text-fg-secondary"
       label={label}
       checked={checked}
       onCheckedChange={onChange}
@@ -627,7 +627,7 @@ export function AgentCell({ uid }: { uid: string }) {
         to={`/agents/${encodeURIComponent(uid)}`}>
         {agent.display_name || uid}
       </Link>
-      <span className="block max-w-44 truncate font-mono text-xs text-muted-foreground">{agent.uid}</span>
+      <span className="block max-w-44 truncate font-mono text-xs text-fg-secondary">{agent.uid}</span>
     </TableCell>
   )
 }

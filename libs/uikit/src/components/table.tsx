@@ -36,7 +36,7 @@ function TableFooter({ className, ...props }: React.ComponentProps<'tfoot'>) {
   return (
     <tfoot
       data-slot="table-footer"
-      className={cn('border-t bg-muted font-medium [&>tr]:last:border-b-0', className)}
+      className={cn('border-t bg-layer-03 font-medium [&>tr]:last:border-b-0', className)}
       {...props}
     />
   )
@@ -52,7 +52,7 @@ function TableRow({ className, onClick, ...props }: React.ComponentProps<'tr'>) 
     <tr
       data-slot="table-row"
       className={cn(
-        'h-8 transition-colors fine-hover:hover:bg-accent has-aria-expanded:bg-accent has-data-row-link:cursor-pointer data-[state=selected]:selected-surface fine-hover:[&:hover_[data-row-link]]:underline',
+        'h-8 transition-colors fine-hover:hover:bg-layer-hover has-aria-expanded:bg-layer-hover has-data-row-link:cursor-pointer data-[state=selected]:selected-surface fine-hover:[&:hover_[data-row-link]]:underline',
         className
       )}
       onClick={event => {
@@ -87,7 +87,7 @@ function TableHead({ className, scope = 'col', ...props }: React.ComponentProps<
       data-slot="table-head"
       scope={scope}
       className={cn(
-        'h-8 border-b border-gray-50 px-3 text-left align-middle text-xs leading-4 font-medium whitespace-nowrap text-muted-foreground dark:border-gray-90 [&:has([role=checkbox])]:pr-0',
+        'h-8 border-b border-gray-50 px-3 text-left align-middle text-xs leading-4 font-medium whitespace-nowrap text-fg-secondary dark:border-gray-90 [&:has([role=checkbox])]:pr-0',
         className
       )}
       {...props}
@@ -100,7 +100,7 @@ function TableCell({ className, ...props }: React.ComponentProps<'td'>) {
     <td
       data-slot="table-cell"
       className={cn(
-        'border-b border-border px-3 py-1.5 align-middle whitespace-nowrap text-muted-foreground has-data-row-link:font-medium has-data-row-link:text-foreground [&:has([role=checkbox])]:pr-0',
+        'border-b border-border-subtle px-3 py-1.5 align-middle whitespace-nowrap text-fg-secondary has-data-row-link:font-medium has-data-row-link:text-fg-primary [&:has([role=checkbox])]:pr-0',
         className
       )}
       {...props}
@@ -109,9 +109,7 @@ function TableCell({ className, ...props }: React.ComponentProps<'td'>) {
 }
 
 function TableCaption({ className, ...props }: React.ComponentProps<'caption'>) {
-  return (
-    <caption data-slot="table-caption" className={cn('mt-4 text-sm text-muted-foreground', className)} {...props} />
-  )
+  return <caption data-slot="table-caption" className={cn('mt-4 text-sm text-fg-secondary', className)} {...props} />
 }
 
 export { Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow }

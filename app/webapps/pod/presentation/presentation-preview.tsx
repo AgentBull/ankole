@@ -127,14 +127,14 @@ function PreviewThumbnailItem({
         onClick={() => onSelect(slide.index)}
         className={cn(
           'flex w-full items-start gap-1.5 rounded-control p-1.5 text-left transition-colors focus-visible:outline-offset-1',
-          isActive ? 'bg-accent ring-2 ring-primary' : 'hover:bg-accent/60'
+          isActive ? 'bg-layer-hover ring-2 ring-primary' : 'hover:bg-layer-hover/60'
         )}>
         <span className="w-5 shrink-0 pt-0.5 text-right font-mono text-xs tabular-nums text-fg-secondary">
           {slide.index + 1}
         </span>
         <div
           style={{ width: `${thumbWidth}px`, height: `${thumbHeight}px` }}
-          className="overflow-hidden rounded-xs border border-border bg-white shadow-2xs">
+          className="overflow-hidden rounded-xs border border-border-subtle bg-white shadow-2xs">
           <canvas ref={canvasRef} aria-hidden="true" className="block size-full" />
         </div>
       </button>
@@ -482,7 +482,7 @@ function PresentationPreviewWorkspace({
 
   if (status === 'too_large') {
     return (
-      <p className="rounded-control border border-dashed border-border px-6 py-10 text-center text-sm text-fg-secondary">
+      <p className="rounded-control border border-dashed border-border-subtle px-6 py-10 text-center text-sm text-fg-secondary">
         {t('pod.office.too_large')}
       </p>
     )
@@ -505,8 +505,8 @@ function PresentationPreviewWorkspace({
         aria-label={t('pod.presentation.presentation')}
         aria-busy={status === 'loading'}
         onKeyDown={handleWorkspaceKeyDown}
-        className="flex h-[min(68vh,720px)] min-h-[360px] flex-col overflow-hidden rounded-control border border-border bg-background outline-none">
-        <div className="flex min-h-10 flex-wrap items-center gap-1 border-b border-border bg-background px-2 py-1">
+        className="flex h-[min(68vh,720px)] min-h-[360px] flex-col overflow-hidden rounded-control border border-border-subtle bg-page outline-none">
+        <div className="flex min-h-10 flex-wrap items-center gap-1 border-b border-border-subtle bg-page px-2 py-1">
           <Toggle
             size="sm"
             aria-label={t('pod.presentation.toggle_slides_rail')}
@@ -633,7 +633,7 @@ function PresentationPreviewWorkspace({
 
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           {!isMobile && railOpen && (
-            <aside className="w-44 shrink-0 overflow-y-auto border-r border-border bg-muted/20 p-2">
+            <aside className="w-44 shrink-0 overflow-y-auto border-r border-border-subtle bg-layer-03/20 p-2">
               <ol aria-label={t('pod.presentation.slides_rail')} className="flex flex-col gap-1.5">
                 {slides.map(slide => (
                   <PreviewThumbnailItem
@@ -654,7 +654,7 @@ function PresentationPreviewWorkspace({
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div
               ref={stageRef}
-              className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-muted/40 p-3">
+              className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-layer-03/40 p-3">
               <div
                 style={{ width: `${cssWidth}px`, height: `${cssHeight}px` }}
                 className="relative shrink-0 bg-white shadow-md">
@@ -692,7 +692,7 @@ function PresentationPreviewWorkspace({
             {speakerNotes.length > 0 && (
               <section
                 aria-label={t('pod.presentation.speaker_notes')}
-                className="max-h-28 shrink-0 overflow-y-auto border-t border-border bg-background px-3 py-2">
+                className="max-h-28 shrink-0 overflow-y-auto border-t border-border-subtle bg-page px-3 py-2">
                 <p className="mb-0.5 text-xs font-medium text-fg-tertiary">{t('pod.presentation.speaker_notes')}</p>
                 <p className="whitespace-pre-wrap text-xs text-fg-secondary">{speakerNotes}</p>
               </section>
@@ -700,7 +700,7 @@ function PresentationPreviewWorkspace({
           </div>
 
           {isMobile && railOpen && (
-            <aside className="shrink-0 overflow-x-auto border-t border-border bg-muted/20 p-2">
+            <aside className="shrink-0 overflow-x-auto border-t border-border-subtle bg-layer-03/20 p-2">
               <ol aria-label={t('pod.presentation.slides_rail')} className="flex items-center gap-2">
                 {slides.map(slide => (
                   <PreviewThumbnailItem

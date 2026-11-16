@@ -189,7 +189,7 @@ export function ComposerCompletionList({
       <div ref={list} id={id} role="listbox" aria-label={t('pod.chat_room.completion_results')}>
         <ComposerMenuHighlight />
         {!options.length && (
-          <p className="px-4 py-3 text-sm text-muted-foreground" role="status">
+          <p className="px-4 py-3 text-sm text-fg-secondary" role="status">
             {t(loading ? 'common.loading' : 'pod.chat_room.no_matches')}
           </p>
         )}

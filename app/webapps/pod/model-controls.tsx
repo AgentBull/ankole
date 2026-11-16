@@ -129,14 +129,14 @@ export function ModelControls({
             <SelectItem key={option.name} value={option.name}>
               <span className="flex min-w-0 flex-col">
                 <span>{option.name}</span>
-                <span className="max-w-64 truncate text-xs text-muted-foreground">{option.description}</span>
+                <span className="max-w-64 truncate text-xs text-fg-secondary">{option.description}</span>
               </span>
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
       {requiresQueue && (
-        <p className={inline ? 'min-w-0 truncate text-xs text-muted-foreground' : 'mt-1 text-xs text-muted-foreground'}>
+        <p className={inline ? 'min-w-0 truncate text-xs text-fg-secondary' : 'mt-1 text-xs text-fg-secondary'}>
           {t('pod.chat.model_for_next_reply')}
         </p>
       )}

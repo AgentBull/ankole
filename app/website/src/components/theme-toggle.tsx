@@ -58,7 +58,7 @@ export default function ThemeToggle({ labelLight, labelDark }: ThemeToggleProps)
       onClick={toggle}
       aria-label={label}
       title={label}
-      className="inline-flex size-9 cursor-pointer items-center justify-center text-muted-foreground transition-colors duration-150 ease-[var(--ease-productive)] hover:bg-muted hover:text-foreground">
+      className="inline-flex size-9 cursor-pointer items-center justify-center text-fg-secondary transition-colors duration-150 ease-[var(--ease-productive)] hover:bg-layer-03 hover:text-fg-primary">
       {/* Keyed so the swapped mark replays its turn-in: the click gets an answer. */}
       <Icon key={resolved} className="size-5 [animation:theme-mark_180ms_var(--ease-productive)]" />
     </button>

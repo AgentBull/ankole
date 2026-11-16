@@ -10,7 +10,7 @@ export function DocumentRecovery({ model, title }: { model: InstanceType<typeof 
   useSignals()
   if (!model.recoveryDrafts.value.length) return null
   return (
-    <div role="alert" className="rounded border border-border p-4 text-sm">
+    <div role="alert" className="rounded border border-border-subtle p-4 text-sm">
       <p>{t('pod.content.another_write_replaced_the_document_so_the_current_content_was')}</p>
       {model.recoveryDrafts.value.map((draft, index) => (
         <div key={draft} className="mt-2 flex gap-2">

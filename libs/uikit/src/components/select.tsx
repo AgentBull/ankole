@@ -124,9 +124,9 @@ const selectTriggerVariants = cva(
     variants: {
       variant: {
         field:
-          'border-field-edge border-b-input bg-field outline-none hover:bg-field-hover focus-visible:border-control-edge focus-visible:border-b-ring focus-visible:bg-background focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)] disabled:border-b-transparent disabled:bg-field aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-invalid:border-b-destructive data-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)]',
+          'border-field-edge border-b-field-border bg-field outline-none hover:bg-field-hover focus-visible:border-control-edge focus-visible:border-b-ring focus-visible:bg-page focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)] disabled:border-b-transparent disabled:bg-field aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-invalid:border-b-destructive data-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)]',
         ghost:
-          'border-transparent bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-offset-1 data-popup-open:bg-accent data-popup-open:text-foreground'
+          'border-transparent bg-transparent text-fg-secondary hover:bg-layer-hover hover:text-fg-primary focus-visible:outline-offset-1 data-popup-open:bg-layer-hover data-popup-open:text-fg-primary'
       }
     },
     defaultVariants: { variant: 'field' }
@@ -168,7 +168,7 @@ function SelectTrigger({
           size === 'toolbar' ? (
             <CaretDownFilled className="pointer-events-none size-3" />
           ) : (
-            <ChevronDownRegular className="pointer-events-none size-3.5 text-muted-foreground motion-safe:transition-transform motion-safe:duration-[240ms] motion-safe:ease-(--ease-segment) group-data-popup-open/select-trigger:rotate-180" />
+            <ChevronDownRegular className="pointer-events-none size-3.5 text-fg-secondary motion-safe:transition-transform motion-safe:duration-[240ms] motion-safe:ease-(--ease-segment) group-data-popup-open/select-trigger:rotate-180" />
           )
         }
       />
@@ -212,7 +212,7 @@ function SelectContent({
           data-slot="select-content"
           data-align-trigger={alignItemWithTrigger}
           className={cn(
-            'ceramic-menu relative isolate z-50 outline-none max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-popover-foreground transition-none data-starting-style:opacity-0 data-ending-style:opacity-0',
+            'ceramic-menu relative isolate z-50 outline-none max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-fg-primary transition-none data-starting-style:opacity-0 data-ending-style:opacity-0',
             surface === 'composer' ? 'composer-menu' : 'ceramic ceramic-primary p-1',
             className
           )}
@@ -226,7 +226,7 @@ function SelectContent({
                 aria-disabled="true"
                 aria-selected="false"
                 data-slot="select-empty"
-                className="px-4 py-3 text-sm text-muted-foreground">
+                className="px-4 py-3 text-sm text-fg-secondary">
                 {emptyLabel}
               </div>
             ) : (

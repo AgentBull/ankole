@@ -54,7 +54,7 @@ export function OfficeVersions({ pageID }: { pageID: string }) {
         <HistoryRegular />
       </DrawerTrigger>
       <DrawerContent aria-label={t('pod.office.version_history')}>
-        <DrawerHeader className="border-b border-border p-5">
+        <DrawerHeader className="border-b border-border-subtle p-5">
           <DrawerTitle>{t('pod.office.version_history')}</DrawerTitle>
           <DrawerDescription>{t('pod.office.version_history_description')}</DrawerDescription>
         </DrawerHeader>
@@ -63,7 +63,9 @@ export function OfficeVersions({ pageID }: { pageID: string }) {
           {versions.isPending && <ContentSkeleton variant="list" rows={5} />}
           <ol className="grid gap-1" aria-label={t('pod.office.versions')}>
             {versions.data?.versions.map(version => (
-              <li key={version.id} className="flex items-center gap-3 rounded-control px-2 py-2 hover:bg-accent/60">
+              <li
+                key={version.id}
+                className="flex items-center gap-3 rounded-control px-2 py-2 hover:bg-layer-hover/60">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">{t(`pod.office.version_reasons.${version.reason}`)}</p>
                   <p className="truncate text-xs text-fg-tertiary">

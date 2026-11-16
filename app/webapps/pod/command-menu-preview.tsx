@@ -141,7 +141,7 @@ export function CommandMenuPreview({
           <div className="flex items-center gap-2.5">
             <ConversationGlyph room={activeEntry.conversation} size="md" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-foreground">
+              <p className="truncate text-sm font-medium text-fg-primary">
                 <ConversationTitle room={activeEntry.conversation} />
               </p>
               {activeEntry.conversation.agents.length > 0 && (
@@ -166,7 +166,7 @@ export function CommandMenuPreview({
               <ChatAvatar name={activeEntry.agent.displayName} src={activeEntry.agent.avatarURL} agent />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-foreground">
+              <p className="truncate text-sm font-medium text-fg-primary">
                 <AgentName agent={activeEntry.agent} />
               </p>
               <p className="truncate text-xs text-fg-tertiary">@{activeEntry.agent.uid}</p>
@@ -178,12 +178,12 @@ export function CommandMenuPreview({
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <PuzzlePieceRegular aria-hidden className="size-4 shrink-0 text-fg-tertiary" />
-            <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-fg-primary">
               <HighlightedText text={activeEntry.skill.name} query={trimmedQuery} />
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-tertiary">
-            <code className="rounded-mini bg-muted px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
+            <code className="rounded-mini bg-layer-03 px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
               /{activeEntry.skill.slug}
             </code>
             <span>·</span>
@@ -197,7 +197,7 @@ export function CommandMenuPreview({
         </div>
       ) : activeEntry?.kind === 'nav' ? (
         <div className="space-y-1.5">
-          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <div className="flex items-center gap-2 text-sm font-medium text-fg-primary">
             <activeEntry.icon aria-hidden className="size-4 shrink-0 text-fg-tertiary" />
             <span className="truncate">{activeEntry.label}</span>
           </div>
@@ -209,7 +209,7 @@ export function CommandMenuPreview({
             <div className="flex items-center gap-2">
               <PageIcon page={previewPage} />
               <HighlightedBdiLabel
-                className="min-w-0 flex-1 text-sm font-medium text-foreground"
+                className="min-w-0 flex-1 text-sm font-medium text-fg-primary"
                 value={previewPage.title}
                 fallback={t('pod.content.untitled')}
                 query={trimmedQuery}
@@ -271,11 +271,11 @@ export function CommandMenuPreview({
                     key={idx}
                     className={
                       block.kind === 'heading'
-                        ? 'font-medium text-foreground'
+                        ? 'font-medium text-fg-primary'
                         : block.kind === 'code'
-                          ? 'overflow-x-auto rounded-mini bg-muted px-2 py-1 font-mono text-[11px]'
+                          ? 'overflow-x-auto rounded-mini bg-layer-03 px-2 py-1 font-mono text-[11px]'
                           : block.kind === 'quote'
-                            ? 'border-l-2 border-border pl-2 italic'
+                            ? 'border-l-2 border-border-subtle pl-2 italic'
                             : 'line-clamp-3'
                     }>
                     <HighlightedText text={block.text} query={trimmedQuery} />
@@ -291,7 +291,7 @@ export function CommandMenuPreview({
                 {(() => {
                   const badge = formatSearchTargetBadge(previewMatch.primary_target, t)
                   return badge ? (
-                    <span className="inline-block rounded-mini bg-muted px-1.5 py-0.5 text-[11px] text-fg-secondary">
+                    <span className="inline-block rounded-mini bg-layer-03 px-1.5 py-0.5 text-[11px] text-fg-secondary">
                       {badge}
                     </span>
                   ) : null

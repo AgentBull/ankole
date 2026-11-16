@@ -267,10 +267,10 @@ export function AnkoleFinancialChart({
   }, [spec, themeRevision])
 
   return (
-    <figure className={cn('ankole-viz-figure content-object flex flex-col gap-3 bg-background p-4', className)}>
+    <figure className={cn('ankole-viz-figure content-object flex flex-col gap-3 bg-page p-4', className)}>
       {(title || subtitle) && (
         <div className="flex flex-col gap-0.5">
-          {title && <div className="text-sm font-semibold text-foreground">{title}</div>}
+          {title && <div className="text-sm font-semibold text-fg-primary">{title}</div>}
           {subtitle && <div className="text-xs text-fg-secondary">{subtitle}</div>}
         </div>
       )}
@@ -279,8 +279,8 @@ export function AnkoleFinancialChart({
         <div
           role="alert"
           data-slot="financial-chart-error"
-          className="rounded-mini border border-border bg-layer-01 p-4 text-xs text-fg-secondary">
-          <div className="font-semibold text-foreground">Financial chart unavailable</div>
+          className="rounded-mini border border-border-subtle bg-layer-01 p-4 text-xs text-fg-secondary">
+          <div className="font-semibold text-fg-primary">Financial chart unavailable</div>
           <div className="mt-1 font-mono">{errorMessage}</div>
         </div>
       ) : null}
@@ -307,7 +307,7 @@ export function AnkoleFinancialChart({
               aria-expanded={tableOpen}
               aria-controls={tableId}
               onClick={() => setTableOpen(prev => !prev)}
-              className="rounded-mini border border-border px-2 py-1 text-xs font-medium text-fg-secondary hover:bg-layer-01 hover:text-foreground">
+              className="rounded-mini border border-border-subtle px-2 py-1 text-xs font-medium text-fg-secondary hover:bg-layer-01 hover:text-fg-primary">
               {tableToggleLabel}
             </button>
           )}
@@ -315,12 +315,12 @@ export function AnkoleFinancialChart({
       )}
 
       {tableOpen && summaryTable.columns.length > 0 && (
-        <div id={tableId} className="max-h-64 overflow-auto border-t border-border pt-2">
+        <div id={tableId} className="max-h-64 overflow-auto border-t border-border-subtle pt-2">
           <table className="w-full border-collapse text-left font-mono text-xs tabular-nums">
             <thead>
-              <tr className="border-b border-border bg-layer-01">
+              <tr className="border-b border-border-subtle bg-layer-01">
                 {summaryTable.columns.map(col => (
-                  <th key={col} scope="col" className="px-2 py-1.5 font-sans font-semibold text-foreground">
+                  <th key={col} scope="col" className="px-2 py-1.5 font-sans font-semibold text-fg-primary">
                     {col}
                   </th>
                 ))}
@@ -328,7 +328,7 @@ export function AnkoleFinancialChart({
             </thead>
             <tbody>
               {summaryTable.rows.map((row, rowIndex) => (
-                <tr key={rowIndex} className="border-b border-border/60">
+                <tr key={rowIndex} className="border-b border-border-subtle/60">
                   {row.map((cell, cellIndex) => (
                     <td key={cellIndex} className="px-2 py-1 text-fg-secondary">
                       {String(cell)}

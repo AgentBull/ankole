@@ -13,18 +13,18 @@ const buttonVariantClasses = cva(
         // The one solid button of a view: brand-60 with a darker bottom edge. Disabled, it keeps a faint brand fill so
         // it still reads as the primary action that cannot be pressed now.
         default:
-          'border-primary border-b-primary-edge bg-primary text-primary-foreground hover:border-primary-hover hover:border-b-primary-edge hover:bg-primary-hover active:border-primary-active active:bg-primary-active disabled:border-primary-disabled disabled:bg-primary-disabled disabled:text-primary-disabled-foreground',
+          'border-primary border-b-primary-edge bg-primary text-primary-fg hover:border-primary-hover hover:border-b-primary-edge hover:bg-primary-hover active:border-primary-active active:bg-primary-active disabled:border-primary-disabled disabled:bg-primary-disabled disabled:text-primary-disabled-fg',
         // The normal button is a paper object. Pressed, it sinks into a slot. Disabled, it keeps its outline and drops
         // its fill, so it still reads as a button rather than an empty field.
         outline:
-          'border-control-edge border-b-control-base bg-control text-foreground shadow-control hover:bg-control-hover active:bg-field active:shadow-none aria-expanded:bg-field aria-expanded:shadow-none disabled:border-border disabled:bg-transparent disabled:text-fg-disabled disabled:shadow-none',
+          'border-control-edge border-b-control-base bg-control text-fg-primary shadow-control hover:bg-control-hover active:bg-field active:shadow-none aria-expanded:bg-field aria-expanded:shadow-none disabled:border-border-subtle disabled:bg-transparent disabled:text-fg-disabled disabled:shadow-none',
         ghost:
-          'text-muted-foreground hover:bg-accent hover:text-foreground active:bg-layer-pressed aria-expanded:bg-accent aria-expanded:text-foreground disabled:text-fg-disabled',
+          'text-fg-secondary hover:bg-layer-hover hover:text-fg-primary active:bg-layer-pressed aria-expanded:bg-layer-hover aria-expanded:text-fg-primary disabled:text-fg-disabled',
         // The confirmation of an action that cannot be undone. Deep red sits darker than the brand primary, so the two
         // solid buttons differ in lightness as well as hue; the white label stays above 7:1 in both themes.
         destructive:
-          'border-red-80 border-b-red-90 bg-red-80 text-white hover:border-red-90 hover:bg-red-90 active:bg-red-90 disabled:border-border disabled:bg-transparent disabled:text-fg-disabled',
-        link: 'link border-0 disabled:text-fg-disabled disabled:decoration-border'
+          'border-red-80 border-b-red-90 bg-red-80 text-white hover:border-red-90 hover:bg-red-90 active:bg-red-90 disabled:border-border-subtle disabled:bg-transparent disabled:text-fg-disabled',
+        link: 'link border-0 disabled:text-fg-disabled disabled:decoration-border-subtle'
       },
       size: {
         // 32px by default, 28px in rows, 24px inside another control. A shell toolbar, such as the top bar or the
@@ -122,7 +122,7 @@ function Button({
         buttonVariants({ variant, size }),
         'motion-safe:button-press',
         incomplete &&
-          'border-border border-b-border bg-muted text-muted-foreground hover:border-border hover:bg-muted/80 hover:text-muted-foreground',
+          'border-border-subtle border-b-border-subtle bg-layer-03 text-fg-secondary hover:border-border-subtle hover:bg-layer-03/80 hover:text-fg-secondary',
         className
       )}
       {...props}>

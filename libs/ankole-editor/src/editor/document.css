@@ -9,38 +9,38 @@
 .ankole-editor,
 .ankole-editor-overlay {
   font-family: var(--font-family-sans);
-  color: var(--foreground);
+  color: var(--fg-primary);
   font-size: var(--text-100);
   -webkit-font-smoothing: antialiased;
   --editor-selection-bg: var(--selection);
   --editor-scrollbar-thumb: var(--border-strong);
-  --editor-toolbar-border: var(--border);
-  --editor-toolbar-bg: var(--background);
+  --editor-toolbar-border: var(--border-subtle);
+  --editor-toolbar-bg: var(--page);
   --editor-toolbar-btn: var(--fg-secondary);
-  --editor-toolbar-divider: var(--border);
+  --editor-toolbar-divider: var(--border-subtle);
   --editor-hint: var(--fg-tertiary);
-  --editor-ink: var(--foreground);
+  --editor-ink: var(--fg-primary);
   --editor-placeholder: var(--fg-placeholder);
   --editor-selected-outline: var(--border-strong);
-  --editor-h1: var(--foreground);
-  --editor-h2: var(--foreground);
+  --editor-h1: var(--fg-primary);
+  --editor-h2: var(--fg-primary);
   --editor-pre-bg: var(--layer-01);
   --editor-quote-border: var(--layer-03);
   --editor-quote-fg: var(--fg-secondary);
   --editor-task-border: var(--border-strong);
   --editor-task-done-fg: var(--fg-tertiary);
-  --editor-task-done-bg: var(--foreground);
-  --editor-task-check: var(--background);
-  --editor-hr: var(--border);
-  --editor-strong: var(--foreground);
+  --editor-task-done-bg: var(--fg-primary);
+  --editor-task-check: var(--page);
+  --editor-hr: var(--border-subtle);
+  --editor-strong: var(--fg-primary);
   --editor-mark-bg: var(--warning-subtle);
-  --editor-code-fg: var(--foreground);
+  --editor-code-fg: var(--fg-primary);
   --editor-unknown-inline: var(--fg-tertiary);
   --editor-unknown-border: var(--border-strong);
   --editor-unknown-label: var(--fg-tertiary);
   --editor-handle-fg: var(--fg-tertiary);
-  --editor-handle-hover-fg: var(--foreground);
-  --editor-handle-hover-bg: var(--accent);
+  --editor-handle-hover-fg: var(--fg-primary);
+  --editor-handle-hover-bg: var(--layer-hover);
 }
 /* The editor shell reserves room for controls outside the text. Hosts can size the document gutter. */
 :where(.ankole-editor) .editor-toolbar {
@@ -465,7 +465,7 @@
 /* Inline mentions: page references flow and wrap like text links; principal mentions stay atomic pills. */
 :where(.ankole-editor, .ankole-editor-overlay) .editor-content .editor-mention {
   font: inherit;
-  color: var(--foreground);
+  color: var(--fg-primary);
   user-select: all;
 }
 :where(.ankole-editor, .ankole-editor-overlay) .editor-content .editor-mention-page {
@@ -495,14 +495,14 @@
   padding: 1px 7px 1px 4px;
   border-radius: 9999px;
   background: var(--layer-hover);
-  color: var(--foreground);
+  color: var(--fg-primary);
   line-height: 1.35;
   white-space: nowrap;
   cursor: pointer;
   transition: background-color 120ms ease;
 }
 :where(.ankole-editor, .ankole-editor-overlay) .editor-content .editor-mention-principal:hover {
-  background: var(--accent);
+  background: var(--layer-hover);
 }
 
 /* Read-only elements (SPEC §7.4): known elements use the styles above. */

@@ -187,7 +187,7 @@ export function SignalsListPage() {
       {rows.map(binding => (
         <TableRow key={binding.id}>
           <TableCell className="font-mono text-xs">
-            <Link data-row-link className="text-foreground" {...linkTarget(editTo(binding.id, scope.agentUID))}>
+            <Link data-row-link className="text-fg-primary" {...linkTarget(editTo(binding.id, scope.agentUID))}>
               {binding.name}
             </Link>
           </TableCell>
@@ -269,11 +269,11 @@ function StoppedDeliveries({
         <h2 id="stopped-deliveries-title" className="title-inline">
           {t('console.signals.stopped_deliveries')}
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">{t('console.signals.stopped_deliveries_description')}</p>
+        <p className="mt-1 text-sm text-fg-secondary">{t('console.signals.stopped_deliveries_description')}</p>
       </div>
       <Table
         className="min-w-[800px]"
-        containerClassName="border border-border bg-card"
+        containerClassName="border border-border-subtle bg-page"
         containerLabel={t('console.signals.stopped_deliveries')}>
         <TableHeader>
           <TableRow>
@@ -304,7 +304,7 @@ function StoppedDeliveries({
                 <StatusIndicator tone={row.status === 'unknown' ? 'warning' : 'danger'}>
                   {t(`console.signals.delivery_status_${row.status}`)}
                 </StatusIndicator>
-                <span className="mt-1 block text-xs text-muted-foreground">
+                <span className="mt-1 block text-xs text-fg-secondary">
                   {t(`console.signals.delivery_state_${row.state}`)}
                 </span>
               </TableCell>
@@ -321,7 +321,7 @@ function StoppedDeliveries({
                     {t('common.retry')}
                   </Button>
                 ) : (
-                  <span className="text-xs text-muted-foreground">{t('console.signals.delivery_retry_unsafe')}</span>
+                  <span className="text-xs text-fg-secondary">{t('console.signals.delivery_retry_unsafe')}</span>
                 )}
               </TableCell>
             </TableRow>

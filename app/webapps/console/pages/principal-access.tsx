@@ -100,7 +100,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
   const canOffboard = Boolean(state && !isOffboarded)
 
   return (
-    <section className="grid gap-5 border-b border-border pb-6">
+    <section className="grid gap-5 border-b border-border-subtle pb-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="title-section">{t('console.human_access.title')}</h3>
         {state ? (
@@ -109,7 +109,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
           </Badge>
         ) : null}
       </div>
-      <p className="text-sm text-muted-foreground">{t('console.human_access.disable_hint')}</p>
+      <p className="text-sm text-fg-secondary">{t('console.human_access.disable_hint')}</p>
       <ErrorBlock error={access.error} />
       {access.isLoading ? <p role="status">{t('common.loading')}</p> : null}
       {state ? (
@@ -117,10 +117,10 @@ export function HumanAccessSection({ uid }: { uid: string }) {
           {canSuspend || canOffboard ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {canSuspend ? (
-                <div className="grid content-between gap-3 border border-border bg-card p-4">
+                <div className="grid content-between gap-3 border border-border-subtle bg-page p-4">
                   <div className="grid gap-1">
                     <h4 className="text-sm font-medium">{t('pod.settings.suspend')}</h4>
-                    <p className="text-xs leading-5 text-muted-foreground">{t('pod.settings.suspended_description')}</p>
+                    <p className="text-xs leading-5 text-fg-secondary">{t('pod.settings.suspended_description')}</p>
                   </div>
                   <Button
                     className="justify-self-start"
@@ -133,12 +133,10 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                 </div>
               ) : null}
               {canOffboard ? (
-                <div className="grid content-between gap-3 border border-border bg-card p-4">
+                <div className="grid content-between gap-3 border border-border-subtle bg-page p-4">
                   <div className="grid gap-1">
                     <h4 className="text-sm font-medium">{t('pod.settings.offboard')}</h4>
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      {t('pod.settings.offboarded_description')}
-                    </p>
+                    <p className="text-xs leading-5 text-fg-secondary">{t('pod.settings.offboarded_description')}</p>
                   </div>
                   <Button
                     className="justify-self-start"
@@ -155,17 +153,17 @@ export function HumanAccessSection({ uid }: { uid: string }) {
 
           {state.status !== 'active' ? (
             <div className="grid gap-4">
-              <p className="text-sm text-muted-foreground">{t('console.human_access.restore_hint')}</p>
+              <p className="text-sm text-fg-secondary">{t('console.human_access.restore_hint')}</p>
               {activeRestrictions.map(item => (
                 <RestrictionCard key={item.id} restriction={item} />
               ))}
               {activeRestrictions.some(item => item.source !== 'manual') ? (
-                <p className="text-sm text-muted-foreground">{t('console.human_access.provider_check')}</p>
+                <p className="text-sm text-fg-secondary">{t('console.human_access.provider_check')}</p>
               ) : null}
 
               <form
                 aria-label={t('console.human_access.restore')}
-                className="grid gap-4 border border-border bg-card p-4"
+                className="grid gap-4 border border-border-subtle bg-page p-4"
                 onSubmit={event => {
                   event.preventDefault()
                   restore.mutate({
@@ -191,9 +189,9 @@ export function HumanAccessSection({ uid }: { uid: string }) {
             </div>
           ) : null}
 
-          <details className="border-t border-border pt-4">
+          <details className="border-t border-border-subtle pt-4">
             <summary className="cursor-pointer text-sm font-medium">{t('console.human_access.work')}</summary>
-            <p className="my-3 text-sm text-muted-foreground">{t('console.human_access.work_hint')}</p>
+            <p className="my-3 text-sm text-fg-secondary">{t('console.human_access.work_hint')}</p>
             <div className="grid gap-2 text-sm">
               {state.cleanup_jobs.map(job => (
                 <p key={job.id}>
@@ -216,7 +214,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
             </Button>
             <div className="grid gap-2">
               {state.work.map(work => (
-                <div key={`${work.kind}:${work.id}`} className="grid gap-1 border-b border-border py-2 text-sm">
+                <div key={`${work.kind}:${work.id}`} className="grid gap-1 border-b border-border-subtle py-2 text-sm">
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span>{humanizeTechnicalLabel(work.kind)}</span>
                     <span aria-hidden>·</span>
@@ -230,22 +228,22 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                       </>
                     ) : null}
                   </span>
-                  <code className="text-xs break-all text-muted-foreground">{work.id}</code>
+                  <code className="text-xs break-all text-fg-secondary">{work.id}</code>
                 </div>
               ))}
             </div>
           </details>
 
-          <details className="border-t border-border pt-4">
+          <details className="border-t border-border-subtle pt-4">
             <summary className="cursor-pointer text-sm font-medium">{t('console.human_access.history')}</summary>
             <div className="mt-3 grid gap-3">
               {state.history.map(item => (
-                <div key={item.id} className="grid gap-1 border-b border-border pb-3 text-sm">
+                <div key={item.id} className="grid gap-1 border-b border-border-subtle pb-3 text-sm">
                   <span>
                     {humanizeTechnicalLabel(item.action)} · {humanizeTechnicalLabel(item.source)}
                   </span>
                   <p>{item.reason}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-fg-secondary">
                     <ActorLabel actor={item.actor} /> · {formatConsoleDate(item.inserted_at)}
                   </p>
                 </div>
@@ -318,7 +316,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
 
 function RestrictionCard({ restriction }: { restriction: RestrictionItem }) {
   return (
-    <div className="grid gap-3 border border-border bg-card p-4">
+    <div className="grid gap-3 border border-border-subtle bg-page p-4">
       <div className="flex flex-wrap items-start justify-between gap-2 text-sm">
         <div className="grid gap-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -329,7 +327,7 @@ function RestrictionCard({ restriction }: { restriction: RestrictionItem }) {
           </div>
           <span>{restriction.reason}</span>
         </div>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs text-fg-secondary">
           {formatConsoleDate(restriction.recovery_verified_at ?? restriction.inserted_at)}
         </span>
       </div>

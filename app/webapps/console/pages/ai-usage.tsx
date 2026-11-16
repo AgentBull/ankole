@@ -66,8 +66,8 @@ export function AIUsagePage() {
         <Skeleton className="h-48 w-full" />
       ) : usage.data?.total.rounds === 0 && usage.data.by_capability.length === 0 ? (
         // One empty state for the whole window, whose next step is the longer window.
-        <div className="grid justify-items-start gap-3 border border-border bg-card p-6">
-          <p className="text-sm text-pretty text-muted-foreground">{t('console.ai_usage.empty')}</p>
+        <div className="grid justify-items-start gap-3 border border-border-subtle bg-page p-6">
+          <p className="text-sm text-pretty text-fg-secondary">{t('console.ai_usage.empty')}</p>
           {days === '7' && (
             <Button variant="outline" size="sm" onClick={() => setDays('30')}>
               {t('console.ai_usage.show_longer')}
@@ -108,7 +108,7 @@ function PrincipalName({ row }: { row: UsageRow }) {
   return (
     <span className="grid min-w-0">
       <span className="truncate">{row.name ?? row.key}</span>
-      {row.name && <span className="truncate font-mono text-xs text-muted-foreground">{row.key}</span>}
+      {row.name && <span className="truncate font-mono text-xs text-fg-secondary">{row.key}</span>}
     </span>
   )
 }
@@ -127,14 +127,14 @@ export function CapabilityTable({ rows }: { rows: CapabilityRow[] }) {
         <h3 id={titleID} className="title-section">
           {t('console.ai_usage.by_capability')}
         </h3>
-        <p className="text-sm text-pretty text-muted-foreground">{t('console.ai_usage.by_capability_description')}</p>
+        <p className="text-sm text-pretty text-fg-secondary">{t('console.ai_usage.by_capability_description')}</p>
       </div>
       {rows.length === 0 ? (
-        <p className="border border-border bg-card p-6 text-sm text-muted-foreground">
+        <p className="border border-border-subtle bg-page p-6 text-sm text-fg-secondary">
           {t('console.ai_usage.by_capability_empty')}
         </p>
       ) : (
-        <div className="overflow-x-auto border border-border bg-card">
+        <div className="overflow-x-auto border border-border-subtle bg-page">
           <Table aria-labelledby={titleID} className="min-w-[640px]">
             <TableHeader>
               <TableRow>
@@ -191,9 +191,11 @@ export function UsageTable({
         {title}
       </h3>
       {rows.length === 0 ? (
-        <p className="border border-border bg-card p-6 text-sm text-muted-foreground">{t('console.ai_usage.empty')}</p>
+        <p className="border border-border-subtle bg-page p-6 text-sm text-fg-secondary">
+          {t('console.ai_usage.empty')}
+        </p>
       ) : (
-        <div className="overflow-x-auto border border-border bg-card">
+        <div className="overflow-x-auto border border-border-subtle bg-page">
           <Table aria-labelledby={titleID} className="min-w-[640px]">
             <TableHeader>
               <TableRow>

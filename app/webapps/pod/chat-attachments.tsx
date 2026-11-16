@@ -265,21 +265,21 @@ export function ChatAttachmentDropzone({
         aria-hidden
         data-slot="attachment-drop-feedback"
         data-active={active || undefined}
-        className="group/drop pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-1 rounded-surface border border-dashed border-transparent bg-background/95 opacity-0 motion-safe:[transition:opacity_160ms,border-color_160ms] motion-reduce:transition-none data-active:border-info data-active:opacity-100">
+        className="group/drop pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-1 rounded-surface border border-dashed border-transparent bg-page/95 opacity-0 motion-safe:[transition:opacity_160ms,border-color_160ms] motion-reduce:transition-none data-active:border-info data-active:opacity-100">
         <div className="absolute inset-0 rounded-surface bg-info-subtle opacity-0 motion-safe:transition-opacity motion-safe:duration-160 group-data-active/drop:opacity-80" />
         <div className="relative h-9 w-16 text-info">
-          <div className="absolute inset-y-1 left-1/2 grid w-5 -translate-x-1/2 place-items-center rounded-mini border border-current bg-background [transform:translate(-12px,2px)_rotate(-10deg)] motion-safe:[transition:transform_420ms_cubic-bezier(.22,1,.36,1)] group-data-active/drop:[transform:translateX(-28px)_rotate(-16deg)]">
+          <div className="absolute inset-y-1 left-1/2 grid w-5 -translate-x-1/2 place-items-center rounded-mini border border-current bg-page [transform:translate(-12px,2px)_rotate(-10deg)] motion-safe:[transition:transform_420ms_cubic-bezier(.22,1,.36,1)] group-data-active/drop:[transform:translateX(-28px)_rotate(-16deg)]">
             <DocumentRegular className="size-3.5" />
           </div>
-          <div className="absolute inset-y-1 left-1/2 grid w-5 -translate-x-1/2 place-items-center rounded-mini border border-current bg-background [transform:translate(12px,2px)_rotate(10deg)] motion-safe:[transition:transform_420ms_cubic-bezier(.22,1,.36,1)] group-data-active/drop:[transform:translateX(28px)_rotate(16deg)]">
+          <div className="absolute inset-y-1 left-1/2 grid w-5 -translate-x-1/2 place-items-center rounded-mini border border-current bg-page [transform:translate(12px,2px)_rotate(10deg)] motion-safe:[transition:transform_420ms_cubic-bezier(.22,1,.36,1)] group-data-active/drop:[transform:translateX(28px)_rotate(16deg)]">
             <DocumentRegular className="size-3.5" />
           </div>
-          <div className="absolute inset-y-0 left-1/2 grid w-6 -translate-x-1/2 place-items-center rounded-mini border border-current bg-background [transform:translateY(-2px)] motion-safe:[transition:transform_420ms_cubic-bezier(.22,1,.36,1)] group-data-active/drop:[transform:translateY(-8px)_scale(1.05)]">
+          <div className="absolute inset-y-0 left-1/2 grid w-6 -translate-x-1/2 place-items-center rounded-mini border border-current bg-page [transform:translateY(-2px)] motion-safe:[transition:transform_420ms_cubic-bezier(.22,1,.36,1)] group-data-active/drop:[transform:translateY(-8px)_scale(1.05)]">
             <ArrowUploadRegular className="size-4 motion-safe:group-data-active/drop:animate-[pod-attachment-bob_900ms_ease-in-out_infinite]" />
           </div>
         </div>
         {active && (
-          <span className="relative text-sm font-medium text-foreground motion-safe:animate-[pod-attachment-label_260ms_cubic-bezier(.22,1,.36,1)_both]">
+          <span className="relative text-sm font-medium text-fg-primary motion-safe:animate-[pod-attachment-label_260ms_cubic-bezier(.22,1,.36,1)_both]">
             {fileCount ? t('pod.chat_attachments.drop_count', { count: fileCount }) : t('pod.chat_attachments.drop')}
           </span>
         )}

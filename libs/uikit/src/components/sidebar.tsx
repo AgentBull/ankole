@@ -174,7 +174,7 @@ function Sidebar({
       <div
         data-slot="sidebar"
         inert={inert}
-        className={cn('flex h-full w-(--sidebar-width) flex-col text-sidebar-foreground', className)}
+        className={cn('flex h-full w-(--sidebar-width) flex-col text-fg-primary', className)}
         {...props}>
         {children}
       </div>
@@ -189,7 +189,7 @@ function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="data-[side=left]:w-(--sidebar-width) data-[side=right]:w-(--sidebar-width) p-0 text-sidebar-foreground [--sidebar-menu-indent:calc(var(--spacing)*6)] [&_button]:min-h-8 [&_button]:min-w-8 [&>button]:hidden"
+          className="data-[side=left]:w-(--sidebar-width) data-[side=right]:w-(--sidebar-width) p-0 text-fg-primary [--sidebar-menu-indent:calc(var(--spacing)*6)] [&_button]:min-h-8 [&_button]:min-w-8 [&>button]:hidden"
           style={
             {
               '--sidebar-width': SIDEBAR_WIDTH_MOBILE
@@ -207,7 +207,7 @@ function Sidebar({
 
   return (
     <div
-      className="group peer hidden text-sidebar-foreground md:block"
+      className="group peer hidden text-fg-primary md:block"
       data-state={state}
       data-collapsible={state === 'collapsed' ? collapsible : ''}
       data-variant={variant}
@@ -331,7 +331,7 @@ function SidebarInset({ className, ...props }: React.ComponentProps<'main'>) {
     <main
       data-slot="sidebar-inset"
       className={cn(
-        'relative flex w-full min-w-0 flex-1 flex-col overflow-clip bg-background transition-[margin] duration-(--duration-drawer) ease-drawer peer-data-[state=collapsed]:duration-(--duration-dialog) motion-reduce:transition-none md:peer-data-[variant=inset]:z-10 md:peer-data-[variant=inset]:me-5 md:peer-data-[variant=inset]:rounded-t-surface md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-5',
+        'relative flex w-full min-w-0 flex-1 flex-col overflow-clip bg-page transition-[margin] duration-(--duration-drawer) ease-drawer peer-data-[state=collapsed]:duration-(--duration-dialog) motion-reduce:transition-none md:peer-data-[variant=inset]:z-10 md:peer-data-[variant=inset]:me-5 md:peer-data-[variant=inset]:rounded-t-surface md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-5',
         className
       )}
       {...props}
@@ -345,7 +345,7 @@ function SidebarInput({ className, ...props }: React.ComponentProps<typeof Input
     <Input
       data-slot="sidebar-input"
       data-sidebar="input"
-      className={cn('h-8 w-full border-input bg-transparent shadow-none in-data-[mobile=true]:h-10', className)}
+      className={cn('h-8 w-full border-field-border bg-transparent shadow-none in-data-[mobile=true]:h-10', className)}
       {...props}
     />
   )
@@ -536,7 +536,7 @@ function SidebarGroupAction({
     props: mergeProps<'button'>(
       {
         className: cn(
-          'absolute end-3 top-[calc(var(--sidebar-group-gap,0px)+var(--spacing))] flex size-6 cursor-pointer items-center justify-center rounded-mini p-0 text-fg-secondary transition-colors duration-(--duration-feedback) group-data-[collapsible=icon]:hidden after:absolute after:-inset-1 hover:bg-layer-hover hover:text-foreground active:bg-layer-pressed focus-visible:-outline-offset-2 md:after:hidden [&>svg]:size-4 [&>svg]:shrink-0',
+          'absolute end-3 top-[calc(var(--sidebar-group-gap,0px)+var(--spacing))] flex size-6 cursor-pointer items-center justify-center rounded-mini p-0 text-fg-secondary transition-colors duration-(--duration-feedback) group-data-[collapsible=icon]:hidden after:absolute after:-inset-1 hover:bg-layer-hover hover:text-fg-primary active:bg-layer-pressed focus-visible:-outline-offset-2 md:after:hidden [&>svg]:size-4 [&>svg]:shrink-0',
           className
         )
       },
@@ -774,7 +774,7 @@ function SidebarMenuIcon({
       className={cn(
         'grid shrink-0 place-items-center text-(--nav-icon)',
         size === 'lg' ? 'size-8' : 'size-5',
-        tone === 'secondary' ? '[--nav-icon:var(--fg-secondary)]' : '[--nav-icon:var(--foreground)]',
+        tone === 'secondary' ? '[--nav-icon:var(--fg-secondary)]' : '[--nav-icon:var(--fg-primary)]',
         className
       )}
       {...props}
@@ -850,7 +850,7 @@ function SidebarMenuToggle({
         className: cn(
           'flex shrink-0 cursor-pointer items-center justify-center p-0 group-data-[collapsible=icon]:hidden after:absolute after:-inset-1 focus-visible:outline-offset-0 [&>svg]:shrink-0 [&>svg]:transition-[rotate] [&>svg]:duration-(--duration-overlay) [&>svg]:ease-out aria-expanded:[&>svg]:duration-(--duration-dialog) aria-expanded:[&>svg:not([data-slot=spinner])]:rotate-90 rtl:[&>svg:not([data-slot=spinner])]:-scale-x-100 rtl:aria-expanded:[&>svg:not([data-slot=spinner])]:-rotate-90 motion-reduce:[&>svg]:transition-none',
           inTitle
-            ? 'relative size-4 rounded-mini text-fg-tertiary transition-opacity duration-(--duration-feedback) hover:text-foreground in-data-[mobile=true]:-ms-2 fine-hover:opacity-0 fine-hover:group-hover/sidebar-group-label:opacity-100 fine-hover:group-focus-within/sidebar-group-label:opacity-100 [&>svg]:size-4'
+            ? 'relative size-4 rounded-mini text-fg-tertiary transition-opacity duration-(--duration-feedback) hover:text-fg-primary in-data-[mobile=true]:-ms-2 fine-hover:opacity-0 fine-hover:group-hover/sidebar-group-label:opacity-100 fine-hover:group-focus-within/sidebar-group-label:opacity-100 [&>svg]:size-4'
             : 'absolute start-[calc(var(--spacing)*3+var(--sidebar-menu-level,0)*var(--sidebar-menu-indent,calc(var(--spacing)*5)))] top-1/2 z-10 size-5 -translate-y-1/2 rounded-control text-fg-secondary transition-colors duration-(--duration-feedback) hover:bg-layer-hover active:bg-layer-pressed in-data-[mobile=true]:-ms-1.5 [&>svg:not([data-slot=spinner])]:size-5 [&>svg[data-slot=spinner]]:size-4',
           instant && '[&>svg]:transition-none',
           className
@@ -888,7 +888,7 @@ function SidebarMenuAction({
     props: mergeProps<'button'>(
       {
         className: cn(
-          'flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-mini p-0 text-foreground transition-[background-color,opacity] duration-(--duration-feedback) ease-productive group-data-[collapsible=icon]:hidden hover:bg-layer-hover active:bg-layer-pressed aria-expanded:bg-layer-hover data-popup-open:bg-layer-hover focus-visible:-outline-offset-2 [&>svg]:shrink-0 [&>svg:not([class*=size-])]:size-4',
+          'flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-mini p-0 text-fg-primary transition-[background-color,opacity] duration-(--duration-feedback) ease-productive group-data-[collapsible=icon]:hidden hover:bg-layer-hover active:bg-layer-pressed aria-expanded:bg-layer-hover data-popup-open:bg-layer-hover focus-visible:-outline-offset-2 [&>svg]:shrink-0 [&>svg:not([class*=size-])]:size-4',
           !grouped && 'absolute end-1 top-1/2 -translate-y-1/2 after:absolute after:-inset-1 md:after:hidden',
           className
         )
@@ -917,7 +917,7 @@ function SidebarMenuActions({ className, ...props }: React.ComponentProps<'div'>
         data-slot="sidebar-menu-actions"
         data-sidebar="menu-actions"
         className={cn(
-          'absolute end-1 top-1/2 flex -translate-y-1/2 items-center transition-opacity duration-(--duration-feedback) ease-productive group-data-[collapsible=icon]:hidden *:text-foreground',
+          'absolute end-1 top-1/2 flex -translate-y-1/2 items-center transition-opacity duration-(--duration-feedback) ease-productive group-data-[collapsible=icon]:hidden *:text-fg-primary',
           className
         )}
         {...props}
@@ -932,7 +932,7 @@ function SidebarMenuBadge({ className, ...props }: React.ComponentProps<'div'>) 
       data-slot="sidebar-menu-badge"
       data-sidebar="menu-badge"
       className={cn(
-        'pointer-events-none absolute end-1 top-1/2 flex h-5 min-w-5 -translate-y-1/2 items-center justify-center rounded-mini px-1 text-xs font-medium text-fg-secondary tabular-nums select-none group-data-[collapsible=icon]:hidden peer-hover/menu-button:text-foreground peer-data-active/menu-button:text-foreground',
+        'pointer-events-none absolute end-1 top-1/2 flex h-5 min-w-5 -translate-y-1/2 items-center justify-center rounded-mini px-1 text-xs font-medium text-fg-secondary tabular-nums select-none group-data-[collapsible=icon]:hidden peer-hover/menu-button:text-fg-primary peer-data-active/menu-button:text-fg-primary',
         className
       )}
       {...props}

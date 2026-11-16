@@ -49,7 +49,7 @@ describe('Breadcrumb', () => {
     const link = tagWith(html, 'data-slot="breadcrumb-link"')
     expect(link.startsWith('<a')).toBe(true)
     expect(attributeOf(link, 'href')).toBe('/pages/root')
-    expect(classesOf(link)).toEqual(expect.arrayContaining(['hover:text-foreground', '[&>span]:truncate']))
+    expect(classesOf(link)).toEqual(expect.arrayContaining(['hover:text-fg-primary', '[&>span]:truncate']))
 
     expect(attributeOf(tagWith(html, 'data-slot="breadcrumb-page"'), 'aria-current')).toBe('page')
 

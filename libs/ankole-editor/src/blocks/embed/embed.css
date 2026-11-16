@@ -1,6 +1,6 @@
 .ankole-editor,
 .ankole-editor-overlay {
-  --editor-embed-border: var(--border);
+  --editor-embed-border: var(--border-subtle);
   --editor-embed-bg: var(--layer-01);
   --editor-embed-fg: var(--fg-secondary);
   --editor-embed-code: var(--fg-tertiary);

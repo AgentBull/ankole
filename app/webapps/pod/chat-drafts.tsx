@@ -96,7 +96,9 @@ export function LocalChatDrafts({
   const { t } = useTranslation()
   if (!drafts.length) return null
   return (
-    <section aria-label={t('pod.chat_drafts.title')} className="mt-4 space-y-3 rounded-md border border-border p-4">
+    <section
+      aria-label={t('pod.chat_drafts.title')}
+      className="mt-4 space-y-3 rounded-md border border-border-subtle p-4">
       <h2 className="text-sm font-medium">{t('pod.chat_drafts.title')}</h2>
       <p className="text-sm text-fg-tertiary">{t('pod.chat_drafts.recovery_hint')}</p>
       {drafts.map((draft, index) => (
@@ -107,7 +109,7 @@ export function LocalChatDrafts({
               readOnly
               value={draft.text}
               rows={4}
-              className="w-full resize-y rounded-md border border-border bg-background p-3"
+              className="w-full resize-y rounded-md border border-border-subtle bg-page p-3"
             />
           </label>
           {draft.attachments && <ChatAttachmentDrafts model={draft.attachments} recovery />}

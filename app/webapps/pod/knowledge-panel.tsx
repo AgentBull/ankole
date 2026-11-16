@@ -28,7 +28,7 @@ export function KnowledgePanel({ pageID, revision }: { pageID: string; revision:
   const panel = query.data
   const backlinks = usePagesMetadata((panel?.backlinks ?? []).map(link => ({ ...link, id: link.page_id })))
   return (
-    <aside className="space-y-4 border-t border-border pt-4" aria-label={t('pod.knowledge.related')}>
+    <aside className="space-y-4 border-t border-border-subtle pt-4" aria-label={t('pod.knowledge.related')}>
       {query.error instanceof z.ZodError ? (
         // A malformed response is a control-plane defect; the reader gets one line and the validator text on request.
         <ErrorBlock

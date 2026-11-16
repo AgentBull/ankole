@@ -29,10 +29,10 @@ function InputGroup({
         variant === 'composer'
           ? 'composer-surface h-auto flex-col items-stretch px-0'
           : variant === 'paper'
-            ? 'rounded-panel bg-background shadow-(--paper-shadow) has-[:is(input,textarea):focus-visible]:shadow-[0_0_0_1px_var(--border-strong),0_2px_8px_rgb(35_37_38/0.06)]'
+            ? 'rounded-panel bg-page shadow-(--paper-shadow) has-[:is(input,textarea):focus-visible]:shadow-[0_0_0_1px_var(--border-strong),0_2px_8px_rgb(35_37_38/0.06)]'
             : variant === 'overlay'
-              ? 'h-9 rounded-[6px] border border-(--menu-field-edge) bg-(--menu-field) shadow-none has-[:is(input,textarea):focus-visible]:border-[color-mix(in_srgb,var(--menu-icon-blue)_55%,transparent)] has-[:is(input,textarea):focus-visible]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--menu-icon-blue)_12%,transparent)] has-[[aria-invalid=true]]:border-destructive-foreground has-[[aria-invalid=true]]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-foreground)_12%,transparent)] has-[:user-invalid]:border-destructive-foreground has-[:user-invalid]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-foreground)_12%,transparent)]'
-              : 'rounded-control border border-field-edge border-b-input bg-field hover:bg-field-hover has-[:is(input,textarea):focus-visible]:border-control-edge has-[:is(input,textarea):focus-visible]:border-b-ring has-[:is(input,textarea):focus-visible]:bg-background has-[:is(input,textarea):focus-visible]:shadow-[inset_0_-1px_0_var(--color-ring)] has-[[data-slot][aria-invalid=true]]:border-b-destructive has-[[data-slot][aria-invalid=true]]:shadow-[inset_0_-1px_0_var(--color-destructive)] has-[:user-invalid]:border-b-destructive has-[:user-invalid]:shadow-[inset_0_-1px_0_var(--color-destructive)] has-[:is(input,textarea):disabled]:border-b-transparent',
+              ? 'h-9 rounded-[6px] border border-(--menu-field-edge) bg-(--menu-field) shadow-none has-[:is(input,textarea):focus-visible]:border-[color-mix(in_srgb,var(--menu-icon-blue)_55%,transparent)] has-[:is(input,textarea):focus-visible]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--menu-icon-blue)_12%,transparent)] has-[[aria-invalid=true]]:border-destructive-fg has-[[aria-invalid=true]]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-fg)_12%,transparent)] has-[:user-invalid]:border-destructive-fg has-[:user-invalid]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-fg)_12%,transparent)]'
+              : 'rounded-control border border-field-edge border-b-field-border bg-field hover:bg-field-hover has-[:is(input,textarea):focus-visible]:border-control-edge has-[:is(input,textarea):focus-visible]:border-b-ring has-[:is(input,textarea):focus-visible]:bg-page has-[:is(input,textarea):focus-visible]:shadow-[inset_0_-1px_0_var(--color-ring)] has-[[data-slot][aria-invalid=true]]:border-b-destructive has-[[data-slot][aria-invalid=true]]:shadow-[inset_0_-1px_0_var(--color-destructive)] has-[:user-invalid]:border-b-destructive has-[:user-invalid]:shadow-[inset_0_-1px_0_var(--color-destructive)] has-[:is(input,textarea):disabled]:border-b-transparent',
         className
       )}
       {...props}
@@ -43,7 +43,7 @@ function InputGroup({
 // In the composer, the bottom addon is the toolbar: a 36px row 10px from the composer's edges, whose controls sit
 // side by side with no gap.
 const inputGroupAddonVariants = cva(
-  "flex h-auto cursor-text items-center justify-center gap-2 py-2 text-sm leading-5 font-medium text-muted-foreground select-none group-data-[disabled=true]/input-group:text-fg-disabled group-has-[:is(input,textarea):disabled]/input-group:text-fg-disabled [&>svg:not([class*='size-'])]:size-3.5",
+  "flex h-auto cursor-text items-center justify-center gap-2 py-2 text-sm leading-5 font-medium text-fg-secondary select-none group-data-[disabled=true]/input-group:text-fg-disabled group-has-[:is(input,textarea):disabled]/input-group:text-fg-disabled [&>svg:not([class*='size-'])]:size-3.5",
   {
     variants: {
       align: {
@@ -159,7 +159,7 @@ function InputGroupSend({
       data-slot="input-group-send"
       data-ready={ready || undefined}
       className={cn(
-        "relative h-5 min-w-13 rounded-surface border-0 bg-field-hover px-4 text-fg-disabled after:absolute after:inset-x-0 after:-inset-y-2 hover:bg-field-hover hover:text-fg-disabled active:bg-field-hover data-ready:bg-primary data-ready:text-primary-foreground data-ready:hover:bg-primary-hover data-ready:hover:text-primary-foreground data-ready:active:bg-primary-active [[data-slot=input-group-addon]>&]:ms-auto [[data-slot=input-group-addon]>[data-slot=input-group-stop]+&]:ms-0 [&_svg:not([class*='size-'])]:size-5",
+        "relative h-5 min-w-13 rounded-surface border-0 bg-field-hover px-4 text-fg-disabled after:absolute after:inset-x-0 after:-inset-y-2 hover:bg-field-hover hover:text-fg-disabled active:bg-field-hover data-ready:bg-primary data-ready:text-primary-fg data-ready:hover:bg-primary-hover data-ready:hover:text-primary-fg data-ready:active:bg-primary-active [[data-slot=input-group-addon]>&]:ms-auto [[data-slot=input-group-addon]>[data-slot=input-group-stop]+&]:ms-0 [&_svg:not([class*='size-'])]:size-5",
         className
       )}
       {...props}
@@ -176,7 +176,7 @@ function InputGroupStop({ className, ...props }: Omit<React.ComponentProps<typeo
     <InputGroupSend
       type="button"
       data-slot="input-group-stop"
-      className={cn('text-fg-secondary hover:bg-layer-hover hover:text-foreground active:bg-layer-pressed', className)}
+      className={cn('text-fg-secondary hover:bg-layer-hover hover:text-fg-primary active:bg-layer-pressed', className)}
       {...props}
     />
   )
@@ -188,7 +188,7 @@ function InputGroupText({ className, ...props }: React.ComponentProps<'span'>) {
   return (
     <span
       className={cn(
-        "flex items-center gap-2 text-sm leading-5 text-muted-foreground [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-3.5 group-data-[variant=composer]/input-group:min-w-0 group-data-[variant=composer]/input-group:px-2 group-data-[variant=composer]/input-group:text-50 group-data-[variant=composer]/input-group:font-normal group-data-[variant=composer]/input-group:text-fg-secondary",
+        "flex items-center gap-2 text-sm leading-5 text-fg-secondary [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-3.5 group-data-[variant=composer]/input-group:min-w-0 group-data-[variant=composer]/input-group:px-2 group-data-[variant=composer]/input-group:text-50 group-data-[variant=composer]/input-group:font-normal group-data-[variant=composer]/input-group:text-fg-secondary",
         className
       )}
       {...props}

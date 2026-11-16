@@ -80,12 +80,12 @@ export default function DocsPageActions({ labels, markdownPath, prompt }: DocsPa
   const copyLabel = copyState === 'copied' ? labels.copied : copyState === 'failed' ? labels.copyFailed : labels.copy
 
   return (
-    <div className="not-prose -mt-3 mb-2 inline-flex items-stretch border border-border">
+    <div className="not-prose -mt-3 mb-2 inline-flex items-stretch border border-border-subtle">
       <button
         type="button"
         onClick={copyPage}
         aria-label={copyLabel}
-        className="inline-flex h-8 cursor-pointer items-center gap-1.5 px-3 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-background-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">
+        className="inline-flex h-8 cursor-pointer items-center gap-1.5 px-3 font-mono text-[11px] text-fg-secondary transition-colors hover:bg-layer-01 hover:text-fg-primary focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">
         <CopyIcon aria-hidden="true" className="size-3.5" />
         <span aria-live="polite">{copyLabel}</span>
       </button>
@@ -93,7 +93,7 @@ export default function DocsPageActions({ labels, markdownPath, prompt }: DocsPa
         <DropdownMenuTrigger
           aria-label={labels.menu}
           title={labels.menu}
-          className="inline-flex h-8 items-center border-l border-border px-2 text-muted-foreground transition-colors hover:bg-background-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">
+          className="inline-flex h-8 items-center border-l border-border-subtle px-2 text-fg-secondary transition-colors hover:bg-layer-01 hover:text-fg-primary focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">
           <ChevronDownRegular aria-hidden="true" className="size-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-auto min-w-52">

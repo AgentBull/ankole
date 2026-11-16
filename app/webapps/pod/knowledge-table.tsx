@@ -98,7 +98,7 @@ export function KnowledgeTable({ pages }: { pages: SubpageItem[] }) {
               <TableCell className="min-w-48">
                 <Link
                   data-row-link
-                  className="inline-flex items-center gap-2 text-foreground underline underline-offset-2"
+                  className="inline-flex items-center gap-2 text-fg-primary underline underline-offset-2"
                   to={pageHref(page.id, page.title)}>
                   <PageIcon page={page} />
                   {page.title || t('pod.content.untitled')}

@@ -262,19 +262,19 @@ export function EnvVarsEditor({
         <TableRow key={item.name} data-state={editingName === item.name ? 'selected' : undefined}>
           <th
             scope="row"
-            className="max-w-[260px] border-b border-border px-3 py-1.5 text-left align-top font-normal whitespace-normal text-foreground">
+            className="max-w-[260px] border-b border-border-subtle px-3 py-1.5 text-left align-top font-normal whitespace-normal text-fg-primary">
             <div className="grid gap-1">
               <div className="flex min-h-6 flex-wrap items-center gap-1.5">
                 <span className="font-mono text-xs font-medium break-all">{item.name}</span>
                 {item.required ? <Badge variant="outline">{t('pod.env_vars.required')}</Badge> : null}
                 {item.secret ? <Badge variant="secondary">{t('pod.env_vars.secret')}</Badge> : null}
               </div>
-              {item.description ? <p className="text-xs leading-4 text-muted-foreground">{item.description}</p> : null}
+              {item.description ? <p className="text-xs leading-4 text-fg-secondary">{item.description}</p> : null}
             </div>
           </th>
           <TableCell className="max-w-[240px] align-top font-mono text-xs whitespace-normal">
             <div className="flex min-h-6 items-center gap-1.5">
-              <span className="line-clamp-2 break-all text-foreground">
+              <span className="line-clamp-2 break-all text-fg-primary">
                 {(canRevealRow ? revealedValues[item.name] : undefined) ??
                   maskSummary(item, t('pod.env_vars.not_configured'))}
               </span>
@@ -289,7 +289,7 @@ export function EnvVarsEditor({
                   }
                   title={isRowRevealed ? t('common.hide_secret') : t('common.reveal_secret')}
                   disabled={revealingName === item.name}
-                  className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+                  className="grid size-6 shrink-0 place-items-center rounded-md text-fg-secondary hover:bg-layer-03 hover:text-fg-primary disabled:cursor-wait disabled:opacity-60"
                   onClick={() => {
                     if (isRowRevealed) hideRevealed(item.name)
                     else void handleReveal(item.name, setListError)
@@ -309,7 +309,7 @@ export function EnvVarsEditor({
             <div className="flex flex-wrap items-center gap-1.5">
               <EnvVarSourceBadge source={item.source} ownSource={ownSource} />
               {isOwn && item.inherited_source ? (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-fg-secondary">
                   {t(`pod.env_vars.overrides_${item.inherited_source}`)}
                 </span>
               ) : null}
@@ -352,16 +352,16 @@ export function EnvVarsEditor({
       ) : null}
 
       {isLoading ? (
-        <div className="grid gap-2 rounded-lg border border-border bg-card p-4">
+        <div className="grid gap-2 rounded-lg border border-border-subtle bg-page p-4">
           <Skeleton className="h-7 w-full" />
           <Skeleton className="h-7 w-4/5" />
         </div>
       ) : primaryItems.length > 0 ? (
         <Table
           containerLabel={t('pod.env_vars.table_label')}
-          containerClassName="max-h-[min(420px,55vh)] overflow-auto rounded-lg border border-border bg-card">
+          containerClassName="max-h-[min(420px,55vh)] overflow-auto rounded-lg border border-border-subtle bg-page">
           <TableCaption className="sr-only">{t('pod.env_vars.table_label')}</TableCaption>
-          <TableHeader className="sticky top-0 z-10 bg-card">
+          <TableHeader className="sticky top-0 z-10 bg-page">
             <TableRow>
               <TableHead scope="col">{t('pod.env_vars.name')}</TableHead>
               <TableHead scope="col">{t('pod.env_vars.value')}</TableHead>
@@ -374,7 +374,7 @@ export function EnvVarsEditor({
           <TableBody>{renderRows(primaryItems)}</TableBody>
         </Table>
       ) : inheritedItems.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+        <div className="rounded-lg border border-dashed border-border-subtle px-4 py-6 text-center text-sm text-fg-secondary">
           {t('pod.env_vars.empty')}
         </div>
       ) : null}
@@ -387,23 +387,23 @@ export function EnvVarsEditor({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="group w-full justify-between border border-border bg-muted/30 px-3"
+                className="group w-full justify-between border border-border-subtle bg-layer-03/30 px-3"
               />
             }>
-            <span className="text-xs font-medium text-muted-foreground">
+            <span className="text-xs font-medium text-fg-secondary">
               {t('pod.env_vars.inherited_section', { count: inheritedItems.length })}
             </span>
             <ChevronDownRegular
               aria-hidden
-              className="size-4 text-muted-foreground transition-transform group-data-[panel-open]:rotate-180"
+              className="size-4 text-fg-secondary transition-transform group-data-[panel-open]:rotate-180"
             />
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-2">
             <Table
               containerLabel={t('pod.env_vars.inherited_table_label')}
-              containerClassName="max-h-[min(320px,45vh)] overflow-auto rounded-lg border border-border bg-card">
+              containerClassName="max-h-[min(320px,45vh)] overflow-auto rounded-lg border border-border-subtle bg-page">
               <TableCaption className="sr-only">{t('pod.env_vars.inherited_table_label')}</TableCaption>
-              <TableHeader className="sticky top-0 z-10 bg-card">
+              <TableHeader className="sticky top-0 z-10 bg-page">
                 <TableRow>
                   <TableHead scope="col">{t('pod.env_vars.name')}</TableHead>
                   <TableHead scope="col">{t('pod.env_vars.value')}</TableHead>
@@ -423,11 +423,11 @@ export function EnvVarsEditor({
         ref={formCardRef}
         className={
           editingName
-            ? 'grid gap-3 rounded-lg border border-foreground/25 bg-card p-4 ring-1 ring-foreground/10'
-            : 'grid gap-3 rounded-lg border border-border bg-card p-4'
+            ? 'grid gap-3 rounded-lg border border-fg-primary/25 bg-page p-4 ring-1 ring-fg-primary/10'
+            : 'grid gap-3 rounded-lg border border-border-subtle bg-page p-4'
         }>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-medium text-foreground">
+          <h3 className="text-sm font-medium text-fg-primary">
             {editingName
               ? t('pod.env_vars.edit_heading', { name: editingName })
               : importOpen

@@ -207,13 +207,13 @@ function NumberInput({
         'inline-flex h-8 w-full min-w-0 items-center overflow-hidden text-sm transition-[background-color,border-color,box-shadow] duration-(--duration-feedback)',
         variant === 'overlay'
           ? 'h-9 rounded-[6px] border border-(--menu-field-edge) bg-(--menu-field) focus-within:border-[color-mix(in_srgb,var(--menu-icon-blue)_55%,transparent)] focus-within:shadow-[0_0_0_2px_color-mix(in_srgb,var(--menu-icon-blue)_12%,transparent)]'
-          : 'rounded-control border border-field-edge border-b-input bg-field hover:bg-field-hover focus-within:border-control-edge focus-within:border-b-ring focus-within:bg-background focus-within:shadow-[inset_0_-1px_0_var(--color-ring)] data-disabled:border-b-transparent data-disabled:bg-field',
+          : 'rounded-control border border-field-edge border-b-field-border bg-field hover:bg-field-hover focus-within:border-control-edge focus-within:border-b-ring focus-within:bg-page focus-within:shadow-[inset_0_-1px_0_var(--color-ring)] data-disabled:border-b-transparent data-disabled:bg-field',
         className
       )}>
       {prefix != null && (
         <span
           data-slot="number-input-prefix"
-          className="pointer-events-none shrink-0 pl-2.5 text-xs text-muted-foreground select-none">
+          className="pointer-events-none shrink-0 pl-2.5 text-xs text-fg-secondary select-none">
           {prefix}
         </span>
       )}
@@ -272,18 +272,20 @@ function NumberInput({
       {suffix != null && (
         <span
           data-slot="number-input-suffix"
-          className="pointer-events-none shrink-0 pr-2.5 text-xs text-muted-foreground select-none">
+          className="pointer-events-none shrink-0 pr-2.5 text-xs text-fg-secondary select-none">
           {suffix}
         </span>
       )}
       {showStepper && (
-        <div data-slot="number-input-stepper" className="flex h-full shrink-0 items-center border-l border-border/60">
+        <div
+          data-slot="number-input-stepper"
+          className="flex h-full shrink-0 items-center border-l border-border-subtle/60">
           <button
             type="button"
             aria-label={decrementLabel}
             disabled={disabled || readOnly || atMin}
             onClick={() => applyStep(-1)}
-            className="flex h-full w-7 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40">
+            className="flex h-full w-7 cursor-pointer items-center justify-center text-fg-secondary transition-colors hover:bg-layer-03/70 hover:text-fg-primary focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40">
             <SubtractRegular aria-hidden="true" className="size-3.5" />
           </button>
           <button
@@ -291,7 +293,7 @@ function NumberInput({
             aria-label={incrementLabel}
             disabled={disabled || readOnly || atMax}
             onClick={() => applyStep(1)}
-            className="flex h-full w-7 cursor-pointer items-center justify-center border-l border-border/60 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40">
+            className="flex h-full w-7 cursor-pointer items-center justify-center border-l border-border-subtle/60 text-fg-secondary transition-colors hover:bg-layer-03/70 hover:text-fg-primary focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-40">
             <AddRegular aria-hidden="true" className="size-3.5" />
           </button>
         </div>

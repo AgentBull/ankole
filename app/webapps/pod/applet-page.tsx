@@ -18,7 +18,7 @@ export function AppletPage({ detail }: { detail: PageDetail }) {
   if (detail.page.deleted_at) {
     return (
       <section className="min-h-32 text-base leading-normal font-normal">
-        <div className="content-object px-4 py-6 text-sm text-muted-foreground" role="status">
+        <div className="content-object px-4 py-6 text-sm text-fg-secondary" role="status">
           {t('pod.content.applet_inactive_in_trash')}
         </div>
       </section>
@@ -141,7 +141,7 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
   return (
     <section
       data-applet-stage
-      className="min-h-32 text-base leading-normal font-normal [&:fullscreen]:overflow-auto [&:fullscreen]:bg-background">
+      className="min-h-32 text-base leading-normal font-normal [&:fullscreen]:overflow-auto [&:fullscreen]:bg-page">
       {/* The stage starts at the Page body's edges, so its notices keep their own spacing. */}
       <div data-applet-notices className="space-y-3 py-4 empty:hidden">
         {!revoked && <AppletMissingEnvBanner detail={detail} />}

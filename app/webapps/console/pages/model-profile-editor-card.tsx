@@ -170,28 +170,25 @@ export function ModelProfileEditorCard({
   )
 
   const card = (
-    <Collapsible className="border border-border bg-card" open={open} onOpenChange={setManualOpen}>
+    <Collapsible className="border border-border-subtle bg-page" open={open} onOpenChange={setManualOpen}>
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
         <CollapsibleTrigger className="group flex min-w-0 flex-1 basis-64 items-center gap-3 px-4 py-3 text-left focus-visible:-outline-offset-2">
           <Badge className="shrink-0" variant={required ? 'secondary' : 'outline'}>
             {label}
           </Badge>
-          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          <span className="min-w-0 flex-1 truncate text-xs text-fg-secondary">
             {configured
               ? [providerID, configurableModel ? selectedModelLabel : null].filter(Boolean).join(' · ')
               : t('console.models.not_configured')}
           </span>
           {source ? (
-            <span
-              className={source.own ? 'shrink-0 text-xs text-foreground' : 'shrink-0 text-xs text-muted-foreground'}>
+            <span className={source.own ? 'shrink-0 text-xs text-fg-primary' : 'shrink-0 text-xs text-fg-secondary'}>
               {source.label}
             </span>
           ) : null}
-          {required ? (
-            <span className="shrink-0 text-xs text-muted-foreground">{t('console.models.required')}</span>
-          ) : null}
+          {required ? <span className="shrink-0 text-xs text-fg-secondary">{t('console.models.required')}</span> : null}
           {dirty ? (
-            <span className="shrink-0 text-xs text-muted-foreground">{saveNotice ?? t('console.models.unsaved')}</span>
+            <span className="shrink-0 text-xs text-fg-secondary">{saveNotice ?? t('console.models.unsaved')}</span>
           ) : null}
           <ChevronDownRegular
             className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"
@@ -201,7 +198,7 @@ export function ModelProfileEditorCard({
         <div className="flex shrink-0 items-center gap-2 pr-4">
           {providerHosted ? (
             <SwitchRow
-              rowClassName="flex items-center gap-2 text-xs text-muted-foreground"
+              rowClassName="flex items-center gap-2 text-xs text-fg-secondary"
               label={providerHosted.label}
               aria-label={providerHosted.label}
               checked={providerHosted.checked}
@@ -250,15 +247,13 @@ export function ModelProfileEditorCard({
           ) : null}
         </div>
       </div>
-      <CollapsibleContent className="grid gap-4 border-t border-border px-4 py-4">
+      <CollapsibleContent className="grid gap-4 border-t border-border-subtle px-4 py-4">
         {/* Only the profile fields freeze while the provider hosts the
                 capability. The header switch and the collapse trigger must stay
                 operable, or turning hosting on would lock its own off switch. */}
         <fieldset className="contents" disabled={disabled || hostedActive}>
-          {providerHosted ? (
-            <p className="text-xs leading-5 text-muted-foreground">{providerHosted.description}</p>
-          ) : null}
-          {hint ? <p className="text-pretty text-xs leading-5 text-muted-foreground">{hint}</p> : null}
+          {providerHosted ? <p className="text-xs leading-5 text-fg-secondary">{providerHosted.description}</p> : null}
+          {hint ? <p className="text-pretty text-xs leading-5 text-fg-secondary">{hint}</p> : null}
           {nameField}
           {showDescription ? (
             <LabeledField label={t('console.models.custom_profile_description')} required>
@@ -341,13 +336,13 @@ export function ModelProfileEditorCard({
           <div className="grid gap-3">
             <h4 className="text-sm font-medium">{t('console.models.provider_options')}</h4>
             {!hasCompatibleProvider ? (
-              <p className="text-xs text-muted-foreground">{t('console.models.provider_options_unavailable')}</p>
+              <p className="text-xs text-fg-secondary">{t('console.models.provider_options_unavailable')}</p>
             ) : !providerID ? (
-              <p className="text-xs text-muted-foreground">{t('console.models.provider_options_select')}</p>
+              <p className="text-xs text-fg-secondary">{t('console.models.provider_options_select')}</p>
             ) : !selectedKind ? (
-              <p className="text-xs text-muted-foreground">{t('console.models.provider_options_kind_unavailable')}</p>
+              <p className="text-xs text-fg-secondary">{t('console.models.provider_options_kind_unavailable')}</p>
             ) : optionSettings.length === 0 ? (
-              <p className="text-xs text-muted-foreground">{t('console.models.provider_options_empty')}</p>
+              <p className="text-xs text-fg-secondary">{t('console.models.provider_options_empty')}</p>
             ) : (
               <>
                 {basicOptionSettings.length > 0 ? (
@@ -357,9 +352,9 @@ export function ModelProfileEditorCard({
                 ) : null}
                 {advancedOptionSettings.length > 0 ? (
                   <Collapsible className="grid gap-4" defaultOpen={false}>
-                    <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
+                    <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 border border-border-subtle bg-layer-03/40 px-4 py-3 text-left text-sm font-medium">
                       <span>{t('common.advanced_settings')}</span>
-                      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-2 text-xs text-fg-secondary">
                         {advancedOptionSettings.length}
                         <ChevronDownRegular
                           className="size-4 shrink-0 transition-transform group-aria-expanded:rotate-180"

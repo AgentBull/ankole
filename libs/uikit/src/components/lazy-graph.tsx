@@ -68,7 +68,7 @@ export function AnkoleLazyGraph(props: AnkoleGraphProps) {
           role="status"
           aria-label={props.ariaLabel}
           className={cn(
-            'relative isolate min-h-[520px] w-full rounded-control border border-border bg-background',
+            'relative isolate min-h-[520px] w-full rounded-control border border-border-subtle bg-page',
             props.className
           )}
         />
