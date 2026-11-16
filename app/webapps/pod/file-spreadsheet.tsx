@@ -1,9 +1,22 @@
 import { useTranslation } from 'react-i18next'
 import { Button } from '@ankole/uikit'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { read, utils } from 'xlsx'
 import { ContentError } from './content-primitives'
+
+function subscribeTheme(onChange: () => void) {
+  const observer = new MutationObserver(onChange)
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+  return () => observer.disconnect()
+}
+
+/** Builds the sandboxed sheet's stylesheet from the resolved theme tokens, because the frame cannot read the page's CSS variables. */
+function readFrameStyle() {
+  const root = getComputedStyle(document.documentElement)
+  const token = (name: string) => root.getPropertyValue(name).trim()
+  return `:root{color-scheme:${token('color-scheme') || 'light'};background:${token('--card')}}body{margin:12px;font:14px/1.5 ${token('--font-family-sans')};color:${token('--foreground')}}table{border-collapse:collapse}td,th{border:1px solid ${token('--border')};padding:6px 10px;min-width:60px;white-space:pre-wrap}a{color:inherit}`
+}
 
 /**
  * A read-only preview of the workbook formats that the spreadsheet editor does not open: `.xls`,
@@ -11,6 +24,7 @@ import { ContentError } from './content-primitives'
  */
 export default function LegacySpreadsheetPreview({ url, initialSheet }: { url: string; initialSheet?: string }) {
   const { t } = useTranslation()
+  const frameStyle = useSyncExternalStore(subscribeTheme, readFrameStyle)
   const [sheet, setSheet] = useState(initialSheet ?? '')
   useEffect(() => {
     if (initialSheet) setSheet(initialSheet)
@@ -55,8 +69,8 @@ export default function LegacySpreadsheetPreview({ url, initialSheet }: { url: s
         <iframe
           title={t('pod.content.worksheet_2', { value1: selected })}
           sandbox=""
-          className="h-[65vh] w-full rounded border border-border bg-white"
-          srcDoc={`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><style>body{margin:12px;font:14px sans-serif;color:#161616}table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:6px 10px;min-width:60px;white-space:pre-wrap}a{color:inherit}</style>${html}`}
+          className="h-[65vh] w-full rounded border border-border bg-card"
+          srcDoc={`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><style>${frameStyle}</style>${html}`}
         />
       )}
       <p className="text-xs text-fg-tertiary">

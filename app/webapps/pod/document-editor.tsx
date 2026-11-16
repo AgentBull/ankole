@@ -145,6 +145,8 @@ export function DocumentPage({
   const awareness = useModel(DocumentPresenceModel)
   const [collaborationError, setCollaborationError] = useState<unknown>()
   const [revoked, setRevoked] = useState(false)
+  // Lost access stops the session, so the conflict notice is the one place that reports it.
+  const accessDenied = model.conflict.value && isRealtimeAccessDenied(collaborationError)
   const retryConnection = useRef<() => void>(() => {})
   const [fileDragOver, setFileDragOver] = useState(false)
   const [embedPickerOpen, setEmbedPickerOpen] = useState(false)
@@ -382,7 +384,7 @@ export function DocumentPage({
       {model.conflict.value && (
         <div className="rounded border border-warning p-4 text-sm" role="alert">
           <p>
-            {isRealtimeAccessDenied(collaborationError)
+            {accessDenied
               ? t('pod.content.you_can_no_longer_edit_this_page_your_draft_has_been_kept')
               : t('pod.content.the_document_has_changed_your_draft_has_been_kept_export')}
           </p>
@@ -398,13 +400,14 @@ export function DocumentPage({
       )}
       <DocumentRecovery model={model} title={title.value} />
       <ContentError error={assetError} />
-      <ContentError
-        error={collaborationError}
-        retry={model.conflict.value ? undefined : () => retryConnection.current()}
-      />
-      {revoked ? (
-        <p role="alert">{t('pod.content.you_no_longer_have_access_to_this_page_your_unsaved')}</p>
-      ) : (
+      {/* The notice above already reports lost access, so the request error would only repeat it. */}
+      {!accessDenied && (
+        <ContentError
+          error={collaborationError}
+          retry={model.conflict.value ? undefined : () => retryConnection.current()}
+        />
+      )}
+      {revoked ? null : (
         <div {...EXTERNAL_TRANSLATION_GUARD_ATTRS} className="notranslate contents">
           <BlockEditor
             key={generation}

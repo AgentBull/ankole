@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { runInNewContext } from 'node:vm'
 import { requestErrorCode, requestErrorDetailList, requestErrorDetails, requestErrorMessage } from './request-errors'
 import i18n from './i18n'
 
@@ -59,6 +60,19 @@ describe('requestErrorMessage', () => {
     }
     expect(requestErrorMessage(new TypeError("Cannot read properties of undefined (reading 'id')"))).toBe(
       "Cannot read properties of undefined (reading 'id')"
+    )
+  })
+
+  test('shows the message of errors from another realm or a structured clone', () => {
+    const foreign = runInNewContext("new Error('Applet chart failed')") as unknown
+    expect(foreign instanceof Error).toBe(false)
+    expect(requestErrorMessage(foreign)).toBe('Applet chart failed')
+    expect(requestErrorMessage(structuredClone(new RangeError('Out of range')))).toBe('Out of range')
+    expect(requestErrorMessage({ name: 'Error', message: 'Applet chart failed', stack: 'Error: at main.js:1' })).toBe(
+      'Applet chart failed'
+    )
+    expect(requestErrorMessage(runInNewContext("new TypeError('Failed to fetch')"))).toBe(
+      i18n.t('common.network_request_failed')
     )
   })
 

@@ -88,7 +88,7 @@ export function CommentThread({
                 disabled={!thread.anchor_present}
                 onClick={() => reveal(parsedAnchor)}
                 className="inline-flex items-center rounded border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary enabled:cursor-pointer enabled:hover:border-border-strong enabled:hover:text-foreground disabled:opacity-60">
-                {formatFileAnchorLabel(parsedAnchor)}
+                {formatFileAnchorLabel(parsedAnchor, t)}
               </button>
               {thread.anchor_outdated && (
                 <Badge variant="outline" className="text-warning-foreground">

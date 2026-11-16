@@ -47,7 +47,8 @@ function find(state: GardState, previous: Slash | null): Slash | null {
   if (!match) return null
   const text = match[1]!.toLowerCase()
   const options = filterBlockOptions(state, text)
-  if (!options.length) return null
+  // A query without matches keeps the menu open on its empty row until the query takes a space.
+  if (!options.length && /\s/.test(text)) return null
   const from = selection.head - match[1]!.length - 1
   const index =
     previous && previous.from === from && previous.query === match[1] ? Math.min(previous.index, options.length - 1) : 0
@@ -92,6 +93,12 @@ const keys = Wordgard.domEventHandler('keydown', (event, wg) => {
   if (!menu || composingKey(event) || wg.composing) return false
   if (event.ctrlKey || event.metaKey || event.altKey) return false
   const count = menu.options.length
+  if (event.key === 'Escape') {
+    wg.dispatch({ effects: dismiss.of(null) })
+    return true
+  }
+  // Without options, the empty row takes no keys and Enter or Tab edits the text as usual.
+  if (!count) return false
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     const step = event.key === 'ArrowDown' ? 1 : -1
     wg.dispatch({ effects: highlight.of((menu.index + step + count) % count) })
@@ -99,10 +106,6 @@ const keys = Wordgard.domEventHandler('keydown', (event, wg) => {
   }
   if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
     choose(wg, menu.options[menu.index]!.type)
-    return true
-  }
-  if (event.key === 'Escape') {
-    wg.dispatch({ effects: dismiss.of(null) })
     return true
   }
   return false
@@ -114,7 +117,7 @@ export const slashMenu: GardState.Extension = [
   GardState.prec.highest(keys),
   Wordgard.contentAttributes.of((wg): Record<string, string | null> => {
     const menu = wg.hasFocus ? wg.state.field(slashField, false) : null
-    if (!menu) return { 'aria-autocomplete': 'list' }
+    if (!menu?.options.length) return { 'aria-autocomplete': 'list' }
     return {
       'aria-autocomplete': 'list',
       'aria-controls': `${wg.contentDOM.id}-slash`,

@@ -94,6 +94,8 @@ export function EnvVarsEditor({
   const [importOpen, setImportOpen] = useState(false)
   const [modeEpoch, setModeEpoch] = useState(0)
   const [dotEnvSeed, setDotEnvSeed] = useState<DotEnvSeedRequest | null>(null)
+  // A row action reports its failure above the list; the add, edit, and import forms report theirs inside the form.
+  const [listError, setListError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [deletingName, setDeletingName] = useState<string | null>(null)
   const [revealingName, setRevealingName] = useState<string | null>(null)
@@ -168,12 +170,12 @@ export function EnvVarsEditor({
     for (const targetName of names) hideRevealed(targetName)
   }
 
-  const handleReveal = async (targetName: string) => {
+  const handleReveal = async (targetName: string, reportError: (message: string | null) => void) => {
     if (!onDecrypt || !canDecrypt) return
     const generation = revealGenerationRef.current
     const applyToDraft = prepareRowRevealRef.current?.(targetName)
     setRevealingName(targetName)
-    setFormError(null)
+    reportError(null)
     try {
       const plaintext = await onDecrypt(targetName)
       if (!mountedRef.current || revealGenerationRef.current !== generation) return
@@ -183,7 +185,7 @@ export function EnvVarsEditor({
       applyToDraft?.(plaintext)
     } catch (revealError) {
       if (mountedRef.current && revealGenerationRef.current === generation) {
-        setFormError(formatPodEnvVarError(revealError))
+        reportError(formatPodEnvVarError(revealError))
       }
     } finally {
       if (mountedRef.current) {
@@ -204,6 +206,7 @@ export function EnvVarsEditor({
     setImportOpen(false)
     setModeEpoch(epoch => epoch + 1)
     setEditSession({ id: nextCounterRef.current, item, initialValue })
+    setListError(null)
     setFormError(null)
     queueMicrotask(() => {
       formCardRef.current?.scrollIntoView?.({ block: 'nearest' })
@@ -212,13 +215,13 @@ export function EnvVarsEditor({
 
   const handleDelete = async (targetName: string) => {
     setDeletingName(targetName)
-    setFormError(null)
+    setListError(null)
     try {
       await onDelete(targetName)
       hideRevealed(targetName)
       setEditSession(current => (current?.item.name === targetName ? null : current))
     } catch (deleteError) {
-      setFormError(formatPodEnvVarError(deleteError))
+      setListError(formatPodEnvVarError(deleteError))
     } finally {
       setDeletingName(current => (current === targetName ? null : current))
     }
@@ -289,7 +292,7 @@ export function EnvVarsEditor({
                   className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
                   onClick={() => {
                     if (isRowRevealed) hideRevealed(item.name)
-                    else void handleReveal(item.name)
+                    else void handleReveal(item.name, setListError)
                   }}>
                   {revealingName === item.name ? (
                     <Spinner className="size-3.5" />
@@ -342,9 +345,9 @@ export function EnvVarsEditor({
   return (
     <div className="grid gap-4">
       <ContentError error={error} retry={onRetry} />
-      {formError ? (
+      {listError ? (
         <Alert variant="destructive">
-          <AlertDescription>{formError}</AlertDescription>
+          <AlertDescription>{listError}</AlertDescription>
         </Alert>
       ) : null}
 
@@ -447,6 +450,16 @@ export function EnvVarsEditor({
           ) : null}
         </div>
 
+        {formError ? (
+          <Alert
+            key={formError}
+            ref={alert => alert?.scrollIntoView?.({ block: 'nearest' })}
+            id={`${baseId}-error`}
+            variant="destructive">
+            <AlertDescription>{formError}</AlertDescription>
+          </Alert>
+        ) : null}
+
         <EnvVarDotEnvImportForm
           baseId={baseId}
           active={showDotEnvImport}
@@ -469,7 +482,7 @@ export function EnvVarsEditor({
           revealedPlaintext={editingName ? revealedValues[editingName] : undefined}
           revealing={editingName !== null && revealingName === editingName}
           prepareRowRevealRef={prepareRowRevealRef}
-          onReveal={editingName ? () => void handleReveal(editingName) : undefined}
+          onReveal={editingName ? () => void handleReveal(editingName, setFormError) : undefined}
           onSave={onSave}
           onSavedName={hideRevealed}
           onExitEdit={() => setEditSession(null)}

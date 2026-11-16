@@ -1,6 +1,11 @@
+import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@ankole/uikit'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
+import { z } from 'zod'
+import { ErrorBlock } from '../common/error-block'
+import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
+import { truncate } from '../common/text'
 import { contentKeys, pageAPI } from './content-api'
 import { ContentError } from './content-primitives'
 import { usePageHref, usePagesMetadata } from './use-page-metadata'
@@ -24,7 +29,31 @@ export function KnowledgePanel({ pageID, revision }: { pageID: string; revision:
   const backlinks = usePagesMetadata((panel?.backlinks ?? []).map(link => ({ ...link, id: link.page_id })))
   return (
     <aside className="space-y-4 border-t border-border pt-4" aria-label={t('pod.knowledge.related')}>
-      <ContentError error={query.error} retry={() => void query.refetch()} />
+      {query.error instanceof z.ZodError ? (
+        // A malformed response is a control-plane defect; the reader gets one line and the validator text on request.
+        <ErrorBlock
+          error={t('pod.knowledge.related_invalid')}
+          action={
+            <Collapsible className="space-y-2">
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
+                  {t('pod.content.retry')}
+                </Button>
+                <CollapsibleTrigger render={<Button variant="ghost" size="sm" />}>
+                  {t('pod.knowledge.related_invalid_detail')}
+                </CollapsibleTrigger>
+              </div>
+              <CollapsibleContent>
+                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-xs">
+                  {truncate(z.prettifyError(query.error), 2000)}
+                </pre>
+              </CollapsibleContent>
+            </Collapsible>
+          }
+        />
+      ) : (
+        <ContentError error={query.error} retry={() => void query.refetch()} />
+      )}
       {panel && (
         <>
           {panel.backlinks.length > 0 && (
@@ -36,7 +65,7 @@ export function KnowledgePanel({ pageID, revision }: { pageID: string; revision:
                     <Link className="link" to={pageHref(link.page_id, link.title)}>
                       {link.title}
                     </Link>
-                    <span className="ml-2 text-xs text-fg-tertiary">{link.link_type}</span>
+                    <span className="ml-2 text-xs text-fg-tertiary">{humanizeTechnicalLabel(link.link_type)}</span>
                     {link.context && <p className="text-fg-secondary">{link.context}</p>}
                   </li>
                 ))}
@@ -54,7 +83,7 @@ export function KnowledgePanel({ pageID, revision }: { pageID: string; revision:
                         ? t('pod.knowledge.fact')
                         : claim.claim_type === 'take'
                           ? t('pod.knowledge.take')
-                          : claim.claim_type}
+                          : humanizeTechnicalLabel(claim.claim_type)}
                       {claim.confidence != null &&
                         ` · ${t('pod.knowledge.confidence')}: ${Math.round(claim.confidence * 100)}%`}
                     </p>

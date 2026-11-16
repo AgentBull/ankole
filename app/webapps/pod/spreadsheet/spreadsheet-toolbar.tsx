@@ -36,6 +36,7 @@ import {
   NumberRowRegular,
   PaintBrushRegular,
   PaintBucketRegular,
+  SearchRegular,
   TableCellsMergeRegular,
   TableCellsSplitRegular,
   TableFreezeRowRegular,
@@ -90,7 +91,7 @@ const NUMBER_FORMATS = {
   date: 'yyyy-mm-dd',
   text: '@'
 } as const
-const TEXT_COLORS = [
+export const TEXT_COLORS = [
   '--color-gray-100',
   '--color-gray-80',
   '--color-red-60',
@@ -102,7 +103,7 @@ const TEXT_COLORS = [
   '--color-purple-60',
   '--color-magenta-70'
 ]
-const FILL_COLORS = [
+export const FILL_COLORS = [
   '--color-gray-40',
   '--color-red-20',
   '--color-orange-20',
@@ -678,6 +679,10 @@ export function SpreadsheetToolbar({
             </Popover>
           </>
         )}
+        {canEdit && <Separator orientation="vertical" className="mx-1 h-5" />}
+        <ToolButton label={t('pod.spreadsheet.find')} onClick={() => onFind('find')}>
+          <SearchRegular />
+        </ToolButton>
         <div className="ml-auto flex items-center gap-2">
           <span role="status" className="text-xs text-fg-tertiary">
             {canEdit ? status : t('pod.spreadsheet.view_only')}

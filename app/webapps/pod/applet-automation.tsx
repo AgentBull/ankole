@@ -14,6 +14,8 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } fr
 import type { ActionRun } from '@ankole/applet-sdk/types'
 import { useTranslation } from 'react-i18next'
 import { podPublicOrigin } from '../common/browser-context'
+import i18n from '../common/i18n'
+import { requestErrorMessage } from '../common/request-errors'
 import { Link } from '@tanstack/react-router'
 import { Choice as ChoiceControl, ContentError, ContentSkeleton, InlineLoading } from './content-primitives'
 import { contentKeys, podFileURL, podRequest, type PageDetail } from './content-api'
@@ -41,9 +43,17 @@ function Choice<T extends string>(props: {
   )
 }
 
-function object(form: FormData, field: string) {
-  const value = JSON.parse(String(form.get(field) || '{}'))
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a JSON object')
+export function jsonObjectField(form: FormData, field: string, label: string) {
+  let value: unknown
+  try {
+    value = JSON.parse(String(form.get(field) || '{}'))
+  } catch (error) {
+    // The browser's parser message stays as the detail because it names the failing position.
+    throw new Error(i18n.t('common.must_be_valid_json', { field: label, detail: requestErrorMessage(error) }))
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(i18n.t('common.must_be_json_object', { field: label }))
+  }
   return value as Record<string, unknown>
 }
 
@@ -359,7 +369,7 @@ function JobForm({
       submit={t(job ? 'common.save' : 'pod.automation.create_job')}
       onSubmit={data => {
         try {
-          const config = object(data, 'config')
+          const config = jsonObjectField(data, 'config', t('pod.automation.config'))
           setError(undefined)
           onSave({ action_key: action, label: String(data.get('label')), authorization_kind: authority, config })
         } catch (error) {
@@ -1053,7 +1063,7 @@ function ScheduleForm({
       submit={t('common.save')}
       onSubmit={data => {
         try {
-          const payload = object(data, 'payload')
+          const payload = jsonObjectField(data, 'payload', t('pod.automation.payload'))
           const timezone = String(data.get('timezone'))
           const definition =
             kind === 'every'

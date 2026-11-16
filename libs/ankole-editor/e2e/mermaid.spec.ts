@@ -49,6 +49,35 @@ test('view and theme menus persist their choices', async ({ page }) => {
   await expectMarkdown(page, fence(source))
 })
 
+test('each view sizes the block to its visible content between the minimum and the cap', async ({ page }) => {
+  await openDocument(page, fence(source))
+  const block = page.locator('.mermaid-block')
+  await expect(block.locator('.mermaid-preview svg')).toBeVisible({ timeout: 10_000 })
+  const height = async () => (await block.boundingBox())!.height
+  const view = async (name: string) => {
+    await page.locator('[data-mermaid-action="view"]').click()
+    await page.getByRole('menuitemradio', { name }).click()
+  }
+  const both = await height()
+  expect(both).toBeLessThan(558)
+  await view('仅展示代码')
+  // Two source lines take the 120px minimum body under the 36px toolbar and the 1px borders.
+  await expect.poll(height).toBe(158)
+  await view('仅展示图表')
+  await expect.poll(height).toBe(both)
+
+  await view('仅展示代码')
+  const pre = block.locator('.mermaid-pre')
+  await caret(pre, 'end')
+  for (let line = 0; line < 40; line++) {
+    await page.keyboard.press('Enter')
+    await page.keyboard.type(`N${line}`)
+  }
+  // Long source stops at the cap and scrolls inside the block.
+  await expect.poll(height).toBeLessThanOrEqual(558)
+  expect(await pre.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+})
+
 test('templates replace the source in one step', async ({ page }) => {
   await openDocument(page, fence(source))
   await page.locator('[data-mermaid-action="template"]').click()

@@ -1,5 +1,6 @@
 import type { Heading, Nodes } from 'mdast'
 import { fromMarkdown } from 'mdast-util-from-markdown'
+import type { TFunction } from 'i18next'
 
 export type FileCommentAnchor =
   | { kind: 'lines'; start_line: number; end_line: number; object_id?: string }
@@ -106,7 +107,7 @@ export function formatMediaTimestamp(seconds: number): string {
   return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`
 }
 
-export function formatFileAnchorLabel(anchor: FileCommentAnchor): string {
+export function formatFileAnchorLabel(anchor: FileCommentAnchor, t: TFunction): string {
   switch (anchor.kind) {
     case 'lines':
       return anchor.start_line === anchor.end_line
@@ -114,7 +115,9 @@ export function formatFileAnchorLabel(anchor: FileCommentAnchor): string {
         : `L${anchor.start_line}–L${anchor.end_line}`
     case 'csv_rows': {
       const range =
-        anchor.start_row === anchor.end_row ? `Row ${anchor.start_row}` : `Rows ${anchor.start_row}–${anchor.end_row}`
+        anchor.start_row === anchor.end_row
+          ? t('pod.command.target_row', { row: anchor.start_row })
+          : t('pod.command.target_rows', { start: anchor.start_row, end: anchor.end_row })
       return anchor.column ? `${range} · ${anchor.column}` : range
     }
     case 'md_section':

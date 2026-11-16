@@ -15,7 +15,10 @@ import {
   PopoverContent,
   PopoverTitle,
   PopoverTrigger,
-  toast
+  toast,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import { ChevronDownRegular } from '@ankole/uikit/icons'
@@ -224,6 +227,49 @@ function wrapLines(context: CanvasRenderingContext2D, text: string, width: numbe
   return lines
 }
 
+type Lines = { from: number; to: number }
+type PaneView = {
+  frozenRows: number
+  frozenCols: number
+  frozenHeight: number
+  frozenWidth: number
+  firstRow: number
+  lastRow: number
+  firstCol: number
+  lastCol: number
+  width: number
+  height: number
+  colX(col: number): number
+}
+
+/**
+ * The panes the grid paints, each with its lines and its clip box: the scrolled area, then the
+ * frozen rows, the frozen columns, and their corner. While the scrolled columns start right at the
+ * freeze line, the panes on either side of it paint as one, so overflowing text runs across the line.
+ */
+export function paneRegions(view: PaneView): { rows: Lines; cols: Lines; clip: [number, number, number, number] }[] {
+  const scrollRows = { from: view.firstRow, to: view.lastRow }
+  const frozenRows = { from: 0, to: view.frozenRows - 1 }
+  const mainTop = HEADER_HEIGHT + view.frozenHeight
+  const mainLeft = HEADER_WIDTH + view.frozenWidth
+  if (view.colX(view.frozenCols) === mainLeft) {
+    const cols = { from: 0, to: view.lastCol }
+    const width = view.width - HEADER_WIDTH
+    return [
+      { rows: scrollRows, cols, clip: [HEADER_WIDTH, mainTop, width, view.height - mainTop] },
+      { rows: frozenRows, cols, clip: [HEADER_WIDTH, HEADER_HEIGHT, width, view.frozenHeight] }
+    ]
+  }
+  const scrollCols = { from: view.firstCol, to: view.lastCol }
+  const frozenCols = { from: 0, to: view.frozenCols - 1 }
+  return [
+    { rows: scrollRows, cols: scrollCols, clip: [mainLeft, mainTop, view.width - mainLeft, view.height - mainTop] },
+    { rows: frozenRows, cols: scrollCols, clip: [mainLeft, HEADER_HEIGHT, view.width - mainLeft, view.frozenHeight] },
+    { rows: scrollRows, cols: frozenCols, clip: [HEADER_WIDTH, mainTop, view.frozenWidth, view.height - mainTop] },
+    { rows: frozenRows, cols: frozenCols, clip: [HEADER_WIDTH, HEADER_HEIGHT, view.frozenWidth, view.frozenHeight] }
+  ]
+}
+
 /**
  * The grid: a high-DPI canvas over a native scroll area. The canvas paints the cached viewport of
  * the local document and asks the worker for a new one only when the visible area leaves it.
@@ -268,6 +314,7 @@ export function SpreadsheetCanvas({
   const [viewing, setViewing] = useState<{ url: string; alt: string }>()
   const [filterMenu, setFilterMenu] = useState<{ col: number; box: CellBox; values?: FilterValue[] }>()
   const [dropdown, setDropdown] = useState<{ cell: CellAddress; box: CellBox; rule: RenderValidation }>()
+  const [tip, setTip] = useState<{ key: number; text: string; box: CellBox }>()
   const copied = model.copied.value
   const painter = model.painter.value
   const sheet = model.activeSheet.value
@@ -439,23 +486,11 @@ export function SpreadsheetCanvas({
     context.fillStyle = tokens.background
     context.fillRect(0, 0, view.width, view.height)
     const cached = frame.current?.sheetID === view.info.sheet_id ? frame.current : undefined
-    const scrollRows = { from: view.firstRow, to: view.lastRow }
-    const scrollCols = { from: view.firstCol, to: view.lastCol }
-    const frozenRows = { from: 0, to: view.frozenRows - 1 }
-    const frozenCols = { from: 0, to: view.frozenCols - 1 }
-    const mainTop = HEADER_HEIGHT + view.frozenHeight
-    const mainLeft = HEADER_WIDTH + view.frozenWidth
-    const regions = [
-      { rows: scrollRows, cols: scrollCols, clip: [mainLeft, mainTop, view.width - mainLeft, view.height - mainTop] },
-      { rows: frozenRows, cols: scrollCols, clip: [mainLeft, HEADER_HEIGHT, view.width - mainLeft, view.frozenHeight] },
-      { rows: scrollRows, cols: frozenCols, clip: [HEADER_WIDTH, mainTop, view.frozenWidth, view.height - mainTop] },
-      { rows: frozenRows, cols: frozenCols, clip: [HEADER_WIDTH, HEADER_HEIGHT, view.frozenWidth, view.frozenHeight] }
-    ]
-    for (const region of regions) {
+    for (const region of paneRegions(view)) {
       if (region.rows.to < region.rows.from || region.cols.to < region.cols.from) continue
       context.save()
       context.beginPath()
-      context.rect(...(region.clip as [number, number, number, number]))
+      context.rect(...region.clip)
       context.clip()
       paintCells(context, view, tokens, cached, region.rows, region.cols)
       context.restore()
@@ -1488,6 +1523,7 @@ export function SpreadsheetCanvas({
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
+    setTip(undefined)
     const { x, y } = local(event)
     if (x > scroller.current!.clientWidth || y > scroller.current!.clientHeight) return
     const hit = hitTest(x, y)
@@ -1560,8 +1596,7 @@ export function SpreadsheetCanvas({
   }
 
   /** The note of the cell under the pointer, or the message its validation shows. */
-  const tooltipFor = (hit: Hit): string => {
-    if (hit.kind === 'filter') return t('pod.spreadsheet.filter_button', { column: columnName(hit.col) })
+  const cellTip = (hit: Hit): string => {
     if (hit.kind !== 'cell') return ''
     const note = frame.current?.cells.get(cellKey(hit.cell.row, hit.cell.col))?.cell.note
     if (note) return note
@@ -1611,7 +1646,19 @@ export function SpreadsheetCanvas({
     if (!current) {
       const hit = hitTest(x, y)
       scroller.current!.style.cursor = cursorFor(hit)
-      scroller.current!.title = hit ? tooltipFor(hit) : ''
+      scroller.current!.title =
+        hit?.kind === 'filter' ? t('pod.spreadsheet.filter_button', { column: columnName(hit.col) }) : ''
+      const text = hit ? cellTip(hit) : ''
+      const view = layout()
+      if (hit?.kind !== 'cell' || !text || !view) {
+        setTip(undefined)
+        return
+      }
+      const key = cellKey(hit.cell.row, hit.cell.col)
+      const { row, col } = hit.cell
+      setTip(shown =>
+        shown?.key === key ? shown : { key, text, box: box(view, { r0: row, c0: col, r1: row, c1: col }) }
+      )
       return
     }
     if (current.kind === 'resize') {
@@ -2134,7 +2181,11 @@ export function SpreadsheetCanvas({
           role="grid"
           aria-label={t('pod.spreadsheet.grid_label', { sheet: sheet?.name ?? '' })}
           className="absolute inset-0 overflow-auto outline-none select-none"
-          onScroll={requestPaint}
+          onScroll={() => {
+            setTip(undefined)
+            requestPaint()
+          }}
+          onPointerLeave={() => setTip(undefined)}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -2275,6 +2326,23 @@ export function SpreadsheetCanvas({
             </PopoverContent>
           </Popover>
         </div>
+      )}
+      {/* A note shows in a bubble beside its cell while the pointer rests on the cell. */}
+      {tip && (
+        <Tooltip open onOpenChange={open => !open && setTip(undefined)}>
+          <TooltipTrigger
+            render={
+              <div
+                aria-hidden
+                className="pointer-events-none absolute"
+                style={{ left: tip.box.x, top: tip.box.y, width: tip.box.width, height: tip.box.height }}
+              />
+            }
+          />
+          <TooltipContent side="right" align="start" className="whitespace-pre-wrap">
+            {tip.text}
+          </TooltipContent>
+        </Tooltip>
       )}
       <div ref={fillOptions} className="absolute z-10" style={{ display: 'none' }}>
         {filled && (

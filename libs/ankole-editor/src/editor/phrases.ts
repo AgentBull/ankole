@@ -109,6 +109,7 @@ export const editorPhrases = PhraseSet.define({
   advanced_blocks: '更多内容',
   filter_blocks: '筛选 Block…',
   slash_menu: '插入 Block',
+  no_matching_blocks: '没有匹配的 Block',
   block: 'Block',
   current_block_menu: '当前 Block 菜单',
   block_actions: 'Block 操作',

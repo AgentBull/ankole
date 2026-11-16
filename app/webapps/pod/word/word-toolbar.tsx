@@ -73,13 +73,14 @@ import {
 } from '@ankole/uikit/icons'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useEffect, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useMemo, useState, type ReactNode, type RefObject } from 'react'
 import { downloadBlob } from '../../common/browser-files'
 import { podPagePath } from '../../common/pod-url'
 import { requestErrorMessage } from '../../common/request-errors'
 import { podWordConvertToDocument } from '../api/generated/sdk.gen'
 import { contentError } from '../content-errors'
 import { chooseLocalFile } from '../native-transfers'
+import { searchOfficeCommands } from '../office/office-commands'
 import { OfficeVersions } from '../office/office-versions'
 import { pageCreated } from '../state/navigation-cache'
 import {
@@ -125,6 +126,56 @@ const HIGHLIGHT_COLORS = [
 ] as const
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48] as const
+
+// Palette names for the WordCraft commands this toolbar also exposes; other commands keep the
+// engine's English label.
+const COMMAND_NAME_KEYS: Readonly<Record<string, string>> = {
+  'edit.undo': 'pod.word.undo',
+  'edit.redo': 'pod.word.redo',
+  'edit.copy': 'pod.office.copy',
+  'edit.find': 'pod.office.find',
+  'view.zoomIn': 'pod.office.zoom_in',
+  'view.zoomOut': 'pod.office.zoom_out',
+  'para.style': 'pod.word.style',
+  'format.size': 'pod.word.font_size',
+  'format.bold': 'pod.word.bold',
+  'format.italic': 'pod.word.italic',
+  'format.underline': 'pod.word.underline',
+  'format.strikethrough': 'pod.word.strikethrough',
+  'format.subscript': 'pod.word.subscript',
+  'format.superscript': 'pod.word.superscript',
+  'format.color': 'pod.word.font_color',
+  'format.highlight': 'pod.word.highlight_color',
+  'format.clear': 'pod.word.clear_formatting',
+  'para.alignLeft': 'pod.word.align_left',
+  'para.alignCenter': 'pod.word.align_center',
+  'para.alignRight': 'pod.word.align_right',
+  'para.justify': 'pod.word.align_justify',
+  'para.bullets': 'pod.word.bullet_list',
+  'para.numbering': 'pod.word.numbered_list',
+  'para.outdent': 'pod.word.outdent',
+  'para.indent': 'pod.word.indent',
+  'insert.table': 'pod.word.insert_table',
+  'table.insertRowAbove': 'pod.word.insert_row_above',
+  'table.insertRowBelow': 'pod.word.insert_row_below',
+  'table.insertColumnLeft': 'pod.word.insert_column_left',
+  'table.insertColumnRight': 'pod.word.insert_column_right',
+  'table.deleteRow': 'pod.word.delete_row',
+  'table.deleteColumn': 'pod.word.delete_column',
+  'table.deleteTable': 'pod.word.delete_table',
+  'insert.picture': 'pod.word.insert_picture',
+  'insert.link': 'pod.word.insert_link',
+  'insert.removeLink': 'pod.word.remove_link',
+  'insert.pageBreak': 'pod.word.insert_page_break',
+  'insert.horizontalLine': 'pod.word.insert_horizontal_rule',
+  'review.newComment': 'pod.word.add_comment',
+  'review.deleteComment': 'pod.word.delete_comment',
+  'review.trackChanges': 'pod.word.track_changes',
+  'review.accept': 'pod.word.accept_change',
+  'review.reject': 'pod.word.reject_change',
+  'review.acceptAll': 'pod.word.accept_all_changes',
+  'review.rejectAll': 'pod.word.reject_all_changes'
+}
 
 function pdfDownloadName(rawTitle?: string): string {
   const cleaned = (rawTitle ?? '')
@@ -477,13 +528,13 @@ export function WordToolbar({
                 <Button
                   size="xs"
                   variant="outline"
-                  aria-label={t('pod.word.clear_formatting')}
-                  title={t('pod.word.clear_formatting')}
+                  aria-label={t('pod.word.automatic_color')}
+                  title={t('pod.word.automatic_color')}
                   onClick={() => {
                     setFontColorOpen(false)
                     run('format.color', { color: 'auto' })
                   }}>
-                  {t('pod.word.clear_formatting')}
+                  {t('pod.word.automatic_color')}
                 </Button>
               </PopoverContent>
             </Popover>
@@ -525,13 +576,13 @@ export function WordToolbar({
                 <Button
                   size="xs"
                   variant="outline"
-                  aria-label={t('pod.word.clear_formatting')}
-                  title={t('pod.word.clear_formatting')}
+                  aria-label={t('pod.word.no_highlight')}
+                  title={t('pod.word.no_highlight')}
                   onClick={() => {
                     setHighlightOpen(false)
                     run('format.highlight', { color: 'none' })
                   }}>
-                  {t('pod.word.clear_formatting')}
+                  {t('pod.word.no_highlight')}
                 </Button>
               </PopoverContent>
             </Popover>
@@ -665,13 +716,13 @@ export function WordToolbar({
                   <Button
                     size="sm"
                     variant="ghost"
-                    aria-label={t('pod.word.clear_formatting')}
-                    title={t('pod.word.clear_formatting')}
+                    aria-label={t('pod.word.remove_link')}
+                    title={t('pod.word.remove_link')}
                     onClick={() => {
                       setLinkPopoverOpen(false)
                       run('insert.removeLink')
                     }}>
-                    {t('pod.word.clear_formatting')}
+                    {t('pod.word.remove_link')}
                   </Button>
                   <Button
                     size="sm"
@@ -785,10 +836,10 @@ export function WordToolbar({
               onClick={() => setPaletteOpen(true)}>
               <KeyCommandRegular />
             </ToolButton>
+
+            <Separator orientation="vertical" className="mx-1 h-5 max-md:hidden" />
           </>
         )}
-
-        <Separator orientation="vertical" className="mx-1 h-5 max-md:hidden" />
 
         <ToolButton label={t('pod.office.find')} onClick={onOpenFind}>
           <SearchRegular />
@@ -949,7 +1000,7 @@ function WordCommandPaletteDialog({
     }
     let stale = false
     void model
-      .read(eng => (eng as WordEngine).commands(query.trim()))
+      .read(eng => (eng as WordEngine).commands(''))
       .then(list => {
         if (!stale && list) {
           setCommands(list)
@@ -959,7 +1010,12 @@ function WordCommandPaletteDialog({
     return () => {
       stale = true
     }
-  }, [open, query, model])
+  }, [open, model])
+
+  const matches = useMemo(
+    () => searchOfficeCommands(commands, query, COMMAND_NAME_KEYS, command => command.location),
+    [commands, query]
+  )
 
   return (
     <CommandDialog
@@ -978,10 +1034,10 @@ function WordCommandPaletteDialog({
         />
         <CommandList aria-label={t('pod.office.command_palette')}>
           <CommandEmpty>{t('pod.office.no_commands')}</CommandEmpty>
-          {commands.map(item => (
+          {matches.map(item => (
             <CommandItem key={item.id} value={item.id} onSelect={() => onExecute(item.id, {}, item.mutates)}>
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{item.label}</p>
+                <p className="truncate font-medium">{item.name}</p>
                 <p className="truncate text-xs text-fg-tertiary">
                   {[item.location, item.id].filter(Boolean).join(' · ')}
                 </p>
