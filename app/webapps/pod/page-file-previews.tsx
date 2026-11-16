@@ -903,4 +903,3 @@ export function TextFilePreview({
     </div>
   )
 }
-
