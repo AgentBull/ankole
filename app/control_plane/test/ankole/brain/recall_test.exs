@@ -68,6 +68,13 @@ defmodule Ankole.Brain.RecallTest do
     refute ctx.restricted.id in Enum.map(outside.chunks, & &1.subject_page_id)
   end
 
+  test "a claim leaves recall when its Object is soft-deleted and its source stays live", ctx do
+    assert {:ok, _object} = Ankole.Brain.soft_delete_object(ctx.public.slug)
+
+    assert {:ok, result} = Recall.recall(ctx.member.uid, %{query: "crude oil"})
+    refute ctx.private.id in Enum.map(result.claims, & &1.id)
+  end
+
   test "strict disclosure intersects Agent, requester and every present recipient", ctx do
     disclosure = %{
       mode: :strict,

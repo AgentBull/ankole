@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.157 (2026-11-16)
+
+- Open the Meta Brain graph without the long wait on sites that host many
+  spaces. Brain derived each object's path by walking the Pages of every space
+  on the site, and its claim checks read that same projection, which also made
+  PostgreSQL compile those queries before running them. Brain now walks only
+  the current space's Pages and checks a claim's subject against its Page row,
+  which speeds up Brain recall and the other Brain reads as well.
+
 ## Version 2.0.0-alpha.156 (2026-11-15)
 
 - Support an optional SaaS static CDN host (`ANKOLE_SAAS_CDN_HOST`, backed by

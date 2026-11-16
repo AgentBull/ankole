@@ -20,7 +20,6 @@ defmodule Ankole.Brain.Claims do
   alias Ankole.Brain.Embeddings
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.Schemas.Page, as: Object
   alias Ankole.Brain.Scope
   alias Ankole.Repo
 
@@ -41,9 +40,11 @@ defmodule Ankole.Brain.Claims do
   @type writer :: String.t() | :system
 
   @doc """
-  Keeps claims attached to a live Object or a signal channel. A missing Object
-  row and a soft-deleted Object both make an Object-parented claim unavailable;
-  a channel-parented claim has no Object slug and stays available.
+  Keeps claims attached to a live Object or a signal channel. A soft-deleted
+  Object makes an Object-parented claim unavailable; a channel-parented claim
+  has no Object slug and stays available. Claims accept only a live Object as
+  their subject, so the subject's Page row decides whether that Object is still
+  live.
 
   This is the Ecto form of the `live_parent?` calculation for the retrieval
   queries.
@@ -51,9 +52,9 @@ defmodule Ankole.Brain.Claims do
   @spec filter_live_parents(Ecto.Queryable.t()) :: Ecto.Query.t()
   def filter_live_parents(query) do
     query
-    |> join(:left, [claim], object in Object,
-      as: :claim_parent_object,
-      on: object.tenant_id == claim.tenant_id and object.id == claim.subject_page_id
+    |> join(:left, [claim], subject in Ankole.Pod.Page,
+      as: :claim_subject_page,
+      on: subject.tenant_id == claim.tenant_id and subject.id == claim.subject_page_id
     )
     |> join(:inner, [claim], source in Ankole.Pod.Page,
       on:
@@ -61,9 +62,9 @@ defmodule Ankole.Brain.Claims do
           is_nil(source.deleted_at)
     )
     |> where(
-      [claim, claim_parent_object: object],
+      [claim, claim_subject_page: subject],
       is_nil(claim.subject_page_id) or
-        (not is_nil(object.id) and is_nil(object.deleted_at))
+        (not is_nil(subject.id) and is_nil(subject.deleted_at))
     )
   end
 

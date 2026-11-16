@@ -369,9 +369,8 @@ defmodule Ankole.Brain.Schemas.Claim do
       attribute_type(Ankole.Ash.Types.UUIDv7)
     end
 
-    belongs_to :object, Ankole.Brain.Schemas.Page do
+    belongs_to :subject_page, Ankole.Pod.Page do
       source_attribute(:subject_page_id)
-      destination_attribute(:id)
       define_attribute?(false)
       attribute_type(Ankole.Ash.Types.UUIDv7)
     end
@@ -390,14 +389,16 @@ defmodule Ankole.Brain.Schemas.Claim do
       )
     )
 
-    # A claim on a soft-deleted or missing Object is not available. A signal
-    # channel claim has no Object slug and stays available.
+    # A claim on a soft-deleted Object is not available. A signal channel
+    # claim has no Object slug and stays available. Claims accept only a live
+    # Object as their subject, so the subject's Page row decides whether that
+    # Object is still live.
     calculate(
       :live_parent?,
       :boolean,
       expr(
         exists(source_node, is_nil(deleted_at)) and
-          (is_nil(subject_page_id) or exists(object, is_nil(deleted_at)))
+          (is_nil(subject_page_id) or exists(subject_page, is_nil(deleted_at)))
       )
     )
 

@@ -61,6 +61,27 @@ defmodule Ankole.Brain.ObjectsTest do
     end
   end
 
+  test "each tenant reads the slugs of its own Brain objects" do
+    attrs = %{slug: "companies/tenant-acme/cloud", title: "Cloud", body: "Tenant facts."}
+    {:ok, parent} = Ankole.Brain.create_object(%{attrs | slug: "companies/tenant-acme"}, :system)
+    {:ok, here} = Ankole.Brain.create_object(attrs, :system)
+    other = Ankole.DataCase.create_tenant()
+
+    there =
+      Ankole.Repo.with_tenant(other.id, fn ->
+        {:ok, _} = Ankole.Brain.SchemaPacks.install_packs([])
+        {:ok, _} = Ankole.Brain.create_object(%{attrs | slug: "companies/tenant-acme"}, :system)
+        {:ok, there} = Ankole.Brain.create_object(attrs, :system)
+        assert {:ok, %{slug: "companies/tenant-acme/cloud"}} = Objects.get_by_slug(there.id)
+        assert {:error, :not_found} = Objects.get_by_slug(here.id)
+        there
+      end)
+
+    assert {:ok, %{slug: "companies/tenant-acme"}} = Objects.get_by_slug(parent.id)
+    assert {:ok, %{slug: "companies/tenant-acme/cloud"}} = Objects.get_by_slug(here.id)
+    assert {:error, :not_found} = Objects.get_by_slug(there.id)
+  end
+
   test "the adapter writes Pod content, business metadata and tags through one revision" do
     %{principal: human} = human_fixture()
 
