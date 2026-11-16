@@ -259,6 +259,34 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
     assert updated.last_read_seq == alice_member.last_read_seq
   end
 
+  test "viewer preferences refresh only room lists, and a rename reaches every viewer", %{
+    alice: alice,
+    a: a,
+    actor: actor
+  } do
+    created = create!(alice, a)
+    id = created.conversation.id
+    :ok = Conversations.Events.subscribe(id)
+    :ok = Conversations.Events.subscribe_rooms()
+
+    assert {:ok, _} =
+             Conversations.update_conversation(actor, id, %{
+               pinned: true,
+               muted: true,
+               last_read_seq: created.conversation.sequence_high_water
+             })
+
+    assert NativeRoom.participant(id, alice.uid).last_read_seq ==
+             created.conversation.sequence_high_water
+
+    assert_receive {:pod_conversations_changed}
+    refute_received {:conversation_event, ^id, _}
+
+    assert {:ok, _} = Conversations.update_conversation(actor, id, %{title: "Renamed room"})
+    assert_receive {:conversation_event, ^id, :status}
+    assert_receive {:pod_conversations_changed}
+  end
+
   test "clearing a custom title restores the first message heading or attachment name", %{
     alice: alice,
     a: a,

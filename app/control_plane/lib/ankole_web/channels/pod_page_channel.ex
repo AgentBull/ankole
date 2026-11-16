@@ -26,7 +26,13 @@ defmodule AnkoleWeb.PodPageChannel do
         office_kind = OfficeFiles.kind(detail.page)
         if detail.page.type == :doc or not is_nil(office_kind), do: send(self(), :track_presence)
 
-        {:ok, Map.put(JSON.detail_json(detail), :presence_session, session),
+        reply =
+          detail
+          |> JSON.detail_json()
+          |> Map.put(:presence_session, session)
+          |> put_comment_summary(socket.assigns.actor, detail.page)
+
+        {:ok, reply,
          assign(socket, %{
            page_id: id,
            page_type: detail.page.type,
@@ -272,6 +278,17 @@ defmodule AnkoleWeb.PodPageChannel do
            head in 0..8_388_608
 
   defp valid_selection?(_), do: false
+
+  # The channel subscribes before it reads, so this summary already covers every comment change the channel has not
+  # pushed. The document editor takes it in place of a separate summary read after the join.
+  defp put_comment_summary(reply, actor, %{type: :doc, id: id}) do
+    case Ankole.Pod.Comments.summary(actor, id) do
+      {:ok, summary} -> Map.put(reply, :comment_summary, JSON.json_value(summary))
+      {:error, _} -> reply
+    end
+  end
+
+  defp put_comment_summary(reply, _actor, _page), do: reply
 
   defp reply_with(socket, fun) do
     with_tenant(socket, fn ->

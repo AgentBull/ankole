@@ -5,6 +5,7 @@ import { podKeys } from '../api'
 import { metaKeys } from '../meta-api'
 import {
   acceptConversationResult,
+  acceptReadPosition,
   refreshAgentQueries,
   refreshConversationQueries,
   refreshConversationDetail
@@ -539,6 +540,105 @@ describe('Pod remote cache ordering', () => {
       unsubscribe()
       queryClient.clear()
     }
+  })
+
+  test('a room event rereads the room and leaves the conversation lists to the Pod event', async () => {
+    const queryClient = client()
+    const reads = { detail: 0, list: 0, attention: 0 }
+    const observers = [
+      new QueryObserver(queryClient, {
+        queryKey: podKeys.detail('conversation'),
+        queryFn: async () => {
+          reads.detail += 1
+          return detail(true)
+        }
+      }),
+      new QueryObserver(queryClient, {
+        queryKey: [...podKeys.conversations, 'sidebar', ''],
+        queryFn: async () => {
+          reads.list += 1
+          return { conversations: [detail(true).conversation] }
+        }
+      }),
+      new QueryObserver(queryClient, {
+        queryKey: [...podKeys.conversations, 'attention'],
+        queryFn: async () => {
+          reads.attention += 1
+          return [detail(true).conversation]
+        }
+      })
+    ]
+    const unsubscribe = observers.map(observer => observer.subscribe(() => {}))
+    try {
+      await Promise.all(observers.map(observer => observer.refetch()))
+      Object.assign(reads, { detail: 0, list: 0, attention: 0 })
+      await reloadConversation(queryClient, 'conversation', new ChatModel())
+      expect(reads).toEqual({ detail: 1, list: 0, attention: 0 })
+    } finally {
+      unsubscribe.forEach(stop => stop())
+      queryClient.clear()
+    }
+  })
+
+  test('a confirmed read clears the unread row in every cached list without rereading', () => {
+    const queryClient = client()
+    const unread = {
+      ...detail(true).conversation,
+      lastMessageSeq: 2,
+      rowStatus: 'unread' as const,
+      viewer: { ...detail(true).conversation.viewer, lastReadSeq: 1 }
+    }
+    const other = { ...unread, id: 'other' }
+    const read = {
+      ...detail(true),
+      conversation: {
+        ...unread,
+        rowStatus: 'idle' as const,
+        viewer: { ...unread.viewer, lastReadSeq: 2, lastVisitedAt: '2026-11-13T00:00:00Z' }
+      }
+    }
+    queryClient.setQueryData(podKeys.detail('conversation'), { ...detail(true), conversation: unread })
+    queryClient.setQueryData([...podKeys.conversations, 'attention'], [unread, other])
+    queryClient.setQueryData([...podKeys.conversations, 'recent', 'sidebar'], { conversations: [unread] })
+    queryClient.setQueryData([...podKeys.conversations, 'sidebar', ''], {
+      pages: [{ conversations: [other, unread], nextCursor: null }],
+      pageParams: [undefined]
+    })
+    const work = { items: [{ id: 'conversation' }] }
+    queryClient.setQueryData([...podKeys.conversations, 'work'], work)
+
+    acceptReadPosition(queryClient, read)
+
+    const status = (rows?: { id: string; rowStatus: string; viewer: { lastReadSeq: number } }[]) =>
+      rows?.map(row => `${row.id}:${row.rowStatus}:${row.viewer.lastReadSeq}`)
+    expect(
+      status([queryClient.getQueryData<ConversationDetail>(podKeys.detail('conversation'))!.conversation])
+    ).toEqual(['conversation:idle:2'])
+    expect(status(queryClient.getQueryData([...podKeys.conversations, 'attention']))).toEqual([
+      'conversation:idle:2',
+      'other:unread:1'
+    ])
+    expect(
+      status(
+        queryClient.getQueryData<{ conversations: never[] }>([...podKeys.conversations, 'recent', 'sidebar'])
+          ?.conversations
+      )
+    ).toEqual(['conversation:idle:2'])
+    expect(
+      status(
+        queryClient.getQueryData<{ pages: { conversations: never[] }[] }>([...podKeys.conversations, 'sidebar', ''])
+          ?.pages[0]?.conversations
+      )
+    ).toEqual(['other:unread:1', 'conversation:idle:2'])
+    expect(queryClient.getQueryData([...podKeys.conversations, 'work'])).toBe(work)
+
+    // A read that arrives after a later one keeps the later position.
+    acceptReadPosition(queryClient, { ...read, conversation: { ...read.conversation, viewer: unread.viewer } })
+    expect(status(queryClient.getQueryData([...podKeys.conversations, 'attention']))).toEqual([
+      'conversation:idle:2',
+      'other:unread:1'
+    ])
+    queryClient.clear()
   })
 
   test('a room event keeps the execution page the user asked for and rereads it with the first page', async () => {

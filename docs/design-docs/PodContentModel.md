@@ -453,6 +453,9 @@ knowledge, and Applet Pages provide child-page navigation in their header—list
 visible children, paging additional children via the directory cursor, and
 offering child creation when the Page grants `node_edit`—which lets
 collaborators navigate shared subtrees whose parent Page is hidden from them.
+The header control loads the child list when the reader opens it. A reader who
+cannot create children sees the control only when the Page's `child_count` is
+above zero.
 Document Pages instead append a collapsible subpages directory below the
 document body whenever the caller can view at least one live direct child
 (`child_count > 0`) or the body is empty, so editors of an empty Document can
@@ -1883,6 +1886,11 @@ thread read; the browser does not walk list cursors to locate them. The summary
 uses database aggregates for counts and returns resolution state only for native
 anchors in the current document. Each listed thread carries its own unread
 state. Acknowledging activity notifies only connections for the same Principal.
+The `page:<id>` join reply for a Document carries the reader's comment summary,
+which the channel reads after it subscribes. The document editor replaces any
+summary read that started before the join with that summary and rereads the
+other comment queries for the Page, so opening a Document reads its summary over
+HTTP once.
 
 Page creation validates the final body and computes its VFS projection before
 inserting the Page and its content once. The same transaction creates the first

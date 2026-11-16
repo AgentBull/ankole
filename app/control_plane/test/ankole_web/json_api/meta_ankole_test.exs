@@ -629,4 +629,69 @@ defmodule AnkoleWeb.JSONAPI.MetaAnkoleTest do
                  &1["relation_kind"] == "ownership")
            )
   end
+
+  test "Brain graph attaches objects under an unreadable Page to their nearest visible ancestor",
+       %{conn: conn, uid: uid} do
+    {:ok, _} = Ankole.Brain.SchemaPacks.install_packs([])
+    {:ok, companies} = Ankole.Brain.ObjectWrites.category("companies")
+    owner = human_fixture().principal
+    owner_actor = actor_fixture(owner.uid)
+
+    {:ok, :ok} =
+      Ankole.Repo.transact(fn ->
+        for principal_uid <- [uid, owner.uid] do
+          :ok =
+            Ankole.Pod.Access.put_role(
+              %{principal_uid: principal_uid},
+              "drive:**:#{companies.id}:**",
+              "manage"
+            )
+        end
+
+        {:ok, :ok}
+      end)
+
+    {:ok, holding} =
+      Ankole.Pod.Pages.create(owner_actor, %{
+        type: :knowledge,
+        parent_id: companies.id,
+        title: "Hidden Holding"
+      })
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, holding.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: owner.uid, role: "manage"}]
+      })
+
+    subsidiaries =
+      for title <- ["Subsidiary A", "Subsidiary B"] do
+        {:ok, page} =
+          Ankole.Pod.Pages.create(owner_actor, %{
+            type: :knowledge,
+            parent_id: holding.id,
+            title: title
+          })
+
+        {:ok, _} =
+          Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
+            inherit_permissions: false,
+            grants: [
+              %{principal_uid: owner.uid, role: "manage"},
+              %{principal_uid: uid, role: "view"}
+            ]
+          })
+
+        page
+      end
+
+    graph = conn |> meta_conn() |> get("/api/v2/pod/meta/brain") |> json_response(200)
+    nodes_by_id = Map.new(graph["nodes"], &{&1["id"], &1})
+
+    refute Map.has_key?(nodes_by_id, holding.id)
+
+    for page <- subsidiaries do
+      assert nodes_by_id[page.id]["parent_id"] == companies.id
+    end
+  end
 end

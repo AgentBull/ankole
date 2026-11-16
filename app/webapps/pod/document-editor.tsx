@@ -35,7 +35,15 @@ import {
 } from '../common/external-translation-guard'
 
 import { requestErrorMessage } from '../common/request-errors'
-import { contentKeys, fileURL, pageAPI, resolvePodLinkMetadata, type PageDetail } from './content-api'
+import {
+  acceptJoinedComments,
+  contentKeys,
+  fileURL,
+  pageAPI,
+  resolvePodLinkMetadata,
+  type PageDetail
+} from './content-api'
+import type { PodPageCommentSummaryResponse } from './api/generated/types.gen'
 import { contentError } from './content-errors'
 import { ContentError, InlineLoading } from './content-primitives'
 import { ChartEmbedPickerDialog, PageEmbed } from './document-embeds'
@@ -60,6 +68,9 @@ import type { OfficeNavigationSession } from './office/office-collaboration'
 import { isRealtimeAccessDenied, RealtimeRequestError } from './realtime'
 
 const PagePicker = lazy(() => import('./page-picker').then(module => ({ default: module.PagePicker })))
+
+/** The `page:<id>` join reply: the Page read after subscribing, this tab's presence session, and its comment summary. */
+type PageJoinReply = PageDetail & { presence_session: string; comment_summary?: PodPageCommentSummaryResponse }
 
 export function DocumentPage({
   detail,
@@ -475,26 +486,27 @@ export function DocumentPage({
                     })
                     connection.on('presence', syncMembers)
                     connection.on('changes', response => collaboration.receive(response))
-                    const refreshComments = () => {
+                    connection.on('comments_changed', () => {
                       void client.invalidateQueries({ queryKey: contentKeys.comments(detail.page.id) })
-                    }
-                    connection.on('comments_changed', refreshComments)
-                    connection.on('rejoined', response => {
+                    })
+                    const joinedComments = (reply: PageJoinReply) =>
+                      void acceptJoinedComments(client, detail.page.id, reply.comment_summary)
+                    connection.on('rejoined', (response: PageJoinReply) => {
                       awareness.self.value = response.presence_session
                       lastSelection = ''
                       syncMembers()
                       announceSelection()
-                      refreshComments()
+                      joinedComments(response)
                       sync()
                     })
                     connection.on('access_revoked', () => {
                       revoke(new RealtimeRequestError({ reason: 'forbidden' }))
                     })
-                    const response = (await connection.ready) as PageDetail & { presence_session: string }
+                    const response = (await connection.ready) as PageJoinReply
                     awareness.self.value = response.presence_session
                     syncMembers()
                     announceSelection()
-                    refreshComments()
+                    joinedComments(response)
                     if (response.page.revision !== collaboration.currentRevision()) sync()
                     return connection
                   })

@@ -850,6 +850,7 @@ function PageWorkspace({
             {!accessDenied && !trashed && page.type !== 'doc' && page.type !== 'file' && (
               <PageChildrenMenu
                 pageID={page.id}
+                childCount={detail.child_count}
                 types={page.type === 'knowledge' ? ['knowledge', 'file'] : undefined}
                 canCreate={canCreateChild({ ...page, actions })}
                 scope={page.private_owner_uid ? 'private' : 'space'}

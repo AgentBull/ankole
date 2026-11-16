@@ -665,6 +665,15 @@ defmodule Ankole.Brain.Browser.Actions do
       visible_ids = MapSet.new(raw_nodes, & &1.id)
       known_parents = MapSet.union(category_ids, visible_ids)
 
+      # An object under an unreadable Page, such as a learned file in a Drive
+      # folder, attaches to its nearest visible ancestor. One read maps the
+      # ancestors of all such objects to their parents.
+      ancestor_parents =
+        raw_nodes
+        |> Enum.reject(&(is_nil(&1.parent_id) or MapSet.member?(known_parents, &1.parent_id)))
+        |> Enum.map(& &1.id)
+        |> Tree.ancestor_parents()
+
       nodes =
         Enum.map(raw_nodes, fn node ->
           %{
@@ -673,7 +682,7 @@ defmodule Ankole.Brain.Browser.Actions do
             slug: node.slug,
             type: node.type,
             subtype: node.subtype,
-            parent_id: resolve_visible_parent(node, known_parents)
+            parent_id: visible_parent(node, known_parents, ancestor_parents)
           }
         end)
 
@@ -690,29 +699,25 @@ defmodule Ankole.Brain.Browser.Actions do
     end
   end
 
-  defp resolve_visible_parent(%{parent_id: nil}, _known_parents), do: nil
+  defp visible_parent(%{id: id, parent_id: id}, _known_parents, _ancestor_parents), do: nil
 
-  defp resolve_visible_parent(%{id: id, parent_id: parent_id}, known_parents) do
+  defp visible_parent(%{parent_id: parent_id}, known_parents, ancestor_parents),
+    do: nearest_known(parent_id, known_parents, ancestor_parents, MapSet.new())
+
+  defp nearest_known(nil, _known_parents, _ancestor_parents, _seen), do: nil
+
+  defp nearest_known(id, known_parents, ancestor_parents, seen) do
     cond do
-      parent_id == id ->
+      MapSet.member?(known_parents, id) ->
+        id
+
+      MapSet.member?(seen, id) ->
         nil
 
-      MapSet.member?(known_parents, parent_id) ->
-        parent_id
-
       true ->
-        case Tree.path(%{id: id, parent_id: parent_id}) do
-          {:ok, ancestors} ->
-            ancestors
-            |> Enum.reject(&(&1.id == id))
-            |> Enum.reverse()
-            |> Enum.find_value(fn ancestor ->
-              if MapSet.member?(known_parents, ancestor.id), do: ancestor.id
-            end)
-
-          _ ->
-            nil
-        end
+        ancestor_parents
+        |> Map.get(id)
+        |> nearest_known(known_parents, ancestor_parents, MapSet.put(seen, id))
     end
   end
 

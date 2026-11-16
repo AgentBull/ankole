@@ -1,5 +1,27 @@
 # Changelog
 
+## Version 2.0.0-alpha.158 (2026-11-16)
+
+- Open conversations faster. Opening an unread room used to read the room and
+  the sidebar's conversation lists up to four times in two seconds while Pod
+  marked the room read; Pod now reads the room once more after its live stream
+  connects, and the sidebar clears the unread dot as soon as the read is
+  confirmed. Marking a room read, pinning it, or muting it no longer makes every
+  open tab of that room reload it.
+- Open document Pages with fewer requests. Pod reads a document's comment
+  summary once instead of again when the live connection joins, and the
+  subpages menu of a Base, knowledge, or Applet Page loads its list only when
+  the reader opens it.
+
+## Version 2.0.0-alpha.157 (2026-11-16)
+
+- Open the Meta Brain graph without the long wait on sites that host many
+  spaces. Brain derived each object's path by walking the Pages of every space
+  on the site, and its claim checks read that same projection, which also made
+  PostgreSQL compile those queries before running them. Brain now walks only
+  the current space's Pages and checks a claim's subject against its Page row,
+  which speeds up Brain recall and the other Brain reads as well.
+
 ## Version 2.0.0-alpha.156 (2026-11-15)
 
 - Support an optional SaaS static CDN host (`ANKOLE_SAAS_CDN_HOST`, backed by

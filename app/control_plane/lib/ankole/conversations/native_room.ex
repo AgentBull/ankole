@@ -680,12 +680,20 @@ defmodule Ankole.Conversations.NativeRoom do
           error -> error
         end
       end,
-      after_commit: &Conversations.Events.publish_status/1
+      after_commit: &publish_update(&1, attrs)
     )
     |> case do
       {:ok, id} -> Native.get(actor, id)
       error -> error
     end
+  end
+
+  # A title or access change is a room notice that every viewer reads. Pin, mute, and read position belong to the
+  # Human alone, so they change only that Human's conversation lists.
+  defp publish_update(id, attrs) do
+    if is_nil(Ankole.Attrs.get(attrs, :title)) and is_nil(Ankole.Attrs.get(attrs, :access_scope)),
+      do: Conversations.Events.publish_rooms_changed(),
+      else: Conversations.Events.publish_status(id)
   end
 
   def manage(actor, id, attrs) do

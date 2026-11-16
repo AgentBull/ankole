@@ -128,7 +128,7 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/files/objects.ex:unreferenced_ids" => 1,
     "raw_sql:lib/ankole/pod/pages/tree.ex:delete_root_in_tx" => 2,
     "raw_sql:lib/ankole/pod/pages/tree.ex:hidden_trashed_ids" => 1,
-    "raw_sql:lib/ankole/pod/pages/tree.ex:ancestor_ids" => 1,
+    "raw_sql:lib/ankole/pod/pages/tree.ex:ancestor_parents" => 1,
     "raw_sql:lib/ankole/pod/pages/tree.ex:private_owners" => 1,
     "raw_sql:lib/ankole/pod/pages/tree.ex:descendants" => 1,
     "raw_sql:lib/ankole/pod/pages/tree.ex:shared_root_ids" => 1,
@@ -624,7 +624,8 @@ defmodule Ankole.TenancyGuardTest do
                  ["page_contents"],
                  ["page_search_documents"],
                  ["pages"],
-                 ["pod_file_caches"]
+                 ["pod_file_caches"],
+                 ["tenants"]
                ] ==
                  SQL.query!(
                    Repo,
@@ -643,9 +644,12 @@ defmodule Ankole.TenancyGuardTest do
         [[definition]] =
           SQL.query!(Repo, "SELECT pg_get_viewdef($1::text::regclass, true)", [table]).rows
 
-        assert definition =~ "n.tenant_id = p_1.tenant_id"
-        assert definition =~ "paths.tenant_id = p.tenant_id"
-        assert definition =~ "c.tenant_id = p.tenant_id"
+        assert definition =~ "pages.tenant_id = t.id AND pages.parent_id IS NULL"
+        assert definition =~ "n.tenant_id = t.id AND n.parent_id = parent.id"
+        assert definition =~ "page.tenant_id = t.id AND page.id = paths.id"
+        assert definition =~ "c.tenant_id = t.id"
+        assert definition =~ "psd.tenant_id = t.id"
+        assert definition =~ "fc.tenant_id = t.id"
       else
         [row] = Enum.filter(rows, &(hd(&1) == table))
 

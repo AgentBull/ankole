@@ -714,7 +714,12 @@ defmodule Ankole.Pod.Pages.Tree do
     |> Map.new(fn [id, owner] -> {id, owner} end)
   end
 
-  def ancestor_ids(ids) do
+  def ancestor_ids(ids), do: ids |> ancestor_parents() |> Map.keys()
+
+  @doc "Maps every ancestor of the given Pages to its own parent, which is nil at a root."
+  def ancestor_parents([]), do: %{}
+
+  def ancestor_parents(ids) do
     Repo.query!(
       """
       WITH RECURSIVE ancestors AS (
@@ -723,11 +728,11 @@ defmodule Ankole.Pod.Pages.Tree do
         WHERE child.tenant_id = $1::text::uuid AND child.id = ANY($2::text[]::uuid[])
         UNION SELECT parent.id, parent.parent_id FROM pages parent
         JOIN ancestors child ON parent.id = child.parent_id WHERE parent.tenant_id = $1::text::uuid
-      ) SELECT id::text FROM ancestors
+      ) SELECT id::text, parent_id::text FROM ancestors
       """,
       [Repo.tenant_id!(), ids]
     ).rows
-    |> Enum.map(&hd/1)
+    |> Map.new(fn [id, parent_id] -> {id, parent_id} end)
   end
 
   def hidden_trashed_ids do
