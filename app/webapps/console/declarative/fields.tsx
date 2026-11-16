@@ -43,7 +43,7 @@ export function DeclarativeSelect({
 }
 
 export function draftAt(root: unknown, path: readonly string[]): DeclarativeDraft {
-  return path.reduce<unknown>((cursor, segment) => asRecord(cursor)[segment], root) as DeclarativeDraft
+  return asRecord(path.reduce<unknown>((cursor, segment) => asRecord(cursor)[segment], root))
 }
 
 export function setDraftAt(root: DeclarativeDraft, path: readonly string[], value: unknown): DeclarativeDraft {
@@ -618,6 +618,7 @@ export function DeclarativeFields({
   ruleSchema?: readonly DeclarativeRuleSection[] | null
   onChange: (next: DeclarativeDraft) => void
 }) {
+  const safeDraft = asRecord(draft)
   const rootRuleFieldNames = new Set(
     ruleSchema && fields.some(field => field.type === 'rule_tree')
       ? ruleSchema
@@ -634,11 +635,11 @@ export function DeclarativeFields({
           key={descriptor.name}
           descriptor={descriptor}
           disabled={disabled}
-          draft={draft}
+          draft={safeDraft}
           i18nPrefix={i18nPrefix}
           ruleSchema={ruleSchema}
-          value={descriptor.name in draft ? draft[descriptor.name] : descriptor.defaultValue}
-          onChange={nextValue => onChange({ ...draft, [descriptor.name]: nextValue })}
+          value={descriptor.name in safeDraft ? safeDraft[descriptor.name] : descriptor.defaultValue}
+          onChange={nextValue => onChange({ ...safeDraft, [descriptor.name]: nextValue })}
           onChangeDraft={onChange}
         />
       ))}

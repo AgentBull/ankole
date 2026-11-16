@@ -292,6 +292,35 @@ test('DeclarativeFields renders recursive object, key_value, and rule_tree contr
   expect(html).toContain('model-a')
   expect(html).toContain('safety_guard')
 
+  const emptyDraftHtml = renderToStaticMarkup(
+    <I18nextProvider i18n={testI18n}>
+      <DeclarativeFields
+        draft={{}}
+        fields={allFields}
+        ruleSchema={[
+          ...ruleSchema,
+          {
+            id: 'filters',
+            labelKey: 'filters',
+            kind: 'fields',
+            path: ['rules'],
+            fields: [
+              {
+                name: 'filter_chain',
+                type: 'string',
+                labelKey: 'filter_chain',
+                required: false,
+                readOnly: false
+              }
+            ]
+          }
+        ]}
+        onChange={() => {}}
+      />
+    </I18nextProvider>
+  )
+  expect(emptyDraftHtml).not.toContain('<textarea')
+
   const serializedRule = serializeDeclarativeFields(
     {
       method: 'POST',
