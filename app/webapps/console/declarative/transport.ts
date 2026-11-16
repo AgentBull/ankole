@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { identityHeaders, sessionIdentityKey } from '../../common/browser-context'
 import { csrfToken } from '../../common/internal-api-client'
+import { draftAt, setDraftAt } from './fields'
 import type { DeclarativeEnvelope, DeclarativeFieldDescriptor, DeclarativeSurfaceDescriptor } from './types'
 
 export type DeclarativeRecord = Readonly<Record<string, unknown>>
@@ -127,7 +128,7 @@ export async function executeDeclarativeAction(
   payload: Readonly<Record<string, unknown>>
 ): Promise<DeclarativeRecord[]> {
   const needsId = surface.endpoint.includes(':id')
-  const recordId = typeof payload.id === 'string' && payload.id ? payload.id : undefined
+  const recordId = needsId && typeof payload.id === 'string' && payload.id ? payload.id : undefined
   if (needsId && !recordId) {
     throw new Error('Select a record before executing this action')
   }
@@ -140,7 +141,10 @@ export async function executeDeclarativeAction(
   }
 
   const attributes = Object.fromEntries(
-    Object.entries(payload).filter(([key]) => key !== 'id' || recordId === undefined)
+    Object.entries(payload).filter(([key, value]) => {
+      if (key !== 'id') return true
+      return !needsId && typeof value === 'string' && value.trim().length > 0
+    })
   )
 
   switch (surface.payloadEnvelope) {
@@ -329,13 +333,11 @@ export function serializeDeclarativeFields(
     }
   }
 
-  if (surface.ruleSchema && 'rules' in draft && isRecord(draft.rules)) {
-    const serializedRules: Record<string, unknown> = { ...draft.rules }
+  let workingDraft: Record<string, unknown> = { ...draft }
+  if (surface.ruleSchema) {
     for (const section of surface.ruleSchema) {
       if (section.kind !== 'fields' || section.path.length === 0) continue
-      const [rootKey, subKey] = section.path
-      if (rootKey !== 'rules') continue
-      const rawSection = subKey ? asRecord(serializedRules[subKey]) : serializedRules
+      const rawSection = draftAt(workingDraft, section.path)
       if (Object.keys(rawSection).length === 0) continue
       const coercedSection: Record<string, unknown> = { ...rawSection }
       for (const secField of section.fields) {
@@ -344,10 +346,14 @@ export function serializeDeclarativeFields(
         if (coerced === undefined) delete coercedSection[secField.name]
         else coercedSection[secField.name] = coerced
       }
-      if (subKey) serializedRules[subKey] = coercedSection
-      else Object.assign(serializedRules, coercedSection)
+      workingDraft = setDraftAt(workingDraft, section.path, coercedSection)
     }
-    rawEntries.rules = serializedRules
+    for (const section of surface.ruleSchema) {
+      const rootKey = section.path[0]
+      if (rootKey && rootKey in workingDraft && isRecord(workingDraft[rootKey])) {
+        rawEntries[rootKey] = workingDraft[rootKey]
+      }
+    }
   }
 
   const base = preserveNulls

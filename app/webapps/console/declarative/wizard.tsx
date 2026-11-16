@@ -29,6 +29,15 @@ export interface ParsedBatchItem {
   readonly [key: string]: unknown
 }
 
+export function redactBatchLine(raw: string): string {
+  const trimmed = raw.trim()
+  const pipeIdx = trimmed.indexOf('|')
+  const prefix = pipeIdx >= 0 ? trimmed.slice(0, pipeIdx + 1) : ''
+  const target = (pipeIdx >= 0 ? trimmed.slice(pipeIdx + 1) : trimmed).trim()
+  const sanitizedTarget = redactUrlCredentials(target).replace(/((?:^|\/\/))[^/\s:@]+:[^/\s@]+@/g, '$1***@')
+  return prefix ? `${prefix}${sanitizedTarget}` : sanitizedTarget
+}
+
 export function parseBatchLine(
   line: string,
   defaultScheme: string,
@@ -38,10 +47,15 @@ export function parseBatchLine(
   const [left, right] = trimmed.includes('|') ? trimmed.split('|', 2) : [undefined, trimmed]
   const rawTarget = (right ?? trimmed).trim()
   const url = rawTarget.includes('://') ? rawTarget : `${defaultScheme}://${rawTarget}`
-  const parsed = new URL(url)
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error(`Invalid entry: ${redactBatchLine(trimmed)}`)
+  }
   const scheme = parsed.protocol.replace(/:$/, '')
   if (!config.schemes.includes(scheme) || !parsed.hostname) {
-    throw new Error(`Invalid entry: ${line}`)
+    throw new Error(`Invalid entry: ${redactBatchLine(trimmed)}`)
   }
   return {
     [config.urlField]: parsed.href,
@@ -74,6 +88,34 @@ interface PkceSession {
   readonly verifier: string
   readonly state: string
   readonly authorizeUrl: string
+}
+
+export function redactUrlCredentials(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl)
+    if (!parsed.username && !parsed.password) return parsed.href
+    return `${parsed.protocol}//***@${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`
+  } catch {
+    return rawUrl.replace(/\/\/[^/@\s]+@/, '//***@')
+  }
+}
+
+function sanitizeConfirmValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return /^https?:\/\/|^socks5?:\/\//i.test(value) ? redactUrlCredentials(value) : value
+  }
+  if (Array.isArray(value))
+    return JSON.stringify(value.map(item => (typeof item === 'string' ? sanitizeConfirmValue(item) : item)))
+  if (value && typeof value === 'object') {
+    const sanitized = Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        typeof v === 'string' ? sanitizeConfirmValue(v) : v
+      ])
+    )
+    return JSON.stringify(sanitized)
+  }
+  return String(value ?? '')
 }
 
 export function DeclarativeWizardModal({
@@ -109,15 +151,26 @@ export function DeclarativeWizardModal({
   const oauthStep = steps.find(item => item.kind === 'oauth_pkce' && item.oauthConfig)?.oauthConfig
   const batchStep = steps.find(item => item.kind === 'batch_lines' && item.batchLinesConfig)?.batchLinesConfig
 
-  const batchPreview = useMemo(() => {
-    if (!batchStep) return []
+  const batchParseResult = useMemo(() => {
+    if (!batchStep) return { items: [] as ParsedBatchItem[], error: null as string | null }
     const text = String(draft[batchStep.textField] ?? '')
-    return text
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => parseBatchLine(line, defaultScheme, batchStep))
+    const items: ParsedBatchItem[] = []
+    for (const rawLine of text.split(/\r?\n/)) {
+      const trimmed = rawLine.trim()
+      if (!trimmed) continue
+      try {
+        items.push(parseBatchLine(trimmed, defaultScheme, batchStep))
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          items,
+          error: message.replace(/((?:^|\/\/|\|\s*|\s))[^/\s:@|]+:[^/\s@|]+@/g, '$1***@')
+        }
+      }
+    }
+    return { items, error: null as string | null }
   }, [batchStep, defaultScheme, draft])
+  const batchPreview = batchParseResult.items
 
   const generateAuthorizeUrl = async (config: DeclarativeOAuthPkceConfig) => {
     const rawRedirect = String(draft[config.redirectUriField] ?? '').trim()
@@ -148,6 +201,9 @@ export function DeclarativeWizardModal({
     setError(null)
     try {
       if (step.kind === 'batch_lines' && batchStep) {
+        if (batchParseResult.error) {
+          throw new Error(batchParseResult.error)
+        }
         if (batchPreview.length === 0) {
           throw new Error(t(`${i18nPrefix}.ui.no_entries`, { defaultValue: 'Enter at least one entry' }))
         }
@@ -326,23 +382,53 @@ export function DeclarativeWizardModal({
                         <TableRow key={`${item.name}-${idx}`}>
                           <TableCell>{item.name}</TableCell>
                           <TableCell>{item.protocol}</TableCell>
-                          <TableCell className="font-mono text-xs">{item.endpoint_url}</TableCell>
+                          <TableCell className="font-mono text-xs">{redactUrlCredentials(item.endpoint_url)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
                 </div>
               ) : step.kind === 'confirm' ? (
-                <dl className="grid gap-x-4 gap-y-2 border border-border p-3 text-sm sm:grid-cols-[10rem_1fr]">
-                  {Object.entries(asRecord(draft)).map(([key, val]) => (
-                    <div key={key} className="contents">
-                      <dt className="text-muted-foreground">{formatIdentifierLabel(key)}</dt>
-                      <dd className="break-all font-mono text-xs">
-                        {typeof val === 'string' ? val : JSON.stringify(val)}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
+                batchStep ? (
+                  <div className="overflow-x-auto border border-border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Protocol</TableHead>
+                          <TableHead>Endpoint</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(previewItems.length > 0 ? previewItems : batchPreview).map((item, idx) => (
+                          <TableRow key={`${item.name}-${idx}`}>
+                            <TableCell>{item.name}</TableCell>
+                            <TableCell>{item.protocol}</TableCell>
+                            <TableCell className="font-mono text-xs">
+                              {redactUrlCredentials(item.endpoint_url)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <dl className="grid gap-x-4 gap-y-2 border border-border p-3 text-sm sm:grid-cols-[10rem_1fr]">
+                    {Object.entries(asRecord(draft))
+                      .filter(([key]) => {
+                        if (oauthStep && (key === oauthStep.callbackField || key === oauthStep.verifierField)) {
+                          return false
+                        }
+                        return surface.fields.find(f => f.name === key)?.type !== 'secret'
+                      })
+                      .map(([key, val]) => (
+                        <div key={key} className="contents">
+                          <dt className="text-muted-foreground">{formatIdentifierLabel(key)}</dt>
+                          <dd className="break-all font-mono text-xs">{sanitizeConfirmValue(val)}</dd>
+                        </div>
+                      ))}
+                  </dl>
+                )
               ) : (
                 <DeclarativeFields draft={draft} fields={step.fields} i18nPrefix={i18nPrefix} onChange={setDraft} />
               )}

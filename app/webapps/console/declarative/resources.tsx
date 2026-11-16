@@ -86,6 +86,7 @@ export function DeclarativeResourceTable({
   error,
   filters = {},
   i18nPrefix = 'console',
+  detailSurfaceId,
   titleOverride,
   onChangeFilter,
   onClearFilters,
@@ -100,6 +101,7 @@ export function DeclarativeResourceTable({
   error?: string | null
   filters?: Readonly<Record<string, string>>
   i18nPrefix?: string
+  detailSurfaceId?: string
   titleOverride?: string
   onChangeFilter?: (name: string, value: string) => void
   onClearFilters?: () => void
@@ -145,7 +147,8 @@ export function DeclarativeResourceTable({
     (item): item is Extract<DeclarativeRowActionDescriptor, { kind: 'route' }> => item.kind === 'route'
   )
 
-  const detailSurface = surface.detailSurfaceId ? surfaceById.get(surface.detailSurfaceId) : undefined
+  const resolvedDetailSurfaceId = detailSurfaceId ?? surface.detailSurfaceId
+  const detailSurface = resolvedDetailSurfaceId ? surfaceById.get(resolvedDetailSurfaceId) : undefined
   const canInspectDetail =
     Boolean(detailSurface && visibleIds.has(detailSurface.surface)) ||
     Boolean(surface.detailSurfaceId && !detailSurface)
@@ -436,6 +439,21 @@ export function DeclarativeResourceTable({
   )
 }
 
+export function resolveRouteTabSelection(
+  tabs: readonly NonNullable<DeclarativeRouteSpec['tabs']>[number][],
+  surfaceById: ReadonlyMap<string, DeclarativeSurfaceDescriptor>,
+  isVisible: (surfaceId: string, fullSurface?: string) => boolean,
+  requestedTab: string | null
+) {
+  const visibleTabs = tabs.filter(tab => {
+    const target = surfaceById.get(tab.surfaceId)
+    return Boolean(target && isVisible(target.id, target.surface))
+  })
+  const activeTabId =
+    requestedTab && visibleTabs.some(tab => tab.id === requestedTab) ? requestedTab : (visibleTabs[0]?.id ?? '')
+  return { visibleTabs, activeTabId }
+}
+
 export function DeclarativeRoutedPage({
   manifest,
   route
@@ -478,20 +496,20 @@ export function DeclarativeRoutedPage({
     )
   }
 
-  if (!visibility.isVisible(surface.id, surface.surface)) {
-    return (
-      <PageStack>
-        <ErrorBlock error={t(`${i18nPrefix}.ui.unauthorized`, { defaultValue: 'Unauthorized' })} />
-      </PageStack>
-    )
-  }
-
   if (route.tabs && route.tabs.length > 0) {
-    const visibleTabs = route.tabs.filter(tab => {
-      const target = surfaceById.get(tab.surfaceId)
-      return target && visibility.isVisible(target.id, target.surface)
-    })
-    const activeTabId = searchParams.get('tab') ?? visibleTabs[0]?.id ?? ''
+    const { visibleTabs, activeTabId } = resolveRouteTabSelection(
+      route.tabs,
+      surfaceById,
+      visibility.isVisible,
+      searchParams.get('tab')
+    )
+    if (visibleTabs.length === 0) {
+      return (
+        <PageStack>
+          <ErrorBlock error={t(`${i18nPrefix}.ui.unauthorized`, { defaultValue: 'Unauthorized' })} />
+        </PageStack>
+      )
+    }
     const pageTitle = t(route.titleKey ?? surface.titleKey, { defaultValue: formatIdentifierLabel(route.id) })
 
     return (
@@ -536,6 +554,14 @@ export function DeclarativeRoutedPage({
     )
   }
 
+  if (!visibility.isVisible(surface.id, surface.surface)) {
+    return (
+      <PageStack>
+        <ErrorBlock error={t(`${i18nPrefix}.ui.unauthorized`, { defaultValue: 'Unauthorized' })} />
+      </PageStack>
+    )
+  }
+
   return (
     <DeclarativeSurfaceRouteBody
       i18nPrefix={i18nPrefix}
@@ -576,12 +602,7 @@ function DeclarativeSurfaceRouteBody({
   onRefreshVisibility: () => void
 }) {
   const filters: Record<string, string> = {}
-  for (const key of new Set([
-    ...surface.filters,
-    ...(surface.filterSchemas?.map(item => item.name) ?? []),
-    'date',
-    'timezone'
-  ])) {
+  for (const key of new Set([...surface.filters, ...(surface.filterSchemas?.map(item => item.name) ?? [])])) {
     const val = searchParams.get(key)
     if (val) filters[key] = val
   }
@@ -596,6 +617,7 @@ function DeclarativeSurfaceRouteBody({
     return (
       <DeclarativeResourceEditorView
         backPath={route.backPath ?? '/'}
+        detailSurfaceId={route.detailSurfaceId ?? surface.detailSurfaceId ?? undefined}
         i18nPrefix={i18nPrefix}
         mode={route.mode}
         recordId={recordId}
@@ -618,12 +640,13 @@ function DeclarativeSurfaceRouteBody({
     )
   }
 
-  if (surface.kind === 'panel' || surface.presentation === 'form') {
+  if ((surface.kind === 'panel' && surface.presentation !== 'table') || surface.presentation === 'form') {
     return <DeclarativePanelView i18nPrefix={i18nPrefix} recordId={recordId} surface={surface} />
   }
 
   return (
     <DeclarativeResourceTable
+      detailSurfaceId={route.detailSurfaceId ?? surface.detailSurfaceId ?? undefined}
       error={query.error}
       filters={filters}
       i18nPrefix={i18nPrefix}
@@ -655,6 +678,7 @@ function DeclarativeResourceEditorView({
   visibleIds,
   mode,
   recordId,
+  detailSurfaceId,
   backPath,
   i18nPrefix,
   onNavigate
@@ -664,6 +688,7 @@ function DeclarativeResourceEditorView({
   visibleIds: ReadonlySet<string>
   mode: 'create' | 'edit'
   recordId?: string
+  detailSurfaceId?: string
   backPath: string
   i18nPrefix: string
   onNavigate: (to: string) => void
@@ -695,14 +720,15 @@ function DeclarativeResourceEditorView({
     )
   }
 
-  const editableFields = surface.fields.filter(field => field.name !== 'id')
+  const editableFields = surface.fields.filter(field => mode !== 'edit' || field.name !== 'id')
   const initialValues = Object.fromEntries(
     editableFields
       .filter(field => !field.readOnly && field.type !== 'secret' && record && field.name in record)
       .map(field => [field.name, record?.[field.name]])
   )
   const mergedDraft = { ...initialValues, ...draft }
-  const detailSurface = surface.detailSurfaceId ? surfaceById.get(surface.detailSurfaceId) : undefined
+  const resolvedDetailSurfaceId = detailSurfaceId ?? surface.detailSurfaceId
+  const detailSurface = resolvedDetailSurfaceId ? surfaceById.get(resolvedDetailSurfaceId) : undefined
 
   const secondaryActions =
     mode === 'edit' && recordId

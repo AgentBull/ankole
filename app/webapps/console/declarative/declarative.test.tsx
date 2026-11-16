@@ -5,8 +5,11 @@ import path from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
 import { normalizeSeriesPoints } from './charts'
-import { DeclarativeFields } from './fields'
+import { buildKeyValueRecord, DeclarativeFields, formatKeyValueEntry } from './fields'
+import { resolveRouteTabSelection } from './resources'
+import { parseBatchLine, redactBatchLine, redactUrlCredentials } from './wizard'
 import {
+  executeDeclarativeAction,
   resetDeclarativeVisibilityStoreForTests,
   seedDeclarativeVisibilityForTests,
   serializeDeclarativeFields,
@@ -228,6 +231,15 @@ test('DeclarativeFields renders recursive object, key_value, and rule_tree contr
       id: 'signal_tree',
       path: ['rules', 'signal_tree'],
       kind: 'tree',
+      treeConfig: {
+        operatorField: 'op',
+        leafOperator: 'signal',
+        leafValueField: 'signal',
+        unaryOperators: ['not'],
+        unaryChildField: 'child',
+        branchOperators: ['and', 'or'],
+        branchChildrenField: 'children'
+      },
       fields: [
         {
           name: 'op',
@@ -352,4 +364,174 @@ test('declarative console engine contains zero domain-specific module names', ()
     const source = readFileSync(path.join(dir, file), 'utf8')
     expect(source).not.toMatch(/relay_saas|AccountSnapshot|StrategyDocument|PrincipalPolicy/i)
   }
+})
+
+test('normalizeSeriesPoints supports status=no_data and explicit metric keys', () => {
+  expect(
+    normalizeSeriesPoints(
+      [
+        { bucket: '2026-11-16T00:00:00Z', status: 'no_data', requests: 0, cost_micros: 0 },
+        { bucket: '2026-11-16T01:00:00Z', status: 'has_usage', requests: 2, cost_micros: 1250 }
+      ],
+      'cost_micros'
+    )
+  ).toEqual([
+    { bucket: '2026-11-16T00:00:00Z', value: null, noData: true },
+    { bucket: '2026-11-16T01:00:00Z', value: 1250, noData: false }
+  ])
+})
+
+test('redactUrlCredentials strips userinfo and buildKeyValueRecord preserves untouched nested types', () => {
+  expect(redactUrlCredentials('http://user:secret@127.0.0.1:8080/path?x=1')).toBe('http://***@127.0.0.1:8080/path?x=1')
+  expect(redactUrlCredentials('http://')).toBe('http://')
+  const original = { nested: { a: [1, 2] }, enabled: true, count: 3, tag: 'old' }
+  expect(formatKeyValueEntry(original.nested)).toBe('{"a":[1,2]}')
+  const updated = buildKeyValueRecord(
+    [
+      ['nested', formatKeyValueEntry(original.nested)],
+      ['enabled', formatKeyValueEntry(original.enabled)],
+      ['count', formatKeyValueEntry(original.count)],
+      ['tag', 'new']
+    ],
+    original,
+    { type: 'json' }
+  )
+  expect(updated).toEqual({ nested: { a: [1, 2] }, enabled: true, count: 3, tag: 'new' })
+})
+
+test('serializeDeclarativeFields coerces nested ruleSchema paths beyond 2 segments and arbitrary root keys', () => {
+  const serialized = serializeDeclarativeFields(
+    {
+      method: 'POST',
+      nullableFields: [],
+      fields: [],
+      ruleSchema: [
+        {
+          id: 'nested',
+          path: ['policy', 'limits', 'window'],
+          kind: 'fields',
+          fields: [{ name: 'max_rps', type: 'integer', labelKey: 'max_rps', required: false, readOnly: false }]
+        }
+      ]
+    },
+    { policy: { limits: { window: { max_rps: '42' } } } }
+  )
+  expect(serialized).toEqual({ policy: { limits: { window: { max_rps: 42 } } } })
+})
+
+test('parseBatchLine redacts embedded credentials on invalid schemes and malformed URLs', () => {
+  const cfg = { urlField: 'endpoint_url', nameField: 'name', schemeField: 'protocol', schemes: ['http', 'https'] }
+  expect(() => parseBatchLine('ftp://alice:s3cr3t@proxy.internal:8080', 'http', cfg)).toThrow(
+    'Invalid entry: ftp://***@proxy.internal:8080'
+  )
+  expect(() => parseBatchLine('edge|http://alice:s3cr3t@[broken', 'http', cfg)).toThrow(
+    'Invalid entry: edge|http://***@[broken'
+  )
+  expect(redactBatchLine('edge|alice:s3cr3t@bad host')).toBe('edge|***@bad host')
+})
+
+test('tabbed routes surface secondary permitted tabs and fall back from unauthorized tab params', () => {
+  const tabbedManifest: DeclarativeConsoleManifest = {
+    ...FIXTURE_MANIFEST,
+    navSections: [
+      {
+        id: 'widgets',
+        labelKey: 'widgets.nav.section',
+        items: [
+          {
+            id: 'widget-tabbed',
+            to: '/widgets/tabbed',
+            labelKey: 'widgets.nav.tabbed',
+            icon: 'board',
+            surfaceId: 'tab-primary'
+          }
+        ]
+      }
+    ],
+    routes: [
+      {
+        id: 'widget-tabbed',
+        path: '/widgets/tabbed',
+        scope: 'site',
+        surfaceId: 'tab-primary',
+        tabs: [
+          { id: 'primary', labelKey: 'tab.primary', surfaceId: 'tab-primary' },
+          { id: 'secondary', labelKey: 'tab.secondary', surfaceId: 'tab-secondary' }
+        ]
+      }
+    ],
+    surfaces: [
+      { ...FIXTURE_MANIFEST.surfaces[1]!, id: 'tab-primary', surface: 'console:resource:tab-primary' },
+      { ...FIXTURE_MANIFEST.surfaces[1]!, id: 'tab-secondary', surface: 'console:action:tab-secondary' }
+    ]
+  }
+  const mod = createDeclarativeConsoleModule(tabbedManifest)
+  seedDeclarativeVisibilityForTests(FIXTURE_MANIFEST.visibilityEndpoint, ['console:action:tab-secondary'], 'ssr')
+
+  function NavHarness() {
+    return <span>{mod.console?.navSections?.[0]?.items?.[0]?.useVisible?.() ? 'visible' : 'hidden'}</span>
+  }
+  expect(renderToStaticMarkup(<NavHarness />)).toBe('<span>visible</span>')
+
+  const surfaceById = new Map(tabbedManifest.surfaces.map(item => [item.id, item]))
+  const selection = resolveRouteTabSelection(
+    tabbedManifest.routes[0]!.tabs!,
+    surfaceById,
+    (_id, full) => full === 'console:action:tab-secondary',
+    'primary'
+  )
+  expect(selection.visibleTabs.map(tab => tab.id)).toEqual(['secondary'])
+  expect(selection.activeTabId).toBe('secondary')
+})
+
+test('executeDeclarativeAction sends custom id in attributes for collection POST without data.id', async () => {
+  const originalFetch = globalThis.fetch
+  const calls: Array<{ url: string; body: unknown }> = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(input), body: init?.body ? JSON.parse(String(init.body)) : null })
+    return new Response(JSON.stringify({ data: { id: 'custom-strat', type: 'widget_item', attributes: {} } }), {
+      status: 201,
+      headers: { 'content-type': 'application/vnd.api+json' }
+    })
+  }) as typeof fetch
+
+  try {
+    await executeDeclarativeAction(
+      {
+        ...FIXTURE_MANIFEST.surfaces[1]!,
+        id: 'widget-create',
+        surface: 'console:action:widget-create',
+        kind: 'action',
+        operationKind: 'create',
+        method: 'POST',
+        endpoint: '/api/v2/saas-site/widgets/items'
+      },
+      { id: 'custom-strat', name: 'Strat A' }
+    )
+    await executeDeclarativeAction(
+      {
+        ...FIXTURE_MANIFEST.surfaces[1]!,
+        id: 'widget-create',
+        surface: 'console:action:widget-create',
+        kind: 'action',
+        operationKind: 'create',
+        method: 'POST',
+        endpoint: '/api/v2/saas-site/widgets/items'
+      },
+      { id: '  ', name: 'Strat B' }
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  expect(calls).toEqual([
+    {
+      url: '/api/v2/saas-site/widgets/items',
+      body: { data: { type: 'widget_item', attributes: { id: 'custom-strat', name: 'Strat A' } } }
+    },
+    {
+      url: '/api/v2/saas-site/widgets/items',
+      body: { data: { type: 'widget_item', attributes: { name: 'Strat B' } } }
+    }
+  ])
 })

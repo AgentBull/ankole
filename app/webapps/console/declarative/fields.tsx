@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LabeledField } from '../console-form'
 import { asRecord, formatIdentifierLabel } from './transport'
-import type { DeclarativeFieldDescriptor, DeclarativeRuleSection } from './types'
+import type { DeclarativeFieldDescriptor, DeclarativeRuleSection, DeclarativeRuleTreeConfig } from './types'
 
 export type DeclarativeDraft = Record<string, unknown>
 
@@ -54,7 +54,65 @@ export function setDraftAt(root: DeclarativeDraft, path: readonly string[], valu
   return { ...root, [head]: setDraftAt(asRecord(root[head]), tail, value) }
 }
 
-function KeyValueEditor({
+export function deleteDraftAt(root: DeclarativeDraft, path: readonly string[]): DeclarativeDraft {
+  if (path.length === 0) return {}
+  const [head, ...tail] = path
+  if (!head || !(head in root)) return root
+  if (tail.length === 0) {
+    const next = { ...root }
+    delete next[head]
+    return next
+  }
+  return { ...root, [head]: deleteDraftAt(asRecord(root[head]), tail) }
+}
+
+export function formatKeyValueEntry(item: unknown): string {
+  if (item === null || item === undefined) return ''
+  return typeof item === 'string' ? item : JSON.stringify(item)
+}
+
+function parseJsonEntryValue(raw: string): unknown {
+  const trimmed = raw.trim()
+  if (trimmed === 'true') return true
+  if (trimmed === 'false') return false
+  if (trimmed === 'null') return null
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
+    const num = Number(trimmed)
+    if (Number.isFinite(num)) return num
+  }
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    try {
+      return JSON.parse(trimmed)
+    } catch {
+      return raw
+    }
+  }
+  return raw
+}
+
+export function buildKeyValueRecord(
+  nextSaved: readonly (readonly [string, string])[],
+  originalRecord: Readonly<Record<string, unknown>>,
+  descriptor: Pick<DeclarativeFieldDescriptor, 'type' | 'valueType'>
+): Record<string, unknown> {
+  const nextRecord: Record<string, unknown> = {}
+  for (const [k, v] of nextSaved) {
+    const trimmed = k.trim()
+    if (!trimmed) continue
+    if (trimmed in originalRecord && v === formatKeyValueEntry(originalRecord[trimmed])) {
+      nextRecord[trimmed] = originalRecord[trimmed]
+    } else if (descriptor.valueType === 'number' && v !== '') {
+      nextRecord[trimmed] = Number(v)
+    } else if (descriptor.type === 'json') {
+      nextRecord[trimmed] = parseJsonEntryValue(v)
+    } else {
+      nextRecord[trimmed] = v
+    }
+  }
+  return nextRecord
+}
+
+export function KeyValueEditor({
   descriptor,
   label,
   value,
@@ -72,7 +130,7 @@ function KeyValueEditor({
   const { t } = useTranslation()
   const record = asRecord(value)
   const [extraRows, setExtraRows] = useState<readonly (readonly [string, string])[]>([])
-  const savedPairs = Object.entries(record).map(([key, item]) => [key, item == null ? '' : String(item)] as const)
+  const savedPairs = Object.entries(record).map(([key, item]) => [key, formatKeyValueEntry(item)] as const)
   const rows = [...savedPairs, ...extraRows]
 
   const keyLabel = t(descriptor.keyLabelKey ?? 'common.key', { defaultValue: 'Key' })
@@ -83,13 +141,7 @@ function KeyValueEditor({
     nextExtra: readonly (readonly [string, string])[]
   ) => {
     setExtraRows(nextExtra)
-    const nextRecord: Record<string, unknown> = {}
-    for (const [k, v] of nextSaved) {
-      const trimmed = k.trim()
-      if (!trimmed) continue
-      nextRecord[trimmed] = descriptor.valueType === 'number' && v !== '' ? Number(v) : v
-    }
-    onChange(nextRecord)
+    onChange(buildKeyValueRecord(nextSaved, record, descriptor))
   }
 
   return (
@@ -182,39 +234,55 @@ function KeyValueEditor({
   )
 }
 
-function SignalTreeNodeEditor({
+function RuleTreeNodeEditor({
   node,
+  treeConfig,
   opOptions,
-  signalOptions,
+  leafOptions,
   disabled,
   i18nPrefix,
   onChange,
   onRemove
 }: {
   node: Record<string, unknown>
+  treeConfig: DeclarativeRuleTreeConfig
   opOptions: readonly string[]
-  signalOptions: readonly string[]
+  leafOptions: readonly string[]
   disabled?: boolean
   i18nPrefix: string
   onChange: (next: Record<string, unknown>) => void
   onRemove?: () => void
 }) {
   const { t } = useTranslation()
-  const rawOp = typeof node.op === 'string' && opOptions.includes(node.op) ? node.op : (opOptions[0] ?? 'signal')
-  const children = Array.isArray(node.children) ? node.children.map(asRecord) : []
+  const {
+    operatorField,
+    leafOperator,
+    leafValueField,
+    unaryOperators,
+    unaryChildField,
+    branchOperators,
+    branchChildrenField
+  } = treeConfig
+  const rawOpValue = node[operatorField]
+  const rawOp =
+    typeof rawOpValue === 'string' && opOptions.includes(rawOpValue) ? rawOpValue : (opOptions[0] ?? leafOperator)
+  const rawChildren = node[branchChildrenField]
+  const children = Array.isArray(rawChildren) ? rawChildren.map(asRecord) : []
+  const makeLeaf = (val: unknown) => ({ [operatorField]: leafOperator, [leafValueField]: val })
 
   const switchOp = (nextOp: string) => {
-    if (nextOp === 'signal') {
-      onChange({ op: 'signal', signal: typeof node.signal === 'string' ? node.signal : (signalOptions[0] ?? '') })
-    } else if (nextOp === 'not') {
+    if (nextOp === leafOperator) {
+      onChange(makeLeaf(typeof node[leafValueField] === 'string' ? node[leafValueField] : (leafOptions[0] ?? '')))
+    } else if (unaryOperators.includes(nextOp)) {
+      const existingChild = node[unaryChildField]
       onChange({
-        op: 'not',
-        child: node.child ? asRecord(node.child) : (children[0] ?? { op: 'signal', signal: signalOptions[0] ?? '' })
+        [operatorField]: nextOp,
+        [unaryChildField]: existingChild ? asRecord(existingChild) : (children[0] ?? makeLeaf(leafOptions[0] ?? ''))
       })
     } else {
       onChange({
-        op: nextOp,
-        children: children.length > 0 ? children : [{ op: 'signal', signal: signalOptions[0] ?? '' }]
+        [operatorField]: nextOp,
+        [branchChildrenField]: children.length > 0 ? children : [makeLeaf(leafOptions[0] ?? '')]
       })
     }
   }
@@ -224,32 +292,36 @@ function SignalTreeNodeEditor({
       <div className="flex flex-wrap items-center gap-2">
         <DeclarativeSelect
           disabled={disabled}
-          label={t(`${i18nPrefix}.field.op`, { defaultValue: 'Operator' })}
+          label={t(`${i18nPrefix}.field.${operatorField}`, { defaultValue: 'Operator' })}
           options={opOptions.map(val => [val, t(`${i18nPrefix}.value.${val}`, { defaultValue: val.toUpperCase() })])}
           value={rawOp}
           onChange={switchOp}
         />
 
-        {rawOp === 'signal' ? (
-          signalOptions.length > 0 ? (
+        {rawOp === leafOperator ? (
+          leafOptions.length > 0 ? (
             <DeclarativeSelect
               disabled={disabled}
-              label={t(`${i18nPrefix}.field.signal`, { defaultValue: 'Signal' })}
-              options={signalOptions.map(val => [val, t(`${i18nPrefix}.value.${val}`, { defaultValue: val })])}
-              value={String(node.signal ?? '')}
-              onChange={nextSignal => onChange({ op: 'signal', signal: nextSignal })}
+              label={t(`${i18nPrefix}.field.${leafValueField}`, {
+                defaultValue: formatIdentifierLabel(leafValueField)
+              })}
+              options={leafOptions.map(val => [val, t(`${i18nPrefix}.value.${val}`, { defaultValue: val })])}
+              value={String(node[leafValueField] ?? '')}
+              onChange={nextVal => onChange(makeLeaf(nextVal))}
             />
           ) : (
             <Input
-              aria-label={t(`${i18nPrefix}.field.signal`, { defaultValue: 'Signal' })}
+              aria-label={t(`${i18nPrefix}.field.${leafValueField}`, {
+                defaultValue: formatIdentifierLabel(leafValueField)
+              })}
               autoCapitalize="none"
               autoComplete="off"
               className="min-w-44 flex-1"
               disabled={disabled}
-              placeholder="signal"
+              placeholder={leafValueField}
               spellCheck={false}
-              value={String(node.signal ?? '')}
-              onChange={event => onChange({ op: 'signal', signal: event.target.value })}
+              value={String(node[leafValueField] ?? '')}
+              onChange={event => onChange(makeLeaf(event.target.value))}
             />
           )
         ) : null}
@@ -261,39 +333,41 @@ function SignalTreeNodeEditor({
         ) : null}
       </div>
 
-      {rawOp === 'not' ? (
+      {unaryOperators.includes(rawOp) ? (
         <div className="pl-4">
-          <SignalTreeNodeEditor
+          <RuleTreeNodeEditor
             disabled={disabled}
             i18nPrefix={i18nPrefix}
-            node={asRecord(node.child)}
+            leafOptions={leafOptions}
+            node={asRecord(node[unaryChildField])}
             opOptions={opOptions}
-            signalOptions={signalOptions}
-            onChange={nextChild => onChange({ op: 'not', child: nextChild })}
+            treeConfig={treeConfig}
+            onChange={nextChild => onChange({ [operatorField]: rawOp, [unaryChildField]: nextChild })}
           />
         </div>
       ) : null}
 
-      {rawOp === 'and' || rawOp === 'or' ? (
+      {branchOperators.includes(rawOp) ? (
         <div className="grid gap-2 pl-4">
           {children.map((childNode, idx) => (
-            <SignalTreeNodeEditor
+            <RuleTreeNodeEditor
               key={idx}
               disabled={disabled}
               i18nPrefix={i18nPrefix}
+              leafOptions={leafOptions}
               node={childNode}
               opOptions={opOptions}
-              signalOptions={signalOptions}
+              treeConfig={treeConfig}
               onChange={nextChild =>
                 onChange({
-                  op: rawOp,
-                  children: children.map((entry, entryIdx) => (entryIdx === idx ? nextChild : entry))
+                  [operatorField]: rawOp,
+                  [branchChildrenField]: children.map((entry, entryIdx) => (entryIdx === idx ? nextChild : entry))
                 })
               }
               onRemove={() =>
                 onChange({
-                  op: rawOp,
-                  children: children.filter((_, entryIdx) => entryIdx !== idx)
+                  [operatorField]: rawOp,
+                  [branchChildrenField]: children.filter((_, entryIdx) => entryIdx !== idx)
                 })
               }
             />
@@ -306,8 +380,8 @@ function SignalTreeNodeEditor({
               variant="outline"
               onClick={() =>
                 onChange({
-                  op: rawOp,
-                  children: [...children, { op: 'signal', signal: signalOptions[0] ?? '' }]
+                  [operatorField]: rawOp,
+                  [branchChildrenField]: [...children, makeLeaf(leafOptions[0] ?? '')]
                 })
               }>
               {t(`${i18nPrefix}.ui.add`, { defaultValue: t('common.add', { defaultValue: 'Add child' }) })}
@@ -319,7 +393,7 @@ function SignalTreeNodeEditor({
   )
 }
 
-function SignalRuleTreeEditor({
+function RuleTreeEditor({
   section,
   draft,
   disabled,
@@ -333,38 +407,36 @@ function SignalRuleTreeEditor({
   onChange: (next: DeclarativeDraft) => void
 }) {
   const { t } = useTranslation()
+  if (!section.treeConfig) {
+    throw new Error(`Rule tree section "${section.id}" is missing treeConfig`)
+  }
+  const treeConfig = section.treeConfig
   const current = draftAt(draft, section.path)
   const hasNode = Object.keys(current).length > 0
 
   const sectionLabel = t(section.labelKey ?? `${i18nPrefix}.rule_section.${section.id}`, {
     defaultValue: formatIdentifierLabel(section.id)
   })
-  const opField = section.fields.find(field => field.name === 'op')
-  const signalField = section.fields.find(field => field.name === 'signal')
-  const opOptions = opField?.enumValues ?? ['and', 'or', 'not', 'signal']
-  const signalOptions = signalField?.enumValues ?? []
-
-  const clearTree = () => {
-    if (section.path.length === 2 && section.path[0] && section.path[1]) {
-      const parent = asRecord(draft[section.path[0]])
-      delete parent[section.path[1]]
-      onChange({ ...draft, [section.path[0]]: parent })
-    }
-  }
+  const opField = section.fields.find(field => field.name === treeConfig.operatorField)
+  const leafField = section.fields.find(field => field.name === treeConfig.leafValueField)
+  const fallbackOps = [...treeConfig.branchOperators, ...treeConfig.unaryOperators, treeConfig.leafOperator]
+  const opOptions = opField?.enumValues ?? fallbackOps
+  const leafOptions = leafField?.enumValues ?? []
 
   return (
     <fieldset className="grid gap-3 border border-border p-3">
       <legend className="px-1 text-sm font-medium">{sectionLabel}</legend>
       {hasNode ? (
         <div className="grid gap-2">
-          <SignalTreeNodeEditor
+          <RuleTreeNodeEditor
             disabled={disabled}
             i18nPrefix={i18nPrefix}
+            leafOptions={leafOptions}
             node={current}
             opOptions={opOptions}
-            signalOptions={signalOptions}
+            treeConfig={treeConfig}
             onChange={nextNode => onChange(setDraftAt(draft, section.path, nextNode))}
-            onRemove={clearTree}
+            onRemove={() => onChange(deleteDraftAt(draft, section.path))}
           />
         </div>
       ) : (
@@ -374,14 +446,22 @@ function SignalRuleTreeEditor({
             size="sm"
             type="button"
             variant="outline"
-            onClick={() =>
+            onClick={() => {
+              const branchOp = treeConfig.branchOperators[0]
+              const rootOp =
+                branchOp && opOptions.includes(branchOp) ? branchOp : (opOptions[0] ?? treeConfig.leafOperator)
               onChange(
                 setDraftAt(draft, section.path, {
-                  op: opOptions.includes('and') ? 'and' : (opOptions[0] ?? 'signal'),
-                  children: [{ op: 'signal', signal: signalOptions[0] ?? '' }]
+                  [treeConfig.operatorField]: rootOp,
+                  [treeConfig.branchChildrenField]: [
+                    {
+                      [treeConfig.operatorField]: treeConfig.leafOperator,
+                      [treeConfig.leafValueField]: leafOptions[0] ?? ''
+                    }
+                  ]
                 })
               )
-            }>
+            }}>
             {t(`${i18nPrefix}.ui.add`, { defaultValue: t('common.add', { defaultValue: 'Add rule tree' }) })}
           </Button>
         </div>
@@ -422,7 +502,7 @@ function DeclarativeField({
         {ruleSchema.map(section => {
           if (section.kind === 'tree') {
             return (
-              <SignalRuleTreeEditor
+              <RuleTreeEditor
                 key={section.id}
                 section={section}
                 draft={draft}

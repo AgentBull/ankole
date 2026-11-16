@@ -43,6 +43,8 @@ export function resolveDeclarativeIcon(name: DeclarativeIconName): IconComponent
 
 export function createDeclarativeConsoleModule(manifest: DeclarativeConsoleManifest): EditionWebappModule {
   const surfaceById = new Map(manifest.surfaces.map(surface => [surface.id, surface]))
+  const routeById = new Map(manifest.routes.map(route => [route.id, route]))
+  const routeByPath = new Map(manifest.routes.map(route => [route.path, route]))
 
   return defineWebappModule({
     id: manifest.id,
@@ -72,7 +74,15 @@ export function createDeclarativeConsoleModule(manifest: DeclarativeConsoleManif
           useVisible: () => {
             const visibility = useDeclarativeVisibility(manifest.visibilityEndpoint)
             const target = surfaceById.get(item.surfaceId)
-            return visibility.isVisible(item.surfaceId, target?.surface)
+            if (visibility.isVisible(item.surfaceId, target?.surface)) return true
+            const route = routeById.get(item.id) ?? routeByPath.get(item.to)
+            if (route?.tabs && route.tabs.length > 0) {
+              return route.tabs.some(tab => {
+                const tabTarget = surfaceById.get(tab.surfaceId)
+                return Boolean(tabTarget && visibility.isVisible(tabTarget.id, tabTarget.surface))
+              })
+            }
+            return false
           }
         }))
       }))

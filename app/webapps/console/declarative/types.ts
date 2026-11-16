@@ -61,12 +61,23 @@ export interface DeclarativeFilterSchema {
   readonly placeholderKey?: string
 }
 
+export interface DeclarativeRuleTreeConfig {
+  readonly operatorField: string
+  readonly leafOperator: string
+  readonly leafValueField: string
+  readonly unaryOperators: readonly string[]
+  readonly unaryChildField: string
+  readonly branchOperators: readonly string[]
+  readonly branchChildrenField: string
+}
+
 export interface DeclarativeRuleSection {
   readonly id: string
   readonly labelKey?: string
   readonly path: readonly string[]
   readonly kind: 'tree' | 'fields'
   readonly fields: readonly DeclarativeFieldDescriptor[]
+  readonly treeConfig?: DeclarativeRuleTreeConfig
 }
 
 export interface DeclarativeOAuthPkceConfig {
@@ -138,12 +149,15 @@ export interface DeclarativeResultLatencySchema {
   readonly stages: readonly string[]
 }
 
+export type DeclarativeFieldFormat = 'usd_micros' | 'percent' | 'integer' | 'number'
+
 export interface DeclarativeResultSchema {
   readonly summaryFields: readonly string[]
   readonly detailFields?: readonly string[]
   readonly sections?: readonly DeclarativeResultSectionSchema[]
   readonly latency?: DeclarativeResultLatencySchema
   readonly tables?: readonly DeclarativeResultTableSchema[]
+  readonly fieldFormats?: Readonly<Record<string, DeclarativeFieldFormat>>
 }
 
 export interface DeclarativeDashboardFactsSection {
@@ -159,15 +173,26 @@ export interface DeclarativeDashboardTableSection {
   readonly columns: readonly string[]
 }
 
+export interface DeclarativeDashboardDrilldownParams {
+  readonly dateParam: string
+  readonly timezoneParam?: string
+  readonly promptKey?: string
+  readonly actionLabelKey?: string
+}
+
 export interface DeclarativeDashboardSchema {
   readonly titleKey: string
   readonly descriptionKey?: string
   readonly windows: readonly string[]
   readonly granularities: readonly string[]
+  readonly granularitiesByWindow?: Readonly<Record<string, readonly string[]>>
   readonly defaultWindow: string
   readonly defaultGranularity: string
+  readonly staticQueryParams?: Readonly<Record<string, string>>
   readonly drilldownRoute?: string
+  readonly drilldownParams?: DeclarativeDashboardDrilldownParams
   readonly seriesOptions?: readonly string[]
+  readonly fieldFormats?: Readonly<Record<string, DeclarativeFieldFormat>>
   readonly factsSections?: readonly DeclarativeDashboardFactsSection[]
   readonly tableSections?: readonly DeclarativeDashboardTableSection[]
 }

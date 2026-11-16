@@ -6,6 +6,7 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "paths": {
+      "@ankole/webapps/*": ["./*"],
       "@ankole/edition-modules/*": ["../control_plane/_build/foss/webapps/edition-modules.gen.ts"]
     },
     "types": ["bun", "react", "react-dom"]

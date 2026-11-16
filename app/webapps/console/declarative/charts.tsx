@@ -2,6 +2,7 @@ import { AnkoleChart, Button } from '@ankole/uikit'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isRecord } from './transport'
+import type { DeclarativeFieldFormat } from './types'
 
 export interface DeclarativeSeriesPoint {
   readonly bucket: string
@@ -17,11 +18,11 @@ export interface DeclarativeDrilldownSelection {
 
 const UTC_TIME_SUFFIX = /(?:Z|[+-]\d{2}:\d{2})$/i
 
-export function normalizeSeriesPoints(rawSeries: unknown, metricKey = 'requests'): DeclarativeSeriesPoint[] {
+export function normalizeSeriesPoints(rawSeries: unknown, metricKey = 'value'): DeclarativeSeriesPoint[] {
   const rows = Array.isArray(rawSeries) ? rawSeries : []
   return rows.flatMap(entry => {
     if (!isRecord(entry) || typeof entry.bucket !== 'string') return []
-    const noData = entry.no_data === true
+    const noData = entry.no_data === true || entry.status === 'no_data'
     const rawValue = entry[metricKey] ?? entry.value
     const value = noData || rawValue === null || rawValue === undefined ? null : Number(rawValue)
     return [
@@ -56,7 +57,8 @@ export function DeclarativeSeriesChart({
   title,
   timezone = 'UTC',
   series,
-  seriesOptions = ['requests', 'cost'],
+  seriesOptions = [],
+  fieldFormats,
   labelPrefix = 'console.field',
   onDrilldown
 }: {
@@ -64,13 +66,29 @@ export function DeclarativeSeriesChart({
   timezone?: string
   series: unknown
   seriesOptions?: readonly string[]
+  fieldFormats?: Readonly<Record<string, DeclarativeFieldFormat>>
   labelPrefix?: string
   onDrilldown?: (selection: DeclarativeDrilldownSelection) => void
 }) {
   const { t, i18n } = useTranslation()
-  const [selectedMetric, setSelectedMetric] = useState(seriesOptions[0] ?? 'requests')
+  const [selectedMetric, setSelectedMetric] = useState(seriesOptions[0] ?? 'value')
   const points = normalizeSeriesPoints(series, selectedMetric)
   const metricLabel = t(`${labelPrefix}.${selectedMetric}`, { defaultValue: selectedMetric })
+  const metricFormat = fieldFormats?.[selectedMetric]
+
+  const formatMetricValue = (val: number) => {
+    if (metricFormat === 'usd_micros') {
+      return new Intl.NumberFormat(i18n.language, {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits: 6
+      }).format(val / 1e6)
+    }
+    if (metricFormat === 'percent') {
+      return new Intl.NumberFormat(i18n.language, { style: 'percent', maximumFractionDigits: 1 }).format(val)
+    }
+    return new Intl.NumberFormat(i18n.language).format(val)
+  }
 
   const chartData = points.map(point => ({
     bucket: point.bucket,
@@ -115,7 +133,7 @@ export function DeclarativeSeriesChart({
             point.bucket,
             point.noData || point.value === null
               ? t('console.empty.title', { defaultValue: 'No data' })
-              : new Intl.NumberFormat(i18n.language).format(point.value)
+              : formatMetricValue(point.value)
           ])
         }}
         onSummaryRowActivate={rowIndex => {
