@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { createCollection, eq, liveQueryCollectionOptions } from '@tanstack/db'
 import { InfiniteQueryObserver, QueryClient } from '@tanstack/react-query'
 import { cachedPages, pageAPI, pageChildrenQuery, contentKeys, type NavigationPage } from '../content-api'
-import { mergePageMetadata } from '../use-page-metadata'
+import { knownPageTitle, mergePageMetadata } from '../use-page-metadata'
 import { updatePageMetadata } from './navigation-cache'
 import { createPageMetadata, pageMetadata } from './page-metadata'
 
@@ -33,7 +33,9 @@ test('cached search candidates use confirmed names while directory snapshots kee
   const metadata = pageMetadata(client)
   const original = directory([{ ...row('page'), title: 'Old name' }])
   client.setQueryData(contentKeys.list('favorites'), original)
+  expect(knownPageTitle(client, 'page')).toBe('Old name')
   metadata.update({ id: 'page', title: 'New name', icon: null })
+  expect(knownPageTitle(client, 'page')).toBe('New name')
   const revision = metadata.revision()
   metadata.update({ id: 'page', title: 'Newest name' })
   expect(metadata.revision()).toBeGreaterThan(revision)

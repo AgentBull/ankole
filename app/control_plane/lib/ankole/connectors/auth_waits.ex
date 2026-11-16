@@ -126,14 +126,6 @@ defmodule Ankole.Connectors.AuthWaits do
 
   def active_wait_for_signal(_), do: nil
 
-  def unready_wait_for_signal(signal_id) when is_binary(signal_id) do
-    signal_id
-    |> list_for_signal()
-    |> Enum.find(&(&1.status in ["recorded", "pending"] and not account_ready?(&1)))
-  end
-
-  def unready_wait_for_signal(_), do: nil
-
   def interaction_local_id(%AuthWait{id: id}), do: "connector_auth:" <> id
 
   def client_payload(%AuthWait{} = wait, signal_id) do
@@ -410,10 +402,6 @@ defmodule Ankole.Connectors.AuthWaits do
     query
     |> Ankole.Ash.read!()
     |> Enum.filter(&scopes_satisfied?(&1, config, account))
-  end
-
-  defp account_ready?(%AuthWait{} = wait) do
-    match?({:ok, _, _}, ready_account(wait))
   end
 
   defp ready_account(%AuthWait{} = wait) do

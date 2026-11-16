@@ -14,7 +14,9 @@ tags: [Research, Evidence, Forecast, ACH, Retrospect]
 Establish the research goal and intent, the success criteria, and the
 constraints from the request, the conversation, relevant memory, and what the
 environment and tools can tell you. If a fact can be found with a tool, look it
-up rather than asking.
+up rather than asking. In a Pod conversation, also consider where the report
+Page should be saved (checking `pod_list_pages` and user memory, or asking the
+human if genuinely unsure) and include any settled destination in `task`.
 
 Ask the human only about a decision that changes the conclusion, the
 authorization, or the deliverable scope and that you cannot settle yourself.
@@ -76,9 +78,10 @@ the date arrives. For each such judgment, call `remember` once:
 - `weight`: the report's stated confidence, rounded to a 0.05 step.
 - `until_date`: the report's resolution date (ISO date).
 - `entity`: the page of the subject the prediction is about, when one exists.
-- `source_node_id`: the page UUID whose audience should receive the evidence;
-  omit it to use this conversation's source page. The subject's page in
-  `entity` does not determine the claim's visibility.
+- `source_node_id`: the saved report Page UUID when the Job saved a Pod Page, so
+  the claim's visibility follows the report's Private or Pod Workspace audience;
+  omit it to use this conversation's source page when no Pod Page was saved. The
+  subject's page in `entity` does not determine the claim's visibility.
 - `provenance`: "deep research job <job_id>, report/report.md" plus the report
   section.
 

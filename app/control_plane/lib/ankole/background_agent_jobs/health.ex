@@ -2,7 +2,7 @@ defmodule Ankole.BackgroundAgentJobs.Health do
   @moduledoc """
   Operator-facing reliability metrics for BackgroundAgentJobs.
 
-  Four signals cover the failure modes the 2026-08-12 incident exposed: queue
+  Four signals cover BackgroundAgentJob reliability: queue
   starvation (oldest queued wait), infrastructure churn against real failures
   (claims versus execution failures), terminal-steer conversion (successor
   seeding), and delivery degradation (dead-letter notices against wakeups).

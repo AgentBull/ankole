@@ -7,7 +7,16 @@ defmodule Ankole.AgentWorkers.SweepJob do
   declared absent by a sweep. Only reconciliation can settle a generation.
   """
 
-  use Ankole.Job, tenancy: :site, queue: :agent_workers, max_attempts: 1
+  use Ankole.Job,
+    tenancy: :site,
+    queue: :agent_workers,
+    max_attempts: 1,
+    unique: [
+      period: :infinity,
+      fields: [:worker, :args],
+      states: [:available, :scheduled, :retryable]
+    ]
+
   alias Ankole.{Logging, Principals, Repo}
   alias Ankole.AgentWorkers
 

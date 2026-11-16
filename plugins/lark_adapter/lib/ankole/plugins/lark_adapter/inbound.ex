@@ -1190,10 +1190,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   defp parse_provider_time(%DateTime{} = value), do: value
 
-  defp parse_provider_time(value) when is_integer(value) do
-    unit = if value > 10_000_000_000, do: :millisecond, else: :second
-    DateTime.from_unix!(value, unit)
-  end
+  defp parse_provider_time(value) when is_integer(value),
+    do: Ankole.Plugins.MapHelpers.unix_datetime(value)
 
   defp parse_provider_time(value) when is_binary(value) do
     value |> Ankole.Attrs.integer_value() |> parse_provider_time()
@@ -1221,26 +1219,12 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
          operator_identity,
          decoded_value
        ) do
-    interaction_id = is_map(decoded_value) && decoded_value["interactionId"]
-
-    if Ankole.Conversations.ActionCards.action_card_interaction_id?(interaction_id) do
-      provider = Config.subject_namespace(config)
-
-      uid =
-        [operator_id | operator_aliases]
-        |> Enum.filter(&(is_binary(&1) and &1 != ""))
-        |> Enum.uniq()
-        |> Enum.find_value(fn id ->
-          case Ankole.Principals.resolve_platform_subject_uid(provider, id) do
-            {:ok, found_uid} -> found_uid
-            _ -> nil
-          end
-        end)
-
-      {:ok, uid}
-    else
-      observe_card_operator(consumer, operator_id, operator_aliases, operator_identity)
-    end
+    AdapterContext.resolve_action_operator(
+      Config.subject_namespace(config),
+      [operator_id | operator_aliases],
+      decoded_value,
+      fn -> observe_card_operator(consumer, operator_id, operator_aliases, operator_identity) end
+    )
   end
 
   defp observe_card_operator(

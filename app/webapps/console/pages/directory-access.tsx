@@ -17,6 +17,7 @@ import { ErrorBlock } from '../../common/error-block'
 import { requestErrorMessage } from '../../common/request-errors'
 import { LabeledField } from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
+import { LIST_REFRESH_MS } from '../refresh-intervals'
 import { fromDocument } from '../api/json-api'
 import { principalLabel } from '../state/principal-label'
 import type { GetIdentityDirectoryResponse } from '../api/v2/generated/types.gen'
@@ -34,7 +35,7 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
   const model = useModel(AccessReviewModel)
   const directory = useQuery({
     ...getIdentityDirectoryOptions({ path: { provider_id: providerID } }),
-    refetchInterval: 15000
+    refetchInterval: LIST_REFRESH_MS
   })
   const principals = useQuery({
     ...listPrincipalsOptions({ query: { include_disabled: true } }),

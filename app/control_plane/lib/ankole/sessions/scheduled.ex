@@ -47,6 +47,20 @@ defmodule Ankole.Sessions.Scheduled do
 
   def produced_signal?(_event), do: false
 
+  @doc "Checks whether an external/dispatched event targets an AgentRoutine execution Session."
+  @spec routine_event_signal?(Signal.t() | term()) :: boolean()
+  def routine_event_signal?(%Signal{
+        session_id: session,
+        type: type,
+        extensions: %{"ankole_routine" => %{"routine_id" => routine_id}}
+      })
+      when is_binary(session) and is_binary(routine_id) and
+             type not in ["cron.fire", "check_back_later.wakeup"] do
+    session == Ankole.Sessions.Key.routine(routine_id)
+  end
+
+  def routine_event_signal?(_event), do: false
+
   def plan(event, opts), do: {:ok, %{kind: :scheduled, opts: __MODULE__.opts(event, opts)}}
   def nudge?, do: false
   def repair(_run, _text), do: nil
@@ -79,14 +93,20 @@ defmodule Ankole.Sessions.Scheduled do
         "run_kinds" => ["main", "scheduled"],
         "ends_run" => true,
         "description" =>
-          "End a scheduled turn. Use reply for a visible result, a failed or blocked check, required human action, or a material change. Use silent_success only when this schedule allows quiet success and no update is useful. Only a scheduled turn accepts this call.",
+          "End a scheduled or routine turn. Use reply for a visible result, a failed or blocked check, required human action, or a material change. Use silent_success only when this schedule or routine allows quiet success and no update is useful. Optionally include summary (<= 500 chars) to record a concise factual verification note in Routine run history without notifying the channel. Only a scheduled turn accepts this call.",
         "execution_mode" => "sequential",
         "executor" => __MODULE__,
         "parameters" => %{
           "type" => "object",
           "properties" => %{
             "outcome" => %{"type" => "string", "enum" => ["reply", "silent_success"]},
-            "reply" => %{"type" => ["string", "null"]}
+            "reply" => %{"type" => ["string", "null"]},
+            "summary" => %{
+              "type" => ["string", "null"],
+              "maxLength" => 500,
+              "description" =>
+                "Optional concise factual verification summary recorded in Routine run history."
+            }
           },
           "required" => ["outcome", "reply"],
           "additionalProperties" => false
@@ -106,34 +126,55 @@ defmodule Ankole.Sessions.Scheduled do
        "finish_scheduled ends only a scheduled turn. This turn is not scheduled; end it with an ordinary reply."}
 
   defp commit_tool_in_tx(run, _call, args) do
-    case {args["outcome"], args["reply"]} do
-      {"reply", reply} when is_binary(reply) ->
-        text = Text.normalize_visible_text(reply)
+    with {:ok, summary} <- normalize_summary(Map.get(args, "summary")) do
+      case {args["outcome"], args["reply"]} do
+        {"reply", reply} when is_binary(reply) ->
+          text = Text.normalize_visible_text(reply)
 
-        if text == "",
-          do: {:error, :invalid_scheduled_reply},
-          else:
-            {:ok,
-             Ankole.Sessions.Tools.result(%{"accepted" => true},
-               terminate: true,
-               outcome: :loop_finished,
-               final_text: text
-             ), []}
+          if text == "",
+            do: {:error, :invalid_scheduled_reply},
+            else:
+              {:ok,
+               Ankole.Sessions.Tools.result(%{"accepted" => true},
+                 terminate: true,
+                 outcome: :loop_finished,
+                 final_text: text,
+                 turn_summary: summary
+               ), []}
 
-      {"silent_success", nil} ->
-        if silent_success_allowed?(run.event),
-          do:
-            {:ok,
-             Ankole.Sessions.Tools.result(%{"accepted" => true},
-               terminate: true,
-               outcome: :silent
-             ), []},
-          else: {:error, :schedule_silent_success_not_allowed}
+        {"silent_success", nil} ->
+          if silent_success_allowed?(run.event),
+            do:
+              {:ok,
+               Ankole.Sessions.Tools.result(%{"accepted" => true},
+                 terminate: true,
+                 outcome: :silent,
+                 turn_summary: summary
+               ), []},
+            else: {:error, :schedule_silent_success_not_allowed}
 
-      _ ->
-        {:error, :invalid_scheduled_reply}
+        _ ->
+          {:error, :invalid_scheduled_reply}
+      end
     end
   end
+
+  defp normalize_summary(nil), do: {:ok, nil}
+
+  defp normalize_summary(value) when is_binary(value) do
+    trimmed =
+      value
+      |> Text.normalize_visible_text()
+      |> String.trim()
+
+    cond do
+      trimmed == "" -> {:ok, nil}
+      String.length(trimmed) > 500 -> {:error, :invalid_scheduled_reply}
+      true -> {:ok, trimmed}
+    end
+  end
+
+  defp normalize_summary(_other), do: {:error, :invalid_scheduled_reply}
 
   def opts(%Signal{type: type} = input, opts) do
     base_context = Keyword.get(opts, :request_context, %{})
@@ -147,28 +188,51 @@ defmodule Ankole.Sessions.Scheduled do
 
   defp scheduled_turn_kind("check_back_later.wakeup"), do: "checkback_generation"
   defp scheduled_turn_kind("cron.fire"), do: "scheduled_task"
+  defp scheduled_turn_kind(_other), do: "scheduled_task"
 
   defp scheduled_turn_context(%Signal{} = input) do
-    data = signal_data(input)
-    wake_payload = map_value(data, "wake_payload") || %{}
+    if routine_event_signal?(input) do
+      routine = get_in(input.extensions, ["ankole_routine"]) || %{}
+      occurred = DateTime.to_iso8601(input.occurred_at)
 
-    context = %{
-      "schedule_origin" =>
-        reject_nil_values(%{
-          "due_at" => map_text(data, "due_at"),
-          "fired_at" => map_text(data, "fired_at"),
-          "timezone" => map_text(data, "timezone"),
-          "cron_schedule_name" => map_text(wake_payload, "cron_schedule_name"),
-          "cron_fire_slot_at" => map_text(data, "cron_fire_slot_at"),
-          "trigger" => map_text(wake_payload, "trigger"),
-          "payload" => map_value(wake_payload, "payload") || %{}
-        }),
-      "silent_success_allowed" => silent_success_allowed?(input)
-    }
+      %{
+        "schedule_origin" =>
+          reject_nil_values(%{
+            "due_at" => occurred,
+            "fired_at" => occurred,
+            "timezone" => map_text(routine, "timezone"),
+            "cron_schedule_name" => map_text(routine, "routine_name"),
+            "trigger" => "event",
+            "payload" =>
+              case map_text(routine, "task") do
+                nil -> %{}
+                task -> %{"task" => task}
+              end
+          }),
+        "silent_success_allowed" => silent_success_allowed?(input)
+      }
+    else
+      data = signal_data(input)
+      wake_payload = map_value(data, "wake_payload") || %{}
 
-    case consecutive_identical_replies(input) do
-      streak when streak >= 2 -> Map.put(context, "consecutive_identical_replies", streak)
-      _short -> context
+      context = %{
+        "schedule_origin" =>
+          reject_nil_values(%{
+            "due_at" => map_text(data, "due_at"),
+            "fired_at" => map_text(data, "fired_at"),
+            "timezone" => map_text(data, "timezone"),
+            "cron_schedule_name" => map_text(wake_payload, "cron_schedule_name"),
+            "cron_fire_slot_at" => map_text(data, "cron_fire_slot_at"),
+            "trigger" => map_text(wake_payload, "trigger"),
+            "payload" => map_value(wake_payload, "payload") || %{}
+          }),
+        "silent_success_allowed" => silent_success_allowed?(input)
+      }
+
+      case consecutive_identical_replies(input) do
+        streak when streak >= 2 -> Map.put(context, "consecutive_identical_replies", streak)
+        _short -> context
+      end
     end
   end
 
@@ -184,7 +248,13 @@ defmodule Ankole.Sessions.Scheduled do
     map_value(delivery, "quiet_success") == true
   end
 
-  def silent_success_allowed?(%Signal{}), do: false
+  def silent_success_allowed?(%Signal{} = event) do
+    if routine_event_signal?(event) do
+      get_in(event.extensions, ["ankole_routine", "delivery", "quiet_success"]) == true
+    else
+      false
+    end
+  end
 
   def project_completion(%{kind: :scheduled} = run, completion) do
     result =
@@ -194,6 +264,9 @@ defmodule Ankole.Sessions.Scheduled do
       end)
 
     case result do
+      %{outcome: :silent} ->
+        {:ok, %{completion | final_text: ""}}
+
       %{final_text: text} when is_binary(text) and text != "" ->
         {:ok, %{completion | final_text: text}}
 

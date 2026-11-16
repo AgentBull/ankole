@@ -107,7 +107,7 @@ defmodule Ankole.Files.Vfs.Operations do
       {:error, :precondition_failed}
     else
       with {:ok, node} <- create_exact_in_tx(scope, path, :file, prepared),
-           do: receipt_in_tx(node, headers)
+           do: receipt_in_tx(node, headers, nil, %{access_changed: node.is_acl_anchor})
     end
   end
 
@@ -168,8 +168,19 @@ defmodule Ankole.Files.Vfs.Operations do
       write(scope, [source, destination], true, fn scope ->
         with {:ok, %{node: node} = source_entry} <- Namespace.resolve(scope, source),
              true <- node.object_id == source_node.object_id,
-             {:ok, _} <- Namespace.authorize(scope, node, "node_edit") do
-          move_target_in_tx(scope, source_entry, destination, prepared, headers)
+             {:ok, _} <- Namespace.authorize(scope, node, "node_edit"),
+             {:ok, result} <-
+               move_target_in_tx(scope, source_entry, destination, prepared, headers) do
+          result =
+            if node.parent_id && node.parent_id != result.node.parent_id,
+              do:
+                update_in(
+                  result.commit_meta,
+                  &Map.put(&1, :previous_parent_id, node.parent_id)
+                ),
+              else: result
+
+          {:ok, result}
         else
           false -> {:error, :precondition_failed}
           error -> error
@@ -194,9 +205,12 @@ defmodule Ankole.Files.Vfs.Operations do
            {:ok, meta} <- Content.stat(%{entry | node: node}),
            do:
              {:ok,
-              node
-              |> Map.put(:vfs_meta, meta)
-              |> Map.put(:vfs_refresh_body, node.type == :doc or node.last_vfs_etag != meta.etag)},
+              %{
+                node: node,
+                vfs_meta: meta,
+                vfs_refresh_body: node.type == :doc or node.last_vfs_etag != meta.etag,
+                commit_meta: %{}
+              }},
            else: (_ -> {:error, :not_found})
     end)
   end
@@ -225,11 +239,14 @@ defmodule Ankole.Files.Vfs.Operations do
              :ok <- matches(headers["if-match"], meta.etag),
              {:ok, parent, name, kind} <- destination(scope, destination, source_entry.kind),
              true <- kind == source_entry.kind,
-             {:ok, moved} <-
-               Nodes.move_in_tx(scope.actor, node.id, %{parent_id: parent.id, name: name},
+             {:ok, {moved, move_meta}} <-
+               Nodes.move_with_meta_in_tx(
+                 scope.actor,
+                 node.id,
+                 %{parent_id: parent.id, name: name},
                  exact_name: true
                ),
-             do: receipt_in_tx(moved, headers, source_entry.kind),
+             do: receipt_in_tx(moved, headers, source_entry.kind, move_meta),
              else: (
                false -> {:error, :invalid_kind}
                error -> error
@@ -267,14 +284,14 @@ defmodule Ankole.Files.Vfs.Operations do
          {:ok, meta} <- Content.stat(Namespace.entry(target, kind)),
          :ok <- matches(headers["if-match"], meta.etag),
          {:ok, _} <- Nodes.trash_in_tx(scope.actor, target.id),
-         {:ok, moved} <-
-           Nodes.move_in_tx(
+         {:ok, {moved, move_meta}} <-
+           Nodes.move_with_meta_in_tx(
              scope.actor,
              source.id,
              %{parent_id: target.parent_id, name: target.name},
              exact_name: true
            ),
-         do: receipt_in_tx(moved, headers, kind)
+         do: receipt_in_tx(moved, headers, kind, move_meta)
   end
 
   defp overwrite_move_in_tx(_, _, _, _, _), do: {:error, :precondition_failed}
@@ -368,12 +385,12 @@ defmodule Ankole.Files.Vfs.Operations do
         headers["x-ankole-request-id"] &&
             current.last_vfs_req_id == headers["x-ankole-request-id"] ->
           {:ok,
-           current
-           |> Map.put(:vfs_meta, meta)
-           |> Map.put(
-             :vfs_refresh_body,
-             current.type == :doc or current.last_vfs_etag != meta.etag
-           )}
+           %{
+             node: current,
+             vfs_meta: meta,
+             vfs_refresh_body: current.type == :doc or current.last_vfs_etag != meta.etag,
+             commit_meta: %{}
+           }}
 
         headers["if-none-match"] == "*" and
             not (current.type == :doc and Pages.content_empty?(current)) ->
@@ -396,7 +413,7 @@ defmodule Ankole.Files.Vfs.Operations do
 
   def replace_target_in_tx(_, _, _, _), do: {:error, :is_a_directory}
 
-  defp receipt_in_tx(node, headers, kind \\ nil) do
+  defp receipt_in_tx(node, headers, kind \\ nil, commit_meta \\ %{}) do
     with {:ok, meta} <- Content.stat(Namespace.entry(node, kind || node.type)),
          {:ok, node} <-
            if(request = headers["x-ankole-request-id"],
@@ -409,7 +426,12 @@ defmodule Ankole.Files.Vfs.Operations do
            ),
          do:
            {:ok,
-            node |> Map.put(:vfs_meta, meta) |> Map.put(:vfs_refresh_body, node.type == :doc)}
+            %{
+              node: node,
+              vfs_meta: meta,
+              vfs_refresh_body: node.type == :doc,
+              commit_meta: commit_meta
+            }}
   end
 
   defp destination(scope, path, requested_kind) do
@@ -472,13 +494,19 @@ defmodule Ankole.Files.Vfs.Operations do
       scope.actor.turn_authority,
       fn ->
         with {:ok, access} <- Ankole.Brain.Access.for_querier(scope.context.querier_uid),
-             {:ok, brain_access} <- Ankole.Brain.Access.for_context(scope.context),
+             {:ok, brain_access} <- Ankole.Brain.Access.for_context(scope.context, access),
              do: fun.(%{scope | access: access, brain_access: brain_access})
       end,
       shared_tree: !topology?,
       root_ids: fn -> path_root_ids(scope, paths) end,
-      after_commit: fn node ->
-        if topology?, do: Nodes.committed(node), else: Nodes.content_committed(node)
+      after_commit: fn result ->
+        {node, meta} =
+          case result do
+            %{node: node} = wrapped -> {node, Map.get(wrapped, :commit_meta, %{})}
+            node -> {node, %{}}
+          end
+
+        if topology?, do: Nodes.committed(node, meta), else: Nodes.content_committed(node, meta)
       end
     )
   end

@@ -181,28 +181,14 @@ defmodule Ankole.Plugins.DiscordAdapter.Delivery do
   end
 
   defp perform_requests(requests, client, intent) do
-    requests
-    |> Enum.reduce_while({:ok, []}, fn request, {:ok, results} ->
-      case perform(request, client) do
-        {:ok, result} ->
-          {:cont, {:ok, [Map.put(result, :text, (request[:body] || %{})["content"]) | results]}}
-
-        :complete ->
-          {:halt, {:ok, results}}
-
-        :unknown ->
-          {:halt, :unknown}
-
-        {:error, _reason} when results != [] ->
-          {:halt, :unknown}
-
-        {:error, _reason} = error ->
-          {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, results} -> {:ok, combine_results(Enum.reverse(results), intent)}
-      other -> other
+    with {:ok, results} <-
+           Ankole.Conversations.Delivery.send_chunks(requests, fn request ->
+             case perform(request, client) do
+               {:ok, result} -> {:ok, Map.put(result, :text, (request[:body] || %{})["content"])}
+               other -> other
+             end
+           end) do
+      {:ok, combine_results(results, intent)}
     end
   end
 

@@ -51,6 +51,7 @@ import { defaultConfig, localizedText, setPath } from '../common/config-fields'
 import { executeEnvVarBatchImport, type EnvVarSaveInput, type ParsedDotEnvItem } from './env-vars-dotenv'
 import { EnvVarsEditor } from './env-vars-editor'
 import { ContentError } from './content-primitives'
+import { connectorKeys } from './state/connectors'
 import {
   podID,
   podPublicOrigin,
@@ -1115,11 +1116,11 @@ function Providers({ model }: { model: Model }) {
 
   const providers = useQuery({ queryKey: keys.providers, queryFn: () => api.podAdminIdentityProviders() })
   const connectorCatalog = useQuery({
-    queryKey: ['connectors', sessionIdentityKey() ?? '', podID() ?? '', 'catalog'],
+    queryKey: connectorKeys.catalog,
     queryFn: () => api.podConnectorsCatalog()
   })
   const connections = useQuery({
-    queryKey: ['connectors', sessionIdentityKey() ?? '', podID() ?? '', 'connections'],
+    queryKey: connectorKeys.connections,
     queryFn: () => api.podConnectorAuthConfigsList()
   })
   const adapters = providers.data?.adapters ?? []

@@ -41,6 +41,13 @@ defmodule SlackOpenAPI do
 
   @spec upload_external(Client.t(), keyword()) :: {:ok, map()} | {:error, Error.t()}
   def upload_external(%Client{} = client, opts) do
+    with {:ok, file_id} <- stage_upload_external(client, opts) do
+      complete_upload_external(client, file_id, opts)
+    end
+  end
+
+  @spec stage_upload_external(Client.t(), keyword()) :: {:ok, String.t()} | {:error, Error.t()}
+  def stage_upload_external(%Client{} = client, opts) do
     filename = Keyword.fetch!(opts, :filename)
     content = IO.iodata_to_binary(Keyword.fetch!(opts, :content))
 
@@ -48,15 +55,23 @@ defmodule SlackOpenAPI do
            get(client, "files.getUploadURLExternal",
              query: [filename: filename, length: byte_size(content)]
            ),
-         {:ok, _response} <- upload_bytes(upload_url, content, client.req_options),
-         body <-
-           %{"files" => [%{"id" => file_id, "title" => filename}]}
-           |> put_present("channel_id", Keyword.get(opts, :channel_id))
-           |> put_present("thread_ts", Keyword.get(opts, :thread_ts))
-           |> put_present("initial_comment", Keyword.get(opts, :initial_comment)),
-         {:ok, result} <- post(client, "files.completeUploadExternal", body: body) do
-      {:ok, result}
+         {:ok, _response} <- upload_bytes(upload_url, content, client.req_options) do
+      {:ok, file_id}
     end
+  end
+
+  @spec complete_upload_external(Client.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def complete_upload_external(%Client{} = client, file_id, opts) when is_binary(file_id) do
+    filename = Keyword.fetch!(opts, :filename)
+
+    body =
+      %{"files" => [%{"id" => file_id, "title" => filename}]}
+      |> put_present("channel_id", Keyword.get(opts, :channel_id))
+      |> put_present("thread_ts", Keyword.get(opts, :thread_ts))
+      |> put_present("initial_comment", Keyword.get(opts, :initial_comment))
+
+    post(client, "files.completeUploadExternal", body: body)
   end
 
   defp request(client, http_method, method, opts) do

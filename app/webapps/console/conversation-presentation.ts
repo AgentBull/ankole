@@ -8,7 +8,7 @@ export function conversationDisplayName(conversation: ConversationNameSource): s
   const explicitName = conversation.display_name?.trim()
   if (explicitName) return explicitName
 
-  if (conversation.kind === 'job' || conversation.kind === 'responses_api') {
+  if (conversation.kind === 'job' || conversation.kind === 'routine' || conversation.kind === 'responses_api') {
     return i18n.t(`console.conversations.kind.${conversation.kind}`)
   }
 

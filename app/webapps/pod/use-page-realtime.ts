@@ -64,6 +64,10 @@ export function watchPageRealtime(
       close = handle.close
       handle.on('changes', () => void client.invalidateQueries({ queryKey: contentKeys.page(pageID) }))
       handle.on('comments_changed', () => void client.invalidateQueries({ queryKey: contentKeys.comments(pageID) }))
+      handle.on('rejoined', () => {
+        void client.invalidateQueries({ queryKey: contentKeys.page(pageID) })
+        void client.invalidateQueries({ queryKey: contentKeys.comments(pageID) })
+      })
       handle.on('access_revoked', revoke)
       void handle.ready.then(() => clearTimeout(joining), failed)
     })

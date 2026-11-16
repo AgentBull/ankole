@@ -18,6 +18,7 @@ defmodule Ankole.Principals.WorkAccess do
     Enum.flat_map(Owner.entries(), fn {kind, schema} ->
       schema
       |> Ash.Query.filter(human_uid == ^uid)
+      |> maybe_exclude_routine_child_crons(schema)
       |> Ash.Query.sort(inserted_at: :desc)
       |> Ash.Query.limit(@list_limit)
       |> Ankole.Ash.read!()
@@ -30,12 +31,18 @@ defmodule Ankole.Principals.WorkAccess do
     Enum.flat_map(Owner.entries(), fn {kind, schema} ->
       schema
       |> Ash.Query.filter(authorization_kind in ["review_required", "human"])
+      |> maybe_exclude_routine_child_crons(schema)
       |> Owner.unresolved_query(schema)
       |> Ash.Query.sort(inserted_at: :asc, id: :asc)
       |> unresolved(0, [])
       |> Enum.map(&projection(kind, &1))
     end)
   end
+
+  defp maybe_exclude_routine_child_crons(query, Ankole.Schedule.Schemas.CronSchedule),
+    do: Ash.Query.filter(query, is_nil(owner_routine_id))
+
+  defp maybe_exclude_routine_child_crons(query, _schema), do: query
 
   defp unresolved(query, offset, found) do
     page =
@@ -93,12 +100,15 @@ defmodule Ankole.Principals.WorkAccess do
     with %Principal{} <- subject,
          true <- is_nil(human_uid) or authorization.authorization_kind == "human",
          :ok <- check_in_tx(authorization),
-         %{} = work <- Owner.lock(schema, id),
+         parent_routine = prelock_parent_routine_in_tx(kind, id),
+         %{} = work <- lock_work_in_tx(kind, schema, id, parent_routine),
          :ok <- check_execution_target(Map.get(work, :agent_uid), authorization),
          true <- reauthorizable?(kind, work),
          true <- work.authorization_kind != "human" or not is_nil(human_uid),
          previous_authorization = fields(work),
          {:ok, work} <- Ankole.Ash.update(work, :reauthorize, authorization),
+         :ok <-
+           sync_related_routine_authorization_in_tx(kind, work, parent_routine, authorization),
          {:ok, _} <-
            Repo.with_tenant(subject.tenant_id, fn ->
              Ankole.Ash.create(Ankole.Principals.AccessEvent, :record_in_tx, %{
@@ -125,6 +135,53 @@ defmodule Ankole.Principals.WorkAccess do
       _ -> {:error, :work_review_changed}
     end
   end
+
+  defp prelock_parent_routine_in_tx("cron", id) do
+    case Ankole.Schedule.get_cron_schedule(id) do
+      {:ok, %{owner_routine_id: routine_id}} when is_binary(routine_id) ->
+        Owner.lock(Ankole.Schedule.Schemas.AgentRoutine, routine_id)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp prelock_parent_routine_in_tx(_kind, _id), do: nil
+
+  defp lock_work_in_tx("cron", _schema, id, %{id: routine_id}) do
+    routine_id
+    |> Ankole.Schedule.lock_routine_children_in_tx()
+    |> Enum.find(&(&1.id == id))
+  end
+
+  defp lock_work_in_tx(_kind, schema, id, _parent_routine), do: Owner.lock(schema, id)
+
+  defp sync_related_routine_authorization_in_tx("cron", work, parent_routine, authorization) do
+    cond do
+      is_nil(work.owner_routine_id) ->
+        :ok
+
+      is_nil(parent_routine) or parent_routine.id != work.owner_routine_id ->
+        {:error, :work_review_changed}
+
+      true ->
+        with {:ok, _routine} <-
+               Ankole.Schedule.reauthorize_agent_routine(parent_routine, authorization),
+             :ok <-
+               Ankole.Schedule.reauthorize_routine_children_in_tx(
+                 parent_routine.id,
+                 authorization
+               ) do
+          :ok
+        end
+    end
+  end
+
+  defp sync_related_routine_authorization_in_tx("routine", routine, _parent, authorization) do
+    Ankole.Schedule.reauthorize_routine_children_in_tx(routine.id, authorization)
+  end
+
+  defp sync_related_routine_authorization_in_tx(_kind, _work, _parent, _authorization), do: :ok
 
   defp cast_id(schema, id) do
     if Ecto.Type.type(schema.__schema__(:type, :id)) in [:id, :integer] do
@@ -153,10 +210,11 @@ defmodule Ankole.Principals.WorkAccess do
   defp reauthorizable?(_kind, %{authorization_kind: "review_required"} = work),
     do: Owner.reauthorizable_state?(work)
 
-  # Reauthorization does not revive work. Cron retains a paused rule with a
-  # separate resume operation; the other revoked work must be replaced.
-  defp reauthorizable?("cron", %{authorization_kind: "human", status: :paused} = work),
-    do: not valid_subject_now?(work)
+  # Reauthorization does not revive work. Cron and Routine retain a paused rule
+  # with a separate resume operation; the other revoked work must be replaced.
+  defp reauthorizable?(kind, %{authorization_kind: "human", status: :paused} = work)
+       when kind in ["cron", "routine"],
+       do: not valid_subject_now?(work)
 
   defp reauthorizable?(_kind, _work), do: false
 

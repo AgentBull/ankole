@@ -119,13 +119,15 @@ defmodule Ankole.Brain.Claims do
 
     scope = Scope.principal(principal_uid)
 
+    scopes = if is_binary(scope), do: [scope], else: []
+
     principal_ref =
       Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: principal_uid})
 
     Claim
     |> Ash.Query.filter(
       holder in ^holders or subject_page_id in ^page_ids or author == ^principal_ref or
-        source_node_id == ^scope
+        source_node_id in ^scopes
     )
     |> Ash.Query.sort(created_at: :desc)
     |> Ash.Query.limit(limit)
@@ -766,7 +768,9 @@ defmodule Ankole.Brain.Claims do
   defp maybe_console_type(query, nil), do: query
   defp maybe_console_type(query, type), do: Ash.Query.filter(query, claim_type == ^type)
 
-  defp maybe_console_status(query, :current), do: Ash.Query.filter(query, current? == true)
+  defp maybe_console_status(query, :current),
+    do: Ash.Query.filter(query, current? == true and live_parent?)
+
   defp maybe_console_status(query, _status), do: query
 
   defp maybe_console_search(query, term) when is_binary(term) do

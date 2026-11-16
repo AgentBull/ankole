@@ -13,12 +13,12 @@ defmodule SlackOpenAPI.Pagination do
     forwarded = Keyword.drop(opts, [:items])
 
     Stream.resource(
-      fn -> {:page, nil, 0} end,
+      fn -> {:page, nil, 0, MapSet.new()} end,
       fn
         :done ->
           {:halt, :done}
 
-        {:page, cursor, retries} ->
+        {:page, cursor, retries, seen} ->
           query = put_cursor(Keyword.get(forwarded, :query, []), cursor)
 
           case SlackOpenAPI.get(client, method, Keyword.put(forwarded, :query, query)) do
@@ -27,16 +27,17 @@ defmodule SlackOpenAPI.Pagination do
               next_cursor = get_in_path(body, ["response_metadata", "next_cursor"])
 
               next =
-                if is_binary(next_cursor) and next_cursor != "",
-                  do: {:page, next_cursor, 0},
-                  else: :done
+                if is_binary(next_cursor) and next_cursor != "" and
+                     not MapSet.member?(seen, next_cursor),
+                   do: {:page, next_cursor, 0, MapSet.put(seen, next_cursor)},
+                   else: :done
 
               {Enum.map(items, &{:ok, &1}), next}
 
             {:error, %Error{reason: :rate_limited, retry_after: seconds}}
             when retries < @max_rate_limit_retries ->
               Process.sleep(:timer.seconds(max(seconds || 1, 1)))
-              {[], {:page, cursor, retries + 1}}
+              {[], {:page, cursor, retries + 1, seen}}
 
             {:error, %Error{} = error} ->
               {[{:error, error}], :done}

@@ -4,12 +4,14 @@ import {
   FindKindSchema,
   GetPropertySchema,
   IsPredicateSchema,
+  NetworkModeSchema,
   ScrollDirectionSchema,
   TabActionSchema,
   WaitLoadStateSchema,
   type BrowserBatchItem,
   type BrowserCommand,
-  type BrowserCommandArgs
+  type BrowserCommandArgs,
+  type InlineSnapMode
 } from '../protocol'
 import { BrowserDataError } from '../errors'
 
@@ -22,7 +24,14 @@ export type GlobalCLIOptions = {
 export type ParsedCLI =
   | { kind: 'command'; global: GlobalCLIOptions; command: BrowserCommand }
   | { kind: 'eval-stdin'; global: GlobalCLIOptions }
-  | { kind: 'batch'; global: GlobalCLIOptions; argvBatches: string[][]; bail: boolean; stdin: boolean }
+  | {
+      kind: 'batch'
+      global: GlobalCLIOptions
+      argvBatches: string[][]
+      bail: boolean
+      stdin: boolean
+      snap?: InlineSnapMode
+    }
   | {
       kind: 'run'
       global: GlobalCLIOptions
@@ -105,37 +114,58 @@ export function parseBatchItem(name: string, argv: string[]): BrowserBatchItem {
     case 'focus':
     case 'hover':
     case 'scrollintoview':
-      return command(commandName, { selector: requireValue(tokens, name), ...noExtra(tokens) })
-    case 'fill':
-    case 'type':
-      return command(commandName, {
-        selector: requireValue(tokens, name),
-        text: requireValue(tokens, name),
-        ...noExtra(tokens)
-      })
-    case 'press':
-      return command('press', { key: requireValue(tokens, name), ...noExtra(tokens) })
-    case 'select':
-      return command('select', {
-        selector: requireValue(tokens, name),
-        value: requireValue(tokens, name),
-        ...noExtra(tokens)
-      })
     case 'check':
-    case 'uncheck':
-      return command(commandName, { selector: requireValue(tokens, name), ...noExtra(tokens) })
+    case 'uncheck': {
+      const { snap, rest } = extractSnapFlags(tokens)
+      return command(commandName, {
+        selector: requireValue(rest, name),
+        ...noExtra(rest),
+        ...(snap ? { snap } : {})
+      })
+    }
+    case 'fill':
+    case 'type': {
+      const { snap, rest } = extractSnapFlags(tokens)
+      return command(commandName, {
+        selector: requireValue(rest, name),
+        text: requireValue(rest, name),
+        ...noExtra(rest),
+        ...(snap ? { snap } : {})
+      })
+    }
+    case 'press': {
+      const { snap, rest } = extractSnapFlags(tokens)
+      return command('press', {
+        key: requireValue(rest, name),
+        ...noExtra(rest),
+        ...(snap ? { snap } : {})
+      })
+    }
+    case 'select': {
+      const { snap, rest } = extractSnapFlags(tokens)
+      return command('select', {
+        selector: requireValue(rest, name),
+        value: requireValue(rest, name),
+        ...noExtra(rest),
+        ...(snap ? { snap } : {})
+      })
+    }
     case 'scroll':
       return command('scroll', parseScroll(tokens))
-    case 'drag':
+    case 'drag': {
+      const { snap, rest } = extractSnapFlags(tokens)
       return command('drag', {
-        source: requireValue(tokens, name),
-        target: requireValue(tokens, name),
-        ...noExtra(tokens)
+        source: requireValue(rest, name),
+        target: requireValue(rest, name),
+        ...noExtra(rest),
+        ...(snap ? { snap } : {})
       })
+    }
     case 'upload': {
-      const selector = requireValue(tokens, name)
-      if (tokens.length === 0) usage('upload requires at least one file path')
-      return command('upload', { selector, paths: tokens })
+      const { snap, rest } = extractSnapFlags(tokens)
+      const selector = requireValue(rest, name)
+      if (rest.length === 0) usage('upload requires at least one file path')
+      return command('upload', { selector, paths: rest, ...(snap ? { snap } : {}) })
     }
     case 'get':
       return command('get', parseGet(tokens))
@@ -164,6 +194,12 @@ export function parseBatchItem(name: string, argv: string[]): BrowserBatchItem {
       if (tokens.length === 0) usage('fetch requires at least one URL')
       if (tokens.length > 5) usage('fetch accepts at most five URLs')
       return command('fetch', { urls: tokens })
+    case 'diagnostics':
+      return command('diagnostics', parseDiagnostics(tokens))
+    case 'network':
+      return command('network', parseNetwork(tokens))
+    case 'webmcp':
+      return command('webmcp', parseWebMCP(tokens))
     case 'close':
     case 'batch':
     case 'run':
@@ -183,9 +219,15 @@ function parseSnapshot(tokens: string[]): BrowserCommandArgs<'snapshot'> {
     if (flag === '-i') args.interactive = true
     else if (flag === '-c') args.compact = true
     else if (flag === '--urls') args.urls = true
+    else if (flag === '--diff') args.diff = true
     else if (flag === '-d') args.depth = positiveInteger(requireValue(tokens, flag), flag)
     else if (flag === '-s') args.selector = requireValue(tokens, flag)
-    else usage(`unknown snapshot flag: ${flag}`)
+    else if (flag === '-q' || flag === '--query') args.query = requireValue(tokens, flag)
+    else if (flag.startsWith('--query=')) {
+      const value = flag.slice('--query='.length)
+      if (!value) usage('--query requires a value')
+      args.query = value
+    } else usage(`unknown snapshot flag: ${flag}`)
   }
   return args
 }
@@ -203,12 +245,13 @@ function parseScreenshot(tokens: string[]): BrowserCommandArgs<'screenshot'> {
 }
 
 function parseScroll(tokens: string[]): BrowserCommandArgs<'scroll'> {
-  const direction = requireEnum(tokens, 'scroll', ScrollDirectionSchema.options)
-  const args: BrowserCommandArgs<'scroll'> = { direction }
-  if (tokens[0] && /^\d+$/.test(tokens[0]!)) args.pixels = positiveInteger(tokens.shift()!, 'pixels')
-  while (tokens.length > 0) {
-    const flag = tokens.shift()
-    if (flag === '--selector') args.selector = requireValue(tokens, flag)
+  const { snap, rest } = extractSnapFlags(tokens)
+  const direction = requireEnum(rest, 'scroll', ScrollDirectionSchema.options)
+  const args: BrowserCommandArgs<'scroll'> = { direction, ...(snap ? { snap } : {}) }
+  if (rest[0] && /^\d+$/.test(rest[0]!)) args.pixels = positiveInteger(rest.shift()!, 'pixels')
+  while (rest.length > 0) {
+    const flag = rest.shift()!
+    if (flag === '--selector') args.selector = requireValue(rest, flag)
     else usage(`unknown scroll flag: ${flag}`)
   }
   return args
@@ -225,28 +268,37 @@ function parseGet(tokens: string[]): BrowserCommandArgs<'get'> {
 }
 
 function parseFind(tokens: string[]): BrowserCommandArgs<'find'> {
-  const kind = requireEnum(tokens, 'find', FindKindSchema.options)
+  const { snap, rest } = extractSnapFlags(tokens)
+  const kind = requireEnum(rest, 'find', FindKindSchema.options)
   if (kind === 'nth') {
     const args: Extract<BrowserCommandArgs<'find'>, { kind: 'nth' }> = {
       kind,
-      index: nonnegativeInteger(requireValue(tokens, 'find nth'), 'find nth'),
-      selector: requireValue(tokens, 'find nth')
+      index: nonnegativeInteger(requireValue(rest, 'find nth'), 'find nth'),
+      selector: requireValue(rest, 'find nth'),
+      ...(snap ? { snap } : {})
     }
-    applyFindFlags(tokens, kind, args)
+    applyFindFlags(rest, kind, args)
     return args
   }
   const args: Exclude<BrowserCommandArgs<'find'>, { kind: 'nth' }> = {
     kind,
-    value: requireValue(tokens, `find ${kind}`)
+    value: requireValue(rest, `find ${kind}`),
+    ...(snap ? { snap } : {})
   }
-  applyFindFlags(tokens, kind, args)
+  applyFindFlags(rest, kind, args)
   return args
 }
 
 function applyFindFlags(
   tokens: string[],
   kind: BrowserCommandArgs<'find'>['kind'],
-  args: { name?: string; exact?: boolean; action?: BrowserCommandArgs<'find'>['action']; text?: string }
+  args: {
+    name?: string
+    exact?: boolean
+    action?: BrowserCommandArgs<'find'>['action']
+    text?: string
+    snap?: InlineSnapMode
+  }
 ): void {
   while (tokens.length > 0) {
     const token = tokens.shift()!
@@ -256,6 +308,9 @@ function applyFindFlags(
       args.action = enumValue(token, 'find action', FindActionSchema.options)
       if (args.action === 'fill' || args.action === 'type') args.text = requireValue(tokens, 'find action')
     } else usage(`unknown find argument: ${token}`)
+  }
+  if (args.snap !== undefined && (!args.action || args.action === 'text')) {
+    usage('--snap and --snap-diff require an interactive find action')
   }
 }
 
@@ -294,14 +349,75 @@ function parseDialog(tokens: string[]): BrowserCommandArgs<'dialog'> {
   return { action, ...noExtra(tokens) }
 }
 
+function parseDiagnostics(tokens: string[]): BrowserCommandArgs<'diagnostics'> {
+  const args: BrowserCommandArgs<'diagnostics'> = {}
+  while (tokens.length > 0) {
+    const flag = tokens.shift()!
+    if (flag === '--all') args.all = true
+    else if (flag === '--include-static') args.include_static = true
+    else if (flag === '--url') args.url = requireValue(tokens, flag)
+    else if (flag.startsWith('--url=')) {
+      const value = flag.slice('--url='.length)
+      if (!value) usage('--url requires a value')
+      args.url = value
+    } else if (flag === '--clear') args.clear = true
+    else usage(`unknown diagnostics flag: ${flag}`)
+  }
+  return args
+}
+
+function parseNetwork(tokens: string[]): BrowserCommandArgs<'network'> {
+  if (tokens.length === 0) return { mode: 'status' }
+  const mode = requireEnum(tokens, 'network', NetworkModeSchema.options)
+  noExtra(tokens)
+  return { mode }
+}
+
+function parseWebMCP(tokens: string[]): BrowserCommandArgs<'webmcp'> {
+  const { snap, rest } = extractSnapFlags(tokens)
+  if (rest.length === 0) {
+    if (snap) usage('--snap and --snap-diff are only valid on webmcp call')
+    return { action: 'list' }
+  }
+  const action = requireEnum(rest, 'webmcp', ['list', 'call'] as const)
+  if (action === 'list') {
+    if (snap) usage('--snap and --snap-diff are only valid on webmcp call')
+    return { action: 'list', ...noExtra(rest) }
+  }
+  const tool = requireValue(rest, 'webmcp call')
+  let input: Record<string, unknown> | undefined
+  if (rest.length > 0) {
+    const rawInput = rest.shift()!
+    noExtra(rest)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(rawInput)
+    } catch {
+      usage('webmcp call input must be valid JSON')
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      usage('webmcp call input must be a JSON object')
+    }
+    input = parsed as Record<string, unknown>
+  }
+  return {
+    action: 'call',
+    tool,
+    ...(input ? { input } : {}),
+    ...(snap ? { snap } : {})
+  }
+}
+
 function parseBatch(tokens: string[], global: GlobalCLIOptions): ParsedCLI {
   let bail = false
   let stdin = false
+  let snap: InlineSnapMode | undefined
   const commands: string[] = []
   while (tokens.length > 0) {
     const token = tokens.shift()!
     if (token === '--bail') bail = true
     else if (token === '--stdin') stdin = true
+    else if (token === '--snap' || token === '--snap-diff') snap = mergeSnapFlag(snap, token)
     else if (applyTrailingGlobal(token, tokens, global)) continue
     else commands.push(token)
   }
@@ -311,7 +427,8 @@ function parseBatch(tokens: string[], global: GlobalCLIOptions): ParsedCLI {
     global,
     argvBatches: commands.map(shellWords),
     bail,
-    stdin
+    stdin,
+    ...(snap ? { snap } : {})
   }
 }
 
@@ -374,6 +491,24 @@ function command<Name extends BrowserBatchItem['name']>(
   args: Extract<BrowserBatchItem, { name: Name }>['args']
 ): BrowserBatchItem {
   return { name, args } as BrowserBatchItem
+}
+
+function mergeSnapFlag(current: InlineSnapMode | undefined, flag: '--snap' | '--snap-diff'): InlineSnapMode {
+  const next: InlineSnapMode = flag === '--snap' ? 'interactive' : 'diff'
+  if (current !== undefined && current !== next) {
+    usage('cannot combine --snap and --snap-diff')
+  }
+  return next
+}
+
+function extractSnapFlags(tokens: string[]): { snap?: InlineSnapMode; rest: string[] } {
+  let snap: InlineSnapMode | undefined
+  const rest: string[] = []
+  for (const token of tokens) {
+    if (token === '--snap' || token === '--snap-diff') snap = mergeSnapFlag(snap, token)
+    else rest.push(token)
+  }
+  return { ...(snap ? { snap } : {}), rest }
 }
 
 function requireValue(tokens: string[], subject: string): string {

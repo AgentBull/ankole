@@ -55,9 +55,9 @@ Agent 可先通过 `web_search` 检索公开网页，再通过 `web_fetch` 提�
 | **Bright Data SERP** | 否 | 调用 SERP API 检索结果；必填 Zone 名称，支持精细指定国家/地区、界面语言与 Google 区域域名 | 需要严格控制搜索地域、语种或获取本地化搜索结果 |
 | **Jina Search** | 否 | 支持指定国家/地区、地理位置、语言、分页页码、缓存开关及底层搜索引擎 | 需要直接网页搜索，并精细控制地域、翻页或缓存行为 |
 | **AgentBull Cloud** | 是 | 一站式聚合网页搜索、正文提取与多种模型能力（`llm`、`embedding`、`rerank`、`image_generate`）；支持限定站点范围、时间窗口及跳过缓存 | 希望凭一把聚合 API Key 同时搞定联网工具与模型调用，或需按域名与时间精确过滤 |
-| **Cloudflare** | 否 | 通过账号下的 AI Gateway 调用 Cloudflare Web Search；可选择搜索引擎（`ceramic`、`exa` 或 `linkup`），单次最多返回 10 条结果 | 已经通过 Cloudflare AI Gateway 统一结算 AI 用量 |
+| **Cloudflare** | 是 | 通过账号下的 AI Gateway 调用 Cloudflare Web Search；可选择搜索引擎（`ceramic`、`exa` 或 `linkup`），单次最多返回 10 条结果 | 已经通过 Cloudflare AI Gateway 统一结算 AI 用量 |
 
-若选用 Parallel 或 AgentBull Cloud，只需添加一次提供商实例，即可同时绑定给 `web_search` 与 `web_fetch` 两个槽位。
+若选用 Parallel、AgentBull Cloud 或 Cloudflare，只需添加一次提供商实例，即可同时绑定给 `web_search` 与 `web_fetch` 两个槽位。
 
 注意，Jina Search 与 Jina Reader 在系统中属于两个独立的提供商类型——即便共用同一把 Jina API Key，也需分别添加两个实例，再各自绑定至对应槽位。
 
@@ -68,6 +68,7 @@ Agent 可先通过 `web_search` 检索公开网页，再通过 `web_fetch` 提�
 | **Parallel** | 是 | 直接复用 Parallel Search 的同一实例与凭据提取网页正文 | 已接入 Parallel 搜索，希望精简维护一套配置 |
 | **AgentBull Cloud** | 是 | 直接复用同一 AgentBull Cloud 实例与 API Key 提取公开网页正文 | 已通过 AgentBull Cloud 调用模型或搜索，希望共用同一套凭据 |
 | **Jina Reader** | 否 | 将公开网页转换为结构化 Markdown；支持保留超链接、CSS 目标选择器、等待元素选择器、缓存控制、渲染引擎切换及输出 Token 上限 | 提取长文正文，或仅截取页面中的特定 DOM 区域 |
+| **Cloudflare** | 是 | 通过 Cloudflare Browser Run 将公开网页提取为 Markdown；默认选用轻量级 `kitesurf` 引擎，也支持按需切换 `chromium` 并配置等待选择器、导航参数与请求拦截规则 | 已接入 Cloudflare 模型或搜索能力，希望在边缘节点快速完成 Markdown 提取 |
 
 `web_fetch` 仅面向无需鉴权的公开 HTTPS 网页——它既不支持携带登录态访问受限页面，也不是用来下载 PDF、图片、压缩包或音视频文件的下载工具。
 

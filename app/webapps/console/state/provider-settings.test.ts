@@ -42,6 +42,7 @@ function providerKind(providerKind: string): AIGatewayProviderKindItem {
       providerSetting('thinking_budget', { type: 'integer', scope: 'request' }),
       providerSetting('repetition_penalty', { type: 'float', scope: 'request' }),
       providerSetting('search_options', { type: 'map', scope: 'request' }),
+      providerSetting('rejectRequestPattern', { type: 'string_list', scope: 'request' }),
       providerSetting('mode', { scope: 'request' }),
       providerSetting('serviceTier', { options: ['fast', 'flex'], scope: 'request', advanced: true }),
       providerSetting('strictJSONSchema', { type: 'boolean', scope: 'request', advanced: true })
@@ -154,6 +155,7 @@ describe('provider settings', () => {
       ['thinking_budget', 'integer'],
       ['repetition_penalty', 'float'],
       ['search_options', 'map'],
+      ['rejectRequestPattern', 'string_list'],
       ['mode', 'string'],
       ['serviceTier', 'string'],
       ['strictJSONSchema', 'boolean']
@@ -187,6 +189,7 @@ describe('provider settings', () => {
         thinking_budget: '2048',
         repetition_penalty: '1.15',
         search_options: '{"freshness":"week"}',
+        rejectRequestPattern: ' /^.*\\.(css)$/ \n\n /^.*\\.(woff2)$/ ',
         mode: 'balanced',
         serviceTier: 'provider-native-tier'
       },
@@ -201,9 +204,33 @@ describe('provider settings', () => {
         thinking_budget: 2048,
         repetition_penalty: 1.15,
         search_options: { freshness: 'week' },
+        rejectRequestPattern: ['/^.*\\.(css)$/', '/^.*\\.(woff2)$/'],
         mode: 'balanced',
         serviceTier: 'provider-native-tier'
       }
+    })
+  })
+
+  test('formats stored string_list settings as newline-delimited drafts and validates array inputs', () => {
+    const setting = providerSetting('rejectRequestPattern', { type: 'string_list', scope: 'request' })
+    const stored = {
+      connection_options: { rejectRequestPattern: ['/^.*\\.(css)$/', '/^.*\\.(png)$/'] }
+    } as unknown as AIGatewayProviderItem
+    const message = (field: string, error: string) => `${field}:${error}`
+
+    expect(initialSettingValue({ ...setting, scope: 'connection' }, stored)).toBe('/^.*\\.(css)$/\n/^.*\\.(png)$/')
+    expect(buildSettingOptions([setting], { rejectRequestPattern: '   \n  ' }, message)).toEqual({
+      ok: true,
+      value: {}
+    })
+    expect(buildSettingOptions([setting], { rejectRequestPattern: ['/^.*\\.(css)$/'] }, message)).toEqual({
+      ok: true,
+      value: { rejectRequestPattern: ['/^.*\\.(css)$/'] }
+    })
+    expect(buildSettingOptions([setting], { rejectRequestPattern: [123] }, message)).toEqual({
+      ok: false,
+      key: 'rejectRequestPattern',
+      error: 'Reject request pattern:string_list'
     })
   })
 

@@ -114,7 +114,7 @@ defmodule Ankole.Conversations.InboundBatches do
       agent_uid == ^agent_uid and binding_name == ^binding_name and
         conversation_id == ^conversation_id and
         fragment(
-          "EXISTS (SELECT 1 FROM jsonb_array_elements(?) AS entry WHERE entry->>'provider_message_id' = ?)",
+          "? @> jsonb_build_array(jsonb_build_object('provider_message_id', ?::text))",
           entries,
           ^provider_id
         )
@@ -209,7 +209,7 @@ defmodule Ankole.Conversations.InboundBatches do
       agent_uid == ^fact.agent_uid and binding_name == ^fact.binding_name and
         conversation_id == ^fact.conversation_id and batch_state == :finalized and
         fragment(
-          "EXISTS (SELECT 1 FROM jsonb_array_elements(?) AS entry WHERE entry->>'provider_message_id' = ?)",
+          "? @> jsonb_build_array(jsonb_build_object('provider_message_id', ?::text))",
           entries,
           ^fact.provider_message_id
         )

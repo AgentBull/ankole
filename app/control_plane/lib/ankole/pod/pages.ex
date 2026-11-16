@@ -18,6 +18,7 @@ defmodule Ankole.Pod.Pages do
   alias Ankole.Pod.Documents.History
 
   defdelegate list_children(actor, parent_id, opts \\ %{}), to: Queries
+  defdelegate tree(actor, opts \\ %{}), to: Queries
   defdelegate navigation(actor, active_page_id), to: Queries
   defdelegate navigation_entries(actor, ids), to: Queries
   defdelegate search(actor, query, opts \\ %{}), to: Queries
@@ -784,7 +785,7 @@ defmodule Ankole.Pod.Pages do
         end)
       else
         Repo.transact_top_level(fn ->
-          with {:ok, page} <- lock(id),
+          with {:ok, page} <- lock(id, :share),
                {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "node_view", trash: false),
                :ok <- Ankole.Pod.Documents.Insights.visit_in_tx(page, uid, changes[:visited_at]),
                do: save_state_in_tx(uid, id, changes)

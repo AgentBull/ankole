@@ -35,6 +35,7 @@ defmodule Ankole.Pod.Page do
       {:parent_id, "pages_parent_fkey"},
       {:object_id, "pages_object_fkey"},
       {:private_owner_uid, "pages_private_owner_fkey"},
+      {:owner_uid, "pages_owner_fkey"},
       {:conversation_id, "pages_conversation_fkey"}
     ])
 

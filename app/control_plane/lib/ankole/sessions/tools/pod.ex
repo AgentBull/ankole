@@ -7,15 +7,19 @@ defmodule Ankole.Sessions.Tools.Pod do
     [
       declaration(
         "pod_get_page",
-        "Read a Pod page at L0 (summary), L1 (outline), or L2 (full content). Knowledge pages return OKF Markdown. Only content visible to this conversation is returned.",
+        "Read a Pod page at L0 (summary), L1 (outline), or L2 (full content). Knowledge pages return OKF Markdown. Brain pages apply conversation disclosure; other pages use your Pod permissions.",
         %{"id" => id(), "level" => %{"type" => "string", "enum" => ["L0", "L1", "L2"]}},
         ["id"],
         true
       ),
       declaration(
         "pod_list_pages",
-        "List the visible children of a Pod page, with their knowledge summaries. Omit id to find the shared Space roots. Use brain to discover organizational knowledge.",
-        %{"id" => id()},
+        "Inspect Pod pages and directory structure. Omit id to inspect root pages in the shared Space (scope: \"space\", default), your Private section (scope: \"private\"), or both trees together (scope: \"all\"); pass depth (up to 5) to view nested subdirectories. Use brain to discover organizational knowledge.",
+        %{
+          "id" => id(),
+          "scope" => %{"type" => "string", "enum" => ["space", "private", "all"]},
+          "depth" => %{"type" => "integer", "minimum" => 1, "maximum" => 5}
+        },
         [],
         true
       ),
@@ -99,7 +103,7 @@ defmodule Ankole.Sessions.Tools.Pod do
   # call is corrected in one round instead of guessed at from an atom.
   defp page_error(:not_found),
     do:
-      "No Page with this id is visible in this conversation. Use an id from pod_list_pages or from a page link in this conversation."
+      "No Page with this id is visible under your Pod permissions and conversation disclosure. Use an id from pod_list_pages or from a page link in this conversation."
 
   defp page_error(:invalid_page_domain),
     do:
@@ -132,7 +136,7 @@ defmodule Ankole.Sessions.Tools.Pod do
     do: AgentPages.read(actor, context, args["id"], args["level"] || "L2")
 
   defp dispatch("pod_list_pages", actor, context, args),
-    do: AgentPages.children(actor, context, args["id"])
+    do: AgentPages.children(actor, context, args["id"], Map.take(args, ["scope", "depth"]))
 
   defp write_in_tx("pod_save_page", actor, context, args) do
     with {:ok, %{page: page}} <-

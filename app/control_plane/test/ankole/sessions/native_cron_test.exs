@@ -14,7 +14,7 @@ defmodule Ankole.Sessions.NativeCronTest do
     %{human: human, agent: agent, first: first, second: second}
   end
 
-  test "renaming an inactive Agent preserves its Cron-owned Session", ctx do
+  test "renaming an inactive Agent preserves its Routine-owned Session", ctx do
     assert {:ok, %{cron_schedule: schedule}} =
              Schedule.create_cron_schedule(cron_attrs(ctx, [ctx.first.id]),
                created_by: %{
@@ -22,9 +22,11 @@ defmodule Ankole.Sessions.NativeCronTest do
                }
              )
 
+    session_id = Ankole.Sessions.Key.routine(schedule.owner_routine_id)
+
     assert {:ok, workspace} =
              Repo.transact(fn ->
-               Ankole.Sessions.Workspaces.ensure_in_tx(ctx.agent.uid, "cron:#{schedule.id}")
+               Ankole.Sessions.Workspaces.ensure_in_tx(ctx.agent.uid, session_id)
              end)
 
     assert {:ok, _} = Ankole.Principals.disable_agent(ctx.agent.uid)
@@ -34,6 +36,9 @@ defmodule Ankole.Sessions.NativeCronTest do
 
     assert Repo.reload!(workspace).agent_uid == renamed.uid
     assert Repo.reload!(schedule).agent_uid == renamed.uid
+
+    assert Repo.get!(Ankole.Schedule.Schemas.AgentRoutine, schedule.owner_routine_id).agent_uid ==
+             renamed.uid
   end
 
   test "native schedules need no external binding and retain a native delivery on update",
@@ -48,16 +53,20 @@ defmodule Ankole.Sessions.NativeCronTest do
              )
 
     assert is_nil(schedule.binding_name)
+    assert schedule.delivery["quiet_success"] == true
 
     assert {:ok, updated} =
              Schedule.update_cron_schedule(schedule.id, %{
-               "delivery" => %{"quiet_success" => true}
+               "delivery" => %{"quiet_success" => false}
              })
 
     assert is_nil(updated.binding_name)
     assert updated.delivery["targets"] == [%{"conversation_id" => context.first.id}]
-    assert updated.delivery["quiet_success"] == true
+    assert updated.delivery["quiet_success"] == false
     assert Repo.get!(CronSchedule, schedule.id).delivery == updated.delivery
+
+    assert Repo.get!(Ankole.Schedule.Schemas.AgentRoutine, schedule.owner_routine_id).delivery ==
+             updated.delivery
   end
 
   test "a native target must contain the producing Agent", context do

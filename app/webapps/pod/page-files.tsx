@@ -65,13 +65,15 @@ export function FilePage({
   onRequestComment,
   previewRef,
   searchFind = '',
-  searchTarget
+  searchTarget,
+  embedded = false
 }: {
   detail: PageDetail
   onRequestComment?: (selection: FileCommentSelection) => void
   previewRef?: Ref<FilePreviewHandle | null>
   searchFind?: string
   searchTarget?: ParsedSearchTarget
+  embedded?: boolean
 }) {
   const { t } = useTranslation()
   const { page, actions } = detail
@@ -110,6 +112,7 @@ export function FilePage({
   const officeKind = file ? officeFileFormat(name) : undefined
   const mime = file ? previewMediaType(name, file.content_type) : undefined
   const isHtml = Boolean(file && !officeKind && isHtmlFile(name, mime))
+  const fillHtmlPage = isHtml && !embedded
   const findQuery = searchFind.trim()
   const chooseLabel = file ? t('pod.content.choose_a_replacement_file') : t('pod.content.choose_a_file_to_upload')
   const canUpload = Boolean(manifest.data) && !manifest.isFetching && !upload.isPending
@@ -139,7 +142,8 @@ export function FilePage({
   return (
     <section
       className={cn(
-        'space-y-4 rounded-control transition-colors',
+        fillHtmlPage ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-4',
+        'rounded-control transition-colors',
         dragOver && canEdit && 'bg-layer-hover/30 ring-2 ring-primary ring-offset-2'
       )}
       onDragEnter={event => {
@@ -240,6 +244,7 @@ export function FilePage({
             previewRef={previewRef}
             searchTarget={searchTarget}
             searchFind={findQuery}
+            embedded={embedded}
             fileMeta={
               isHtml ? (
                 <span title={sanitizeFileName(name)}>
@@ -264,9 +269,7 @@ export function FilePage({
           }}
           className={cn(
             'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-control border-2 border-dashed px-6 py-12 text-center transition-colors',
-            dragOver
-              ? 'border-primary bg-layer-hover/50'
-              : 'border-border-subtle hover:border-border-strong hover:bg-layer-hover/30',
+            dragOver ? 'border-primary bg-layer-hover/50' : 'border-border-subtle hover:border-border-strong hover:bg-layer-hover/30',
             !canUpload && 'pointer-events-none opacity-60'
           )}>
           <CloudArrowUpRegular aria-hidden className="size-6 text-fg-tertiary" />
@@ -296,6 +299,7 @@ function FilePreview({
   previewRef,
   searchTarget,
   searchFind,
+  embedded = false,
   fileMeta,
   fileActions
 }: {
@@ -306,6 +310,7 @@ function FilePreview({
   previewRef?: Ref<FilePreviewHandle | null>
   searchTarget?: ParsedSearchTarget
   searchFind: string
+  embedded?: boolean
   fileMeta?: ReactNode
   fileActions?: ReactNode
 }) {
@@ -331,8 +336,9 @@ function FilePreview({
   const name = file.path.split('/').at(-1) ?? t('pod.content.file')
   const mime = previewMediaType(name, file.content_type)
   const initialAnchor = resolveFileSearchAnchor(searchTarget)
+  const fillHtml = !embedded && isHtmlFile(name, mime)
   return (
-    <div className="space-y-3">
+    <div className={fillHtml ? 'flex min-h-0 flex-1 flex-col' : 'space-y-3'}>
       {isDelimitedTextTable(name, mime) ? (
         <DelimitedTablePreview
           key={url}
@@ -409,6 +415,7 @@ function FilePreview({
           initialAnchor={initialAnchor?.kind === 'lines' ? initialAnchor : undefined}
           fileMeta={fileMeta}
           fileActions={fileActions}
+          layout={embedded ? 'embed' : 'fill'}
         />
       ) : isTextFile(name, mime) ? (
         <TextFilePreview

@@ -28,8 +28,8 @@ defmodule AnkoleWeb.Plugs.RequirePodSession do
     with {:ok, true} <- Ankole.Setup.Config.completed?(),
          {:ok, tenant} <- target_tenant(conn),
          :ok <- Repo.put_tenant_id(tenant.id),
-         %{"principal_uid" => uid} = authentication <- WebSession.pod_session(conn),
-         {:ok, %{type: :human} = principal} <- Ankole.Principals.get_principal(uid) do
+         {%{"principal_uid" => uid} = authentication, %{type: :human} = principal} <-
+           WebSession.pod_session_with_principal(conn) do
       :ok = WebSession.renew_authentication(authentication)
 
       conn
@@ -55,14 +55,18 @@ defmodule AnkoleWeb.Plugs.RequirePodSession do
     with {:ok, true} <- Ankole.Setup.Config.completed?(),
          {:ok, tenant} <- target_tenant(conn),
          :ok <- valid_bearer_applet_frame?(conn),
-         {:ok, %{claims: claims, client: client, session: session}} <-
+         {:ok,
+          %{
+            claims: claims,
+            client: client,
+            session: session,
+            principal: %{type: :human, status: :active} = principal
+          }} <-
            Tokens.verify_pod_access(token),
          true <- client.tenant_id == tenant.id,
          :ok <- Repo.put_tenant_id(tenant.id),
-         {:ok, %{type: :human, status: :active} = principal} <-
-           Ankole.Principals.get_principal(session.principal_uid),
          {:ok, actor} <-
-           OIDC.actor_for_session(session.id, principal, to_string(:inet.ntoa(conn.remote_ip))) do
+           OIDC.actor_for_session(session, principal, to_string(:inet.ntoa(conn.remote_ip))) do
       conn
       |> assign(:current_tenant, tenant)
       |> assign(:current_principal_uid, principal.uid)

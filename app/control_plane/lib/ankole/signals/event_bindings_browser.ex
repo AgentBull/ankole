@@ -18,12 +18,14 @@ defmodule Ankole.Signals.EventBindingsBrowser do
     ],
     agent_uid: [type: PrincipalKey],
     automation_job_id: [type: :integer],
+    agent_routine_id: [type: UUIDv7],
     watched_field_ids: [type: {:array, :string}],
     name: [type: :string, constraints: [trim?: true], allow_nil?: false],
     adapter: [type: :string, allow_nil?: false],
     config_ref: [type: :string, allow_nil?: false],
     target: [type: JSONMap, allow_nil?: false],
     filters: [type: JSONMap, allow_nil?: false],
+    coalesce: [type: JSONMap],
     unaddressed_group_message_policy: [
       type: State,
       constraints: [one_of: [:ignore, :record_only, :may_intervene]],
@@ -56,6 +58,7 @@ defmodule Ankole.Signals.EventBindingsBrowser do
     action :list, :map do
       argument(:config_ref, :string)
       argument(:job_id, :integer)
+      argument(:routine_id, UUIDv7)
 
       constraints(
         fields: [
@@ -72,7 +75,8 @@ defmodule Ankole.Signals.EventBindingsBrowser do
           EventBindings.list(
             context.actor,
             Map.get(input.arguments, :config_ref),
-            Map.get(input.arguments, :job_id)
+            Map.get(input.arguments, :job_id),
+            Map.get(input.arguments, :routine_id)
           ),
           fn bindings -> %{bindings: Enum.map(bindings, &binding_json/1)} end
         )
@@ -94,9 +98,11 @@ defmodule Ankole.Signals.EventBindingsBrowser do
       argument(:config_ref, :string, allow_nil?: false)
       argument(:name, :string)
       argument(:automation_job_id, :integer)
+      argument(:agent_routine_id, UUIDv7)
       argument(:agent_uid, PrincipalKey)
       argument(:target, JSONMap)
       argument(:filters, JSONMap)
+      argument(:coalesce, JSONMap)
       argument(:watched_field_ids, {:array, UUIDv7})
       argument(:enabled, :boolean, default: true)
 

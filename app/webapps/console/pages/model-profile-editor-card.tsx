@@ -154,7 +154,9 @@ export function ModelProfileEditorCard({
   const formError = draft.error && !providerError && !modelError ? draft.error : undefined
 
   const renderOptionSetting = (setting: ProviderSetting) => (
-    <div key={setting.key} className={setting.type === 'map' ? 'md:col-span-2' : undefined}>
+    <div
+      key={setting.key}
+      className={setting.type === 'map' || setting.type === 'string_list' ? 'md:col-span-2' : undefined}>
       <ProviderSettingField
         disabled={disabled}
         setting={setting}

@@ -51,9 +51,9 @@ Control Plane Plugins can register additional Provider kinds; the following web 
 | **Bright Data SERP** | No | Backed by a SERP API; requires a Zone and supports country, language, and Google domain targeting | You need strict control over search geography, language, or localized SERPs |
 | **Jina Search** | No | Exposes region, location, language, pagination, cache, and search-engine parameters | You want direct web search with fine-grained region, pagination, or cache controls |
 | **AgentBull Cloud** | Yes | Unifies search and page extraction with model capabilities (`llm`, `embedding`, `rerank`, `image_generate`), supporting source scopes, time ranges, and cache bypass | You prefer a single API key across models and web tools, or need source and recency filtering |
-| **Cloudflare** | No | Runs Cloudflare Web Search through the account's AI Gateway; lets you pick the search engine (`ceramic`, `exa`, or `linkup`) and returns at most 10 results per search | You already bill AI usage through Cloudflare AI Gateway |
+| **Cloudflare** | Yes | Runs Cloudflare Web Search through the account's AI Gateway; lets you pick the search engine (`ceramic`, `exa`, or `linkup`) and returns at most 10 results per search | You already bill AI usage through Cloudflare AI Gateway |
 
-You can bind a single **Parallel** or **AgentBull Cloud** Provider instance to both `web_search` and `web_fetch`. By contrast, **Jina Search** and **Jina Reader** are distinct Provider kinds—create one instance of each and bind them to their respective profiles, even when both share the same Jina API key.
+You can bind a single **Parallel**, **AgentBull Cloud**, or **Cloudflare** Provider instance to both `web_search` and `web_fetch`. By contrast, **Jina Search** and **Jina Reader** are distinct Provider kinds—create one instance of each and bind them to their respective profiles, even when both share the same Jina API key.
 
 ### `web_fetch` Providers
 
@@ -62,6 +62,7 @@ You can bind a single **Parallel** or **AgentBull Cloud** Provider instance to b
 | **Parallel** | Yes | Reuses your Parallel Search Provider and API key for page extraction | You already use Parallel Search and want a single Provider entry |
 | **AgentBull Cloud** | Yes | Reuses your AgentBull Cloud Provider and API key for public page extraction | You already use AgentBull Cloud for models or search |
 | **Jina Reader** | No | Converts public web pages to clean Markdown with link retention, CSS target/wait selectors, caching, engine choice, and token caps | You want clean article Markdown or extraction scoped to specific CSS selectors |
+| **Cloudflare** | Yes | Converts public web pages to Markdown through Cloudflare Browser Run using the lightweight `kitesurf` engine by default (with optional `chromium` rendering, wait selectors, navigation options, and request-rejection patterns) | You already use Cloudflare for models or search and want fast edge Markdown extraction |
 
 `web_fetch` reads public HTTPS pages as text—it cannot authenticate behind login walls and is not meant for downloading binary files such as PDFs, images, archives, audio, or video.
 

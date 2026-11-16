@@ -1257,4 +1257,30 @@ defmodule Ankole.Files.VfsTest do
     {:ok, grant} = Auth.issue(ctx.agent.uid, %{"signal_id" => event.id})
     grant
   end
+
+  test "VFS token issue seals signal_id and refresh recomputes disclosure", ctx do
+    {:ok, grant} = Auth.issue(ctx.agent.uid, nil)
+    assert {:ok, payload} = Auth.decode(grant.token)
+    assert Map.has_key?(payload, "signal_id")
+    assert payload["signal_id"] == nil
+
+    Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-vfs-access:" <> Repo.tenant_id!())
+
+    assert {:ok, refreshed_token} = Auth.refresh(payload)
+    assert {:ok, refreshed_payload} = Auth.decode(refreshed_token)
+    assert refreshed_payload["expires_at"] >= payload["expires_at"]
+    refute_receive :vfs_access_changed, 50
+
+    stale_payload =
+      put_in(payload, ["disclosure"], %{
+        "mode" => "strict",
+        "asker_uid" => ctx.human.uid,
+        "present_uids" => [ctx.human.uid]
+      })
+
+    assert {:ok, updated_token} = Auth.refresh(stale_payload)
+    assert {:ok, updated_payload} = Auth.decode(updated_token)
+    assert updated_payload["disclosure"]["mode"] == "relaxed"
+    assert_receive :vfs_access_changed
+  end
 end

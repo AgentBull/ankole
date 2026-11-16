@@ -96,7 +96,7 @@ postMessage(location.pathname+':'+(module.instance.exports.add as (a:number,b:nu
   )
   await writeFile(
     path.join(directory, 'src/style.css'),
-    `.ankole-applet .applet-shell{display:grid;gap:8px;padding:16px;border:1px solid var(--color-border)}.ankole-applet .applet-actions{display:flex;gap:12px}.ankole-applet .applet-heading{color:${revision === 'v1' ? 'teal' : 'purple'}}`
+    `.ankole-applet .applet-shell{display:grid;gap:8px;padding:16px;border:1px solid var(--color-border-subtle)}.ankole-applet .applet-actions{display:flex;gap:12px}.ankole-applet .applet-heading{color:${revision === 'v1' ? 'teal' : 'purple'}}`
   )
   const result = await buildApplet(directory)
   manifests[revision] = [

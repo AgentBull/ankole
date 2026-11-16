@@ -71,17 +71,14 @@ defmodule Ankole.Brain.Recall do
       {:error, :missing_query}
     else
       with {:ok, access} <- Access.for_readers(querier_uid, disclosure),
-           visibility = access,
            {:ok, {entity_slug, neighborhood}} <-
-             entity_neighborhood(params[:entity], visibility) do
+             entity_neighborhood(params[:entity], access) do
         query_vector = query_embedding(query)
 
-        claims = claim_arm(access, visibility, query, query_vector, limit, neighborhood)
+        claims = claim_arm(access, query, query_vector, limit, neighborhood)
 
         chunks =
-          chunk_arm(access, visibility, disclosure, query, query_vector, limit, neighborhood)
-
-        claims = Access.filter_disclosable(claims, & &1.source_node_id, disclosure)
+          chunk_arm(access, query, query_vector, limit, neighborhood)
 
         entities =
           matched_entities(
@@ -90,7 +87,7 @@ defmodule Ankole.Brain.Recall do
             neighborhood,
             access,
             disclosure,
-            visibility,
+            access,
             Keyword.get(opts, :conversation_id)
           )
 
@@ -126,7 +123,7 @@ defmodule Ankole.Brain.Recall do
           (claim.claim_type == :take and claim.active == true)
       )
 
-  defp claim_arm(access, _visibility, query, query_vector, limit, neighborhood) do
+  defp claim_arm(access, query, query_vector, limit, neighborhood) do
     candidate_limit = min(limit * 2, 100)
 
     base =
@@ -174,12 +171,7 @@ defmodule Ankole.Brain.Recall do
       %{claim: claim, score: Map.fetch!(fused_scores, claim.id) * max(effective_confidence, 0.05)}
     end)
     |> Enum.sort_by(& &1.score, :desc)
-    |> Enum.map(fn %{claim: claim} ->
-      Map.merge(
-        %{source_node_id: claim.source_node_id},
-        %{claim: claim}
-      )
-    end)
+    |> Enum.map(fn %{claim: claim} -> %{claim: claim} end)
   end
 
   @doc """
@@ -217,7 +209,7 @@ defmodule Ankole.Brain.Recall do
     Map.get(forgetting, key, 365)
   end
 
-  defp chunk_arm(access, visibility, disclosure, query, query_vector, limit, neighborhood) do
+  defp chunk_arm(access, query, query_vector, limit, neighborhood) do
     candidate_limit = min(limit * 2, 100)
 
     base =
@@ -282,10 +274,9 @@ defmodule Ankole.Brain.Recall do
       end)
 
     hits
-    |> Access.filter_disclosable(& &1.chunk.source_node_id, disclosure)
     |> cap_chunks_per_page()
     |> maybe_rerank(query)
-    |> apply_adjacency_boost(visibility)
+    |> apply_adjacency_boost(access)
     |> apply_recency_and_salience(bm25_set, access)
     |> Enum.sort_by(& &1.score, :desc)
   end

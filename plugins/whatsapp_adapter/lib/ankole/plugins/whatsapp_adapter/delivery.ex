@@ -312,27 +312,14 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Delivery do
   # message of the same row already landed is therefore uncertain, and so is a
   # transport failure or a server error on the send itself.
   defp deliver(messages, client, phone_number_id, intent) do
-    messages
-    |> Enum.reduce_while({:ok, []}, fn body, {:ok, sent} ->
-      case Client.send_message(client, phone_number_id, body) do
-        {:ok, result} ->
-          {:cont, {:ok, [{body, result} | sent]}}
-
-        {:error, error} ->
-          cond do
-            sent != [] -> {:halt, :unknown}
-            uncertain?(error) -> {:halt, :unknown}
-            true -> {:halt, {:error, error}}
-          end
-      end
-    end)
-    |> case do
-      {:ok, results} ->
-        results = Enum.reverse(results)
-        {:ok, combine_results(results, intent), interactive_provider_message_id(results)}
-
-      other ->
-        other
+    with {:ok, results} <-
+           Ankole.Conversations.Delivery.send_chunks(messages, fn body ->
+             case Client.send_message(client, phone_number_id, body) do
+               {:ok, result} -> {:ok, {body, result}}
+               {:error, error} -> if uncertain?(error), do: :unknown, else: {:error, error}
+             end
+           end) do
+      {:ok, combine_results(results, intent), interactive_provider_message_id(results)}
     end
   end
 

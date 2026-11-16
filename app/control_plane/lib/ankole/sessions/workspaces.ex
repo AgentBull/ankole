@@ -48,14 +48,17 @@ defmodule Ankole.Sessions.Workspaces do
       {:workflow_task, id} ->
         integer_identity(:workflow_task, :workflow_agent_call_id, id)
 
-      {:cron, id} ->
+      {:routine, id} ->
         case Ecto.UUID.cast(id) do
-          {:ok, id} -> {:ok, %{kind: :cron, cron_schedule_id: id}}
+          {:ok, id} -> {:ok, %{kind: :routine, agent_routine_id: id}}
           :error -> {:error, :invalid_session_key}
         end
 
       {:named, name} ->
         {:ok, %{kind: :named, name: name}}
+
+      {:pod_job, _id} ->
+        {:error, :invalid_session_key}
 
       :error ->
         {:error, :invalid_session_key}
@@ -94,9 +97,9 @@ defmodule Ankole.Sessions.Workspaces do
             )
           end)
 
-        :cron ->
-          locked_owner("cron_schedules", identity.cron_schedule_id, fn query ->
-            Ankole.Schedule.get_cron_schedule_record!(identity.cron_schedule_id,
+        :routine ->
+          locked_owner("agent_routines", identity.agent_routine_id, fn query ->
+            Ankole.Schedule.get_agent_routine_record!(identity.agent_routine_id,
               query: [{:filter, [agent_uid: agent_uid]} | query]
             )
           end)

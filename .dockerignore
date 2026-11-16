@@ -16,6 +16,7 @@ internals/*
 **/output
 **/target
 **/tmp
+temp
 **/*.node
 **/erl_crash.dump
 app/agent_computer/Library

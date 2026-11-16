@@ -59,6 +59,10 @@ export type SignalBindingType = {
   /**
    * Field included by default.
    */
+  agent_routine_id?: string | null
+  /**
+   * Field included by default.
+   */
   agent_uid?: string | null
   /**
    * Field included by default.
@@ -68,6 +72,12 @@ export type SignalBindingType = {
    * Field included by default.
    */
   automation_job_id?: number | null
+  /**
+   * Field included by default.
+   */
+  coalesce?: {
+    [key: string]: unknown
+  } | null
   /**
    * Field included by default.
    */
@@ -986,6 +996,10 @@ export type SignalBinding = {
     /**
      * Field included by default.
      */
+    agent_routine_id?: string | null
+    /**
+     * Field included by default.
+     */
     agent_uid?: string | null
     /**
      * Field included by default.
@@ -995,6 +1009,12 @@ export type SignalBinding = {
      * Field included by default.
      */
     automation_job_id?: number | null
+    /**
+     * Field included by default.
+     */
+    coalesce?: {
+      [key: string]: unknown
+    } | null
     /**
      * Field included by default.
      */
@@ -2136,6 +2156,7 @@ export type CronSchedule = {
      * Field included by default.
      */
     owner_job_id?: number | null
+    owner_routine_id?: string | null
     /**
      * Field included by default.
      */
@@ -2273,7 +2294,7 @@ export type AiGatewayConversation = {
     /**
      * Field included by default.
      */
-    kind?: 'conversation' | 'signal' | 'dreaming' | 'job' | 'cron' | 'responses_api' | 'custom' | null
+    kind?: 'conversation' | 'signal' | 'dreaming' | 'job' | 'routine' | 'responses_api' | 'custom' | null
     /**
      * Field included by default.
      */

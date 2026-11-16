@@ -605,6 +605,85 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       refute_received {:sent_chunk, _}
     end
 
+    test "pre-upload staging errors stay retryable while completion transport errors report unknown" do
+      %{principal: agent} = agent_fixture()
+      binding_name = "slack-upload-staging"
+
+      assert {:ok, _} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), chat_config())
+
+      assert {:ok, binding} =
+               Ankole.SignalsFixtures.raw_binding_fixture(%{
+                 agent_uid: agent.uid,
+                 name: binding_name,
+                 adapter: "slack",
+                 config_ref: "app-config://" <> Config.chat_config_key(binding_name),
+                 unaddressed_group_message_policy: :ignore,
+                 unmatched_sender_policy: :create_standalone
+               })
+
+      {:ok, candidate} = Ankole.Files.store("report-bytes")
+
+      {:ok, stored} =
+        Repo.transact(fn ->
+          Ankole.Files.complete_object_in_tx(candidate)
+        end)
+
+      intent = %Intent{
+        binding_id: binding.id,
+        agent_uid: agent.uid,
+        binding_name: binding_name,
+        operation: :post,
+        conversation_id: external_conversation_id("slack:C1"),
+        payload: %{
+          "attachments" => [
+            %{
+              "object_id" => stored.id,
+              "name" => "report.txt",
+              "content_type" => "text/plain"
+            }
+          ]
+        },
+        fallback_visible_text: "Here is the report"
+      }
+
+      Req.default_options(
+        plug: fn conn ->
+          case conn.request_path do
+            "/api/files.getUploadURLExternal" ->
+              Plug.Conn.send_resp(conn, 503, "upstream unavailable")
+
+            other ->
+              flunk("unexpected Slack request: #{other}")
+          end
+        end
+      )
+
+      assert {:error, {:reply_delivery, :retryable, %{"http_status" => 503}}} =
+               Delivery.deliver(intent)
+
+      Req.default_options(
+        plug: fn conn ->
+          case conn.request_path do
+            "/api/files.getUploadURLExternal" ->
+              Req.Test.json(conn, %{
+                "ok" => true,
+                "upload_url" => "https://upload.slack.test/put/F1",
+                "file_id" => "F1"
+              })
+
+            "/put/F1" ->
+              Plug.Conn.send_resp(conn, 200, "ok")
+
+            "/api/files.completeUploadExternal" ->
+              Req.Test.transport_error(conn, :timeout)
+          end
+        end
+      )
+
+      assert :unknown = Delivery.deliver(intent)
+    end
+
     test "records an attachment before its Slack download starts" do
       parent = self()
       %{principal: agent} = agent_fixture()

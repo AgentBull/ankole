@@ -15,6 +15,7 @@ defmodule Ankole.Principals.Rename.References do
     {"ai_gateway_usage_records", "human_uid"},
     {"ai_gateway_usage_records", "subject_uid"},
     {"authn_challenges", "principal_uid"},
+    {"agent_routines", "human_uid"},
     {"automation_jobs", "human_uid"},
     {"background_agent_jobs", "human_uid"},
     {"browser_oidc_states", "reauthentication_principal_uid"},
@@ -86,7 +87,10 @@ defmodule Ankole.Principals.Rename.References do
     {"signals", "data", ["entry", "reply_to", "author", "principal_uid"]},
     {"signals", "data", ["entry", "reply_to", "author", "agent_uid"]}
   ]
-  @json_actor_refs [{"cron_schedules", "created_by", ["principal_uid"]}]
+  @json_actor_refs [
+    {"agent_routines", "created_by", ["principal_uid"]},
+    {"cron_schedules", "created_by", ["principal_uid"]}
+  ]
   # :each visits only the declared collection. Provider subjects, raw payloads,
   # free text and arbitrary task inputs retain their original meaning.
   @json_collections [

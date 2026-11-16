@@ -211,6 +211,7 @@ defmodule Ankole.Sessions.Presentation do
   def publish_committed(_result), do: :ok
 
   def stop(run), do: Preview.stop(run.event)
+  def stop_and_await(run), do: Preview.stop_and_await(run.event)
 
   @impl true
   def prepare_in_tx(run, call, args),
@@ -240,8 +241,9 @@ defmodule Ankole.Sessions.Presentation do
 
   def targets_in_tx(event) do
     delivery =
-      if event.type != "cron.fire" or Ankole.Sessions.Scheduled.produced_signal?(event),
-        do: Signal.scheduled_delivery_snapshot(event)
+      if event.type != "cron.fire" or Ankole.Sessions.Scheduled.produced_signal?(event) do
+        Signal.scheduled_delivery_snapshot(event) || routine_session_delivery(event.session_id)
+      end
 
     if is_map(delivery) do
       with {:ok, items} <- ScheduledDelivery.targets(delivery, event.reply_binding_name) do
@@ -269,6 +271,21 @@ defmodule Ankole.Sessions.Presentation do
       end
     end
   end
+
+  defp routine_session_delivery(session_id) when is_binary(session_id) do
+    case Ankole.Sessions.Key.parse(session_id) do
+      {:routine, routine_id} ->
+        case Ankole.Schedule.get_routine(routine_id) do
+          {:ok, routine} -> routine.delivery
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp routine_session_delivery(_), do: nil
 
   def post_in_tx(_event, %Ankole.Conversations.Statement{outcome: :silent}),
     do: {:ok, %Ankole.Conversations.PostResult{}}

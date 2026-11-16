@@ -5,6 +5,12 @@ defmodule Ankole.Pod.Pages.Queries do
   alias Ankole.Pod.Access
   alias Ankole.Pod.{Files, Page, PageContent, Pages}
 
+  @max_tree_depth 5
+  @default_tree_depth 3
+  @max_tree_limit 100
+  @default_tree_limit 50
+  @max_tree_nodes 500
+
   def list_children(%Ankole.AuthZ.Actor{} = actor, parent_id, opts \\ %{}) do
     Repo.transact_repeatable_read_only(fn ->
       with {:ok, access} <- Ankole.Pod.Access.Graph.navigation_access(actor),
@@ -19,6 +25,58 @@ defmodule Ankole.Pod.Pages.Queries do
         end
       end
     end)
+  end
+
+  @doc "Returns a bounded nested directory tree across Space, Private, or a parent Page."
+  def tree(%Ankole.AuthZ.Actor{} = actor, opts \\ %{}) do
+    Repo.transact_repeatable_read_only(fn ->
+      with {:ok, access} <- Ankole.Pod.Access.Graph.navigation_access(actor),
+           access = Map.put(access, :reachable, Map.get(opts, :reachable, access.reachable)),
+           policy = Ankole.AuthZ.Checks.PageAnchorFilter.policy(access.reachable),
+           parent_id = Ankole.Attrs.get(opts, :parent_id),
+           {:ok, scope} <- normalize_tree_scope(Ankole.Attrs.get(opts, :scope, "all"), parent_id),
+           :ok <- visible_directory_parent(actor, parent_id, policy) do
+        depth = clamp_int(Ankole.Attrs.get(opts, :depth), @default_tree_depth, 1, @max_tree_depth)
+        limit = clamp_int(Ankole.Attrs.get(opts, :limit), @default_tree_limit, 1, @max_tree_limit)
+        read_tree_in_tx(actor, parent_id, scope, depth, limit, access, policy)
+      end
+    end)
+  end
+
+  defp read_tree_in_tx(actor, parent_id, _scope, depth, limit, _access, policy)
+       when is_binary(parent_id) do
+    with {:ok, levels} <- collect_tree_levels(actor, [parent_id], depth, limit, policy) do
+      {nodes, truncated?} = build_tree_branch(parent_id, levels)
+      result = %{parent_id: parent_id, pages: nodes}
+      {:ok, if(truncated?, do: Map.put(result, :more_children, true), else: result)}
+    end
+  end
+
+  defp read_tree_in_tx(actor, nil, scope, depth, limit, access, policy) do
+    uid = Ankole.Principals.authority_uid(Ankole.AuthZ.Actor.uid(actor))
+    space_root = if scope in ["all", "space"], do: root_id(Ankole.Pod.public_root())
+    private_root = if scope in ["all", "private"], do: root_id(Ankole.Pod.private_root(uid))
+    roots = Enum.reject([space_root, private_root], &is_nil/1)
+
+    with {:ok, levels} <- collect_tree_levels(actor, roots, depth, limit, policy) do
+      base = %{
+        principal_uid: uid,
+        can_create_private: can_create_private?(actor),
+        can_create_space: Bitwise.band(access.space_bits, 4) != 0
+      }
+
+      {:ok,
+       base
+       |> maybe_put_tree_scope(:space, scope in ["all", "space"], space_root, levels)
+       |> maybe_put_tree_scope(:private, scope in ["all", "private"], private_root, levels)}
+    end
+  end
+
+  defp maybe_put_tree_scope(base, _key, false, _root, _levels), do: base
+
+  defp maybe_put_tree_scope(base, key, true, root, levels) do
+    {nodes, _} = build_tree_branch(root, levels)
+    Map.put(base, key, nodes)
   end
 
   def visible_child_count_in_tx(%Ankole.AuthZ.Actor{} = actor, %Page{} = page, reachable) do
@@ -187,6 +245,141 @@ defmodule Ankole.Pod.Pages.Queries do
       {:ok, nil} -> {:error, :not_found}
       {:ok, _page} -> :ok
       error -> error
+    end
+  end
+
+  defp normalize_tree_scope(_scope, parent_id) when is_binary(parent_id), do: {:ok, nil}
+
+  defp normalize_tree_scope(scope, nil) do
+    case to_string(scope || "all") do
+      valid when valid in ["all", "space", "private"] -> {:ok, valid}
+      _other -> {:error, :invalid_request}
+    end
+  end
+
+  defp clamp_int(value, _default, min_val, max_val) when is_integer(value),
+    do: max(min_val, min(max_val, value))
+
+  defp clamp_int(_value, default, _min_val, _max_val), do: default
+
+  defp root_id({:ok, %{id: id}}), do: id
+  defp root_id(_), do: nil
+
+  defp collect_tree_levels(_actor, [], _depth, _limit, _policy), do: {:ok, %{}}
+
+  defp collect_tree_levels(actor, frontier_ids, depth, limit, policy) do
+    do_collect_tree_levels(actor, frontier_ids, 1, depth, limit, policy, 0, %{})
+  end
+
+  defp do_collect_tree_levels(_actor, [], _level, _depth, _limit, _policy, _total, acc),
+    do: {:ok, acc}
+
+  defp do_collect_tree_levels(actor, frontier_ids, level, depth, limit, policy, total, acc) do
+    query =
+      Page
+      |> Ash.Query.filter(parent_id in ^frontier_ids)
+      |> Ash.Query.sort(position: :asc_nils_last, name: :asc, id: :asc)
+      |> Ash.Query.select([
+        :id,
+        :parent_id,
+        :title,
+        :name,
+        :icon,
+        :type,
+        :position,
+        :metadata,
+        :acl_anchor_id,
+        :inherit_permissions
+      ])
+      |> Ankole.AuthZ.Checks.PageAnchorFilter.apply_policy(actor, policy)
+      |> Ash.Query.aggregate(:has_children, :exists, :children,
+        query: [filter: policy.filter],
+        authorize?: false
+      )
+
+    with {:ok, rows} <- Ankole.Ash.read_authorized(query, actor) do
+      grouped = Enum.group_by(rows, & &1.parent_id)
+
+      {acc, next_frontier, total} =
+        Enum.reduce(frontier_ids, {acc, [], total}, fn pid, {acc, next_ids, count} ->
+          children = Map.get(grouped, pid, [])
+          remaining = max(@max_tree_nodes - count, 0)
+          cap = min(limit, remaining)
+          {kept, truncated?} = cap_tree_children(children, cap)
+
+          expand_ids =
+            if level < depth and count + length(kept) < @max_tree_nodes do
+              for row <- kept, row.aggregates.has_children == true, do: row.id
+            else
+              []
+            end
+
+          {Map.put(acc, pid, {kept, truncated?}), next_ids ++ expand_ids, count + length(kept)}
+        end)
+
+      if level < depth and next_frontier != [] and total < @max_tree_nodes do
+        do_collect_tree_levels(
+          actor,
+          next_frontier,
+          level + 1,
+          depth,
+          limit,
+          policy,
+          total,
+          acc
+        )
+      else
+        {:ok, acc}
+      end
+    end
+  end
+
+  defp cap_tree_children(rows, cap) when length(rows) <= cap, do: {rows, false}
+
+  defp cap_tree_children(_rows, 0), do: {[], true}
+
+  defp cap_tree_children(rows, cap) do
+    branches = Enum.filter(rows, &(&1.aggregates.has_children == true))
+    leaves = Enum.reject(rows, &(&1.aggregates.has_children == true))
+    keep_ids = (branches ++ leaves) |> Enum.take(cap) |> MapSet.new(& &1.id)
+    {Enum.filter(rows, &MapSet.member?(keep_ids, &1.id)), true}
+  end
+
+  defp build_tree_branch(nil, _levels), do: {[], false}
+
+  defp build_tree_branch(parent_id, levels) do
+    case Map.get(levels, parent_id) do
+      nil ->
+        {[], false}
+
+      {rows, truncated?} ->
+        {Enum.map(rows, &tree_node(&1, levels)), truncated?}
+    end
+  end
+
+  defp tree_node(page, levels) do
+    has_children = page.aggregates.has_children == true
+    summary = Ankole.Pod.Knowledge.summary(page.metadata)
+
+    node = %{
+      id: page.id,
+      title: page.title,
+      type: page.type,
+      icon: page.icon,
+      role: page.role,
+      editable: "node_edit" in (page.actions || []),
+      has_children: has_children
+    }
+
+    node = if summary == "", do: node, else: Map.put(node, :summary, summary)
+
+    case Map.fetch(levels, page.id) do
+      {:ok, {rows, truncated?}} ->
+        node = Map.put(node, :children, Enum.map(rows, &tree_node(&1, levels)))
+        if truncated?, do: Map.put(node, :more_children, true), else: node
+
+      :error ->
+        node
     end
   end
 
@@ -622,7 +815,25 @@ defmodule Ankole.Pod.Pages.Queries do
   defp shared_root_ids(ids, reachable), do: Ankole.Pod.shared_root_node_ids(ids, reachable)
 
   def can_create_private?(%Ankole.AuthZ.Actor{} = actor) do
-    match?({:ok, %{type: :human, membership: :member}}, Access.principal(actor))
+    case Access.principal(actor) do
+      {:ok, %{type: :human, membership: :member}} ->
+        true
+
+      {:ok, %{type: :agent, uid: uid}} ->
+        case Ankole.Principals.authority_uid(uid) do
+          ^uid ->
+            false
+
+          owner_uid ->
+            match?(
+              {:ok, %{type: :human, membership: :member}},
+              Ankole.Principals.get_principal(owner_uid)
+            )
+        end
+
+      _ ->
+        false
+    end
   end
 
   def reconcile_versions(%Ankole.AuthZ.Actor{} = actor, page_ids, table_ids)

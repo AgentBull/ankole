@@ -46,8 +46,7 @@ defmodule Ankole.Brain.Links do
     with {:ok, page} <- Objects.get_by_slug(reference),
          :ok <- reconcile_metadata_in_tx(page) do
       targets =
-        (Regex.scan(~r/<mention\b[^>]*\bpage="([^"]+)"/, page.xml || "", capture: :all_but_first)
-         |> List.flatten()) ++ metadata_references(page.meta)
+        Ankole.Pod.Pages.Mentions.page_ids(page.xml || "") ++ metadata_references(page.meta)
 
       {:ok, _} =
         Link

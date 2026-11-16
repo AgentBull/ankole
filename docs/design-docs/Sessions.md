@@ -23,7 +23,7 @@ in its own execution context and can publish results or notices to an explicitly
 routed conversation.
 
 `Sessions.Key` constructs and parses the transport key formats:
-`conversation:<uuid>`, `cron:<id>`, `job:<id>`, and `wf_task:<id>`. Any other
+`conversation:<uuid>`, `routine:<id>`, `cron:<id>`, `job:<id>`, and `wf_task:<id>`. Any other
 valid UTF-8 string that is nonblank and free of NUL bytes is treated as a named
 Session key. `parse/1` classifies the key, and each work domain validates its
 own ID. To protect internal execution boundaries, `routable?/1` excludes private
@@ -31,7 +31,7 @@ Job and Workflow task keys from external route selection.
 
 `SessionWorkspace` is an Ash resource stored in the `sessions` table. Its
 persisted `kind` selects exactly one owner: a named Session, a Conversation, a
-Background Agent Job, a Workflow task, or a Cron rule. Work references use typed
+Background Agent Job, a Workflow task, an `AgentRoutine` (`routine`), or a standalone Cron rule (`cron`). Work references use typed
 foreign keys that include both the tenant and the Agent, whereas a Conversation
 reference includes only the tenant because its participants can run in separate
 Agent Sessions. Ankole refuses to allocate a workspace if its owner row is
@@ -542,12 +542,12 @@ completes only the fresh steer while leaving the already admitted task and its
 active input attempt untouched.
 
 `RoundState` captures and restores six scalar loop-control counters, while round
-pages, steers, tool results, and Workflow attempts follow their own recovery
+pages, steers, tool results (including any `turn_summary` recorded by `finish_scheduled`), and Workflow attempts follow their own recovery
 contracts. Each round commit writes tool journals, completed wait inputs,
 `RoundState`, and receipt deletions together in one epoch-fenced transaction. On
 recovery, Run queries AIGateway for the caller's visible branch suffix;
 compaction checkpoints and unmatched tool journals do not prematurely truncate
-that suffix.
+that suffix, and `Run.commit_terminal_in_tx/7` writes the recovered or live `turn_summary` onto `signals.turn_summary`.
 
 ## Revisions and Completion
 
@@ -614,7 +614,7 @@ display projection filter.
 When execution hits a retryable failure, Ankole backs off by committing a new
 Signal deadline alongside an `EnsureDriver` job, moving any existing wakeup job
 only to an earlier timestamp (`Ankole.Job.schedule_in_tx/4` with
-`only_earlier: true`). Inside an existing transaction, admission calls
+`only_earlier: true`). Likewise, `Admission.admit_in_tx/3` re-checks `available_at <= now` under the `Signal` row lock for coalesced batches, delayed inputs, and retries—returning `{:deferred, signal}` if a batch window is still open—and `Run.rebuild/2` schedules idle `EnsureDriver` wakeups at `MIN(available_at)` across all open queued `Signal`s so an earlier arrival never waits behind an older long-window batch. Inside an existing transaction, admission calls
 `Run.defer_retry_in_tx/3`; top-level `Run.defer_retry/3` publishes the updated
 Session status after commit, so a rolled-back transaction publishes nothing.
 Provider-capacity waits maintain their own separate attempt accounting. On node

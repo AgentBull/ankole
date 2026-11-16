@@ -317,19 +317,12 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   end
 
   defp resolve_action_operator(%{config: config} = consumer, operator_id, decoded_value) do
-    interaction_id = is_map(decoded_value) && decoded_value["interactionId"]
-
-    if Ankole.Conversations.ActionCards.action_card_interaction_id?(interaction_id) do
-      case Ankole.Principals.resolve_platform_subject_uid(
-             Config.subject_namespace(config),
-             operator_id
-           ) do
-        {:ok, uid} -> {:ok, uid}
-        _ -> {:ok, nil}
-      end
-    else
-      observe_action_operator(consumer, operator_id)
-    end
+    AdapterContext.resolve_action_operator(
+      Config.subject_namespace(config),
+      operator_id,
+      decoded_value,
+      fn -> observe_action_operator(consumer, operator_id) end
+    )
   end
 
   defp observe_action_operator(%{context: context, config: config}, operator_id) do
@@ -495,12 +488,10 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
        ),
        do: attachments
 
-  defp provider_time(ts, event) do
-    case Float.parse(ts) do
-      {seconds, _rest} -> DateTime.from_unix!(round(seconds * 1_000_000), :microsecond)
-      :error -> event.created_at
-    end
-  end
+  defp provider_time(ts, event) when is_binary(ts),
+    do: Ankole.Plugins.MapHelpers.unix_datetime(ts) || event.created_at
+
+  defp provider_time(_ts, event), do: event.created_at
 
   defp channel_kind(message) do
     if Map.get(message, "channel_type") == "im", do: :im_dm, else: :im_group

@@ -17,6 +17,7 @@ defmodule Ankole.Pod.JobsBoard do
   defdelegate execution_detail(actor, kind, run_id, cursor \\ nil), to: Queries
 
   defdelegate create(actor, attrs), to: Operations
+  defdelegate update_routine(actor, raw_id, attrs), to: Operations
   defdelegate change_routine(actor, kind, raw_id, action), to: Operations
   defdelegate stop_execution(actor, kind, run_id), to: Operations
   defdelegate message_execution(actor, run_id, request_id, text), to: Operations

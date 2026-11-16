@@ -1,6 +1,15 @@
 defmodule Ankole.Sessions.Reconciler do
   @moduledoc "Repairs lost wakeups from durable input, Workflow, and intent state."
-  use Ankole.Job, tenancy: :site, queue: :conversations, max_attempts: 3
+  use Ankole.Job,
+    tenancy: :site,
+    queue: :conversations,
+    max_attempts: 3,
+    unique: [
+      period: :infinity,
+      fields: [:worker, :args],
+      states: [:available, :scheduled, :retryable]
+    ]
+
   alias Ankole.Repo
   alias Ankole.Sessions.Jobs.EnsureDriver
 

@@ -85,9 +85,22 @@ defmodule Ankole.OIDC.Tokens do
            Ankole.Repo.across_tenants(fn -> Ankole.OIDC.get_active_client(client_id) end),
          {:ok, session} <-
            Ankole.Repo.with_tenant(client.tenant_id, fn ->
-             Ankole.OIDC.Sessions.validate(claims["sid"], client_id, sub, claims["scope"])
+             Ankole.OIDC.Sessions.validate(
+               claims["sid"],
+               client_id,
+               sub,
+               claims["scope"],
+               :access,
+               client: client
+             )
            end) do
-      {:ok, %{claims: claims, client: client, session: session}}
+      {:ok,
+       %{
+         claims: claims,
+         client: client,
+         session: session,
+         principal: Ash.Resource.get_metadata(session, :principal)
+       }}
     else
       false -> {:error, :invalid_subject}
       %{} -> {:error, :invalid_subject}

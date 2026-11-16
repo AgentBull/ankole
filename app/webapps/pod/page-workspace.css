@@ -40,6 +40,20 @@
   max-width: 1440px;
 }
 
+/* An HTML File Page stretches its preview or source pane to the remaining height of the Page card so an
+   interactive document uses the full viewport without adding a second page-level scrollbar below it. */
+.pod-page[data-page-type='file']:has([data-html-file-preview]) .pod-page-scroll {
+  display: flex;
+  flex-direction: column;
+}
+
+.pod-page[data-page-type='file']:has([data-html-file-preview]) .pod-page-content {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  padding-bottom: 24px;
+}
+
 /* The Applet Page hands its gutters, including the centered 1440px column, to the Applet's own document, where
    they scroll with the content and leave the Applet's scrollbar at the sheet's edge. */
 .pod-page[data-page-type='applet'] .pod-page-content {
@@ -90,7 +104,7 @@
   height: 48px;
   padding: 0;
   margin: 0;
-  font-size: 40px; /* glyph */
+  font-size: 40px; /* glyph */ /* glyph */
   line-height: 1;
 }
 
@@ -375,6 +389,10 @@ textarea.pod-page-title:focus-visible {
     --pod-page-gutter-start: 58px;
     --pod-page-gutter-end: 24px;
     padding-block: 28px 100px;
+  }
+
+  .pod-page[data-page-type='file']:has([data-html-file-preview]) .pod-page-content {
+    padding-bottom: 16px;
   }
 
   .pod-page[data-page-type='applet'] .pod-page-content {

@@ -4,9 +4,8 @@
 //! external database. `inspect` accepts exactly one `SELECT` or `WITH` query and
 //! rejects writes, locking clauses, calls to built-in functions with side
 //! effects, and other statements. For an accepted query
-//! it returns the referenced base tables, columns, aggregate functions, literal
-//! predicates in `WHERE` and `HAVING`, and join facts. The module does no I/O and
-//! keeps no state.
+//! it returns the referenced base tables and whether a join carries fan-out
+//! aggregation risk. The module does no I/O and keeps no state.
 //!
 //! The check is syntactic. It recognizes side-effecting built-in functions by
 //! name, but it cannot see what a user-defined function does, so the caller
@@ -18,9 +17,8 @@ use std::ops::ControlFlow;
 
 use serde_json::{Value as JSONValue, json};
 use sqlparser::ast::{
-    BinaryOperator, DuplicateTreatment, Expr, Function, FunctionArguments, GroupByExpr, InTarget,
-    LimitClause, ObjectName, Query, Select, SetExpr, Statement, TableFactor, UnaryOperator, Value,
-    Visit, Visitor, visit_expressions,
+    DuplicateTreatment, Expr, Function, FunctionArguments, GroupByExpr, InTarget, ObjectName,
+    Query, Select, SetExpr, Statement, TableFactor, Visit, Visitor, visit_expressions,
 };
 use sqlparser::dialect::{
     ClickHouseDialect, Dialect, GenericDialect, MySqlDialect, PostgreSqlDialect,
@@ -250,8 +248,7 @@ impl InspectError {
 /// Inspects one read-only query. `dialect` is `postgres`, `mysql`,
 /// `clickhouse`, or `generic`.
 ///
-/// The success value is a JSON object with string keys: `kind`, `tables`,
-/// `columns`, `aggregates`, `literals`, `joins`, `group_by`, `limit`, and
+/// The success value is a JSON object with string keys `tables` and
 /// `fanout_risk`. `Ankole.Kernel.sql_inspect/2` documents each key.
 pub fn inspect(sql: &str, dialect: &str) -> Result<JSONValue, InspectError> {
     stacker::maybe_grow(STACK_RED_ZONE, STACK_GROW_BYTES, || {
@@ -306,11 +303,11 @@ fn inspect_inner(sql: &str, dialect: &str) -> Result<JSONValue, InspectError> {
             ));
         }
     };
-    let Statement::Query(query) = statement else {
+    if !matches!(statement, Statement::Query(_)) {
         return Err(InspectError::not_read_only(
             "only SELECT and WITH queries are allowed",
         ));
-    };
+    }
 
     let mut inspector = Inspector {
         side_effects,
@@ -319,7 +316,7 @@ fn inspect_inner(sql: &str, dialect: &str) -> Result<JSONValue, InspectError> {
     if let ControlFlow::Break(error) = statement.visit(&mut inspector) {
         return Err(error);
     }
-    Ok(inspector.finish(query))
+    Ok(inspector.finish())
 }
 
 fn has_lock_in_share_mode(dialect: &dyn Dialect, sql: &str) -> bool {
@@ -341,7 +338,6 @@ fn has_lock_in_share_mode(dialect: &dyn Dialect, sql: &str) -> bool {
 }
 
 type TableRef = (Option<String>, Option<String>, String);
-type ColumnRef = (Option<String>, String);
 
 #[derive(Default)]
 struct Inspector {
@@ -350,17 +346,12 @@ struct Inspector {
     /// Lower-case CTE name to whether the CTE is pre-aggregated.
     ctes: HashMap<String, bool>,
     tables: Vec<TableRef>,
-    columns: Vec<ColumnRef>,
-    aggregates: Vec<String>,
-    literals: Vec<JSONValue>,
-    joins: usize,
-    group_by: bool,
     fanout_risk: bool,
     depth: usize,
 }
 
 impl Inspector {
-    fn finish(self, query: &Query) -> JSONValue {
+    fn finish(self) -> JSONValue {
         let ctes = self.ctes;
         let tables: Vec<JSONValue> = self
             .tables
@@ -372,20 +363,8 @@ impl Inspector {
                 json!({ "catalog": catalog, "schema": schema, "name": name })
             })
             .collect();
-        let columns: Vec<JSONValue> = self
-            .columns
-            .into_iter()
-            .map(|(table, name)| json!({ "table": table, "name": name }))
-            .collect();
         json!({
-            "kind": if query.with.is_some() { "with" } else { "select" },
             "tables": tables,
-            "columns": columns,
-            "aggregates": self.aggregates,
-            "literals": self.literals,
-            "joins": self.joins,
-            "group_by": self.group_by,
-            "limit": outer_limit(query),
             "fanout_risk": self.fanout_risk,
         })
     }
@@ -504,18 +483,6 @@ impl Visitor for Inspector {
         if select.into.is_some() {
             return ControlFlow::Break(InspectError::not_read_only("SELECT INTO writes a table"));
         }
-        self.joins += select
-            .from
-            .iter()
-            .map(|from| from.joins.len())
-            .sum::<usize>();
-        self.group_by |= match &select.group_by {
-            GroupByExpr::All(_) => true,
-            GroupByExpr::Expressions(expressions, _) => !expressions.is_empty(),
-        };
-        for predicate in [&select.selection, &select.having].into_iter().flatten() {
-            collect_literals(predicate, &mut self.literals);
-        }
         self.fanout_risk |= select_fanout_risk(select, &self.ctes);
         ControlFlow::Continue(())
     }
@@ -529,9 +496,6 @@ impl Visitor for Inspector {
             TableFactor::Table { name, .. } | TableFactor::Function { name, .. } => {
                 self.check_function(name)?
             }
-            TableFactor::NestedJoin {
-                table_with_joins, ..
-            } => self.joins += table_with_joins.joins.len(),
             _ => {}
         }
         ControlFlow::Continue(())
@@ -544,15 +508,9 @@ impl Visitor for Inspector {
             ));
         }
         self.depth += 1;
-        let column = match expr {
+        match expr {
             Expr::Function(function) => {
                 self.check_function(&function.name)?;
-                if let Some(name) = aggregate_name(function)
-                    && !self.aggregates.contains(&name)
-                {
-                    self.aggregates.push(name);
-                }
-                None
             }
             Expr::In {
                 target: InTarget::Table { name, args, .. },
@@ -563,14 +521,8 @@ impl Visitor for Inspector {
                 } else {
                     self.add_table(name);
                 }
-                None
             }
-            _ => column_ref(expr),
-        };
-        if let Some(column) = column
-            && !self.columns.contains(&column)
-        {
-            self.columns.push(column);
+            _ => {}
         }
         ControlFlow::Continue(())
     }
@@ -594,22 +546,19 @@ fn table_ref(name: &ObjectName) -> Option<TableRef> {
     Some((catalog, schema, table))
 }
 
-/// Returns `(qualifier, name)` for a column reference. The qualifier is every
-/// part before the column name, joined with `.`, as written.
-fn column_ref(expr: &Expr) -> Option<ColumnRef> {
+/// Returns the table qualifier (if any) for a column reference.
+fn column_table_qualifier(expr: &Expr) -> Option<Option<&str>> {
     match expr {
-        Expr::Identifier(ident) => Some((None, ident.value.clone())),
+        Expr::Identifier(_) => Some(None),
         Expr::CompoundIdentifier(parts) => {
-            let (name, qualifier) = parts.split_last()?;
-            let qualifier: Vec<&str> = qualifier.iter().map(|part| part.value.as_str()).collect();
-            Some((Some(qualifier.join(".")), name.value.clone()))
+            let (_name, qualifier) = parts.split_last()?;
+            Some(qualifier.last().map(|part| part.value.as_str()))
         }
         _ => None,
     }
 }
 
-/// Returns the lower-case aggregate name, or `count_distinct` for
-/// `COUNT(DISTINCT ...)`. Window calls with `OVER` are not aggregates.
+/// Returns the lower-case aggregate name. Window calls with `OVER` are not aggregates.
 fn aggregate_name(function: &Function) -> Option<String> {
     if function.over.is_some() {
         return None;
@@ -618,9 +567,6 @@ fn aggregate_name(function: &Function) -> Option<String> {
     let base = name.strip_suffix("if").unwrap_or(&name);
     if !AGGREGATES.contains(&name.as_str()) && !AGGREGATES.contains(&base) {
         return None;
-    }
-    if name == "count" && is_distinct(function) {
-        return Some("count_distinct".to_string());
     }
     Some(name)
 }
@@ -771,12 +717,9 @@ impl Visitor for FanoutScan {
         let mut references = 0;
         let mut outside_pre_aggregated = false;
         let _ = visit_expressions(&function.args, |arg| {
-            if let Some((qualifier, _)) = column_ref(arg) {
+            if let Some(qualifier) = column_table_qualifier(arg) {
                 references += 1;
-                let table = qualifier
-                    .as_deref()
-                    .and_then(|qualifier| qualifier.rsplit('.').next())
-                    .map(str::to_lowercase);
+                let table = qualifier.map(str::to_lowercase);
                 outside_pre_aggregated |=
                     !table.is_some_and(|table| self.pre_aggregated.contains(&table));
             }
@@ -787,171 +730,6 @@ impl Visitor for FanoutScan {
             return ControlFlow::Break(());
         }
         ControlFlow::Continue(())
-    }
-}
-
-/// Collects `column <op> literal` comparisons from the boolean structure of a
-/// predicate. Negated forms (`NOT`, `NOT IN`, `NOT LIKE`) and subqueries are skipped.
-fn collect_literals(expr: &Expr, out: &mut Vec<JSONValue>) {
-    let mut push = |column: ColumnRef, operator: &str, values: Vec<JSONValue>| {
-        out.push(json!({
-            "column": column.1,
-            "table": column.0,
-            "operator": operator,
-            "values": values,
-        }));
-    };
-    match expr {
-        Expr::Nested(inner) => collect_literals(inner, out),
-        Expr::BinaryOp {
-            left,
-            op: BinaryOperator::And | BinaryOperator::Or,
-            right,
-        } => {
-            collect_literals(left, out);
-            collect_literals(right, out);
-        }
-        Expr::BinaryOp { left, op, right } => {
-            let Some((operator, flipped)) = comparison(op) else {
-                return;
-            };
-            if let (Some(column), Some(value)) = (column_operand(left), literal(right)) {
-                push(column, operator, vec![value]);
-            } else if let (Some(column), Some(value)) = (column_operand(right), literal(left)) {
-                push(column, flipped, vec![value]);
-            }
-        }
-        Expr::In {
-            expr,
-            target: InTarget::List(list),
-            negated: false,
-            ..
-        } => {
-            let values: Option<Vec<JSONValue>> = list.iter().map(literal).collect();
-            if let (Some(column), Some(values)) = (column_operand(expr), values) {
-                push(column, "in", values);
-            }
-        }
-        Expr::Like {
-            negated: false,
-            any: false,
-            expr,
-            pattern,
-            ..
-        } => {
-            if let (Some(column), Some(value)) = (column_operand(expr), literal(pattern)) {
-                push(column, "like", vec![value]);
-            }
-        }
-        Expr::ILike {
-            negated: false,
-            any: false,
-            expr,
-            pattern,
-            ..
-        } => {
-            if let (Some(column), Some(value)) = (column_operand(expr), literal(pattern)) {
-                push(column, "ilike", vec![value]);
-            }
-        }
-        Expr::Between {
-            expr,
-            negated: false,
-            low,
-            high,
-        } => {
-            if let (Some(column), Some(low), Some(high)) =
-                (column_operand(expr), literal(low), literal(high))
-            {
-                push(column.clone(), ">=", vec![low]);
-                push(column, "<=", vec![high]);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Returns the operator name and its mirror for `literal <op> column`.
-fn comparison(op: &BinaryOperator) -> Option<(&'static str, &'static str)> {
-    match op {
-        BinaryOperator::Eq => Some(("=", "=")),
-        BinaryOperator::NotEq => Some(("<>", "<>")),
-        BinaryOperator::Lt => Some(("<", ">")),
-        BinaryOperator::LtEq => Some(("<=", ">=")),
-        BinaryOperator::Gt => Some((">", "<")),
-        BinaryOperator::GtEq => Some((">=", "<=")),
-        _ => None,
-    }
-}
-
-fn column_operand(expr: &Expr) -> Option<ColumnRef> {
-    match expr {
-        Expr::Nested(inner) => column_operand(inner),
-        _ => column_ref(expr),
-    }
-}
-
-/// Converts a literal operand to JSON. Casts and typed strings such as
-/// `DATE '2024-01-01'` yield their literal. Placeholders are not literals.
-fn literal(expr: &Expr) -> Option<JSONValue> {
-    match expr {
-        Expr::Nested(inner) | Expr::Cast { expr: inner, .. } => literal(inner),
-        Expr::TypedString(typed) => typed.value.clone().into_string().map(JSONValue::from),
-        Expr::UnaryOp {
-            op: UnaryOperator::Minus,
-            expr: inner,
-        } => match inner.as_ref() {
-            Expr::Value(value) => match &value.value {
-                Value::Number(number, _) => number_json(&format!("-{number}")),
-                _ => None,
-            },
-            _ => None,
-        },
-        Expr::Value(value) => match &value.value {
-            Value::Number(number, _) => number_json(number),
-            Value::Boolean(boolean) => Some(JSONValue::Bool(*boolean)),
-            Value::Null => Some(JSONValue::Null),
-            Value::Placeholder(_) => None,
-            other => other.clone().into_string().map(JSONValue::from),
-        },
-        _ => None,
-    }
-}
-
-/// Integers stay exact. Other numbers become a float, or the source text when a
-/// float cannot hold them.
-fn number_json(number: &str) -> Option<JSONValue> {
-    if let Ok(integer) = number.parse::<i64>() {
-        return Some(integer.into());
-    }
-    if let Ok(integer) = number.parse::<u64>() {
-        return Some(integer.into());
-    }
-    number
-        .parse::<f64>()
-        .ok()
-        .and_then(serde_json::Number::from_f64)
-        .map(JSONValue::Number)
-        .or_else(|| Some(JSONValue::String(number.to_string())))
-}
-
-fn outer_limit(query: &Query) -> Option<u64> {
-    let limit = match &query.limit_clause {
-        Some(LimitClause::LimitOffset {
-            limit: Some(limit), ..
-        })
-        | Some(LimitClause::OffsetCommaLimit { limit, .. }) => Some(limit),
-        _ => query
-            .fetch
-            .as_ref()
-            .and_then(|fetch| fetch.quantity.as_ref()),
-    }?;
-    match limit {
-        Expr::Value(value) => match &value.value {
-            Value::Number(number, _) => number.parse().ok(),
-            _ => None,
-        },
-        _ => None,
     }
 }
 
@@ -981,7 +759,6 @@ mod tests {
              WHERE c.status IN ('active', 'trial') AND r.amount > -5 GROUP BY c.region LIMIT 10",
             "postgres",
         );
-        assert_eq!(result["kind"], "with");
         assert_eq!(
             result["tables"],
             json!([
@@ -989,22 +766,6 @@ mod tests {
                 { "catalog": "crm", "schema": "public", "name": "customers" },
             ])
         );
-        assert!(result["columns"].as_array().is_some_and(|columns| {
-            columns.contains(&json!({ "table": "c", "name": "region" }))
-                && columns.contains(&json!({ "table": null, "name": "created_at" }))
-        }));
-        assert_eq!(result["aggregates"], json!(["sum"]));
-        assert_eq!(
-            result["literals"],
-            json!([
-                { "column": "created_at", "table": null, "operator": ">=", "values": ["2024-01-01"] },
-                { "column": "status", "table": "c", "operator": "in", "values": ["active", "trial"] },
-                { "column": "amount", "table": "r", "operator": ">", "values": [-5] },
-            ])
-        );
-        assert_eq!(result["joins"], 1);
-        assert_eq!(result["group_by"], true);
-        assert_eq!(result["limit"], 10);
         // `recent` is a CTE without aggregation, so SUM over the join can fan out.
         assert_eq!(result["fanout_risk"], true);
     }
@@ -1016,23 +777,11 @@ mod tests {
              WHERE kind LIKE 'click%' AND 3 < score AND active = TRUE AND note = NULL LIMIT 5, 20",
             "mysql",
         );
-        assert_eq!(result["kind"], "select");
         assert_eq!(
             result["tables"],
             json!([{ "catalog": null, "schema": "shop", "name": "events" }])
         );
-        assert_eq!(result["aggregates"], json!(["count_distinct"]));
-        assert_eq!(
-            result["literals"],
-            json!([
-                { "column": "kind", "table": null, "operator": "like", "values": ["click%"] },
-                { "column": "score", "table": null, "operator": ">", "values": [3] },
-                { "column": "active", "table": null, "operator": "=", "values": [true] },
-                { "column": "note", "table": null, "operator": "=", "values": [null] },
-            ])
-        );
-        assert_eq!(result["group_by"], false);
-        assert_eq!(result["limit"], 20);
+        assert_eq!(result["fanout_risk"], false);
     }
 
     #[test]
@@ -1043,15 +792,10 @@ mod tests {
              HAVING sumIf(amount, ok) >= 100.5 LIMIT 100",
             "clickhouse",
         );
-        assert_eq!(result["aggregates"], json!(["sumif", "uniqexact"]));
         assert_eq!(
-            result["literals"],
-            json!([
-                { "column": "day", "table": null, "operator": ">=", "values": ["2024-01-01"] },
-                { "column": "day", "table": null, "operator": "<=", "values": ["2024-01-31"] },
-            ])
+            result["tables"],
+            json!([{ "catalog": null, "schema": "analytics", "name": "hits" }])
         );
-        assert_eq!(result["limit"], 100);
         assert_eq!(result["fanout_risk"], false);
     }
 
@@ -1068,12 +812,7 @@ mod tests {
                 { "catalog": null, "schema": null, "name": "t2" },
             ])
         );
-        assert_eq!(
-            result["literals"],
-            json!([{ "column": "x", "table": null, "operator": "<>", "values": ["y"] }])
-        );
-        assert_eq!(result["limit"], JSONValue::Null);
-        assert_eq!(result["aggregates"], json!([]));
+        assert_eq!(result["fanout_risk"], false);
     }
 
     #[test]
@@ -1183,7 +922,6 @@ mod tests {
             "postgres",
         );
         assert_eq!(nested["fanout_risk"], true);
-        assert_eq!(nested["joins"], 1);
     }
 
     #[test]
@@ -1309,7 +1047,6 @@ mod tests {
             "SELECT SUM(amount) OVER (PARTITION BY cid) FROM a JOIN b ON a.id = b.aid",
             "postgres",
         );
-        assert_eq!(result["aggregates"], json!([]));
         assert_eq!(result["fanout_risk"], false);
     }
 

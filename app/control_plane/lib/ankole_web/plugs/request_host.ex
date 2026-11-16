@@ -63,12 +63,19 @@ defmodule AnkoleWeb.Plugs.RequestHost do
 
   def classify_uri(uri), do: classify_build(uri)
 
-  @doc "Returns true when the request Host classifies as static-only (`:static`)."
-  @spec static_host?(Plug.Conn.t()) :: boolean()
-  def static_host?(%Plug.Conn{assigns: %{host_context: :static}}), do: true
+  @doc "Classifies a request conn once per request and caches the result on conn.private."
+  @spec classify_conn(Plug.Conn.t()) :: {Plug.Conn.t(), {:ok, context()} | :error}
+  def classify_conn(%Plug.Conn{} = conn) do
+    cache_key = {conn.scheme, conn.host, conn.port, classifier()}
 
-  def static_host?(%Plug.Conn{} = conn) do
-    classify_uri(URI.parse(Plug.Conn.request_url(conn))) == {:ok, :static}
+    case conn.private[:ankole_host_classification] do
+      {^cache_key, result} ->
+        {conn, result}
+
+      _ ->
+        result = classify_uri(URI.parse(Plug.Conn.request_url(conn)))
+        {Plug.Conn.put_private(conn, :ankole_host_classification, {cache_key, result}), result}
+    end
   end
 
   @impl true
@@ -79,7 +86,9 @@ defmodule AnkoleWeb.Plugs.RequestHost do
     def call(%Plug.Conn{assigns: %{host_context: :static}} = conn, _opts), do: conn
 
     def call(conn, _opts) do
-      case classify_uri(Plug.Conn.request_url(conn) |> URI.parse()) do
+      {conn, classification} = classify_conn(conn)
+
+      case classification do
         {:ok, {:pod, tenant_id} = context} ->
           :ok = Ankole.Repo.put_tenant_id(tenant_id)
           Plug.Conn.assign(conn, :host_context, context)
@@ -104,7 +113,9 @@ defmodule AnkoleWeb.Plugs.RequestHost do
     def call(%Plug.Conn{assigns: %{host_context: :static}} = conn, _opts), do: conn
 
     def call(conn, _opts) do
-      case classify_uri(Plug.Conn.request_url(conn) |> URI.parse()) do
+      {conn, classification} = classify_conn(conn)
+
+      case classification do
         {:ok, {:pod, tenant_id} = context} ->
           :ok = Ankole.Repo.put_tenant_id(tenant_id)
           Plug.Conn.assign(conn, :host_context, context)

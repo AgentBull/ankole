@@ -2306,6 +2306,146 @@ defmodule Ankole.Pod.RPCBrokerTest do
     assert plain =~ "Executive Summary"
   end
 
+  @tag :personal_assistant
+  test "a personal assistant inspects Private and Workspace trees, reports can_create_private, and files pages into Private or a Workspace container",
+       ctx do
+    owner_actor = actor_fixture(ctx.owner)
+
+    assert {:ok, workspace_hub} =
+             Pages.create(owner_actor, %{type: :doc, title: "Industry Research"})
+
+    assert {:ok, workspace_subfolder} =
+             Pages.create(owner_actor, %{
+               type: :doc,
+               parent_id: workspace_hub.id,
+               title: "Semiconductors"
+             })
+
+    assert {:ok,
+            %{
+              "result" => %{
+                "principal_uid" => owner_uid,
+                "can_create_private" => true,
+                "can_create_space" => true
+              }
+            }} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("pages.children", %{scope: "private"}),
+               ctx.ctx
+             )
+
+    assert owner_uid == ctx.owner
+
+    assert {:ok, %{"result" => %{"can_create_private" => true}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("pages.search", %{
+                 query: "Industry Research",
+                 domain: "pages",
+                 scope: "space",
+                 required_action: "node_edit"
+               }),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => %{"id" => private_report_id, "private_owner_uid" => nil}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.create", %{
+                 type: "doc",
+                 title: "Personal Semiconductor Thesis",
+                 private_owner_uid: ctx.owner,
+                 markdown: "Private personal analysis."
+               }),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => %{"id" => workspace_report_id, "parent_id" => sub_id}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.create", %{
+                 type: "doc",
+                 title: "Q4 Competitor Landscape",
+                 parent_id: workspace_subfolder.id,
+                 markdown: "Team research report."
+               }),
+               ctx.ctx
+             )
+
+    assert sub_id == workspace_subfolder.id
+
+    assert {:ok,
+            %{
+              "result" => %{
+                "principal_uid" => ^owner_uid,
+                "can_create_private" => true,
+                "can_create_space" => true,
+                "space" => space_tree,
+                "private" => private_tree
+              }
+            }} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("pages.tree", %{scope: "all", depth: 3}),
+               ctx.ctx
+             )
+
+    hub_node = Enum.find(space_tree, &(&1["id"] == workspace_hub.id))
+    assert hub_node["editable"] == true
+    assert hub_node["has_children"] == true
+    sub_node = Enum.find(hub_node["children"], &(&1["id"] == workspace_subfolder.id))
+    assert Enum.any?(sub_node["children"], &(&1["id"] == workspace_report_id))
+    assert Enum.any?(private_tree, &(&1["id"] == private_report_id))
+
+    assert {:ok, %{details: all_trees}} =
+             Ankole.Sessions.Tools.Pod.execute(
+               ctx.run,
+               %{"name" => "pod_list_pages"},
+               %{"scope" => "all"}
+             )
+
+    assert Enum.any?(all_trees["private"], &(&1["id"] == private_report_id))
+    assert Enum.any?(all_trees["space"], &(&1["id"] == workspace_hub.id))
+
+    assert {:ok, %{details: private_items}} =
+             Ankole.Sessions.Tools.Pod.execute(
+               ctx.run,
+               %{"name" => "pod_list_pages"},
+               %{"scope" => "private"}
+             )
+
+    assert Enum.any?(private_items, &(&1["id"] == private_report_id and &1["editable"] == true))
+
+    assert {:ok, %{details: space_items}} =
+             Ankole.Sessions.Tools.Pod.execute(
+               ctx.run,
+               %{"name" => "pod_list_pages"},
+               %{"scope" => "space"}
+             )
+
+    space_ids = Enum.map(space_items, & &1["id"])
+    assert workspace_hub.id in space_ids
+    refute private_report_id in space_ids
+    refute workspace_report_id in space_ids
+
+    assert {:ok, resolved} = Ankole.Sessions.Context.resolve(ctx.agent, ctx.ref.session_id)
+    assert resolved.agent.type == :personal_assistant
+    assert resolved.agent.owner_principal_uid == ctx.owner
+
+    wire = Ankole.Sessions.TurnEnvelope.agent_context(resolved)
+    assert wire.conversation.pod_instructions =~ ~s(private_owner_uid: "#{ctx.owner}")
+  end
+
+  test "an AI colleague reports can_create_private false on Pod directory queries", ctx do
+    assert {:ok, %{"result" => %{"can_create_private" => false}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("pages.children", %{scope: "space"}),
+               ctx.ctx
+             )
+  end
+
   defp worker_applet_manifest(route, page_id, source) do
     files = [
       {"src/main.tsx", "source"},

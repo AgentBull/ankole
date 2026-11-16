@@ -454,7 +454,10 @@ defmodule Ankole.Sessions.ReceiptsTest do
     assert {:ok, missing_tool, missing_args} = Tools.prepare(run, missing)
     unseen = Tools.execute(run, missing, missing_tool, missing_args)
     assert unseen.is_error
-    assert unseen.output =~ "No Page with this id is visible in this conversation."
+
+    assert unseen.output =~
+             "No Page with this id is visible under your Pod permissions and conversation disclosure."
+
     assert {:ok, %{page: page, content: content}} = Pages.get(actor, id)
     assert page.metadata == %{"entity_type" => "note", "summary" => "Pilot review"}
     assert content.plain_text =~ "187 CNY"

@@ -668,5 +668,55 @@ defmodule AnkoleWeb.BrowserSetup do
     }
   end
 
-  defp error(_conn, status, reason), do: BrowserAPI.error(status, reason)
+  defp error(_conn, _status, reason) when is_exception(reason), do: {:error, reason}
+
+  defp error(_conn, _status, {:unsupported_locale, locale}) do
+    label = if is_binary(locale) and locale != "", do: locale, else: "invalid"
+
+    {:error,
+     AnkoleWeb.BrowserAPI.Error.exception(
+       status: 422,
+       code: "unsupported_locale",
+       detail: "Unsupported locale: #{label}.",
+       details: %{}
+     )}
+  end
+
+  defp error(_conn, _status, {:unknown_plugin_ids, ids}) when is_list(ids) do
+    {:error,
+     AnkoleWeb.BrowserAPI.Error.exception(
+       status: 400,
+       code: "unknown_plugin_ids",
+       detail: "Unknown plugin IDs: #{Enum.join(ids, ", ")}.",
+       details: %{pluginIDs: ids}
+     )}
+  end
+
+  defp error(_conn, status, reason) do
+    case Ankole.IdentityProviders.ErrorDescription.describe(reason) do
+      exception when is_exception(exception) ->
+        {:error, exception}
+
+      {:conflict, detail, details} ->
+        {:error,
+         AnkoleWeb.BrowserAPI.Error.exception(
+           status: 409,
+           code: Ankole.Errors.Invalid.Rejected.code(reason),
+           detail: detail,
+           details: details
+         )}
+
+      {detail, details} ->
+        {:error,
+         AnkoleWeb.BrowserAPI.Error.exception(
+           status: status,
+           code: Ankole.Errors.Invalid.Rejected.code(reason),
+           detail: detail,
+           details: details
+         )}
+
+      nil ->
+        BrowserAPI.error(status, reason)
+    end
+  end
 end

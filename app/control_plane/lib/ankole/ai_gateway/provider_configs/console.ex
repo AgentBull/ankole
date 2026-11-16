@@ -44,7 +44,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Console do
     type: [
       type: :atom,
       allow_nil?: false,
-      constraints: [one_of: ~w(boolean float integer map select string)a]
+      constraints: [one_of: ~w(boolean float integer map select string string_list)a]
     ],
     default: [type: Ankole.Ash.Types.JSONValue],
     options: [type: {:array, :string}, allow_nil?: false],

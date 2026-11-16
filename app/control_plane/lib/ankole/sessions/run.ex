@@ -79,7 +79,11 @@ defmodule Ankole.Sessions.Run do
 
   @spec kind(String.t() | map()) :: :workflow_task | :ambient | :scheduled | :main
   def kind(%Signal{} = event) do
-    if Signal.produced_by_kernel?(event), do: kernel_kind(event), else: :main
+    cond do
+      Ankole.Sessions.Scheduled.routine_event_signal?(event) -> :scheduled
+      Signal.produced_by_kernel?(event) -> kernel_kind(event)
+      true -> :main
+    end
   end
 
   def kind(%{}), do: :main
@@ -112,6 +116,20 @@ defmodule Ankole.Sessions.Run do
   def rebuild(key, now \\ DateTime.utc_now(:microsecond)) do
     case Queue.next_ready_event(key.agent_uid, key.session_id, now) do
       nil ->
+        case Queue.earliest_open_available_at(key.agent_uid, key.session_id) do
+          %DateTime{} = due_at ->
+            _ =
+              Ankole.Sessions.Jobs.EnsureDriver.enqueue(
+                %{agent_uid: key.agent_uid, session_id: key.session_id},
+                due_at
+              )
+
+            :ok
+
+          nil ->
+            :ok
+        end
+
         {:ok, :idle}
 
       event ->
@@ -333,6 +351,8 @@ defmodule Ankole.Sessions.Run do
 
   @spec finalize(t(), Outcome.t(), term()) :: {:ok, map()} | {:error, term()}
   def finalize(run, outcome \\ :loop_finished, reason \\ nil) do
+    if Outcome.class(outcome) == :silent, do: Presentation.stop_and_await(run)
+
     with {:ok, images} <- prepare_reply_images(run, outcome) do
       attributes =
         Ankole.Observability.signal_attributes(run.event)
@@ -789,6 +809,8 @@ defmodule Ankole.Sessions.Run do
     visible_outcome =
       if Outcome.class(outcome) in [:canceled, :committed], do: :silent, else: outcome
 
+    turn_summary = extract_turn_summary(run, completion, outcome)
+
     with {:ok, posted} <-
            Presentation.post_in_tx(reply_event, %Ankole.Conversations.Statement{
              signal: reply_event,
@@ -796,6 +818,21 @@ defmodule Ankole.Sessions.Run do
              outcome: visible_outcome,
              now: now
            }),
+         {:ok, posted} <-
+           if(Outcome.class(outcome) == :silent,
+             do:
+               with(
+                 {:ok, deleted} <-
+                   Ankole.Conversations.Delivery.Deletion.commit_source_in_tx(reply_event),
+                 do:
+                   {:ok,
+                    Ankole.Conversations.PostResult.merge(
+                      posted,
+                      %Ankole.Conversations.PostResult{intents: deleted}
+                    )}
+               ),
+             else: {:ok, posted}
+           ),
          {:ok, _} <-
            update_events(events, fn event ->
              if Outcome.class(outcome) in [:canceled, :committed],
@@ -805,10 +842,40 @@ defmodule Ankole.Sessions.Run do
                    event,
                    now,
                    external_anchor(run.anchor),
-                   Outcome.encode(outcome)
+                   Outcome.encode(outcome),
+                   if(event.id == run.signal_id, do: turn_summary)
                  )
            end) do
       {:ok, posted}
+    end
+  end
+
+  defp extract_turn_summary(run, completion, outcome) do
+    terminating =
+      Enum.find_value(run.round_calls, fn call ->
+        result = run.results[call_id(call)]
+        if result && ToolResult.ends_turn?(result), do: result
+      end)
+
+    explicit =
+      case terminating do
+        %ToolResult{turn_summary: summary} when is_binary(summary) and summary != "" -> summary
+        _ -> nil
+      end
+
+    cond do
+      is_binary(explicit) ->
+        explicit
+
+      run.kind == :scheduled and Outcome.class(outcome) == :reply and
+        is_binary(completion.final_text) and completion.final_text != "" ->
+        completion.final_text
+        |> String.replace(~r/\s+/u, " ")
+        |> String.trim()
+        |> String.slice(0, 280)
+
+      true ->
+        nil
     end
   end
 

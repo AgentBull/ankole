@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
-import { validateIPAddresses, validateWebURL, webURLFacts } from '../../node'
+import { validateIPAddresses, validateWebURL } from '../../node'
 
 test('Node-API uses the shared URL, IP, and invalid-input vectors', async () => {
   const vectors = JSON.parse(
@@ -14,7 +14,6 @@ test('Node-API uses the shared URL, IP, and invalid-input vectors', async () => 
     ...vectors.urls
   ]
   for (const { input, class: hostClass } of urls) {
-    expect(webURLFacts(input).hostClass).toBe(hostClass)
     expect(validateWebURL(input, ['https'], true) ?? null).toBe(hostClass === 'public' ? null : hostClass)
     expect(validateWebURL(input, ['https'], false) ?? null).toBe(hostClass === 'metadata' ? 'metadata' : null)
   }

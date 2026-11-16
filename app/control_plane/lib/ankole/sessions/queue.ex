@@ -24,7 +24,8 @@ defmodule Ankole.Sessions.Queue do
   @spec lock_session_in_tx(String.t(), String.t()) :: :ok
   def lock_session_in_tx(agent_uid, session_id)
       when is_binary(agent_uid) and is_binary(session_id) do
-    Ankole.AdvisoryLock.lock!(Ankole.Repo, {agent_uid, session_id})
+    tenant_id = Ankole.Repo.tenant_id!()
+    Ankole.AdvisoryLock.lock!(Ankole.Repo, {tenant_id <> ":" <> agent_uid, session_id})
 
     :ok
   end
@@ -36,7 +37,15 @@ defmodule Ankole.Sessions.Queue do
         :ok
 
       sorted ->
-        Ankole.AdvisoryLock.lock!(Ankole.Repo, sorted)
+        tenant_id = Ankole.Repo.tenant_id!()
+
+        Ankole.AdvisoryLock.lock!(
+          Ankole.Repo,
+          Enum.map(sorted, fn {agent_uid, session_id} ->
+            {tenant_id <> ":" <> agent_uid, session_id}
+          end)
+        )
+
         :ok
     end
   end
@@ -138,20 +147,25 @@ defmodule Ankole.Sessions.Queue do
           Signal.t(),
           DateTime.t(),
           String.t() | nil,
-          String.t()
+          String.t(),
+          String.t() | nil
         ) :: session_commit_result()
   def mark_turn_event_completed_in_tx(
         %Signal{} = signal,
         completed_at,
         final_response_id,
-        turn_outcome
+        turn_outcome,
+        turn_summary \\ nil
       ) do
-    with {:ok, %Signal{} = event} <-
-           mark_event_completed(signal, %{
-             completed_at: completed_at,
-             final_response_id: final_response_id,
-             turn_outcome: turn_outcome
-           }) do
+    attrs =
+      %{
+        completed_at: completed_at,
+        final_response_id: final_response_id,
+        turn_outcome: turn_outcome
+      }
+      |> maybe_put_completion_anchor(:turn_summary, turn_summary)
+
+    with {:ok, %Signal{} = event} <- mark_event_completed(signal, attrs) do
       {:ok, event}
     end
   end
@@ -194,6 +208,7 @@ defmodule Ankole.Sessions.Queue do
     %{completed_at: Keyword.fetch!(opts, :completed_at)}
     |> maybe_put_completion_anchor(:final_response_id, Keyword.get(opts, :final_response_id))
     |> maybe_put_completion_anchor(:turn_outcome, Keyword.get(opts, :turn_outcome))
+    |> maybe_put_completion_anchor(:turn_summary, Keyword.get(opts, :turn_summary))
   end
 
   defp maybe_put_completion_anchor(attrs, _key, nil), do: attrs
@@ -214,6 +229,10 @@ defmodule Ankole.Sessions.Queue do
   def next_ready_event(uid, session, now \\ DateTime.utc_now(:microsecond)),
     do: uid |> Signals.session_queue(session, due_at: now, limit: 1) |> List.first()
 
+  @doc "The earliest `available_at` across open inputs, including future coalescing batches."
+  def earliest_open_available_at(uid, session),
+    do: Signals.earliest_open_available_at(uid, session)
+
   # Accepts an explicit queue sequence for fixtures and replay tools.
   # Events without provider entry identity cannot be matched to a deletion
   # tombstone, so they remain completable.
@@ -229,7 +248,7 @@ defmodule Ankole.Sessions.Queue do
   defp reject_tombstoned_event_source(%Signal{reply_binding_name: nil}, _now), do: :ok
 
   defp reject_tombstoned_event_source(%Signal{} = event, now) do
-    provider_message_ids = Signal.input_provider_message_ids(event)
+    provider_message_ids = Signal.provider_message_ids(event)
 
     case provider_message_ids do
       [] ->

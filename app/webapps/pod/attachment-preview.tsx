@@ -224,7 +224,7 @@ export function AttachmentPreview({
           ref={body}
           tabIndex={0}
           className="pod-dialog-body rounded-control outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          {open && <AttachmentPreviewBody file={file} />}
+          {open && <AttachmentPreviewBody file={file} surface="dialog" />}
         </div>
         <DialogFooter>
           <AttachmentPreviewLinks file={file} />
@@ -289,7 +289,7 @@ export function AttachmentPreviewPanel({
         key={file.url}
         tabIndex={0}
         className="pod-chat-file-panel-body outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
-        <AttachmentPreviewBody file={file} />
+        <AttachmentPreviewBody file={file} surface="panel" />
       </div>
     </PodPanelSurface>
   )
@@ -310,7 +310,13 @@ function AttachmentPreviewLinks({ file }: { file: AttachmentPreviewFile }) {
 }
 
 /** The file's content in the format that its kind calls for, or its details when Ankole cannot render it. */
-function AttachmentPreviewBody({ file }: { file: AttachmentPreviewFile }) {
+function AttachmentPreviewBody({
+  file,
+  surface = 'dialog'
+}: {
+  file: AttachmentPreviewFile
+  surface?: 'dialog' | 'panel'
+}) {
   const { t } = useTranslation()
   const { name, type, size, url, conversationID, local } = file
   const kind = attachmentPreviewKind(name, type)
@@ -351,6 +357,7 @@ function AttachmentPreviewBody({ file }: { file: AttachmentPreviewFile }) {
           size={size}
           local={local}
           canComment={false}
+          layout={surface === 'panel' ? 'fill' : 'dialog'}
         />
       ) : kind ? (
         <PreviewContent

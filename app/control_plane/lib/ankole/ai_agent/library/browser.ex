@@ -123,7 +123,7 @@ defmodule Ankole.AIAgent.Library.Browser do
             constraints: [allow_empty?: true]
           )
 
-          argument(:personal, :boolean, default: false, allow_nil?: false)
+          argument(:personal, :boolean, default: false)
           argument(:agent_uid, :string)
         else
           argument(:slug, :string, allow_nil?: false)
@@ -225,7 +225,7 @@ defmodule Ankole.AIAgent.Library.Browser do
       )
 
       argument(:content_base64, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:personal, :boolean, default: false, allow_nil?: false)
+      argument(:personal, :boolean, default: false)
       argument(:agent_uid, :string)
       constraints(fields: @skill)
       run(__MODULE__.Actions)

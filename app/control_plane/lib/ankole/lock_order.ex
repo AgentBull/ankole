@@ -79,6 +79,7 @@ defmodule Ankole.LockOrder do
       "background_agent_jobs" => 7,
       "workflow_runs" => 7,
       "automation_jobs" => 7,
+      "agent_routines" => 7,
       "signal_bindings" => 7,
       "signal_webhook_endpoints" => 7,
       "cron_schedules" => 7,
@@ -107,6 +108,13 @@ defmodule Ankole.LockOrder do
     @row_dependencies %{
       "connector_auth_configs" => ["connector_connected_accounts", "connector_oauth_sessions"],
       "automation_jobs" => [
+        "agent_routines",
+        "signal_bindings",
+        "connector_triggers",
+        "signal_webhook_endpoints",
+        "cron_schedules"
+      ],
+      "agent_routines" => [
         "signal_bindings",
         "connector_triggers",
         "signal_webhook_endpoints",

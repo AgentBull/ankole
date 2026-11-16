@@ -495,7 +495,7 @@
   border-radius: 50%;
   background: var(--layer-03);
   color: var(--fg-secondary);
-  font-size: 9px; /* glyph */
+  font-size: 9px; /* glyph */ /* glyph */
 }
 .pod-chat-human-text .pod-chat-markdown p,
 .pod-chat-human-text .pod-chat-markdown li {
@@ -859,7 +859,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-conversation-glyph .pod-chat-avatar {
   width: 18px;
   height: 18px;
-  font-size: 9px; /* glyph */
+  font-size: 9px; /* glyph */ /* glyph */
 }
 .pod-conversation-glyph[data-size='md'] {
   width: 24px;
@@ -872,7 +872,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-conversation-glyph[data-size='md'] .pod-chat-avatar {
   width: 24px;
   height: 24px;
-  font-size: 11px; /* glyph */
+  font-size: 11px; /* glyph */ /* glyph */
 }
 /* In a one-line sidebar row the mark fills the row's 20px icon slot, as a page icon does. */
 [data-sidebar='menu-button'] .pod-conversation-glyph,
@@ -1671,7 +1671,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   height: 14px;
   border-radius: 50%;
   background: var(--layer-03);
-  font-size: 8px; /* glyph */
+  font-size: 8px; /* glyph */ /* glyph */
 }
 /* Chat prose is 14px primary text on a 26px line in the regular weight, with blocks 12px apart, as in a document,
    and no room before the first or after the last. The message, a list item, and a quote each stack their own blocks

@@ -113,7 +113,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
                         ]
                       },
                       "quiet_success": {
-                        "description": "Allow finishing without a visible reply when nothing needs attention. Set true only when the user explicitly asked for no update on normal/no-change outcomes; failures, blockers, human decisions, meaningful changes, and time-sensitive risks stay visible.",
+                        "description": "Allow finishing without a visible reply when nothing needs attention. Defaults to true so routine checks stay quiet unless an issue, blocker, decision, or requested result needs reporting; set false only when the user explicitly wants an all-clear reply.",
                         "type": "boolean"
                       },
                       "automation_job_id": {
@@ -292,6 +292,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
                         "type": "object",
                         "properties": {
                           "quiet_success": {
+                            "description": "Allow finishing without a visible reply when nothing needs attention. Defaults to true; set false only when the user explicitly wants a visible message on every run.",
                             "type": "boolean"
                           },
                           "targets": {
@@ -357,13 +358,13 @@ defmodule Ankole.Sessions.Tools.Schedule do
   def declarations, do: @declarations
   @impl true
   def declarations(run) do
-    if Ankole.Schedule.cron_execution_schedule_id(run.session_id) do
+    if match?({:routine, _}, Ankole.Sessions.Key.parse(run.session_id)) do
       Enum.map(@declarations, fn
         %{"name" => "cron"} = tool ->
           tool
           |> Map.put(
             "description",
-            "Inspect or pause the recurring schedule that runs this conversation (list/get/runs/pause). When its task says to stop once a condition is met and you find the condition met, pause it. You cannot create, change, resume, run or remove schedules here."
+            "Inspect or pause the routine or recurring schedule that runs this conversation (list/get/runs/pause). When its task says to stop once a condition is met and you find the condition met, pause it. You cannot create, change, resume, run or remove schedules here."
           )
           |> put_in(["parameters", "properties", "action", "enum"], ~w(list get runs pause))
           |> update_in(["parameters", "properties"], &Map.take(&1, ~w(action name limit)))
@@ -377,28 +378,86 @@ defmodule Ankole.Sessions.Tools.Schedule do
   end
 
   alias Ankole.Schedule
-  alias Ankole.Schedule.{Checkbacks, Cron}
+  alias Ankole.Schedule.{Checkbacks, Cron, Routines}
   alias Ankole.Conversations.Route
-  alias Ankole.Sessions.Run
-  alias Ankole.Sessions.Tools
+  alias Ankole.Sessions.{Key, Run, Tools}
+
+  @no_effects %{revocations: [], seals: [], signals_to_accept: []}
 
   @impl true
-  def execute(run, call, args), do: execute_in(run, call, args)
+  def execute(run, call, args) do
+    with {:ok, result, _effects} <- execute_in(run, call, args) do
+      {:ok, result}
+    end
+  end
 
   @impl true
   def prepare_in_tx(run, call, args) do
-    # Schedule operations write only definitions, due events, and Oban jobs.
-    # The receipt fence and these writes commit in the same transaction.
-    with {:ok, result} <- execute_in(run, call, args),
-         do: {:ok, [], fn -> {:ok, result, []} end}
+    # Schedule operations write Rank 7/8 definitions, due events, and Oban jobs
+    # before Receipts locks Sessions (Rank 9) and Workspaces (Rank 10). Any
+    # Rank 11 Signal queue revocation, batch sealing, or manual Routine intake
+    # runs in the commit callback afterwards.
+    with {:ok, result, effects} <- execute_in(run, call, args) do
+      revocations = Map.get(effects, :revocations, [])
+      seals = Map.get(effects, :seals, [])
+      signals_to_accept = Map.get(effects, :signals_to_accept, [])
+
+      sessions =
+        (Enum.map(revocations, fn {uid, sid, _reason} -> {uid, sid} end) ++
+           Enum.map(seals, fn routine ->
+             {routine.agent_uid, Key.routine(routine.id)}
+           end) ++
+           Enum.map(signals_to_accept, fn attrs ->
+             {attrs.target.agent_uid, attrs.target.session_id}
+           end))
+        |> Enum.uniq()
+
+      {:ok, sessions,
+       fn ->
+         commit_prepared_effects_in_tx(result, revocations, seals, signals_to_accept)
+       end}
+    end
+  end
+
+  defp commit_prepared_effects_in_tx(result, revocations, seals, signals_to_accept) do
+    now = DateTime.utc_now(:microsecond)
+
+    with :ok <- apply_revocations_in_tx(revocations, now),
+         :ok <- apply_seals_in_tx(seals),
+         {:ok, accepted} <- Ankole.Signals.accept_all_in_tx(signals_to_accept) do
+      after_commit =
+        if accepted == [],
+          do: [],
+          else: [fn -> Ankole.Signals.publish_committed(accepted) end]
+
+      {:ok, result, after_commit}
+    end
+  end
+
+  defp apply_revocations_in_tx(revocations, now) do
+    Enum.reduce_while(revocations, :ok, fn {uid, sid, reason}, :ok ->
+      case Ankole.Signals.cancel_unstarted_session_signals_in_tx(uid, sid, now, reason) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp apply_seals_in_tx(seals) do
+    Enum.reduce_while(seals, :ok, fn routine, :ok ->
+      case Routines.seal_open_coalesced_signals_in_tx(routine, lock_session: false) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
   end
 
   # A write action runs only in the receipt transaction (`prepare_in_tx/4`);
   # the read actions read through the Schedule domain.
   defp execute_in(run, call, args) do
     with :ok <- operation_arguments(call["name"], args),
-         {:ok, payload} <- invoke(run, call, args) do
-      {:ok, Tools.result(payload, presentation: effect_presentation(call["name"], args))}
+         {:ok, payload, effects} <- invoke(run, call, args) do
+      {:ok, Tools.result(payload, presentation: effect_presentation(call["name"], args)), effects}
     else
       {:error, reason} -> {:error, schedule_error(reason)}
       error -> error
@@ -468,7 +527,10 @@ defmodule Ankole.Sessions.Tools.Schedule do
     }
 
     input =
-      if args["quiet_success"] == true, do: Map.put(input, "quiet_success", true), else: input
+      case Map.fetch(args, "quiet_success") do
+        {:ok, value} when is_boolean(value) -> Map.put(input, "quiet_success", value)
+        _ -> Map.put(input, "quiet_success", true)
+      end
 
     input =
       if Map.has_key?(args, "automation_job_id"),
@@ -604,6 +666,11 @@ defmodule Ankole.Sessions.Tools.Schedule do
     end
   end
 
+  defp ok_payload(payload), do: {:ok, payload, @no_effects}
+
+  defp ok_payload(payload, effects),
+    do: {:ok, payload, Map.merge(@no_effects, effects)}
+
   defp operation("check_back_later", "create", turn_ref, args, ctx) do
     reply_route = ctx.reply_route
 
@@ -611,33 +678,31 @@ defmodule Ankole.Sessions.Tools.Schedule do
          {:ok, attrs} <- checkback_attrs(args, ctx, turn_ref, source, reply_route),
          {:ok, %{status: status, scheduled_event: event}} <-
            Checkbacks.create_check_back_later_in_tx(attrs, []) do
-      {:ok,
-       %{
-         "status" => schedule_status(status),
-         "due_at" => DateTime.to_iso8601(event.due_at),
-         "timezone" => event.timezone,
-         "quiet_success" => checkback_quiet_success(event)
-       }}
+      ok_payload(%{
+        "status" => schedule_status(status),
+        "due_at" => DateTime.to_iso8601(event.due_at),
+        "timezone" => event.timezone,
+        "quiet_success" => checkback_quiet_success(event)
+      })
     end
   end
 
   defp operation("check_back_later", "list", turn_ref, args, _ctx) do
-    {:ok,
-     %{
-       "status" => "ok",
-       "checkbacks" =>
-         turn_ref.agent_uid
-         |> Schedule.list_pending_checkbacks(
-           turn_ref.session_id,
-           args["limit"] || 10
-         )
-         |> Schedule.event_model_projections()
-     }}
+    ok_payload(%{
+      "status" => "ok",
+      "checkbacks" =>
+        turn_ref.agent_uid
+        |> Schedule.list_pending_checkbacks(
+          turn_ref.session_id,
+          args["limit"] || 10
+        )
+        |> Schedule.event_model_projections()
+    })
   end
 
   defp operation("check_back_later", "get", turn_ref, args, _ctx) do
     with {:ok, event} <- checkback_from_turn(args["checkback_id"], turn_ref) do
-      {:ok, %{"status" => "ok", "checkback" => Schedule.event_model_projection(event)}}
+      ok_payload(%{"status" => "ok", "checkback" => Schedule.event_model_projection(event)})
     end
   end
 
@@ -649,52 +714,64 @@ defmodule Ankole.Sessions.Tools.Schedule do
          {:ok, attrs} <- checkback_update_attrs(ctx, turn_ref, source, reply_route),
          {:ok, %{status: status, scheduled_event: updated}} <-
            Checkbacks.update_checkback_in_tx(event.id, attrs, []) do
-      {:ok,
-       %{
-         "status" => checkback_update_status(status),
-         "checkback" => Schedule.event_model_projection(updated)
-       }}
+      ok_payload(%{
+        "status" => checkback_update_status(status),
+        "checkback" => Schedule.event_model_projection(updated)
+      })
     end
   end
 
   defp operation("check_back_later", "cancel", turn_ref, args, _ctx) do
     with {:ok, event} <- checkback_from_turn(args["checkback_id"], turn_ref),
          {:ok, cancelled} <- Checkbacks.cancel_checkback_in_tx(event.id, []) do
-      {:ok,
-       %{
-         "status" => "cancelled",
-         "checkback" => Schedule.event_model_projection(cancelled)
-       }}
+      ok_payload(%{
+        "status" => "cancelled",
+        "checkback" => Schedule.event_model_projection(cancelled)
+      })
     end
   end
 
   defp operation("cron", "list", turn_ref, _args, _ctx) do
-    {:ok,
-     %{
-       "status" => "ok",
-       "schedules" =>
-         turn_ref
-         |> cron_schedules_for_turn()
-         |> Schedule.cron_model_projections()
-     }}
+    ok_payload(%{
+      "status" => "ok",
+      "schedules" => schedule_projections_for_turn(turn_ref)
+    })
   end
 
   defp operation("cron", "get", turn_ref, args, _ctx) do
-    with {:ok, schedule} <- cron_schedule_from_turn(args["name"], turn_ref) do
-      {:ok, %{"status" => "ok", "schedule" => Schedule.cron_model_projection(schedule)}}
+    case target_from_turn(args["name"], turn_ref) do
+      {:ok, {:routine, routine}} ->
+        ok_payload(%{"status" => "ok", "schedule" => Schedule.routine_model_projection(routine)})
+
+      {:ok, {:cron, schedule}} ->
+        ok_payload(%{"status" => "ok", "schedule" => Schedule.cron_model_projection(schedule)})
+
+      {:error, _} = error ->
+        error
     end
   end
 
   defp operation("cron", "runs", turn_ref, args, _ctx) do
-    with {:ok, schedule} <- cron_schedule_from_turn(args["name"], turn_ref) do
-      {:ok,
-       %{
-         "status" => "ok",
-         "runs" =>
-           schedule.id
-           |> Schedule.list_cron_runs(args["limit"] || 25)
-           |> Schedule.event_model_projections()
-       }}
+    limit = args["limit"] || 25
+
+    case target_from_turn(args["name"], turn_ref) do
+      {:ok, {:routine, routine}} ->
+        ok_payload(%{
+          "status" => "ok",
+          "runs" => Schedule.routine_run_model_projections(routine, limit)
+        })
+
+      {:ok, {:cron, schedule}} ->
+        ok_payload(%{
+          "status" => "ok",
+          "runs" =>
+            schedule.id
+            |> Schedule.list_cron_runs(limit)
+            |> Schedule.cron_run_model_projections()
+        })
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -703,97 +780,318 @@ defmodule Ankole.Sessions.Tools.Schedule do
          created_by <- turn_created_by(turn_ref),
          {:ok, %{status: status, cron_schedule: schedule}} <-
            Cron.create_cron_schedule_in_tx(attrs, created_by: created_by) do
-      {:ok,
-       %{
-         "status" => cron_create_status(status),
-         "schedule" => Schedule.cron_model_projection(schedule)
-       }}
+      ok_payload(%{
+        "status" => cron_create_status(status),
+        "schedule" => routine_or_cron_projection(schedule.owner_routine_id, schedule)
+      })
     end
   end
 
   defp operation("cron", "update", turn_ref, args, ctx) do
-    with {:ok, schedule} <- cron_schedule_from_turn(args["name"], turn_ref),
-         updates <- ctx.updates || %{},
-         {:ok, updated} <- Cron.update_cron_schedule_in_tx(schedule.id, updates, []) do
-      {:ok, %{"status" => "updated", "schedule" => Schedule.cron_model_projection(updated)}}
+    updates = ctx.updates || %{}
+
+    with {:ok, target} <- target_from_turn(args["name"], turn_ref) do
+      apply_cron_update(target, updates)
     end
   end
 
   defp operation("cron", "pause", turn_ref, args, _ctx) do
-    mutate_cron_from_turn(
-      args["name"],
-      turn_ref,
-      "paused",
-      &Cron.pause_cron_schedule_in_tx(&1, [])
-    )
+    origin_routine? = match?({:routine, _}, Key.parse(turn_ref.session_id))
+
+    with {:ok, target} <- target_from_turn(args["name"], turn_ref) do
+      apply_cron_pause(target, origin_routine?)
+    end
   end
 
   defp operation("cron", "resume", turn_ref, args, _ctx) do
-    mutate_cron_from_turn(
-      args["name"],
-      turn_ref,
-      "resumed",
-      &Cron.resume_cron_schedule_in_tx(&1, [])
-    )
+    with {:ok, target} <- target_from_turn(args["name"], turn_ref) do
+      apply_cron_resume(target)
+    end
   end
 
   defp operation("cron", "remove", turn_ref, args, _ctx) do
-    mutate_cron_from_turn(
-      args["name"],
-      turn_ref,
-      "removed",
-      &Cron.remove_cron_schedule_in_tx(&1, [])
-    )
+    with {:ok, target} <- target_from_turn(args["name"], turn_ref) do
+      apply_cron_remove(target)
+    end
   end
 
   defp operation("cron", "run", turn_ref, args, ctx) do
-    with {:ok, schedule} <- cron_schedule_from_turn(args["name"], turn_ref),
-         {:ok, %{status: status, scheduled_event: event}} <-
-           Cron.run_cron_schedule_in_tx(schedule.id, tool_call_id: ctx.tool_call_id) do
-      {:ok,
-       %{
-         "status" => schedule_status(status),
-         "scheduled_event" => Schedule.event_model_projection(event)
-       }}
+    with {:ok, target} <- target_from_turn(args["name"], turn_ref) do
+      apply_cron_run(target, ctx.tool_call_id)
     end
   end
 
-  # A cron-origin turn runs in its schedule's execution session, which owns no
-  # schedules. It resolves exactly its own definition, with or without the
-  # name; owner turns resolve by owner session and name. The tool declaration
-  # limits a cron-origin turn to list, get, runs and pause.
-  defp cron_schedule_from_turn(name, %{} = turn_ref) do
-    case {Ankole.Attrs.optional_text(name), cron_origin_schedule_id(turn_ref)} do
-      {nil, nil} ->
-        {:error, {:missing_text, :name}}
-
-      {nil, origin_schedule_id} ->
-        Schedule.get_cron_schedule(origin_schedule_id)
-
-      {name, nil} ->
-        Schedule.get_cron_schedule_by_name(turn_ref.agent_uid, turn_ref.session_id, name)
-
-      {name, origin_schedule_id} ->
-        with {:ok, schedule} <- Schedule.get_cron_schedule(origin_schedule_id) do
-          case schedule.name == name do
-            true -> {:ok, schedule}
-            false -> {:error, :not_found}
-          end
-        end
+  defp apply_cron_update({:cron, schedule}, updates) do
+    with {:ok, updated} <-
+           Cron.update_cron_schedule_in_tx(schedule.id, updates, defer_signal_revoke: true),
+         {:ok, seals} <- maybe_collect_routine_seals(updated, updates) do
+      ok_payload(
+        %{"status" => "updated", "schedule" => Schedule.cron_model_projection(updated)},
+        %{seals: seals}
+      )
     end
   end
 
-  defp cron_schedules_for_turn(%{} = turn_ref) do
-    case cron_origin_schedule_id(turn_ref) do
+  defp apply_cron_update({:routine, routine}, %{"automation_job_id" => job_id} = updates)
+       when is_integer(job_id) do
+    case live_cron_for_routine(routine.id) do
+      %Ankole.Schedule.Schemas.CronSchedule{} = schedule ->
+        apply_cron_update({:cron, schedule}, updates)
+
       nil ->
-        Schedule.list_cron_schedules(turn_ref.agent_uid, turn_ref.session_id)
+        {:error, :automation_job_requires_schedule}
+    end
+  end
 
-      origin_schedule_id ->
-        case Schedule.get_cron_schedule(origin_schedule_id) do
-          {:ok, %{status: :deleted}} -> []
-          {:ok, schedule} when schedule.agent_uid == turn_ref.agent_uid -> [schedule]
-          _other -> []
+  defp apply_cron_update({:routine, routine}, updates) do
+    with {:ok, updated, seals} <-
+           Routines.update_routine_with_seals_in_tx(routine.id, updates,
+             defer_signal_revoke: true
+           ) do
+      ok_payload(
+        %{"status" => "updated", "schedule" => Schedule.routine_model_projection(updated)},
+        %{seals: seals}
+      )
+    end
+  end
+
+  defp apply_cron_pause({:cron, schedule}, _origin_routine?) do
+    with {:ok, paused, revocations} <-
+           Cron.pause_cron_schedule_with_revocations_in_tx(schedule.id, defer_signal_revoke: true) do
+      ok_payload(
+        %{"status" => "paused", "schedule" => Schedule.cron_model_projection(paused)},
+        %{revocations: revocations}
+      )
+    end
+  end
+
+  defp apply_cron_pause({:routine, routine}, true) do
+    pause_whole_routine_in_tx(routine.id)
+  end
+
+  defp apply_cron_pause({:routine, routine}, false) do
+    case live_cron_for_routine(routine.id) do
+      %Ankole.Schedule.Schemas.CronSchedule{} = schedule ->
+        with {:ok, paused, revocations} <-
+               Cron.pause_cron_schedule_with_revocations_in_tx(schedule.id,
+                 defer_signal_revoke: true
+               ) do
+          projected = routine_or_cron_projection(routine.id, paused)
+
+          ok_payload(%{"status" => "paused", "schedule" => projected}, %{revocations: revocations})
         end
+
+      nil ->
+        pause_whole_routine_in_tx(routine.id)
+    end
+  end
+
+  defp pause_whole_routine_in_tx(routine_id) do
+    with {:ok, paused, revocations} <-
+           Routines.pause_routine_with_revocations_in_tx(routine_id, defer_signal_revoke: true) do
+      ok_payload(
+        %{"status" => "paused", "schedule" => Schedule.routine_model_projection(paused)},
+        %{revocations: revocations}
+      )
+    end
+  end
+
+  defp apply_cron_resume({:cron, schedule}) do
+    with {:ok, resumed} <- Cron.resume_cron_schedule_in_tx(schedule.id, []) do
+      ok_payload(%{"status" => "resumed", "schedule" => Schedule.cron_model_projection(resumed)})
+    end
+  end
+
+  defp apply_cron_resume({:routine, routine}) do
+    with {:ok, resumed} <- Routines.resume_routine_in_tx(routine.id, []) do
+      ok_payload(%{
+        "status" => "resumed",
+        "schedule" => Schedule.routine_model_projection(resumed)
+      })
+    end
+  end
+
+  defp apply_cron_remove({:cron, schedule}) do
+    remove_cron_schedule_payload_in_tx(schedule.id)
+  end
+
+  defp apply_cron_remove({:routine, routine}) do
+    case non_deleted_cron_for_routine(routine.id) do
+      %Ankole.Schedule.Schemas.CronSchedule{} = schedule ->
+        with {:ok, removed, revocations} <-
+               Cron.remove_cron_schedule_with_revocations_in_tx(schedule.id,
+                 defer_signal_revoke: true
+               ) do
+          projected = routine_or_cron_projection(routine.id, removed)
+
+          ok_payload(%{"status" => "removed", "schedule" => projected}, %{
+            revocations: revocations
+          })
+        end
+
+      nil ->
+        with {:ok, removed, revocations} <-
+               Routines.remove_routine_with_revocations_in_tx(routine.id,
+                 defer_signal_revoke: true
+               ) do
+          ok_payload(
+            %{"status" => "removed", "schedule" => Schedule.routine_model_projection(removed)},
+            %{revocations: revocations}
+          )
+        end
+    end
+  end
+
+  defp remove_cron_schedule_payload_in_tx(schedule_id) do
+    with {:ok, removed, revocations} <-
+           Cron.remove_cron_schedule_with_revocations_in_tx(schedule_id,
+             defer_signal_revoke: true
+           ) do
+      ok_payload(
+        %{"status" => "removed", "schedule" => Schedule.cron_model_projection(removed)},
+        %{revocations: revocations}
+      )
+    end
+  end
+
+  defp apply_cron_run({:cron, schedule}, tool_call_id) do
+    run_cron_schedule_payload_in_tx(schedule.id, tool_call_id)
+  end
+
+  defp apply_cron_run({:routine, routine}, tool_call_id) do
+    with {:ok, prepared} <-
+           Routines.prepare_routine_run_in_tx(routine.id, tool_call_id: tool_call_id) do
+      case prepared do
+        {:cron_event, %{status: status, scheduled_event: event}} ->
+          ok_payload(%{
+            "status" => schedule_status(status),
+            "scheduled_event" => Schedule.event_model_projection(event)
+          })
+
+        {:manual_signal, refreshed, signal_attrs} ->
+          ok_payload(
+            %{"status" => "scheduled", "routine" => Schedule.routine_model_projection(refreshed)},
+            %{signals_to_accept: [signal_attrs]}
+          )
+      end
+    end
+  end
+
+  defp run_cron_schedule_payload_in_tx(schedule_id, tool_call_id) do
+    with {:ok, %{status: status, scheduled_event: event}} <-
+           Cron.run_cron_schedule_in_tx(schedule_id, tool_call_id: tool_call_id) do
+      ok_payload(%{
+        "status" => schedule_status(status),
+        "scheduled_event" => Schedule.event_model_projection(event)
+      })
+    end
+  end
+
+  defp routine_or_cron_projection(nil, fallback_schedule),
+    do: Schedule.cron_model_projection(fallback_schedule)
+
+  defp routine_or_cron_projection(routine_id, fallback_schedule) when is_binary(routine_id) do
+    case Schedule.get_routine(routine_id) do
+      {:ok, refreshed} -> Schedule.routine_model_projection(refreshed)
+      _ -> Schedule.cron_model_projection(fallback_schedule)
+    end
+  end
+
+  defp maybe_collect_routine_seals(updated, updates) do
+    if is_binary(updated.owner_routine_id) and
+         (Map.has_key?(updates, "payload") or Map.has_key?(updates, "delivery")) do
+      case Schedule.get_routine(updated.owner_routine_id) do
+        {:ok, routine} -> {:ok, [routine]}
+        _ -> {:ok, []}
+      end
+    else
+      {:ok, []}
+    end
+  end
+
+  defp non_deleted_cron_for_routine(routine_id) when is_binary(routine_id) do
+    [routine_id]
+    |> Schedule.schedules_by_owner_routines()
+    |> Map.get(routine_id, [])
+    |> List.first()
+  end
+
+  defp live_cron_for_routine(routine_id) when is_binary(routine_id) do
+    [routine_id]
+    |> Schedule.schedules_by_owner_routines()
+    |> Map.get(routine_id, [])
+    |> Enum.find(&(&1.status in [:active, :paused]))
+  end
+
+  # A routine-origin turn runs in `routine:<id>`, which resolves its owning
+  # AgentRoutine with or without `name`. Owner turns resolve by owner session
+  # and `name`.
+  defp target_from_turn(name, %{} = turn_ref) do
+    trimmed = Ankole.Attrs.optional_text(name)
+
+    case Key.parse(turn_ref.session_id) do
+      {:routine, origin_id} ->
+        resolve_origin_target(origin_id, trimmed, turn_ref.agent_uid)
+
+      _other ->
+        case trimmed do
+          nil ->
+            {:error, {:missing_text, :name}}
+
+          target_name ->
+            case Schedule.get_routine_by_name(
+                   turn_ref.agent_uid,
+                   turn_ref.session_id,
+                   target_name
+                 ) do
+              {:ok, routine} ->
+                {:ok, {:routine, routine}}
+
+              {:error, :not_found} ->
+                with {:ok, schedule} <-
+                       Schedule.get_cron_schedule_by_name(
+                         turn_ref.agent_uid,
+                         turn_ref.session_id,
+                         target_name
+                       ) do
+                  {:ok, {:cron, schedule}}
+                end
+            end
+        end
+    end
+  end
+
+  defp resolve_origin_target(origin_id, trimmed_name, agent_uid) do
+    case Schedule.get_routine(origin_id) do
+      {:ok, %{status: status} = routine}
+      when status != :deleted and routine.agent_uid == agent_uid ->
+        if is_nil(trimmed_name) or routine.name == trimmed_name,
+          do: {:ok, {:routine, routine}},
+          else: {:error, :not_found}
+
+      _ ->
+        {:error, :not_found}
+    end
+  end
+
+  defp schedule_projections_for_turn(%{} = turn_ref) do
+    case Key.parse(turn_ref.session_id) do
+      {:routine, origin_id} ->
+        case resolve_origin_target(origin_id, nil, turn_ref.agent_uid) do
+          {:ok, {:routine, routine}} -> Schedule.routine_model_projections([routine])
+          {:error, :not_found} -> []
+        end
+
+      _other ->
+        routines = Schedule.list_routines(turn_ref.agent_uid, turn_ref.session_id)
+
+        standalone_crons =
+          turn_ref.agent_uid
+          |> Schedule.list_cron_schedules(turn_ref.session_id)
+          |> Enum.filter(&is_nil(&1.owner_routine_id))
+
+        Schedule.routine_model_projections(routines) ++
+          Schedule.cron_model_projections(standalone_crons)
     end
   end
 
@@ -804,13 +1102,6 @@ defmodule Ankole.Sessions.Tools.Schedule do
     end
   end
 
-  defp mutate_cron_from_turn(name, %{} = turn_ref, status, fun) do
-    with {:ok, schedule} <- cron_schedule_from_turn(name, turn_ref),
-         {:ok, updated} <- fun.(schedule.id) do
-      {:ok, %{"status" => status, "schedule" => Schedule.cron_model_projection(updated)}}
-    end
-  end
-
   defp checkback_attrs(args, ctx, run, source, reply_route) do
     {:ok,
      Map.merge(checkback_turn_attrs(ctx, run, source, reply_route), %{
@@ -818,7 +1109,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
        "reason" => args["reason"],
        "check" => args["check"],
        "context_summary" => args["context_summary"],
-       "quiet_success" => args["quiet_success"] == true,
+       "quiet_success" => Map.get(args, "quiet_success", true) == true,
        "automation_job_id" => args["automation_job_id"]
      })}
   end
@@ -875,9 +1166,6 @@ defmodule Ankole.Sessions.Tools.Schedule do
       false -> {:error, :checkback_not_in_turn}
     end
   end
-
-  defp cron_origin_schedule_id(%{} = turn_ref),
-    do: Schedule.cron_execution_schedule_id(turn_ref.session_id)
 
   defp current_ai_message_id(%{} = turn_ref) do
     if(turn_ref.model_response, do: turn_ref.model_response.id)

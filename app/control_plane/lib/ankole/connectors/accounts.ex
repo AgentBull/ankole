@@ -24,8 +24,6 @@ defmodule Ankole.Connectors.Accounts do
     |> Map.new(&{&1.id, &1})
   end
 
-  def owned_ids(uid), do: uid |> owned_summaries() |> Map.keys()
-
   def owned_summaries(uid) do
     ConnectedAccount
     |> Ash.Query.filter(owner_principal_uid == ^uid)

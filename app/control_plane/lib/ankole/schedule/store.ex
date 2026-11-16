@@ -27,6 +27,12 @@ defmodule Ankole.Schedule.Store do
            ) do
       case Ash.Resource.get_metadata(persisted, :upsert_action) do
         :insert ->
+          routine_id =
+            case Ankole.Sessions.Key.parse(persisted.session_id) do
+              {:routine, id} -> id
+              _ -> nil
+            end
+
           with :ok <-
                  if(persisted.kind == "check_back_later",
                    do:
@@ -34,7 +40,8 @@ defmodule Ankole.Schedule.Store do
                        "scheduled-event://#{persisted.id}",
                        persisted.agent_uid,
                        persisted.session_id,
-                       Map.get(attrs, :automation_job_id)
+                       Map.get(attrs, :automation_job_id),
+                       routine_id
                      ),
                    else: :ok
                  ),
@@ -150,24 +157,38 @@ defmodule Ankole.Schedule.Store do
         lock_cron_row(cron_schedule_id)
 
       %CronSchedule{} = snapshot ->
-        Ankole.Signals.lock_source_bindings_in_tx(
-          "schedule://#{cron_schedule_id}",
-          if(is_integer(automation_job_id), do: automation_job_id)
-        )
-
         consumer =
           if automation_job_id == :current,
             do: Ankole.Signals.source_automation_job_id(snapshot),
             else: automation_job_id
 
-        if is_integer(consumer), do: Ankole.AutomationJobs.lock_job_in_tx(consumer)
+        additional_jobs =
+          [if(is_integer(automation_job_id), do: automation_job_id), consumer]
+          |> Enum.filter(&is_integer/1)
+
+        Ankole.Signals.lock_source_bindings_in_tx(
+          "schedule://#{cron_schedule_id}",
+          additional_jobs,
+          List.wrap(snapshot.owner_routine_id)
+        )
+
         schedule = lock_cron_row(cron_schedule_id)
 
-        if automation_job_id == :current and not is_nil(schedule) and
-             Ankole.Signals.source_automation_job_id(schedule) !=
-               Ankole.Signals.source_automation_job_id(snapshot),
-           do: {:error, :cron_schedule_changed},
-           else: schedule
+        cond do
+          is_nil(schedule) ->
+            nil
+
+          schedule.owner_routine_id != snapshot.owner_routine_id ->
+            {:error, :cron_schedule_changed}
+
+          automation_job_id == :current and
+              Ankole.Signals.source_automation_job_id(schedule) !=
+                Ankole.Signals.source_automation_job_id(snapshot) ->
+            {:error, :cron_schedule_changed}
+
+          true ->
+            schedule
+        end
     end
   end
 

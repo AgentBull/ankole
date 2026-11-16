@@ -6,7 +6,7 @@ defmodule Ankole.Sessions.ConsoleQueries.Channel do
   conversation (`Ankole.Conversations.ExternalTarget`):
 
     * `:kind` - the origin of the conversation, from the key constructors
-      (signal ingress, background Jobs, cron executions, managed Responses).
+      (signal ingress, background Jobs, routine executions, managed Responses).
       A custom Session id of a channel chat is a `signal` conversation when its
       origin is recorded.
     * `:display_name` - the label of the channel.
@@ -37,7 +37,7 @@ defmodule Ankole.Sessions.ConsoleQueries.Channel do
     case Ankole.Sessions.Key.parse(conversation.conversation_key) do
       {:conversation, _} -> :conversation
       {:job, _} -> :job
-      {:cron, _} -> :cron
+      {:routine, _} -> :routine
       {:named, "stateful-responses-api:" <> _rest} -> :responses_api
       _custom -> if Map.get(channel, :signal_origin?, false), do: :signal, else: :custom
     end

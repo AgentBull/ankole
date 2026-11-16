@@ -158,6 +158,8 @@ defmodule Ankole.Brain.SourceLearningTest do
     assert report_id != company.id
     assert_receive {:source_extraction_prompt, prompt}
     assert prompt =~ company.id
+    assert prompt =~ "Skip live operational readings"
+    assert prompt =~ "omit that reading while keeping durable assertions nearby"
     assert {:ok, report} = Objects.get_by_slug(report_id)
     assert String.trim(report.body) == content
     assert report.title == "激智科技调研报告"

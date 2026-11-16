@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.LineAdapter.Inbound do
   @moduledoc false
 
-  alias Ankole.{Logging, Principals}
+  alias Ankole.Logging
   alias Ankole.Plugins.LineAdapter.Client
   alias Ankole.Plugins.LineAdapter.Config
   alias Ankole.Plugins.LineAdapter.Presentation
@@ -231,7 +231,8 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
              nil,
              prefix: "ln1"
            ),
-         {:ok, operator_principal_uid} <- resolve_action_operator("line", user_id, value),
+         {:ok, operator_principal_uid} <-
+           AdapterContext.resolve_action_operator("line", user_id, value),
          {:ok, surface_entry_id} <- reply_surface_entry_id(consumer, value),
          conversation_id <- Presentation.conversation_id(bot_user_id, chat.type, chat.id),
          {:ok, _action_result} = result <-
@@ -281,18 +282,6 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   end
 
   defp emit_action(_consumer, _envelope), do: {:ok, %{status: :ignored_invalid_postback}}
-
-  defp resolve_action_operator(provider, external_id, value) do
-    case Principals.resolve_platform_subject(provider, external_id) do
-      {:ok, principal} ->
-        {:ok, principal.uid}
-
-      {:error, :not_found} ->
-        if Ankole.Conversations.ActionCards.action_card_interaction_id?(value["interactionId"]),
-          do: {:ok, nil},
-          else: {:error, :not_found}
-    end
-  end
 
   defp chat(source) do
     case source["type"] do

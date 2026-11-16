@@ -24,7 +24,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
     agent_plugin_overrides agent_skill_lessons agent_skills agent_contracts skill_files skills
     ai_gateway_artifacts ai_gateway_compaction_artifacts ai_gateway_usage_records ai_gateway_media_jobs
     app_configurations base_change_outbox automation_job_states signal_binding_receipts
-    signal_bindings automation_job_runs signal_webhook_endpoints automation_jobs
+    signal_bindings automation_job_runs signal_webhook_endpoints automation_jobs agent_routines
     background_agent_job_turn_items brain_metric_revisions brain_dataset_bindings
     brain_entity_identifiers brain_chunks brain_take_domain_assignments
     brain_contradictions brain_links brain_merge_suggestions brain_object_aliases
@@ -63,12 +63,6 @@ defmodule Ankole.Tenants.Jobs.Delete do
   end
 
   defp step(tenant) do
-    with :ok <- Tenants.run_deletion_hooks(tenant.id) do
-      do_step(tenant)
-    end
-  end
-
-  defp do_step(tenant) do
     humans =
       Principals.list_principals!(query: [filter: [type: :human, status: :active], limit: 50])
 
@@ -95,9 +89,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
             {:snooze, 1}
 
           true ->
-            with :ok <- Tenants.run_deletion_hooks(tenant.id) do
-              finish(tenant)
-            end
+            finish(tenant)
         end
       else
         {:ok, _released} -> {:snooze, 1}

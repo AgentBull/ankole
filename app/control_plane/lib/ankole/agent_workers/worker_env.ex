@@ -2,9 +2,9 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
   @moduledoc """
   Operator-managed environment variables for Agent Computer shells.
 
-  Rows resolve from site, tenant, then Agent. Binding credentials override
-  operator rows, and a command's explicit environment has final precedence.
-  Secret values are decrypted only for execution or an authorized reveal.
+  Rows resolve from site, tenant, then Agent, and a command's explicit
+  environment has final precedence. Secret values are decrypted only for
+  execution or an authorized reveal.
   """
 
   require Ash.Query
@@ -13,7 +13,6 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
   alias Ankole.Repo
   alias Ankole.AgentWorkers.WorkerEnv.EnvVar
   alias Ankole.AgentWorkers.WorkerEnv.SiteEnvVar
-  alias Ankole.AgentWorkers.BindingWorkerEnv
 
   @global_scope "global"
   @agent_scope_prefix "agent:"
@@ -55,14 +54,13 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
   @reserved_names ~w(PATH HOME SHELL TERM LANG BASH_ENV ENV WORKER_ID DATABASE_URL CODEX_UNSAFE_ALLOW_NO_SANDBOX)
   @reserved_prefix "ANKOLE_"
 
-  def effective_env_parts(agent_uid, opts \\ []) do
+  def effective_env(agent_uid) do
     with {:ok, scope} <- agent_scope(agent_uid),
          :ok <- ensure_agent(agent_uid),
          {:ok, global} <- custom_env(@global_scope),
          {:ok, tenant} <- custom_env(tenant_scope()),
-         {:ok, agent} <- custom_env(scope),
-         {:ok, binding} <- BindingWorkerEnv.resolve(agent_uid, opts) do
-      {:ok, %{operator: global |> Map.merge(tenant) |> Map.merge(agent), binding: binding}}
+         {:ok, agent} <- custom_env(scope) do
+      {:ok, global |> Map.merge(tenant) |> Map.merge(agent)}
     end
   end
 

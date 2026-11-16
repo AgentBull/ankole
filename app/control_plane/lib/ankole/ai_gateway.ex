@@ -557,39 +557,59 @@ defmodule Ankole.AIGateway do
   def cancel_response_stream(stream, reason \\ "consumer_cancelled"),
     do: ResponseStream.cancel(stream, reason)
 
-  defp execute_web_fetch(%{"provider_kind" => "jina_reader"} = runtime, request, opts) do
-    request
-    |> Map.fetch!("urls")
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, fn {url, index}, {:ok, results} ->
-      single_url_request = Map.put(request, "urls", [url])
-
-      with {:ok, request_runtime} <- web_fetch_runtime(runtime, index),
-           {:ok, prepared_request} <-
-             Providers.build_web_fetch_request(request_runtime, single_url_request),
-           {:ok, upstream_response} <-
-             RequestExecution.execute_prepared_request(request_runtime, prepared_request, opts) do
-        {:cont, {:ok, results ++ web_fetch_results(Map.fetch!(upstream_response, :body))}}
-      else
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, results} ->
-        {:ok, %{"success" => Enum.all?(results, &is_nil(&1["error"])), "results" => results}}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
   defp execute_web_fetch(runtime, request, opts) do
-    with {:ok, prepared_request} <- Providers.build_web_fetch_request(runtime, request),
-         {:ok, upstream_response} <-
-           RequestExecution.execute_prepared_request(runtime, prepared_request, opts) do
-      {:ok, Map.fetch!(upstream_response, :body)}
+    if Providers.single_url_web_fetch?(runtime) do
+      execute_single_url_web_fetch(runtime, request, opts)
+    else
+      with {:ok, prepared_request} <- Providers.build_web_fetch_request(runtime, request),
+           {:ok, upstream_response} <-
+             RequestExecution.execute_prepared_request(runtime, prepared_request, opts) do
+        {:ok, Map.fetch!(upstream_response, :body)}
+      end
     end
   end
+
+  defp execute_single_url_web_fetch(runtime, request, opts) do
+    outcomes =
+      request
+      |> Map.fetch!("urls")
+      |> Enum.with_index()
+      |> Enum.map(fn {url, index} ->
+        single_url_request = Map.put(request, "urls", [url])
+
+        with {:ok, request_runtime} <- web_fetch_runtime(runtime, index),
+             {:ok, prepared_request} <-
+               Providers.build_web_fetch_request(request_runtime, single_url_request),
+             {:ok, upstream_response} <-
+               RequestExecution.execute_prepared_request(request_runtime, prepared_request, opts) do
+          {:ok, web_fetch_results(Map.fetch!(upstream_response, :body))}
+        else
+          {:error, reason} = error -> {:error, url, reason, error}
+        end
+      end)
+
+    case Enum.find(outcomes, &match?({:ok, _}, &1)) do
+      nil ->
+        {:error, _url, _reason, first_error} = hd(outcomes)
+        first_error
+
+      _any_ok ->
+        results =
+          Enum.flat_map(outcomes, fn
+            {:ok, items} ->
+              items
+
+            {:error, url, reason, _err} ->
+              [%{"url" => url, "error" => format_web_fetch_error(reason)}]
+          end)
+
+        {:ok, %{"success" => Enum.all?(results, &is_nil(&1["error"])), "results" => results}}
+    end
+  end
+
+  defp format_web_fetch_error(reason) when is_binary(reason), do: reason
+  defp format_web_fetch_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_web_fetch_error(reason), do: Ankole.Errors.Invalid.Rejected.code(reason)
 
   defp web_fetch_runtime(runtime, 0), do: {:ok, runtime}
   defp web_fetch_runtime(runtime, _index), do: Resolver.reselect_credential(runtime)

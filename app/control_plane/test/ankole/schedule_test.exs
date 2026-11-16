@@ -100,7 +100,7 @@ defmodule Ankole.ScheduleTest do
 
       assert event.due_at == due_at
       assert event.provider_message_id == "msg-source"
-      assert event.wake_payload["quiet_success"] == false
+      assert event.wake_payload["quiet_success"] == true
 
       assert {:ok, %{status: :already_scheduled, scheduled_event: duplicate}} =
                Schedule.create_check_back_later(attrs, now: @base_time)
@@ -563,7 +563,8 @@ defmodule Ankole.ScheduleTest do
                    "conversation_id" => public_conversation_id("mock:chat:schedule"),
                    "provider_thread_id" => "thread-schedule"
                  }
-               ]
+               ],
+               "quiet_success" => true
              }
 
       assert {:ok, %{status: :fired, signal: input, scheduled_event: event}} =
@@ -683,16 +684,16 @@ defmodule Ankole.ScheduleTest do
                  now: @base_time
                )
 
-      assert schedule.delivery == %{"targets" => targets}
+      assert schedule.delivery == %{"targets" => targets, "quiet_success" => true}
 
       assert {:ok, updated} =
                Schedule.update_cron_schedule(
                  schedule.id,
-                 %{"delivery" => %{"quiet_success" => true}},
+                 %{"delivery" => %{"quiet_success" => false}},
                  now: @base_time
                )
 
-      assert updated.delivery == %{"targets" => targets, "quiet_success" => true}
+      assert updated.delivery == %{"targets" => targets, "quiet_success" => false}
 
       replacement_targets = [
         hd(targets),
@@ -712,22 +713,22 @@ defmodule Ankole.ScheduleTest do
 
       assert route_updated.delivery == %{
                "targets" => replacement_targets,
-               "quiet_success" => true
+               "quiet_success" => false
              }
 
-      assert {:ok, explicitly_noisy} =
+      assert {:ok, explicitly_quiet} =
                Schedule.update_cron_schedule(
                  schedule.id,
                  %{
                    "delivery" => %{
                      "targets" => targets,
-                     "quiet_success" => false
+                     "quiet_success" => true
                    }
                  },
                  now: @base_time
                )
 
-      assert explicitly_noisy.delivery == %{"targets" => targets, "quiet_success" => false}
+      assert explicitly_quiet.delivery == %{"targets" => targets, "quiet_success" => true}
 
       assert {:error, :duplicate_cron_delivery_target} =
                Schedule.update_cron_schedule(
@@ -1383,7 +1384,7 @@ defmodule Ankole.ScheduleTest do
 
       assert {:error, :cron_owner_session_reserved} =
                create_cron_schedule(
-                 cron_attrs(agent.uid, owner_session_id: "cron:#{Ecto.UUID.generate()}"),
+                 cron_attrs(agent.uid, owner_session_id: "routine:#{Ecto.UUID.generate()}"),
                  now: @base_time
                )
 
@@ -2064,7 +2065,7 @@ defmodule Ankole.ScheduleTest do
 
       run = admit_input(input, DateTime.utc_now(:microsecond))
       assert run.kind == :scheduled
-      assert run.spec.request_context["silent_success_allowed"] == false
+      assert run.spec.request_context["silent_success_allowed"] == true
       report = "api: green\nbilling: green\nsearch: degraded since 06:42 Asia/Shanghai"
 
       final =

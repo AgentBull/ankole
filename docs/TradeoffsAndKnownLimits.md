@@ -17,6 +17,7 @@ Within `uid 1000`, however, Ankole intentionally does not defend a Worker agains
 - Every Session (`{tenant_id, agent_uid, session_id}`) and Background Agent Job belonging to the same Agent shares `/workspace`—including sibling `/workspace/sessions/*` and `/workspace/jobs/*` directories, `.ankole/turn-skills/`, and `.codex/` state. Use multiple Sessions to organize concurrent tasks, not as an intra-Agent security boundary over `/workspace`.
 - An Agent can install user-space tools, modify `/workspace`, or break its own user-space environment. When a Worker fails readiness within `agent_workers.ready_timeout_seconds`, the control plane replaces the container and wipes `/var/cache/ankole` while preserving `/workspace`.
 - Compromising a Worker lets an attacker act only as that single Agent, never as another Agent; on Kubernetes, operators who want stronger host kernel isolation can attach a `gVisor` `RuntimeClass` to the Worker Pod template.
+- `Connectors` holds remote SaaS and OAuth credentials in the control plane, whereas operator-configured `WorkerEnv` variables (including encrypted-at-rest `secret` entries) and short-lived `git-askpass` repository tokens are intentionally readable inside `uid 1000` shells so arbitrary CLIs and package managers can authenticate. `SecretFilter` scrubs exact `WorkerEnv` secret strings (`>= 12` bytes) from outbound chat deliveries as an accidental-echo guard rather than an intra-Worker isolation boundary.
 
 ## Worker Storage Durability and Single-Writer Fencing
 

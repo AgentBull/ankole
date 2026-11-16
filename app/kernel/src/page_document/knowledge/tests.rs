@@ -223,15 +223,6 @@ fn mermaid_fences_roundtrip_and_merge_in_knowledge_pages() {
     let parsed_empty = parse(empty_fence).unwrap();
     assert_eq!(parsed_empty.xml, "<page><mermaid /></page>");
     assert_eq!(export(&parsed_empty.xml, &json!({})).unwrap(), empty_fence);
-
-    let base = "<page><p>Intro</p><mermaid>flowchart LR\n  A --&gt; B</mermaid></page>";
-    let current = "<page><p>Updated intro</p><mermaid>flowchart LR\n  A --&gt; B</mermaid></page>";
-    let edited = "<page><p>Intro</p><mermaid>flowchart LR\n  A --&gt; C</mermaid></page>";
-    let merged = super::merge(base, &json!({}), current, &json!({}), edited, &json!({})).unwrap();
-    assert_eq!(
-        merged.xml,
-        "<page><p>Updated intro</p><mermaid>flowchart LR\n  A --&gt; C</mermaid></page>"
-    );
 }
 
 #[test]

@@ -30,7 +30,8 @@ defmodule Ankole.Signals.Binding do
 
     foreign_key_names([
       {:agent_uid, "signal_bindings_agent_uid_fkey"},
-      {:automation_job_id, "signal_bindings_job_fkey"}
+      {:automation_job_id, "signal_bindings_job_fkey"},
+      {:agent_routine_id, "signal_bindings_routine_fkey"}
     ])
 
     unique_index_names([
@@ -41,11 +42,13 @@ defmodule Ankole.Signals.Binding do
 
     check_constraints do
       check_constraint(:routing_mode, "signal_bindings_routing_target")
+      check_constraint(:agent_routine_id, "signal_bindings_routine_mode_check")
       check_constraint(:name, "signal_bindings_name_present")
       check_constraint(:adapter, "signal_bindings_adapter_present")
       check_constraint(:config_ref, "signal_bindings_config_ref_present")
       check_constraint(:filters, "signal_bindings_filters_object")
       check_constraint(:target, "signal_bindings_target_object")
+      check_constraint(:coalesce, "signal_bindings_coalesce_object")
     end
   end
 
@@ -61,6 +64,7 @@ defmodule Ankole.Signals.Binding do
 
     attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
     attribute(:automation_job_id, :integer, public?: true)
+    attribute(:agent_routine_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:watched_field_ids, {:array, :string}, public?: true)
     attribute(:name, :string, constraints: [trim?: true], allow_nil?: false, public?: true)
 
@@ -75,6 +79,7 @@ defmodule Ankole.Signals.Binding do
     attribute(:config_ref, :string, allow_nil?: false, public?: true)
     attribute(:filters, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{}, public?: true)
     attribute(:target, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{}, public?: true)
+    attribute(:coalesce, Ankole.Ash.Types.JSONMap, public?: true)
 
     attribute(:unaddressed_group_message_policy, Ankole.Ash.Types.State,
       constraints: [one_of: [:ignore, :record_only, :may_intervene]],
@@ -111,6 +116,7 @@ defmodule Ankole.Signals.Binding do
       :routing_mode,
       :agent_uid,
       :automation_job_id,
+      :agent_routine_id,
       :watched_field_ids,
       :name,
       :adapter,
@@ -118,6 +124,7 @@ defmodule Ankole.Signals.Binding do
       :auth_config_id,
       :target,
       :filters,
+      :coalesce,
       :unaddressed_group_message_policy,
       :unmatched_sender_policy,
       :enabled,
@@ -143,6 +150,7 @@ defmodule Ankole.Signals.Binding do
       upsert_fields([
         :agent_uid,
         :automation_job_id,
+        :agent_routine_id,
         :watched_field_ids,
         :name,
         :routing_mode,
@@ -151,6 +159,7 @@ defmodule Ankole.Signals.Binding do
         :auth_config_id,
         :filters,
         :target,
+        :coalesce,
         :unaddressed_group_message_policy,
         :unmatched_sender_policy,
         :enabled,
@@ -162,6 +171,7 @@ defmodule Ankole.Signals.Binding do
         :routing_mode,
         :agent_uid,
         :automation_job_id,
+        :agent_routine_id,
         :watched_field_ids,
         :name,
         :adapter,
@@ -169,6 +179,7 @@ defmodule Ankole.Signals.Binding do
         :auth_config_id,
         :filters,
         :target,
+        :coalesce,
         :unaddressed_group_message_policy,
         :unmatched_sender_policy,
         :enabled,
@@ -177,6 +188,7 @@ defmodule Ankole.Signals.Binding do
 
       change(set_attribute(:unavailable_reason, nil, new?: true))
       change(fn changeset, _context -> normalize_target(changeset) end)
+      change(fn changeset, _context -> normalize_coalesce(changeset) end)
 
       validate(
         fn changeset, _context ->
@@ -244,4 +256,20 @@ defmodule Ankole.Signals.Binding do
         field: :target,
         message: "must name a conversation or a session"
       )
+
+  defp normalize_coalesce(changeset) do
+    if Ash.Changeset.changing_attribute?(changeset, :coalesce) do
+      case Ankole.Signals.Coalesce.normalize_config(
+             Ash.Changeset.get_attribute(changeset, :coalesce)
+           ) do
+        {:ok, normalized} ->
+          Ash.Changeset.force_change_attribute(changeset, :coalesce, normalized)
+
+        {:error, reason} ->
+          Ash.Changeset.add_error(changeset, field: :coalesce, message: reason)
+      end
+    else
+      changeset
+    end
+  end
 end

@@ -9,9 +9,8 @@ defmodule Ankole.Signals.Jobs.CleanupExpiredState do
   is why a missed or retried run is harmless.
   """
 
-  # max_attempts: 3 because the body is idempotent and best-effort — if a sweep
-  # fails it will simply run again on the next schedule; there is nothing to
-  # carefully preserve across retries.
+  # The sweep is idempotent housekeeping, and the next scheduled run reclaims
+  # any expired rows left behind by a transient failure.
   use Ankole.Job, tenancy: :site, queue: :default, max_attempts: 3
 
   @impl Ankole.Job

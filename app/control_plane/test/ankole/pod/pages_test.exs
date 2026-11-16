@@ -1216,4 +1216,22 @@ defmodule Ankole.Pod.PagesTest do
     assert {:ok, %{deleted_at: %DateTime{}}} = Pages.fetch(live_own.id)
     assert {:ok, %{deleted_at: %DateTime{}}} = Pages.fetch(already_trashed.id)
   end
+
+  test "moving a page through Tree.move notifies both old and new parent drive-node topics",
+       ctx do
+    actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid)
+
+    {:ok, parent_a} = Pages.create(actor, %{type: "doc", title: "Folder A"})
+    {:ok, parent_b} = Pages.create(actor, %{type: "doc", title: "Folder B"})
+    {:ok, child} = Pages.create(actor, %{type: "doc", title: "Note", parent_id: parent_a.id})
+
+    Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-node:" <> parent_a.id)
+    Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-node:" <> parent_b.id)
+
+    assert {:ok, moved} = Ankole.Pod.Pages.Tree.move(actor, child.id, %{parent_id: parent_b.id})
+    assert moved.parent_id == parent_b.id
+
+    assert_receive {:node_committed, id_a} when id_a == parent_a.id
+    assert_receive {:node_committed, id_b} when id_b == parent_b.id
+  end
 end

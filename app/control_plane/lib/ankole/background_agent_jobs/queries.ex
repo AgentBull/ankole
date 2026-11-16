@@ -547,42 +547,6 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     Ash.Query.filter(query, not exists(Job, continued_from_job_id == parent(id)))
   end
 
-  defp filter_standalone_visibility(query, scope) do
-    uid = scope.uid
-
-    query =
-      if scope.foreign_pa_uids == [] do
-        query
-      else
-        Ash.Query.filter(query, is_nil(agent_uid) or agent_uid not in ^scope.foreign_pa_uids)
-      end
-
-    query =
-      if scope.live_cron_sessions == [] do
-        query
-      else
-        Ash.Query.filter(query, owner_session_id not in ^scope.live_cron_sessions)
-      end
-
-    if scope.visible_room_ids == [] do
-      Ash.Query.filter(
-        query,
-        (fragment("starts_with(?, 'pod_job:')", owner_session_id) and human_uid == ^uid) or
-          (fragment("starts_with(?, 'cron:')", owner_session_id) and human_uid == ^uid)
-      )
-    else
-      Ash.Query.filter(
-        query,
-        owner_session_id in ^scope.visible_conv_sessions or
-          (fragment("starts_with(?, 'pod_job:')", owner_session_id) and human_uid == ^uid) or
-          (fragment("starts_with(?, 'cron:')", owner_session_id) and
-             (human_uid == ^uid or
-                fragment(
-                  "(? ->> 'conversation_id') = ANY(?::text[])",
-                  reply_route,
-                  ^scope.visible_room_ids
-                )))
-      )
-    end
-  end
+  defp filter_standalone_visibility(query, scope),
+    do: Ankole.Work.Visibility.filter_standalone_visibility(query, scope)
 end

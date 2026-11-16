@@ -4,6 +4,7 @@ defmodule Ankole.Sessions.ToolResult do
     :output,
     :duration_ms,
     :final_text,
+    :turn_summary,
     :details,
     :interaction,
     :failure_kind,
@@ -32,7 +33,7 @@ defmodule Ankole.Sessions.ToolResult do
       result
       |> encode()
       |> Map.take(
-        ~w(is_error terminate outcome failure_kind todos final_text duration_ms interaction activity)
+        ~w(is_error terminate outcome failure_kind todos final_text turn_summary duration_ms interaction activity)
       )
 
   @spec encode(t() | {:await, Ankole.Sessions.Wait.t()}) :: map()

@@ -17,7 +17,6 @@ defmodule Ankole.Signals.SignalTest do
     }
 
     assert Signal.provider_message_ids(event) == ["question"]
-    assert Signal.input_provider_message_ids(event) == ["question"]
 
     for resolution <- ["unresolved", "unavailable"] do
       payload = put_in(event.data, ["entry", "reply_to", "resolution"], resolution)
@@ -38,7 +37,6 @@ defmodule Ankole.Signals.SignalTest do
       }
     }
 
-    assert Signal.input_provider_message_ids(event) == ["question", "batch"]
     assert Signal.provider_message_ids(event) == ["question", "batch"]
   end
 
@@ -57,7 +55,6 @@ defmodule Ankole.Signals.SignalTest do
       }
     }
 
-    assert Signal.input_provider_message_ids(event) == []
     assert Signal.provider_message_ids(event) == []
   end
 
@@ -74,7 +71,6 @@ defmodule Ankole.Signals.SignalTest do
         }
       }
 
-      assert Signal.input_provider_message_ids(event) == []
       assert Signal.provider_message_ids(event) == []
     end
   end

@@ -360,7 +360,7 @@ export function PageEmbed({
           {t('pod.content.applet_inactive_in_trash')}
         </div>
       ) : (
-        <PageContent detail={embeddedDetail} />
+        <PageContent detail={embeddedDetail} embedded />
       )}
     </div>
   )

@@ -79,6 +79,33 @@ defmodule Ankole.Conversations.Delivery do
     do: {:error, :attachment_node_required}
 
   @doc """
+  Sends ordered delivery chunks sequentially, promoting any failure after the
+  first committed chunk into `:unknown` so already-visible chunks are never
+  re-sent as duplicates.
+  """
+  @spec send_chunks(
+          [term()],
+          (term() -> {:ok, term()} | :complete | :unknown | {:unknown, term()} | {:error, term()})
+        ) :: {:ok, [term()]} | :unknown | {:unknown, term()} | {:error, term()}
+  def send_chunks(items, send_fn) when is_list(items) and is_function(send_fn, 1) do
+    items
+    |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
+      case send_fn.(item) do
+        {:ok, result} -> {:cont, {:ok, [result | acc]}}
+        :complete -> {:halt, {:ok, acc}}
+        :unknown -> {:halt, :unknown}
+        {:unknown, _detail} = unknown -> {:halt, unknown}
+        {:error, _reason} when acc != [] -> {:halt, :unknown}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, results} -> {:ok, Enum.reverse(results)}
+      other -> other
+    end
+  end
+
+  @doc """
   Commits reply-attachment effects adopted by an explicit Agent Turn completion.
 
   The attachment row carries no visible text: no adapter renders a caption next

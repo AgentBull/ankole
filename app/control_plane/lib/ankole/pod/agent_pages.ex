@@ -23,20 +23,54 @@ defmodule Ankole.Pod.AgentPages do
     end)
   end
 
-  def children(actor, context, nil) do
-    with {:ok, reachable} <- business_visibility(context),
-         {:ok, directory} <-
-           Ankole.Pod.Pages.Queries.list_children(actor, nil, %{reachable: reachable}),
-         do: {:ok, Enum.map(directory.pages, &summary/1)}
+  def children(actor, context, id, opts \\ %{})
+
+  def children(actor, context, id, scope) when is_binary(scope),
+    do: children(actor, context, id, %{"scope" => scope})
+
+  def children(actor, context, nil, opts) when is_map(opts) do
+    scope = Ankole.Attrs.get(opts, :scope, "space") || "space"
+    depth = Ankole.Attrs.get(opts, :depth)
+
+    if scope == "all" or (is_integer(depth) and depth > 1) do
+      with {:ok, reachable} <- business_visibility(context) do
+        Ankole.Pod.Pages.Queries.tree(actor, %{
+          reachable: reachable,
+          scope: scope,
+          depth: depth || 3
+        })
+      end
+    else
+      with {:ok, reachable} <- business_visibility(context),
+           {:ok, directory} <-
+             Ankole.Pod.Pages.Queries.list_children(actor, nil, %{
+               reachable: reachable,
+               scope: scope
+             }),
+           do: {:ok, Enum.map(directory.pages, &directory_summary/1)}
+    end
   end
 
-  def children(actor, context, id) do
-    Repo.transact_top_level(fn ->
+  def children(actor, context, id, opts) when is_map(opts) do
+    depth = Ankole.Attrs.get(opts, :depth)
+
+    if is_integer(depth) and depth > 1 do
       with {:ok, page} <- Pages.fetch(id),
-           {:ok, reachable} <- visible(context, page),
-           {:ok, children} <- children_in_tx(actor, reachable, id),
-           do: {:ok, Enum.map(children, &summary/1)}
-    end)
+           {:ok, reachable} <- visible(context, page) do
+        Ankole.Pod.Pages.Queries.tree(actor, %{
+          reachable: reachable,
+          parent_id: id,
+          depth: depth
+        })
+      end
+    else
+      Repo.transact_top_level(fn ->
+        with {:ok, page} <- Pages.fetch(id),
+             {:ok, reachable} <- visible(context, page),
+             {:ok, children} <- children_in_tx(actor, reachable, id),
+             do: {:ok, Enum.map(children, &directory_summary/1)}
+      end)
+    end
   end
 
   def save(actor, context, id, base_revision, markdown) do
@@ -135,10 +169,16 @@ defmodule Ankole.Pod.AgentPages do
   end
 
   defp children_in_tx(actor, reachable, id) do
+    policy = PageAnchorFilter.policy(reachable)
+
     Page
     |> Ash.Query.filter(parent_id == ^id)
     |> Ash.Query.sort(name: :asc, id: :asc)
-    |> PageAnchorFilter.apply_policy(actor, PageAnchorFilter.policy(reachable))
+    |> PageAnchorFilter.apply_policy(actor, policy)
+    |> Ash.Query.aggregate(:has_children, :exists, :children,
+      query: [filter: policy.filter],
+      authorize?: false
+    )
     |> Ankole.Ash.read_authorized(actor)
   end
 
@@ -177,4 +217,12 @@ defmodule Ankole.Pod.AgentPages do
       type: page.type,
       summary: Knowledge.summary(page.metadata)
     }
+
+  defp directory_summary(page) do
+    summary(page)
+    |> Map.merge(%{
+      editable: "node_edit" in (page.actions || []),
+      has_children: page.aggregates[:has_children] == true
+    })
+  end
 end

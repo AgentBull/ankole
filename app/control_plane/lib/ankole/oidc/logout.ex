@@ -80,29 +80,6 @@ defmodule Ankole.OIDC.Logout do
     end
   end
 
-  def deliver_browser(browser_id) do
-    deliveries =
-      Repo.across_tenants(fn ->
-        session_ids =
-          Session
-          |> Ash.Query.for_read(:lookup_across_tenants)
-          |> Ash.Query.filter(browser_id == ^browser_id)
-          |> Ankole.Ash.read!()
-          |> Enum.map(& &1.id)
-
-        LogoutDelivery
-        |> Ash.Query.for_read(:lookup_across_tenants)
-        |> Ash.Query.filter(session_id in ^session_ids and status in [:pending, :delivering])
-        |> Ankole.Ash.read!()
-      end)
-
-    Enum.each(deliveries, fn delivery ->
-      Repo.with_tenant(delivery.tenant_id, fn -> deliver(delivery.id) end)
-    end)
-
-    :ok
-  end
-
   def deliver(id) do
     case Repo.transact_top_level(fn -> claim_in_tx(id) end) do
       {:ok, :complete} ->

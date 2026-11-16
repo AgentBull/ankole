@@ -65,15 +65,13 @@ defmodule SlackOpenAPI.Event do
   defp unix_datetime(_value), do: nil
 
   defp action_datetime(payload) do
-    case get_in(payload, ["actions", Access.at(0), "action_ts"]) do
-      value when is_binary(value) ->
-        case Float.parse(value) do
-          {seconds, _rest} -> DateTime.from_unix!(round(seconds * 1_000_000), :microsecond)
-          :error -> nil
-        end
-
-      _value ->
-        nil
+    with value when is_binary(value) <- get_in(payload, ["actions", Access.at(0), "action_ts"]),
+         {seconds, _rest} <- Float.parse(value),
+         true <- abs(seconds) < 253_402_300_800,
+         {:ok, datetime} <- DateTime.from_unix(round(seconds * 1_000_000), :microsecond) do
+      datetime
+    else
+      _invalid -> nil
     end
   end
 end

@@ -269,6 +269,19 @@ defmodule Ankole.AIGateway.Providers do
   @spec supports_native_web_search?(map()) :: boolean()
   def supports_native_web_search?(model_ref), do: responses_wire?(model_ref)
 
+  @doc "Returns whether the selected `web_fetch` provider expects one URL per upstream request."
+  @spec single_url_web_fetch?(map()) :: boolean()
+  def single_url_web_fetch?(%{"provider_kind" => provider_kind}) do
+    with {:ok, provider} <- fetch(provider_kind),
+         {:ok, capability} <- ProviderDefinition.capability(provider, :web_fetch) do
+      capability.single_url?
+    else
+      _error -> false
+    end
+  end
+
+  def single_url_web_fetch?(_runtime), do: false
+
   # A resolved runtime carries the connection options of its row. A model
   # reference only names the row, so ProviderConfigs reads it.
   defp responses_wire?(%{"provider_kind" => provider_kind, "connection_options" => options})
@@ -853,13 +866,22 @@ defmodule Ankole.AIGateway.Providers do
        when is_map(value),
        do: {:cont, :ok}
 
+  defp validate_setting_value(%Setting{type: :string_list}, key, value, error_tag)
+       when is_list(value) do
+    if Enum.all?(value, &(is_binary(&1) and String.trim(&1) != "")) do
+      {:cont, :ok}
+    else
+      {:halt, {:error, {error_tag, {:invalid_setting_type, key, :string_list, value}}}}
+    end
+  end
+
   # A setting without a declared type carries no shape constraint. A credential
   # such as `api_key` accepts a plain token or a JSON object of provider-specific
   # parts, and only the provider knows which.
   defp validate_setting_value(%Setting{type: nil}, _key, _value, _error_tag), do: {:cont, :ok}
 
   defp validate_setting_value(%Setting{type: type}, key, value, error_tag)
-       when type in [:select, :boolean, :integer, :float, :string, :map],
+       when type in [:select, :boolean, :integer, :float, :string, :map, :string_list],
        do: {:halt, {:error, {error_tag, {:invalid_setting_type, key, type, value}}}}
 
   defp validate_setting_value(%Setting{type: type}, key, _value, error_tag),
@@ -881,6 +903,7 @@ defmodule Ankole.AIGateway.Providers do
   end
 
   defp present_setting_value?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_setting_value?(value) when is_list(value), do: value != []
   defp present_setting_value?(value), do: not is_nil(value)
 
   defp stringify_label(label) when is_map(label) do

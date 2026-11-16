@@ -13,6 +13,7 @@ import { ErrorBlock } from '../../common/error-block'
 import { requestErrorMessage } from '../../common/request-errors'
 import { LabeledField } from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
+import { LIST_REFRESH_MS } from '../refresh-intervals'
 import type { ClientDraft } from '../state/oidc-client-editor-model'
 import { principalLabel } from '../state/principal-label'
 
@@ -127,7 +128,7 @@ export function OIDCLogoutDeliveries({ clientID }: { clientID: string }) {
   const deliveries = useQuery({
     ...listOidcLogoutDeliveriesOptions({ path: { client_id: clientID } }),
     select: document => fromDocument(document) as LogoutDeliveryItem[],
-    refetchInterval: 15000
+    refetchInterval: LIST_REFRESH_MS
   })
   const principals = useQuery({
     ...listPrincipalsOptions({ query: { include_disabled: true } }),

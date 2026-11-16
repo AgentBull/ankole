@@ -178,32 +178,34 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Delivery do
   defp send_requests(intent, config, target) do
     client = Config.chat_client(config)
 
-    with {:ok, requests} <- requests_for_intent(intent, target) do
-      requests
-      |> Enum.reduce_while([], fn request, results ->
-        case perform(request, client, target.service_url) do
-          {:ok, result} -> {:cont, [result | results]}
-          {:error, _reason} when results != [] -> {:halt, :unknown}
-          {:error, _reason} = error -> {:halt, error}
-        end
-      end)
-      |> case do
-        :unknown ->
-          :unknown
-
-        {:error, _reason} = error ->
-          error
-
-        results ->
-          {:ok, combine_results(Enum.reverse(results)) |> Map.put(:payload, intent.payload)}
-      end
+    with {:ok, requests} <- requests_for_intent(intent, target),
+         {:ok, results} <-
+           Ankole.Conversations.Delivery.send_chunks(requests, fn request ->
+             perform(request, client, target.service_url)
+           end) do
+      {:ok, combine_results(results) |> Map.put(:payload, intent.payload)}
     end
   end
 
   defp perform(%{kind: :post} = request, client, service_url) do
-    client
-    |> BotConnector.post_activity(service_url, request.conversation_id, request.activity)
-    |> normalize_result(request)
+    case BotConnector.token(client) do
+      {:ok, _token} ->
+        case BotConnector.post_activity(
+               client,
+               service_url,
+               request.conversation_id,
+               request.activity
+             ) do
+          {:error, %Error{} = error} ->
+            if uncertain?(error), do: :unknown, else: normalize_result({:error, error}, request)
+
+          result ->
+            normalize_result(result, request)
+        end
+
+      {:error, %Error{} = error} ->
+        normalize_delivery_result({:error, error})
+    end
   end
 
   defp perform(%{kind: :update} = request, client, service_url) do
@@ -263,6 +265,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Delivery do
         retry_after_seconds: error.retry_after
       })}}
   end
+
+  defp uncertain?(%Error{reason: reason, status: status}),
+    do: reason == :transport or (is_integer(status) and status >= 500)
 
   @doc "Splits Markdown text into the message activities that carry it."
   @spec text_activities(String.t()) :: [map()]

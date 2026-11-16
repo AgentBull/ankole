@@ -356,12 +356,6 @@ defmodule Ankole.Principals.HumanAccess do
 
   defp stale_provider_observation?(_uid, _attrs), do: false
 
-  def verify_provider_recovery(uid, provider_id, operation_id) do
-    Repo.transact_top_level(fn ->
-      verify_provider_recovery_in_tx(uid, provider_id, operation_id)
-    end)
-  end
-
   @doc false
   def verify_provider_recovery_in_tx(uid, provider_id, operation_id) do
     with {:ok, principal} <- Principals.lock_principal_in_tx(uid) do

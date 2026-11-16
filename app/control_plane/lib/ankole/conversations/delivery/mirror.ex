@@ -97,9 +97,11 @@ defmodule Ankole.Conversations.Delivery.Mirror do
         _ -> [result]
       end
 
+    session_id = delivery_source_session_id(intent.source_signal_id)
+
     Enum.reduce_while(Enum.with_index(parts), {:ok, intent, nil}, fn {part, index},
                                                                      {:ok, current, first_id} ->
-      case record_delivered_message(current, part, index, now) do
+      case record_delivered_message(current, part, index, session_id, now) do
         {:ok, message} -> {:cont, {:ok, current, first_id || message.id}}
         {:error, _} = error -> {:halt, error}
       end
@@ -146,7 +148,7 @@ defmodule Ankole.Conversations.Delivery.Mirror do
          do: {:ok, intent}
   end
 
-  defp record_delivered_message(intent, result, index, now) do
+  defp record_delivered_message(intent, result, index, session_id, now) do
     provider_id = delivered_provider_message_id(intent, result, index)
 
     if is_binary(provider_id) do
@@ -177,7 +179,7 @@ defmodule Ankole.Conversations.Delivery.Mirror do
         provider_time: result_datetime(result, :provider_time),
         ai_message_id: intent.ai_message_id,
         signal_id: intent.source_signal_id,
-        session_id: delivery_source_session_id(intent.source_signal_id)
+        session_id: session_id
       }
 
       with {:ok, %{message: message}} <-

@@ -45,6 +45,7 @@ import {
   connectorAutomationContext,
   connectorAutomationReturnTo,
   connectorFailureMessage,
+  connectorKeys,
   connectorParamsAfterAuthorization,
   connectorReturnTo,
   connectorTriggerConfigFromURL,
@@ -68,24 +69,26 @@ export function Connectors() {
     staleTime: 60_000
   })
   const client = useQueryClient()
-  const key = ['connectors', sessionIdentityKey() ?? '', podID() ?? '']
-  const catalog = useQuery({ queryKey: [...key, 'catalog'], queryFn: () => api.podConnectorsCatalog() })
-  const connections = useQuery({ queryKey: [...key, 'connections'], queryFn: () => api.podConnectorAuthConfigsList() })
+  const catalog = useQuery({ queryKey: connectorKeys.catalog, queryFn: () => api.podConnectorsCatalog() })
+  const connections = useQuery({
+    queryKey: connectorKeys.connections,
+    queryFn: () => api.podConnectorAuthConfigsList()
+  })
   const accounts = useQuery({
-    queryKey: [...key, 'accounts', 'mine'],
+    queryKey: connectorKeys.accounts('mine'),
     queryFn: () => api.podConnectorAccountsList({ query: { scope: 'mine' } })
   })
   const teamAccounts = useQuery({
-    queryKey: [...key, 'accounts', 'team'],
+    queryKey: connectorKeys.accounts('team'),
     queryFn: () => api.podConnectorAccountsList({ query: { scope: 'team' } })
   })
   const triggers = useQuery({
-    queryKey: [...key, 'triggers'],
+    queryKey: connectorKeys.triggers,
     queryFn: () => api.podConnectorTriggersList(),
     refetchInterval: query =>
       query.state.data?.triggers.some(trigger => ['provisioning', 'deleting'].includes(trigger.status)) ? 2000 : false
   })
-  const refresh = () => client.invalidateQueries({ queryKey: key })
+  const refresh = () => client.invalidateQueries({ queryKey: connectorKeys.all })
   const oauth = useMutation({
     mutationFn: ({
       connection,

@@ -4160,7 +4160,6 @@ defmodule Ankole.Sessions.DriverTest do
 
     assert event.authorization_kind == "human"
     refute context_id in Signal.provider_message_ids(event)
-    refute context_id in Signal.input_provider_message_ids(event)
 
     key = %{agent_uid: event.agent_uid, session_id: event.session_id}
     {:ok, driver} = Ankole.Sessions.ensure_driver(key)

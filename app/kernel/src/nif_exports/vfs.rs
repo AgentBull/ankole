@@ -141,36 +141,3 @@ fn vfs_import_id_nif(
     )
     .map_err(super::error_message)
 }
-
-#[rustler::nif(schedule = "DirtyCpu")]
-fn vfs_merge_knowledge_nif<'a>(
-    base: Term<'a>,
-    base_meta: Term<'a>,
-    current: Term<'a>,
-    current_meta: Term<'a>,
-    edited: Term<'a>,
-    edited_meta: Term<'a>,
-) -> NIFResult<String> {
-    let metadata = |value| {
-        serde_json::from_str(&super::decode_string(value, "metadata")?)
-            .map_err(|e: serde_json::Error| super::error_message(e.to_string()))
-    };
-    let base = super::decode_string(base, "base")?;
-    let base_meta = metadata(base_meta)?;
-    let current = super::decode_string(current, "current")?;
-    let current_meta = metadata(current_meta)?;
-    let edited = super::decode_string(edited, "edited")?;
-    let edited_meta = metadata(edited_meta)?;
-    stacker::grow(8 * 1024 * 1024, || {
-        page_document::knowledge::merge(
-            &base,
-            &base_meta,
-            &current,
-            &current_meta,
-            &edited,
-            &edited_meta,
-        )
-        .and_then(|result| serde_json::to_string(&result).map_err(|e| e.to_string()))
-    })
-    .map_err(super::error_message)
-}

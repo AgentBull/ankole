@@ -296,6 +296,7 @@ export function createBaseAPI(client: QueryClient, realtime: PodRealtime): BaseA
             }
             handle.on('changed', changed)
             handle.on('schema_changed', event => changed({ ...event, schema_changed: true }))
+            handle.on('rejoined', () => changed({ resync: true }))
             handle.on('access_revoked', revoke)
             void handle.ready.catch(joinFailed)
           })

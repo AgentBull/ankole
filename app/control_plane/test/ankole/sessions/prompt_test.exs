@@ -50,6 +50,43 @@ defmodule Ankole.Sessions.PromptTest do
     refute Prompt.system(opts(room(:participants))) =~ rule
   end
 
+  test "Pod placement instructions distinguish personal assistants from AI colleagues and carry owner UID to Jobs" do
+    assistant_opts =
+      room(:participants)
+      |> opts()
+      |> put_in([:context, :agent], %{
+        display_name: "Alex's assistant",
+        role: "",
+        type: :personal_assistant,
+        owner_principal_uid: "alex"
+      })
+      |> put_in([:context, :documents, "design"], %{"content" => ""})
+      |> put_in([:context, :agent_plugins], [])
+
+    assistant_prompt = Prompt.system(assistant_opts)
+    assert assistant_prompt =~ "Owner UID: alex"
+    assert assistant_prompt =~ ~s(private_owner_uid: "alex")
+    assert assistant_prompt =~ "consider whether it fits better in your owner's Private section"
+    assert assistant_prompt =~ "Lean toward Private"
+    refute assistant_prompt =~ "to Private by default"
+    assert assistant_prompt =~ "ankole-pod pages.tree"
+    assert assistant_prompt =~ "ask the user"
+
+    wire = Ankole.Sessions.TurnEnvelope.agent_context(assistant_opts.context)
+    assert wire.conversation.pod_instructions =~ ~s(private_owner_uid: "alex")
+    assert wire.conversation.pod_instructions =~ "Lean toward Private"
+
+    colleague_opts =
+      room(:participants)
+      |> opts()
+      |> put_in([:context, :agent, :type], :ai_colleague)
+
+    colleague_prompt = Prompt.system(colleague_opts)
+    refute colleague_prompt =~ "Owner UID:"
+    refute colleague_prompt =~ "Lean toward Private"
+    assert colleague_prompt =~ "inspect the current Workspace directory structure"
+  end
+
   defp room(access_scope) do
     %{
       id: "room-1",

@@ -119,6 +119,8 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
     assert prompt =~ "Installed relation vocabulary:"
     assert prompt =~ "part_of (inverse has_part)"
     assert prompt =~ "Other labels"
+    assert prompt =~ "Skip live operational readings"
+    assert prompt =~ "omit that reading while keeping durable assertions nearby"
   end
 
   test "titles and aliases reach the model and variant declarations reuse the original page",

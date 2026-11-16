@@ -8,7 +8,11 @@ defmodule Ankole.Signals do
   """
   defdelegate put_event_binding(actor, attrs), to: Ankole.Signals.EventBindings, as: :put
 
-  defdelegate list_event_bindings(actor, ref, job_id \\ nil),
+  defdelegate put_event_bindings_in_tx(actor, attrs_list),
+    to: Ankole.Signals.EventBindings,
+    as: :put_many_in_tx
+
+  defdelegate list_event_bindings(actor, ref, job_id \\ nil, routine_id \\ nil),
     to: Ankole.Signals.EventBindings,
     as: :list
 
@@ -130,6 +134,22 @@ defmodule Ankole.Signals do
     to: Ankole.Signals.SourceBindings,
     as: :for_jobs
 
+  defdelegate external_bindings_for_routines(routine_ids),
+    to: Ankole.Signals.SourceBindings,
+    as: :external_for_routines
+
+  defdelegate bindings_for_routine(routine_id, cron_refs),
+    to: Ankole.Signals.SourceBindings
+
+  defdelegate lock_bindings_in_tx(binding_ids),
+    to: Ankole.Signals.SourceBindings
+
+  defdelegate disable_external_bindings_in_tx(bindings),
+    to: Ankole.Signals.SourceBindings
+
+  defdelegate routine_has_enabled_external_bindings?(routine_id),
+    to: Ankole.Signals.SourceBindings
+
   defdelegate purge_source_bindings_in_tx(ids),
     to: Ankole.Signals.SourceBindings,
     as: :purge_in_tx
@@ -149,15 +169,21 @@ defmodule Ankole.Signals do
   defdelegate source_routing_mode(source), to: Ankole.Signals.SourceBindings, as: :routing_mode
   defdelegate source_automation_job_ids(sources), to: Ankole.Signals.SourceBindings, as: :job_ids
 
-  defdelegate lock_source_bindings_in_tx(reference, job_id \\ nil),
+  defdelegate lock_source_bindings_in_tx(reference, job_id \\ nil, routine_ids \\ []),
     to: Ankole.Signals.SourceBindings,
     as: :lock_in_tx
 
   defdelegate remove_disabled_source_bindings_in_tx(reference), to: Ankole.Signals.SourceBindings
 
-  defdelegate put_source_binding_in_tx(reference, uid, session_id, job_id),
-    to: Ankole.Signals.SourceBindings,
-    as: :put_in_tx
+  defdelegate put_source_binding_in_tx(
+                reference,
+                uid,
+                session_id,
+                job_id,
+                agent_routine_id \\ nil
+              ),
+              to: Ankole.Signals.SourceBindings,
+              as: :put_in_tx
 
   defdelegate applet_dispatch(context, page, actor, caller, operation, args),
     to: Ankole.Signals.Dispatch,
@@ -270,6 +296,98 @@ defmodule Ankole.Signals do
     |> Ankole.Ash.read!()
   end
 
+  @doc "Returns the latest execution Signal and latest non-empty turn summary per Routine session."
+  def routine_session_rollups([]), do: %{}
+
+  def routine_session_rollups(keys) when is_list(keys) do
+    filter =
+      Enum.reduce(keys, Ash.Expr.expr(false), fn {uid, session}, acc ->
+        Ash.Expr.expr(^acc or (agent_uid == ^uid and session_id == ^session))
+      end)
+
+    latest_signals =
+      Signal
+      |> Ash.Query.filter(^filter)
+      |> execution_signals_query()
+      |> Ash.Query.select([
+        :id,
+        :agent_uid,
+        :session_id,
+        :status,
+        :dead_letter_reason,
+        :turn_summary,
+        :last_attempt_at,
+        :completed_at,
+        :dead_letter_at,
+        :inserted_at,
+        :queue_sequence
+      ])
+      |> Ash.Query.distinct([:agent_uid, :session_id])
+      |> Ash.Query.distinct_sort(
+        agent_uid: :asc,
+        session_id: :asc,
+        inserted_at: :desc,
+        queue_sequence: :desc
+      )
+      |> Ankole.Ash.read!()
+      |> Map.new(&{{&1.agent_uid, &1.session_id}, &1})
+
+    latest_summaries =
+      Signal
+      |> Ash.Query.filter(
+        ^filter and status == :completed and not is_nil(turn_summary) and turn_summary != ""
+      )
+      |> Ash.Query.select([
+        :agent_uid,
+        :session_id,
+        :turn_summary,
+        :completed_at,
+        :inserted_at,
+        :queue_sequence
+      ])
+      |> Ash.Query.distinct([:agent_uid, :session_id])
+      |> Ash.Query.distinct_sort(
+        agent_uid: :asc,
+        session_id: :asc,
+        completed_at: :desc_nils_last,
+        inserted_at: :desc,
+        queue_sequence: :desc
+      )
+      |> Ankole.Ash.read!()
+      |> Map.new(&{{&1.agent_uid, &1.session_id}, &1.turn_summary})
+
+    Map.new(keys, fn key ->
+      {key,
+       %{
+         latest_signal: Map.get(latest_signals, key),
+         latest_summary: Map.get(latest_summaries, key)
+       }}
+    end)
+  end
+
+  @doc "Lists recent Routine execution Signals for one Session queue newest-first."
+  def list_session_execution_signals(agent_uid, session_id, limit \\ 30)
+      when is_binary(agent_uid) and is_binary(session_id) and is_integer(limit) and limit > 0 do
+    Signal
+    |> Ash.Query.filter(agent_uid == ^agent_uid and session_id == ^session_id)
+    |> execution_signals_query()
+    |> Ash.Query.sort(inserted_at: :desc, queue_sequence: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ankole.Ash.read!()
+  end
+
+  defp execution_signals_query(query) do
+    Ash.Query.filter(
+      query,
+      status in [:queued, :running, :completed, :dead_letter] and
+        fragment("? NOT LIKE 'command.%'", type) and type != "input.revised" and
+        (producer != :kernel or
+           type in ["cron.fire", "routine.manual_run", "check_back_later.wakeup"] or
+           status == :dead_letter or
+           (status == :completed and not is_nil(turn_summary) and turn_summary != ""))
+    )
+  end
+
   defp open_query(agent_uid, session_id) do
     Signal
     |> Ash.Query.filter(agent_uid == ^agent_uid and session_id == ^session_id)
@@ -295,6 +413,20 @@ defmodule Ankole.Signals do
 
   defp started(query, false), do: query
   defp started(query, true), do: Ash.Query.filter(query, not is_nil(last_attempt_at))
+
+  @doc "Returns the earliest `available_at` across open Signals for one Session, or `nil`."
+  def earliest_open_available_at(agent_uid, session_id) do
+    agent_uid
+    |> open_query(session_id)
+    |> Ash.Query.sort(available_at: :asc)
+    |> Ash.Query.select([:available_at])
+    |> Ash.Query.limit(1)
+    |> Ankole.Ash.read_one!()
+    |> case do
+      %Signal{available_at: %DateTime{} = due_at} -> due_at
+      _ -> nil
+    end
+  end
 
   @doc "Gives the Sessions of every tenant that have due open input."
   def due_sessions_across_tenants(now) do
@@ -344,6 +476,22 @@ defmodule Ankole.Signals do
     Signal
     |> Ash.Query.filter(id in ^ids)
     |> Ankole.Ash.update_where(:reset_attempts, %{available_at: available_at})
+  end
+
+  @doc "Dead-letters the unstarted queued Signals of one Session inside the caller-owned transaction."
+  def cancel_unstarted_session_signals_in_tx(agent_uid, session_id, now, reason) do
+    with {:ok, _revoked} <-
+           Signal
+           |> Ash.Query.filter(
+             agent_uid == ^agent_uid and session_id == ^session_id and status == :queued and
+               is_nil(last_attempt_at)
+           )
+           |> Ankole.Ash.update_where(:revoke_unstarted, %{
+             dead_letter_at: now,
+             dead_letter_reason: %{"reason" => reason}
+           }) do
+      :ok
+    end
   end
 
   @doc "Dead-letters the unstarted Signals of a Human whose work access ended."

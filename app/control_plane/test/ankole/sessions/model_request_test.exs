@@ -101,7 +101,7 @@ defmodule Ankole.Sessions.ModelRequestTest do
   defp run do
     %Run{
       agent_uid: "test-agent",
-      session_id: "cron:test",
+      session_id: "routine:test",
       signal_id: "test-event",
       epoch: 1,
       event: %Signal{producer: :kernel, type: "cron.fire", data: %{}},

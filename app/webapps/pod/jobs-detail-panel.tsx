@@ -5,6 +5,7 @@ import {
   DeleteRegular,
   DismissCircleRegular,
   DismissRegular,
+  EditRegular,
   OpenRegular,
   PauseCircleRegular,
   PlayCircleRegular,
@@ -43,6 +44,7 @@ import {
   type JobRoutineDetail,
   type JobRoutineKind
 } from './jobs-api'
+import { RoutineEventTriggersSection, RoutineInlineEditForm, routineHasSchedule } from './jobs-routine-editor'
 import { PodPanelSurface, popupOpen, type PanelInputEvent } from './panel-motion'
 import {
   CHAT_COLUMN_MIN_WIDTH,
@@ -361,6 +363,12 @@ function RoutineInspectorContent({
   const detail: JobRoutineDetail | undefined = routine.data
   const item = detail?.item ?? fallbackItem
 
+  const [editing, setEditing] = useState(false)
+
+  useEffect(() => {
+    setEditing(false)
+  }, [kind, rawID])
+
   const actionMutation = useMutation({
     mutationFn: (action: 'pause' | 'resume' | 'run' | 'remove' | 'cancel') => {
       if (kind !== 'cron' && kind !== 'checkback') {
@@ -466,6 +474,17 @@ function RoutineInspectorContent({
                     {t('pod.jobs.action_pause')}
                   </Button>
                 )}
+                {detail && (
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    disabled={actionMutation.isPending}
+                    onClick={() => setEditing(prev => !prev)}>
+                    <EditRegular aria-hidden />
+                    {t('pod.jobs.action_edit')}
+                  </Button>
+                )}
                 <Button
                   type="button"
                   size="xs"
@@ -510,52 +529,72 @@ function RoutineInspectorContent({
                 </div>
               )}
 
-              <section className="divide-y divide-border-subtle/60 rounded-surface border border-border-subtle/80 bg-layer-01/45 px-3 text-xs">
-                {item?.triggerSummary && (
-                  <div className="flex items-baseline justify-between gap-3 py-2.5">
-                    <span className="text-fg-tertiary">{t('pod.jobs.field_schedule')}</span>
-                    <span className="font-mono text-fg-primary">
-                      {item.triggerSummary}
-                      {item.timezone ? ` (${item.timezone})` : ''}
-                    </span>
-                  </div>
-                )}
-                {item?.nextRunAt && (
-                  <div className="flex items-baseline justify-between gap-3 py-2.5">
-                    <span className="text-fg-tertiary">{t('pod.jobs.next_run')}</span>
-                    <span
-                      className="text-fg-primary tabular-nums"
-                      title={formatDateTime(item.nextRunAt, i18n.language)}>
-                      {formatDateTime(item.nextRunAt, i18n.language)}
-                    </span>
-                  </div>
-                )}
-                {item?.lastRunAt && (
-                  <div className="flex items-baseline justify-between gap-3 py-2.5">
-                    <span className="text-fg-tertiary">{t('pod.jobs.last_run')}</span>
-                    <span
-                      className="text-fg-primary tabular-nums"
-                      title={formatDateTime(item.lastRunAt, i18n.language)}>
-                      {formatRelativeTime(item.lastRunAt, i18n.language)}
-                    </span>
-                  </div>
-                )}
-                {detail?.quietSuccess != null && (
-                  <div className="flex items-center justify-between gap-3 py-2.5">
-                    <span className="text-fg-tertiary">{t('pod.jobs.field_quiet_success')}</span>
-                    <Badge variant="secondary" size="sm">
-                      {detail.quietSuccess ? t('pod.jobs.enabled') : t('pod.jobs.disabled')}
-                    </Badge>
-                  </div>
-                )}
-              </section>
+              {editing && kind === 'cron' && detail && item?.manageable ? (
+                <RoutineInlineEditForm
+                  rawID={rawID}
+                  item={item}
+                  detail={detail}
+                  onCancel={() => setEditing(false)}
+                  onSaved={() => setEditing(false)}
+                />
+              ) : (
+                <>
+                  <section className="divide-y divide-border-subtle/60 rounded-surface border border-border-subtle/80 bg-layer-01/45 px-3 text-xs">
+                    {item?.triggerSummary && (
+                      <div className="flex items-baseline justify-between gap-3 py-2.5">
+                        <span className="text-fg-tertiary">{t('pod.jobs.field_schedule')}</span>
+                        <span className="font-mono text-fg-primary">
+                          {item.triggerSummary}
+                          {item.timezone ? ` (${item.timezone})` : ''}
+                        </span>
+                      </div>
+                    )}
+                    {item?.nextRunAt && (
+                      <div className="flex items-baseline justify-between gap-3 py-2.5">
+                        <span className="text-fg-tertiary">{t('pod.jobs.next_run')}</span>
+                        <span
+                          className="text-fg-primary tabular-nums"
+                          title={formatDateTime(item.nextRunAt, i18n.language)}>
+                          {formatDateTime(item.nextRunAt, i18n.language)}
+                        </span>
+                      </div>
+                    )}
+                    {item?.lastRunAt && (
+                      <div className="flex items-baseline justify-between gap-3 py-2.5">
+                        <span className="text-fg-tertiary">{t('pod.jobs.last_run')}</span>
+                        <span
+                          className="text-fg-primary tabular-nums"
+                          title={formatDateTime(item.lastRunAt, i18n.language)}>
+                          {formatRelativeTime(item.lastRunAt, i18n.language)}
+                        </span>
+                      </div>
+                    )}
+                    {detail?.quietSuccess != null && (
+                      <div className="flex items-center justify-between gap-3 py-2.5">
+                        <span className="text-fg-tertiary">{t('pod.jobs.field_quiet_success')}</span>
+                        <Badge variant="secondary" size="sm">
+                          {detail.quietSuccess ? t('pod.jobs.enabled') : t('pod.jobs.disabled')}
+                        </Badge>
+                      </div>
+                    )}
+                  </section>
 
-              {detail?.instructions ? (
-                <section className="pod-chat-inspector-outcome [&_.pod-chat-markdown]:text-65 [&_.pod-chat-markdown]:leading-5">
-                  <header>{t('pod.jobs.instructions')}</header>
-                  <ChatMarkdown text={detail.instructions} />
-                </section>
-              ) : null}
+                  {detail?.instructions ? (
+                    <section className="pod-chat-inspector-outcome [&_.pod-chat-markdown]:text-65 [&_.pod-chat-markdown]:leading-5">
+                      <header>{t('pod.jobs.instructions')}</header>
+                      <ChatMarkdown text={detail.instructions} />
+                    </section>
+                  ) : null}
+                </>
+              )}
+
+              {kind === 'cron' && (
+                <RoutineEventTriggersSection
+                  rawID={rawID}
+                  manageable={Boolean(item?.manageable)}
+                  hasSchedule={item ? routineHasSchedule(item) : false}
+                />
+              )}
 
               {detail && detail.childExecutions.length > 0 && (
                 <section className="grid gap-1.5">
@@ -595,7 +634,7 @@ function RoutineInspectorContent({
                       <div
                         key={entry.id}
                         className="grid gap-1.5 rounded-surface border border-border-subtle/80 bg-page px-3 py-2.5 text-xs">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="flex shrink-0 [&>svg]:size-3.5">
                             <ExecutionStatusMark status={entry.status} />
                           </span>
@@ -605,6 +644,11 @@ function RoutineInspectorContent({
                               {entry.trigger}
                             </span>
                           )}
+                          {entry.deliveryWarning === true && (
+                            <Badge variant="warning" size="sm">
+                              {t('pod.jobs.delivery_warning')}
+                            </Badge>
+                          )}
                           <span className="ms-auto shrink-0 text-50 text-fg-tertiary tabular-nums">
                             {formatRelativeTime(entry.finishedAt ?? entry.startedAt, i18n.language)}
                           </span>
@@ -612,7 +656,7 @@ function RoutineInspectorContent({
                         {entry.error ? (
                           <p className="line-clamp-3 ps-5.5 text-destructive-fg">{entry.error}</p>
                         ) : entry.summary ? (
-                          <p className="line-clamp-2 ps-5.5 text-fg-secondary">{entry.summary}</p>
+                          <RunSummaryView summary={entry.summary} expandLabel={t('pod.jobs.summary_expand')} />
                         ) : null}
                       </div>
                     ))}
@@ -626,6 +670,27 @@ function RoutineInspectorContent({
         </div>
       </div>
     </div>
+  )
+}
+
+function RunSummaryView({ summary, expandLabel }: { summary: string; expandLabel: string }) {
+  const lines = summary.split('\n')
+  const isLong = summary.length > 140 || lines.length > 2
+  if (!isLong) {
+    return <p className="ps-5.5 whitespace-pre-line text-fg-secondary">{summary}</p>
+  }
+
+  const firstLine = lines[0]?.trim() || summary.slice(0, 120).trim()
+  const preview = firstLine.length > 120 ? `${firstLine.slice(0, 120)}…` : firstLine
+
+  return (
+    <details className="ps-5.5 text-fg-secondary">
+      <summary className="cursor-pointer select-none text-fg-primary">
+        <span>{preview}</span>
+        <span className="ms-1.5 text-fg-tertiary underline underline-offset-2">{expandLabel}</span>
+      </summary>
+      <p className="mt-1.5 whitespace-pre-wrap text-fg-secondary">{summary}</p>
+    </details>
   )
 }
 

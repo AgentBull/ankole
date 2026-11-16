@@ -55,9 +55,9 @@ Control Plane Plugin을 통해 추가 Provider 종류를 확장할 수 있으며
 | **Bright Data SERP** | 아니요 | SERP API 기반으로 동작하며 Zone 지정이 필요하고 국가, 언어, Google 도메인 선택 가능 | 검색 국가·언어 및 지역화된 검색 결과를 세밀하게 제어해야 할 때 |
 | **Jina Search** | 아니요 | 국가·위치·언어·페이지 번호·캐시·검색 엔진 옵션 지원 | 지역 지정, 페이지네이션, 캐시 제어가 필요한 직접 웹 검색을 원할 때 |
 | **AgentBull Cloud** | 예 | 웹 검색·페이지 추출과 모델 기능(`llm`, `embedding`, `rerank`, `image_generate`)을 하나로 묶어 제공하며 출처 제한, 기간 필터, 캐시 우회 지원 | 단일 API 키로 모델과 웹 도구를 통합 관리하거나 명시적인 도메인·기간 필터가 필요할 때 |
-| **Cloudflare** | 아니요 | 계정의 AI Gateway를 통해 Cloudflare Web Search를 실행하며 검색 엔진(`ceramic`, `exa`, `linkup`)을 선택할 수 있고 검색당 최대 10개의 결과를 반환 | 이미 Cloudflare AI Gateway로 AI 사용 요금을 통합 정산하고 있을 때 |
+| **Cloudflare** | 예 | 계정의 AI Gateway를 통해 Cloudflare Web Search를 실행하며 검색 엔진(`ceramic`, `exa`, `linkup`)을 선택할 수 있고 검색당 최대 10개의 결과를 반환 | 이미 Cloudflare AI Gateway로 AI 사용 요금을 통합 정산하고 있을 때 |
 
-Parallel이나 AgentBull Cloud 인스턴스는 하나만 등록해 `web_search`와 `web_fetch` 양쪽에 동시에 할당할 수 있습니다.
+Parallel, AgentBull Cloud 또는 Cloudflare 인스턴스는 하나만 등록해 `web_search`와 `web_fetch` 양쪽에 동시에 할당할 수 있습니다.
 
 반면 Jina Search와 Jina Reader는 서로 별개의 Provider 종류이므로, 동일한 Jina API 키를 쓰더라도 각각 따로 등록해 해당 프로필에 연결해야 합니다.
 
@@ -68,6 +68,7 @@ Parallel이나 AgentBull Cloud 인스턴스는 하나만 등록해 `web_search`�
 | **Parallel** | 예 | Parallel Search와 동일한 Provider 및 자격 증명으로 페이지 본문 추출 | 이미 Parallel Search를 사용 중이어서 단일 구성으로 통일하고 싶을 때 |
 | **AgentBull Cloud** | 예 | 동일한 AgentBull Cloud Provider 및 API 키로 공개 페이지 본문 추출 | 모델이나 검색에서 이미 AgentBull Cloud를 쓰고 있어 단일 자격 증명으로 관리하고 싶을 때 |
 | **Jina Reader** | 아니요 | 공개 웹 페이지를 Markdown으로 변환하며 링크 보존, 대상·대기 CSS selector, 캐시, 렌더링 엔진, 토큰 한도 옵션 지원 | 깔끔한 기사 본문이나 페이지 내 특정 영역만 골라 읽어야 할 때 |
+| **Cloudflare** | 예 | Cloudflare Browser Run으로 공개 웹 페이지를 Markdown으로 변환하며 기본값으로 경량 `kitesurf` 엔진을 사용하고 필요 시 `chromium` 전환, 대기 selector, 탐색 옵션, 요청 차단 패턴 지정 가능 | 이미 Cloudflare로 모델이나 검색을 운영하며 에지에서 빠른 Markdown 본문 추출을 함께 쓰고 싶을 때 |
 
 `web_fetch`는 로그인이 필요 없는 공개 HTTPS 텍스트 페이지를 읽기 위한 도구이며, PDF·이미지·압축 파일·오디오·비디오 바이너리 다운로드 도구가 아닙니다.
 

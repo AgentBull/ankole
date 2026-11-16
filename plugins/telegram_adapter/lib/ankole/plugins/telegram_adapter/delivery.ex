@@ -214,26 +214,15 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
 
   defp perform_requests(requests, client, intent) do
     requests
-    |> Enum.reduce_while({:ok, []}, fn request, {:ok, results} ->
-      case perform(request, client) do
-        {:ok, result} ->
-          body = request[:body] || Map.new(request[:multipart] || [])
-          text = body["text"] || body["caption"]
-          result = Map.put(result, :text, text)
-          {:cont, {:ok, [result | results]}}
-
-        :unknown ->
-          {:halt, :unknown}
-
-        {:error, _reason} when results != [] ->
-          {:halt, :unknown}
-
-        {:error, _reason} = error ->
-          {:halt, error}
+    |> Ankole.Conversations.Delivery.send_chunks(fn request ->
+      with {:ok, result} <- perform(request, client) do
+        body = request[:body] || Map.new(request[:multipart] || [])
+        text = body["text"] || body["caption"]
+        {:ok, Map.put(result, :text, text)}
       end
     end)
     |> case do
-      {:ok, results} -> {:ok, combine_results(Enum.reverse(results), intent)}
+      {:ok, results} -> {:ok, combine_results(results, intent)}
       other -> other
     end
   end
@@ -274,7 +263,13 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
 
   defp normalize_call_result(result), do: result
 
-  defp provider_time(seconds) when is_integer(seconds), do: DateTime.from_unix!(seconds)
+  defp provider_time(seconds) when is_integer(seconds) do
+    case DateTime.from_unix(seconds) do
+      {:ok, datetime} -> datetime
+      {:error, _reason} -> nil
+    end
+  end
+
   defp provider_time(_), do: nil
 
   defp request(method, body), do: %{method: method, body: body}

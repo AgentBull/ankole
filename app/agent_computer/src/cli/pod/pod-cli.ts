@@ -105,6 +105,9 @@ export async function commandFromArgs(args: string[], cwd = process.cwd()) {
   if (args[0] === 'pages.search') {
     return parsePagesSearchCommand(args.slice(1), cwd)
   }
+  if (args[0] === 'pages.tree' && args.length === 1) {
+    return { operation: 'pages.tree', params: {}, cwd }
+  }
   const [operation, input, file] = args
   if (!operation || !input || args.length > (input === '--input' ? 3 : 2)) {
     throw new Error('Use <operation> <JSON parameters> or --input <JSON file>')

@@ -1,8 +1,25 @@
 import { createModel, signal } from '@preact/signals-react'
 import { isRecord, recordValue, safeJsonParse } from '@agentbull/active-support'
 import type { PodConnectorAuthConfigsListResponse, PodConnectorsCatalogResponse } from '../api/generated/types.gen'
+import { podID, sessionIdentityKey } from '../../common/browser-context'
 import { podPagePath, podRouteID } from '../../common/pod-url'
 import i18n from '../../common/i18n'
+
+export const connectorKeys = {
+  get all() {
+    return ['connectors', sessionIdentityKey() ?? '', podID() ?? ''] as const
+  },
+  get catalog() {
+    return [...connectorKeys.all, 'catalog'] as const
+  },
+  get connections() {
+    return [...connectorKeys.all, 'connections'] as const
+  },
+  get triggers() {
+    return [...connectorKeys.all, 'triggers'] as const
+  },
+  accounts: (scope: 'mine' | 'team') => [...connectorKeys.all, 'accounts', scope] as const
+}
 
 export function connectorFailureMessage(error: Record<string, unknown>) {
   if (typeof error.message === 'string' && error.message) return error.message

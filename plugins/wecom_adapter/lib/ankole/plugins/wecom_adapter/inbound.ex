@@ -316,7 +316,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     base =
       "card:#{task_id}:#{value["interactionId"]}:#{value["interactionVersion"]}:#{value["controlId"]}:#{value["selectedOptionId"]}"
 
-    if Ankole.Conversations.ActionCards.action_card_interaction_id?(value["interactionId"]) do
+    if AdapterContext.action_card_interaction_id?(value["interactionId"]) do
       "#{base}:#{operator}"
     else
       base
@@ -357,17 +357,12 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     do: {:error, :missing_operator_id}
 
   defp resolve_card_operator(%{config: config} = consumer, operator_id, interaction_id) do
-    if Ankole.Conversations.ActionCards.action_card_interaction_id?(interaction_id) do
-      case Ankole.Principals.resolve_platform_subject_uid(
-             Config.subject_namespace(config),
-             operator_id
-           ) do
-        {:ok, uid} -> {:ok, uid}
-        _ -> {:ok, nil}
-      end
-    else
-      observe_card_operator(consumer, operator_id)
-    end
+    AdapterContext.resolve_action_operator(
+      Config.subject_namespace(config),
+      operator_id,
+      interaction_id,
+      fn -> observe_card_operator(consumer, operator_id) end
+    )
   end
 
   defp observe_card_operator(_consumer, "sys"), do: {:error, :missing_operator_id}
@@ -582,12 +577,8 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
 
   defp provider_time(payload) do
     case fetch_value(payload, "create_time") do
-      value when is_integer(value) ->
-        unit = if value > 10_000_000_000, do: :millisecond, else: :second
-        DateTime.from_unix!(value, unit)
-
-      _value ->
-        nil
+      value when is_integer(value) -> Ankole.Plugins.MapHelpers.unix_datetime(value)
+      _value -> nil
     end
   end
 

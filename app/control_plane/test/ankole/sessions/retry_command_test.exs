@@ -18,7 +18,7 @@ defmodule Ankole.Sessions.RetryCommandTest do
 
   test "reply retry replays its cron dead letter instead of a channel completion", %{agent: agent} do
     unrelated = input(agent, "Unrelated channel work")
-    session_id = "cron:#{Ecto.UUID.generate()}"
+    session_id = "routine:#{Ecto.UUID.generate()}"
 
     {:ok, source} =
       Repo.transact(fn ->

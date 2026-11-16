@@ -30,6 +30,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Delivery do
   alias Ankole.Conversations.Delivery.Intent
   alias DingTalkOpenAPI.Error
   alias DingTalkOpenAPI.Robot
+  alias DingTalkOpenAPI.TokenManager
 
   import MapHelpers, only: [fetch_list: 2, optional_text: 2]
 
@@ -102,21 +103,16 @@ defmodule Ankole.Plugins.DingTalkAdapter.Delivery do
   end
 
   defp send_text_chunks(client, robot_code, target, chunks, intent, config) do
-    chunks
-    |> Enum.reduce_while([], fn chunk, results ->
-      msg_key = if Markdown.formatted?(chunk), do: "sampleMarkdown", else: "sampleText"
-      msg_param = text_msg_param(msg_key, chunk, config)
+    with {:ok, results} <-
+           Ankole.Conversations.Delivery.send_chunks(chunks, fn chunk ->
+             msg_key = if Markdown.formatted?(chunk), do: "sampleMarkdown", else: "sampleText"
+             msg_param = text_msg_param(msg_key, chunk, config)
 
-      case send_message(client, robot_code, target, msg_key, msg_param) do
-        {:ok, result} -> {:cont, [Map.put(result, :text, chunk) | results]}
-        {:error, _reason} when results != [] -> {:halt, :unknown}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      :unknown -> :unknown
-      {:error, _reason} = error -> error
-      results -> {:ok, combined_result(Enum.reverse(results), intent.payload)}
+             with {:ok, result} <- send_message(client, robot_code, target, msg_key, msg_param) do
+               {:ok, Map.put(result, :text, chunk)}
+             end
+           end) do
+      {:ok, combined_result(results, intent.payload)}
     end
   end
 
@@ -158,6 +154,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Delivery do
       |> send_message(robot_code, target, msg_key, msg_param)
       |> case do
         {:ok, result} -> {:ok, Map.put(result, :payload, intent.payload)}
+        :unknown -> :unknown
         {:error, _reason} = error -> error
       end
     end
@@ -235,26 +232,41 @@ defmodule Ankole.Plugins.DingTalkAdapter.Delivery do
   end
 
   defp send_message(client, robot_code, {:dm, user_id}, msg_key, msg_param) do
-    client
-    |> Robot.batch_send_oto(
-      robot_code: robot_code,
-      user_ids: [user_id],
-      msg_key: msg_key,
-      msg_param: msg_param
-    )
-    |> send_result()
+    with {:ok, _token} <- TokenManager.get_app_token(client) do
+      client
+      |> Robot.batch_send_oto(
+        robot_code: robot_code,
+        user_ids: [user_id],
+        msg_key: msg_key,
+        msg_param: msg_param
+      )
+      |> send_result()
+      |> classify_non_idempotent_send()
+    end
   end
 
   defp send_message(client, robot_code, {:group, conversation_id}, msg_key, msg_param) do
-    client
-    |> Robot.send_group_message(
-      open_conversation_id: conversation_id,
-      robot_code: robot_code,
-      msg_key: msg_key,
-      msg_param: msg_param
-    )
-    |> send_result()
+    with {:ok, _token} <- TokenManager.get_app_token(client) do
+      client
+      |> Robot.send_group_message(
+        open_conversation_id: conversation_id,
+        robot_code: robot_code,
+        msg_key: msg_key,
+        msg_param: msg_param
+      )
+      |> send_result()
+      |> classify_non_idempotent_send()
+    end
   end
+
+  defp classify_non_idempotent_send({:error, %Error{} = error}) do
+    if uncertain?(error), do: :unknown, else: {:error, error}
+  end
+
+  defp classify_non_idempotent_send(result), do: result
+
+  defp uncertain?(%Error{reason: reason, http_status: status}),
+    do: reason == :transport or (is_integer(status) and status >= 500)
 
   defp send_result({:ok, %{"flowControlledStaffIdList" => [_ | _]} = body}) do
     {:error, %Error{reason: :rate_limited, message: "per-user flow control", raw: body}}

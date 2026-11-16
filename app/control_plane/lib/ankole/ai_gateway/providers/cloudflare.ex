@@ -1,7 +1,8 @@
 defmodule Ankole.AIGateway.Providers.Cloudflare do
   @moduledoc """
-  Cloudflare provider: Web Search through AI Gateway, and decision, image,
-  speech, transcription, and music models through Workers AI.
+  Cloudflare provider: Web Search through AI Gateway, Web Fetch through Browser
+  Run (Kitesurf by default), and decision, image, speech, transcription, and
+  music models through Workers AI.
   """
 
   use Ankole.AIGateway.ProviderDSL
@@ -29,6 +30,40 @@ defmodule Ankole.AIGateway.Providers.Cloudflare do
       capabilities: [:web_search]
     )
 
+    setting(:browser,
+      options: ~w(kitesurf chromium),
+      default: "kitesurf",
+      scope: :request,
+      capabilities: [:web_fetch]
+    )
+
+    setting(:gotoOptions,
+      type: :map,
+      scope: :request,
+      advanced: true,
+      capabilities: [:web_fetch]
+    )
+
+    setting(:waitForSelector,
+      type: :map,
+      scope: :request,
+      advanced: true,
+      capabilities: [:web_fetch]
+    )
+
+    setting(:rejectRequestPattern,
+      type: :string_list,
+      scope: :request,
+      advanced: true,
+      capabilities: [:web_fetch]
+    )
+
+    setting(:userAgent,
+      scope: :request,
+      advanced: true,
+      capabilities: [:web_fetch]
+    )
+
     setting(:steps, type: :integer, scope: :request, capabilities: [:image_generate])
     setting(:seed, type: :integer, scope: :request, capabilities: [:image_generate])
 
@@ -42,6 +77,13 @@ defmodule Ankole.AIGateway.Providers.Cloudflare do
       api_resolver(:cloudflare_web_search)
       prepare(:prepare_web_search)
       timeout_ms(@timeout_ms)
+    end
+
+    web_fetch do
+      api_resolver(:cloudflare_web_fetch)
+      prepare(:prepare_web_fetch)
+      timeout_ms(@timeout_ms)
+      single_url(true)
     end
 
     decision_model do
@@ -96,6 +138,29 @@ defmodule Ankole.AIGateway.Providers.Cloudflare do
     |> UniversalAIRequest.bearer_auth()
     |> UniversalAIRequest.put_provider_options(provider_options)
     |> UniversalAIRequest.rename_provider_option("engine", "provider")
+  end
+
+  @doc """
+  Builds a Cloudflare Browser Run Markdown extraction request. Browser Run uses
+  Kitesurf when `browser=kitesurf` is present on the query string and falls back
+  to its Chromium pool when `browser` is omitted.
+  """
+  def prepare_web_fetch(ctx) do
+    case ctx.request["browser"] || ctx.settings[:browser] || "kitesurf" do
+      "kitesurf" ->
+        web_fetch_request(ctx, "browser-run/markdown?browser=kitesurf")
+
+      "chromium" ->
+        web_fetch_request(ctx, "browser-run/markdown")
+
+      _unsupported ->
+        {:error,
+         OpenAIError.invalid(
+           "browser",
+           "unsupported_value",
+           "Cloudflare web_fetch browser must be kitesurf or chromium."
+         )}
+    end
   end
 
   @doc """
@@ -243,6 +308,14 @@ defmodule Ankole.AIGateway.Providers.Cloudflare do
   defp decision_request(ctx, path) do
     ctx
     |> UniversalAIRequest.new(account_path(ctx, path), :cloudflare_decision, include_model: false)
+    |> UniversalAIRequest.bearer_auth()
+  end
+
+  defp web_fetch_request(ctx, path) do
+    ctx
+    |> UniversalAIRequest.new(account_path(ctx, path), :cloudflare_web_fetch,
+      include_model: false
+    )
     |> UniversalAIRequest.bearer_auth()
   end
 

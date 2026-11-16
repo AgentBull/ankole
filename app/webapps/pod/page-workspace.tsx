@@ -81,7 +81,7 @@ import { useMenuFinalFocus } from '@ankole/uikit/hooks/use-menu-final-focus'
 import { createModel, effect, useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { Link, useBlocker, useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import { podID, principalUID } from '../common/browser-context'
@@ -646,6 +646,10 @@ function PageWorkspace({
     if (titleDraft.dirty.value) void runRename(nextTitle).catch(() => {})
   }
   const title = titleDraft.value.value
+  useLayoutEffect(() => {
+    const label = stripBidi(title).trim() || (domain === 'brain' ? 'Meta Ankole' : t('pod.sidebar.tabs.home'))
+    document.title = `${label} · Ankole`
+  }, [domain, t, title])
   const autosaveTitle = useEffectEvent(() => {
     titleTimer.current = null
     saveTitle()

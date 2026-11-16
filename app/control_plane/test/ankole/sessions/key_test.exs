@@ -5,7 +5,7 @@ defmodule Ankole.Sessions.KeyTest do
   test "constructors and parsers preserve each persisted key format" do
     id = "019a2b00-0000-7000-8000-000000000001"
     assert Key.parse(Key.conversation(id)) == {:conversation, id}
-    assert Key.parse(Key.cron(id)) == {:cron, id}
+    assert Key.parse(Key.routine(id)) == {:routine, id}
     assert Key.parse(Key.job(1000)) == {:job, "1000"}
     assert Key.parse(Key.workflow_task(2000)) == {:workflow_task, "2000"}
     assert Key.parse("triage:incident") == {:named, "triage:incident"}
@@ -22,7 +22,7 @@ defmodule Ankole.Sessions.KeyTest do
           "conversation:no",
           "job:",
           "wf_task: ",
-          "cron:"
+          "routine:"
         ] do
       assert Key.parse(key) == :error
       refute Key.routable?(key)
@@ -30,7 +30,7 @@ defmodule Ankole.Sessions.KeyTest do
 
     refute Key.routable?(Key.job(1000))
     refute Key.routable?(Key.workflow_task(1000))
-    assert Key.routable?(Key.cron("report"))
+    assert Key.routable?(Key.routine("report"))
     assert Key.routable?("triage")
   end
 end

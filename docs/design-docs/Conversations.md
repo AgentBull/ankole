@@ -503,6 +503,14 @@ participant's permissions do not widen that authority. Content writes also
 require the current read revision. In Pod rooms, generated documents and research reports
 default to editable Pod Pages unless the user explicitly asks for a downloadable
 file format, whereas external channels follow their own file-delivery rules.
+When creating a Pod Page, `Ankole.Sessions.Prompt.pod_instructions/2` reminds
+both the main Agent and Background Agent Jobs to inspect the current directory
+structure (`pod_list_pages` or `ankole-pod pages.tree`) and relevant user
+memory, weigh the owner's Private section (`private_owner_uid`, for a personal
+assistant, leaning toward Private for ad-hoc, rough, or purely personal work)
+against the shared Workspace, choose a fitting parent directory (`parent_id`)
+rather than placing everything at the Workspace root, and ask the user when
+genuinely unsure.
 
 In the browser, the open Pod document holds unsent drafts and pending client
 UUIDs in memory across panel toggles, room switches, and Page navigation,
@@ -844,26 +852,36 @@ In the timeline, compact event notices sit alongside attributed messages:
   A fenced `ui` block renders as a small interactive UI inside the message.
   Each line of the block is one RFC 6902 JSON Patch operation, and together the
   lines build a flat json-render spec that Pod renders with `@ankole/uikit`
-  components. `pod/chat/ui-block/catalog.ts` owns the vocabulary: layout, tabs,
-  collapsible sections, text, badges, headline numbers, sortable tables, inline
-  charts, progress bars, alerts, buttons, and segmented choices. The catalog
-  also generates `references/chat-ui-block.md` in the visualization Skill, so
-  an Agent reads the same component list that Pod renders. Pod renders a block
-  only in an Agent's message; a fenced `ui` block that a Human writes stays
-  code. A block holds view state only: its `setState` action changes what the
-  block shows, and its `reply` action leaves a follow-up text in the composer
-  for the Human to send. Prop values may read that state through json-render's
-  expressions. Before Pod renders a block, `pod/chat/ui-block/compile.ts`
-  checks it against the catalog: every element reachable from the root names a
-  catalog component and has valid props, the tree is acyclic and expands to at
-  most 500 elements, each event binds `setState` or `reply` with its parameters
-  only, and no element uses `repeat`, `watch`, or named slots. A settled block
-  that fails this check shows its source as code. While a reply streams, Pod
-  renders the lines that have arrived and checks the props once the block
-  settles. A settled block that mounts again, for example after the reader
-  returns to the room, shows the state that its reader left; Pod keeps that
-  state in memory for the 48 most recent blocks, by block source. The turn
-  context of a
+  components. `pod/chat/ui-block/catalog.ts` owns the vocabulary: layout,
+  stateful tabs, collapsible sections, text, badges, headline numbers, sortable
+  tables with locale-aware numeric column formatting, inline charts, progress
+  bars, alerts, buttons, segmented choices, and compact dropdown choices. The
+  catalog also generates `references/chat-ui-block.md` in the visualization
+  Skill, so an Agent reads the same component list that Pod renders. Pod renders
+  a block only in an Agent's message; a fenced `ui` block that a Human writes
+  stays code. A block holds view state only: its `setState` action changes what
+  the block shows, and its `reply` action leaves a follow-up text in the
+  composer for the Human to send. Prop values and action parameters may read
+  that state through `$state`, `$template` string interpolation, and `$cond`
+  branches, switchers (`ToggleGroup`, `Select`, and `Tabs`) bind their active
+  choice with `$bindState` (seeding the first option when the state path starts
+  unset), and container elements may repeat their children over a state array
+  with `repeat` (`$item` and `$index`). Before Pod renders a block,
+  `pod/chat/ui-block/compile.ts` validates the compiled spec (`compileUIBlock`)
+  and restores any remembered view state through `validateUIBlockState`
+  (discarding invalid remembered snapshots back to `spec.state`) against the catalog: JSON patch
+  values stay within 32 levels of nesting and safe pointers, every element
+  reachable from the root names a catalog component and has valid props across
+  its `$cond` expression branches and initial state, the tree is acyclic and expands to at most 500 elements
+  counting repeated items, each event binds `setState` or `reply` with valid
+  parameters and safe target pointers only, and no element uses `watch` or named slots. A settled block
+  that fails compile-time validation shows its source as code. While a reply streams, Pod
+  renders the ready branches that have arrived, holds back children still
+  waiting on later element or state lines, and checks every settled branch once
+  the block finishes. A settled block that mounts again, for example after the
+  reader returns to the room, shows the state (including the open tab) that its
+  reader left; Pod keeps that state in memory for the 48 most recent blocks, by
+  block source. The turn context of a
   native room carries `ui_blocks: interactive`. The turn context of an external
   IM conversation carries `ui_blocks: code_only`, and delivery leaves a `ui`
   block of such a reply as a fenced code block, as it does for Mermaid.

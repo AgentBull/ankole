@@ -313,12 +313,28 @@ defmodule Ankole.WorkAccessTest do
     assert {:ok, %{scheduled_event: checkback}} =
              Schedule.create_check_back_later(checkback(source))
 
+    automation = automation(source)
+
     assert {:ok, %{cron_schedule: cron}} =
-             Schedule.create_cron_schedule(cron(source),
+             Schedule.create_cron_schedule(
+               Map.put(cron(source), "automation_job_id", automation.id),
                created_by: %{"kind" => "turn", "signal_id" => source.id}
              )
 
-    automation = automation(source)
+    assert {:ok, %{routine: routine}} =
+             Schedule.create_routine(
+               %{
+                 agent_uid: source.agent_uid,
+                 owner_session_id: source.session_id,
+                 binding_name: source.reply_binding_name,
+                 name: "routine-owner-check",
+                 idempotency_key: Ecto.UUID.generate(),
+                 task: "Check status",
+                 delivery: get_in(cron(source), ["delivery"])
+               },
+               authorization: WorkAccess.fields(source),
+               created_by: %{"kind" => "turn", "signal_id" => source.id}
+             )
 
     on_exit(fn ->
       Repo.with_tenant(tenant.id, fn ->
@@ -355,7 +371,7 @@ defmodule Ankole.WorkAccessTest do
         %{label: "Review", expires_at: DateTime.add(DateTime.utc_now(), 3600)}
       )
 
-    resources = [source, checkback, cron, automation, webhook, workflow, job]
+    resources = [source, checkback, cron, routine, automation, webhook, workflow, job]
 
     declared =
       Ankole.TestModules.all()
@@ -423,7 +439,31 @@ defmodule Ankole.WorkAccessTest do
       assert Repo.reload!(work).human_uid == reviewer.uid
     end
 
-    assert length(HumanAccess.history(reviewer.uid)) == 7
+    assert length(HumanAccess.history(reviewer.uid)) == 8
+  end
+
+  test "routine-owned child crons do not duplicate parent routines in human and unresolved work lists" do
+    %{principal: agent} = agent_fixture()
+    %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+    source = source_event(agent.uid, human.uid)
+
+    assert {:ok, %{cron_schedule: child_cron}} =
+             Schedule.create_cron_schedule(cron(source),
+               created_by: %{"kind" => "turn", "signal_id" => source.id}
+             )
+
+    assert is_binary(child_cron.owner_routine_id)
+
+    for_human = WorkAccess.list_for_human(human.uid)
+    assert Enum.any?(for_human, &(&1.kind == "routine" and &1.id == child_cron.owner_routine_id))
+    refute Enum.any?(for_human, &(&1.kind == "cron" and &1.id == child_cron.id))
+
+    assert {:ok, disabled} = HumanAccess.disable(human.uid, "Offboarding", nil, "disable")
+    assert {:ok, _} = WorkCleanup.cleanup(human.uid, disabled.access_version)
+
+    unresolved = WorkAccess.list_unresolved()
+    assert Enum.any?(unresolved, &(&1.kind == "routine" and &1.id == child_cron.owner_routine_id))
+    refute Enum.any?(unresolved, &(&1.kind == "cron" and &1.id == child_cron.id))
   end
 
   test "reauthorizing a revoked cron preserves its paused state until explicit resume" do

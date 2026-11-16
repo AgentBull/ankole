@@ -263,8 +263,6 @@ defmodule Ankole.Brain.ContextPack do
 
   defp visible_pointer_objects(objects, access, disclosure) do
     ids = Enum.map(objects, & &1.id)
-    slugs = Enum.map(objects, & &1.id)
-    by_id = Map.new(objects, &{&1.id, &1.id})
 
     chunk_scopes =
       Chunk
@@ -273,11 +271,11 @@ defmodule Ankole.Brain.ContextPack do
       |> Ash.Query.distinct([:page_id, :source_node_id])
       |> Ash.Query.select([:page_id, :source_node_id])
       |> Ankole.Ash.read!()
-      |> Enum.map(&{Map.fetch!(by_id, &1.page_id), &1.source_node_id})
+      |> Enum.map(&{&1.page_id, &1.source_node_id})
 
     claim_scopes =
       Claim
-      |> Ash.Query.filter(subject_page_id in ^slugs)
+      |> Ash.Query.filter(subject_page_id in ^ids)
       |> Access.filter_current_claims()
       |> Access.filter_claims(access)
       |> Ash.Query.distinct([:subject_page_id, :source_node_id])

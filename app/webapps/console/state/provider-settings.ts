@@ -44,7 +44,7 @@ export function aiGatewayProvider(document: { data?: AiGatewayProvider }): AIGat
   return fromDocument(document) as AIGatewayProviderItem
 }
 
-export type SettingValidationError = 'required' | 'json_object' | 'integer' | 'number' | 'selection'
+export type SettingValidationError = 'required' | 'json_object' | 'integer' | 'number' | 'selection' | 'string_list'
 
 export function settingValidationMessage(field: string, error: SettingValidationError): string {
   switch (error) {
@@ -58,6 +58,8 @@ export function settingValidationMessage(field: string, error: SettingValidation
       return i18n.t('common.must_be_number', { field })
     case 'selection':
       return i18n.t('common.must_be_valid_selection', { field })
+    case 'string_list':
+      return i18n.t('common.must_be_string_list', { field })
   }
 }
 
@@ -169,6 +171,7 @@ export function initialSettingValue(setting: ProviderSetting, provider: AIGatewa
 
 export function settingDraftValue(value: unknown): string {
   if (value == null) return ''
+  if (Array.isArray(value)) return value.map(String).join('\n')
   if (typeof value === 'object') return JSON.stringify(value, null, 2)
   return String(value)
 }
@@ -215,7 +218,7 @@ export function buildSettingOptions(
       continue
     }
 
-    if (trimmed === '') {
+    if (trimmed === '' || (Array.isArray(raw) && raw.length === 0)) {
       if (setting.required) return validationError(setting, 'required', validationMessage, labelFor)
       continue
     }
@@ -269,6 +272,23 @@ function parseSettingValue(
       return typeof value === 'string' && setting.options.includes(value)
         ? { ok: true, value }
         : { ok: false, error: 'selection' }
+    }
+    case 'string_list': {
+      if (Array.isArray(raw)) {
+        const items = raw
+          .filter((item): item is string => typeof item === 'string')
+          .map(item => item.trim())
+          .filter(Boolean)
+        return items.length === raw.length && items.length > 0
+          ? { ok: true, value: items }
+          : { ok: false, error: 'string_list' }
+      }
+      if (typeof raw !== 'string') return { ok: false, error: 'string_list' }
+      const items = raw
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean)
+      return items.length > 0 ? { ok: true, value: items } : { ok: false, error: 'required' }
     }
     case 'string':
       return { ok: true, value: typeof raw === 'string' ? raw.trim() : raw }

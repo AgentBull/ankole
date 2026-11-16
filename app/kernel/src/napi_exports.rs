@@ -5,24 +5,6 @@ use napi_derive::napi;
 
 use crate::{common, web_proxy};
 
-#[napi(object)]
-pub struct WebURLFacts {
-    pub scheme: String,
-    pub host: Option<String>,
-    pub host_class: Option<String>,
-}
-
-#[napi(js_name = "webURLFacts")]
-pub fn web_url_facts(url: String) -> Result<WebURLFacts> {
-    let facts =
-        common::web_url_facts(&url).map_err(|error| Error::from_reason(error.to_string()))?;
-    Ok(WebURLFacts {
-        scheme: facts.scheme,
-        host: facts.host,
-        host_class: facts.host_class.map(|class| class.as_str().to_string()),
-    })
-}
-
 #[napi(js_name = "validateWebURL")]
 pub fn validate_web_url(url: String, schemes: Vec<String>, ssrf_filter: bool) -> Option<String> {
     let schemes: Vec<&str> = schemes.iter().map(String::as_str).collect();

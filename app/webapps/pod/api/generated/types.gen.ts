@@ -1963,6 +1963,84 @@ export type UpdateConversationQueueResponses = {
 
 export type UpdateConversationQueueResponse = UpdateConversationQueueResponses[keyof UpdateConversationQueueResponses]
 
+export type UpdatePodJobRoutineData = {
+  /**
+   * Request body for the updatePodJobRoutine operation on pod_job_operation resource
+   */
+  body?: {
+    data: {
+      conversationID?: string | null
+      quietSuccess?: boolean | null
+      removeSchedule?: boolean | null
+      repeat?: {
+        expression: string
+        timezone: string
+      } | null
+      task?: string | null
+      title?: string | null
+    }
+  }
+  path: {
+    raw_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/jobs/routines/cron/{raw_id}'
+}
+
+export type UpdatePodJobRoutineErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdatePodJobRoutineError = UpdatePodJobRoutineErrors[keyof UpdatePodJobRoutineErrors]
+
+export type UpdatePodJobRoutineResponses = {
+  /**
+   * Success
+   */
+  200: {
+    manageable: boolean
+    updatedAt: string
+    triggerSummary?: string | null
+    planTotal?: number | null
+    chainLength: number
+    lastRunStatus?: string | null
+    activeExecutionID?: string | null
+    stoppable: boolean
+    status: string
+    stepCount: number
+    nextRunAt?: string | null
+    pageTitle?: string | null
+    conversationTitle?: string | null
+    planCompleted?: number | null
+    createdAt: string
+    cardType: 'one_off' | 'routine'
+    pageID?: string | null
+    canMessage: boolean
+    lastRunAt?: string | null
+    column: 'scheduled' | 'running' | 'completed'
+    attentionReason?: string | null
+    agentName?: string | null
+    activeExecutionKind?: 'background_agent_job' | 'workflow' | null
+    kind: 'background_agent_job' | 'workflow' | 'cron' | 'automation_job' | 'checkback'
+    timezone?: string | null
+    attention: boolean
+    id: string
+    summary?: string | null
+    rawID: string
+    agentUID?: string | null
+    schedule?: {
+      [key: string]: unknown
+    } | null
+    title: string
+    conversationID?: string | null
+  }
+}
+
+export type UpdatePodJobRoutineResponse = UpdatePodJobRoutineResponses[keyof UpdatePodJobRoutineResponses]
+
 export type ChoosePodNextStepData = {
   body?: never
   path: {
@@ -2658,7 +2736,7 @@ export type MetaCreateSkillData = {
       metadata: {
         [key: string]: unknown
       }
-      personal: boolean
+      personal?: boolean | null
       slug: string
     }
   }
@@ -6166,7 +6244,6 @@ export type PodFilesResponses = {
     }>
     page_id: string
     revision: number
-    routes?: Array<string> | null
   }
 }
 
@@ -7417,6 +7494,7 @@ export type PodJobRoutineResponses = {
     }
     quietSuccess?: boolean | null
     runs: Array<{
+      deliveryWarning?: boolean | null
       error?: string | null
       finishedAt?: string | null
       id: string
@@ -8326,6 +8404,17 @@ export type CreatePodJobData = {
     data: {
       agentUID: string
       conversationID?: string | null
+      eventTriggers?: Array<{
+        coalesce?: {
+          [key: string]: unknown
+        } | null
+        configRef: string
+        filters?: {
+          [key: string]: unknown
+        } | null
+        name?: string | null
+        watchedFieldIDs?: Array<string> | null
+      }> | null
       mode: 'one_off' | 'cron'
       quietSuccess?: boolean | null
       repeat?: {
@@ -8598,6 +8687,7 @@ export type PodEventBindingsData = {
   query?: {
     config_ref?: string
     job_id?: number
+    routine_id?: string
   }
   url: '/api/v2/pod/signal-bindings'
 }
@@ -8618,8 +8708,12 @@ export type PodEventBindingsResponses = {
   200: {
     bindings: Array<{
       adapter: string
+      agent_routine_id?: string | null
       agent_uid?: string | null
       automation_job_id?: number | null
+      coalesce?: {
+        [key: string]: unknown
+      } | null
       config_ref: string
       enabled: boolean
       filters: {
@@ -8647,8 +8741,12 @@ export type PodEventBindingPutData = {
    */
   body: {
     data: {
+      agent_routine_id?: string | null
       agent_uid?: string | null
       automation_job_id?: number | null
+      coalesce?: {
+        [key: string]: unknown
+      } | null
       config_ref: string
       enabled?: boolean | null
       filters?: {
@@ -8683,8 +8781,12 @@ export type PodEventBindingPutResponses = {
   200: {
     binding: {
       adapter: string
+      agent_routine_id?: string | null
       agent_uid?: string | null
       automation_job_id?: number | null
+      coalesce?: {
+        [key: string]: unknown
+      } | null
       config_ref: string
       enabled: boolean
       filters: {
@@ -11993,7 +12095,7 @@ export type MetaImportSkillData = {
     data: {
       agent_uid?: string | null
       content_base64: string
-      personal: boolean
+      personal?: boolean | null
       slug: string
     }
   }

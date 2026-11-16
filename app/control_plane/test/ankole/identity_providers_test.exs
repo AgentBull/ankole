@@ -213,6 +213,24 @@ defmodule Ankole.IdentityProvidersTest do
            ]
   end
 
+  test "ErrorDescription and BrowserAPI.Error withhold unmapped upstream tuples and URLs" do
+    alias Ankole.IdentityProviders.ErrorDescription
+    alias AnkoleWeb.BrowserAPI
+
+    upstream = {:http_error, 502, "https://idp.internal/token?secret=super-secret-xyz"}
+    assert ErrorDescription.describe(upstream) == nil
+    assert ErrorDescription.describe(:unexpected_upstream_atom) == nil
+
+    assert {"clientSecret is invalid.", [_detail]} =
+             ErrorDescription.describe({:invalid_string, "clientSecret"})
+
+    sanitized = BrowserAPI.Error.new(422, upstream)
+    assert sanitized.code == "http_error"
+    assert sanitized.detail == "the operation was rejected"
+    refute inspect(sanitized) =~ "super-secret-xyz"
+    refute inspect(sanitized) =~ "idp.internal"
+  end
+
   defp put_test_reconciler_pid do
     :persistent_term.put({TestRealtimeReconciler, :test_pid}, self())
 

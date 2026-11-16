@@ -4,14 +4,23 @@ defmodule Ankole.Pod.JobsBoard.Operations do
   controls existing routines and executions.
   """
 
-  alias Ankole.{ActorRef, AgentWorkers, BackgroundAgentJobs, Conversations, Principals, Repo}
+  alias Ankole.{
+    ActorRef,
+    AgentWorkers,
+    BackgroundAgentJobs,
+    Conversations,
+    Principals,
+    Repo,
+    Signals
+  }
+
   alias Ankole.AuthZ.Actor
   alias Ankole.BackgroundAgentJobs.Schemas.Job, as: AgentJob
   alias Ankole.Conversations.{Executions, Native}
   alias Ankole.Pod.JobsBoard.Queries
   alias Ankole.Principals.WorkAccess
   alias Ankole.Schedule
-  alias Ankole.Schedule.Schemas.{CronSchedule, ScheduledEvent}
+  alias Ankole.Schedule.Schemas.{AgentRoutine, ScheduledEvent}
   alias Ankole.Sessions.Key
 
   @title_limit 200
@@ -66,59 +75,109 @@ defmodule Ankole.Pod.JobsBoard.Operations do
   end
 
   defp create_cron(actor, agent_uid, title, task, request_id, attrs) do
-    default_quiet? = is_nil(attrs.conversation_id) or attrs.conversation_id == ""
-
     quiet_success? =
-      if is_boolean(attrs.quiet_success), do: attrs.quiet_success, else: default_quiet?
+      if is_boolean(attrs.quiet_success), do: attrs.quiet_success, else: true
 
-    with {:ok, repeat} <- validate_repeat(attrs.repeat),
+    authorization = WorkAccess.from_sender(Actor.uid(actor))
+
+    with {:ok, repeat, event_triggers} <-
+           validate_routine_triggers(attrs.repeat, attrs.event_triggers),
          {:ok, room_id} <- resolve_cron_delivery_room(actor, agent_uid, attrs.conversation_id),
-         {:ok, %{cron_schedule: rule}} <-
-           Schedule.create_cron_schedule(
-             %{
-               agent_uid: agent_uid,
-               owner_session_id: Key.conversation(room_id),
-               name: title,
-               idempotency_key: "pod-cron:" <> request_id,
-               schedule: Map.put(repeat, "kind", "cron"),
-               delivery: %{
-                 "targets" => [%{"conversation_id" => room_id}],
-                 "quiet_success" => quiet_success?
-               },
-               payload: %{"task" => task}
-             },
-             authorization: WorkAccess.from_sender(Actor.uid(actor)),
-             created_by: %{
-               "kind" => "pod_jobs",
-               "principal_uid" => actor.principal |> ActorRef.from_principal() |> to_string()
-             }
-           )
-           |> normalize_cron_error(),
-         {:ok, _} <-
-           if(attrs.run_now == true,
-             do:
-               Schedule.run_cron_schedule(rule.id,
-                 idempotency_key: "pod-cron-init:" <> request_id
-               ),
-             else: {:ok, nil}
+         {:ok, %{routine: routine}} <-
+           Repo.transact_top_level(
+             fn ->
+               with :ok <-
+                      (case WorkAccess.check_in_tx(authorization) do
+                         :ok -> :ok
+                         error -> normalize_cron_error(error)
+                       end),
+                    :ok <-
+                      Ankole.Signals.SourceBindings.prelock_automation_jobs_in_tx(
+                        Enum.map(event_triggers, & &1.config_ref)
+                      ),
+                    {:ok, %{status: create_status, routine: routine}} <-
+                      Schedule.create_routine_in_tx(
+                        %{
+                          agent_uid: agent_uid,
+                          owner_session_id: Key.conversation(room_id),
+                          name: title,
+                          task: task,
+                          idempotency_key: "pod-cron:" <> request_id,
+                          schedule: repeat,
+                          delivery: %{
+                            "targets" => [%{"conversation_id" => room_id}],
+                            "quiet_success" => quiet_success?
+                          }
+                        },
+                        authorization: authorization,
+                        created_by: %{
+                          "kind" => "pod_jobs",
+                          "principal_uid" =>
+                            actor.principal |> ActorRef.from_principal() |> to_string()
+                        }
+                      )
+                      |> normalize_cron_error(),
+                    :ok <-
+                      attach_routine_event_triggers_in_tx(
+                        actor,
+                        routine.id,
+                        event_triggers,
+                        create_status
+                      ),
+                    {:ok, signals} <-
+                      maybe_run_created_routine_in_tx(routine.id, request_id, attrs.run_now) do
+                 {:ok, %{routine: routine, signals: signals}}
+               end
+             end,
+             after_commit: fn %{signals: signals} -> Signals.publish_committed(signals) end
            ) do
       Conversations.Events.publish_rooms_changed()
-      fetch_card(actor, "cron:#{rule.id}")
+      fetch_card(actor, "cron:#{routine.id}")
     end
   end
 
-  @doc "Pauses, resumes, runs now, or removes a Cron schedule, or cancels a checkback."
+  defp maybe_run_created_routine_in_tx(routine_id, request_id, true) do
+    case Schedule.Routines.run_routine_in_tx(routine_id,
+           idempotency_key: "pod-cron-init:" <> request_id
+         )
+         |> normalize_cron_error() do
+      {:ok, result} -> {:ok, Map.get(result, :signals, [])}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp maybe_run_created_routine_in_tx(_routine_id, _request_id, _run_now), do: {:ok, []}
+
+  @doc "Updates an AgentRoutine's title, instructions, schedule, or delivery settings."
+  def update_routine(%Actor{} = actor, raw_id, raw_attrs) when is_map(raw_attrs) do
+    attrs = normalize_update_routine_attrs(raw_attrs)
+
+    with true <- Native.active_human?(actor),
+         {:ok, %AgentRoutine{} = routine} <- Schedule.get_routine(raw_id),
+         true <- Queries.routine_manageable?(actor, routine),
+         {:ok, changes} <- build_routine_update_changes(actor, routine, attrs),
+         {:ok, _updated} <- Schedule.update_routine(routine.id, changes) |> normalize_cron_error() do
+      Conversations.Events.publish_rooms_changed()
+      fetch_card(actor, "cron:#{routine.id}")
+    else
+      false -> {:error, :job_not_found}
+      {:error, :not_found} -> {:error, :job_not_found}
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc "Pauses, resumes, runs now, or removes an AgentRoutine, or cancels a checkback."
   def change_routine(%Actor{} = actor, kind, raw_id, action) do
     uid = Actor.uid(actor)
 
     case {normalize_routine_kind(kind), normalize_routine_action(action)} do
       {:cron, act} when act in [:pause, :resume, :run, :remove] ->
         with true <- Native.active_human?(actor),
-             {:ok, %CronSchedule{human_uid: ^uid, owner_job_id: nil} = rule} <-
-               Schedule.get_cron_schedule(raw_id),
-             {:ok, _} <- apply_cron_action(rule.id, act) do
+             {:ok, %AgentRoutine{} = routine} <- Schedule.get_routine(raw_id),
+             true <- Queries.routine_manageable?(actor, routine),
+             {:ok, _} <- apply_routine_action(routine.id, act) do
           Conversations.Events.publish_rooms_changed()
-          {:ok, %{id: "cron:#{rule.id}", action: to_string(act)}}
+          {:ok, %{id: "cron:#{routine.id}", action: to_string(act)}}
         else
           _ -> {:error, :job_not_found}
         end
@@ -275,6 +334,7 @@ defmodule Ankole.Pod.JobsBoard.Operations do
       runner_id: map["runner_id"] || map["runnerID"],
       conversation_id: map["conversation_id"] || map["conversationID"],
       repeat: map["repeat"],
+      event_triggers: map["event_triggers"] || map["eventTriggers"],
       quiet_success:
         if(Map.has_key?(map, "quiet_success"),
           do: map["quiet_success"],
@@ -282,6 +342,164 @@ defmodule Ankole.Pod.JobsBoard.Operations do
         ),
       run_now: map["run_now"] || map["runNow"]
     }
+  end
+
+  defp normalize_update_routine_attrs(raw) do
+    map = Map.new(raw, fn {k, v} -> {to_string(k), v} end)
+
+    %{
+      has_title?: Map.has_key?(map, "title"),
+      title: map["title"],
+      has_task?: Map.has_key?(map, "task"),
+      task: map["task"],
+      has_conversation?:
+        Map.has_key?(map, "conversation_id") or Map.has_key?(map, "conversationID"),
+      conversation_id: map["conversation_id"] || map["conversationID"],
+      has_repeat?: Map.has_key?(map, "repeat"),
+      repeat: map["repeat"],
+      remove_schedule: map["remove_schedule"] || map["removeSchedule"],
+      quiet_success:
+        if(Map.has_key?(map, "quiet_success"),
+          do: map["quiet_success"],
+          else: map["quietSuccess"]
+        )
+    }
+  end
+
+  defp build_routine_update_changes(actor, routine, attrs) do
+    with {:ok, title} <- if(attrs.has_title?, do: validate_title(attrs.title), else: {:ok, nil}),
+         {:ok, task} <- if(attrs.has_task?, do: validate_task(attrs.task), else: {:ok, nil}),
+         {:ok, schedule} <-
+           if(attrs.has_repeat? and not is_nil(attrs.repeat),
+             do:
+               with(
+                 {:ok, sched} <- validate_repeat(attrs.repeat),
+                 do: {:ok, Map.put(sched, "kind", "cron")}
+               ),
+             else: {:ok, nil}
+           ),
+         {:ok, room_id} <-
+           if(attrs.has_conversation? and attrs.conversation_id not in [nil, ""],
+             do: validate_agent_room(actor, routine.agent_uid, attrs.conversation_id),
+             else: {:ok, nil}
+           ) do
+      delivery =
+        %{}
+        |> then(fn map ->
+          if is_binary(room_id),
+            do: Map.put(map, "targets", [%{"conversation_id" => room_id}]),
+            else: map
+        end)
+        |> then(fn map ->
+          if is_boolean(attrs.quiet_success),
+            do: Map.put(map, "quiet_success", attrs.quiet_success),
+            else: map
+        end)
+
+      changes =
+        %{}
+        |> maybe_put_change("name", title)
+        |> maybe_put_change("task", task)
+        |> maybe_put_change("schedule", schedule)
+        |> then(fn map ->
+          if attrs.remove_schedule == true or (attrs.has_repeat? and is_nil(attrs.repeat)),
+            do: Map.put(map, "remove_schedule", true),
+            else: map
+        end)
+        |> then(fn map ->
+          if map_size(delivery) > 0, do: Map.put(map, "delivery", delivery), else: map
+        end)
+
+      {:ok, changes}
+    end
+  end
+
+  defp maybe_put_change(map, _key, nil), do: map
+  defp maybe_put_change(map, key, value), do: Map.put(map, key, value)
+
+  defp validate_routine_triggers(raw_repeat, raw_event_triggers) do
+    with {:ok, repeat} <- validate_optional_repeat(raw_repeat),
+         {:ok, triggers} <- validate_event_triggers(raw_event_triggers) do
+      if is_nil(repeat) and triggers == [] do
+        {:error, :invalid_job}
+      else
+        {:ok, repeat, triggers}
+      end
+    end
+  end
+
+  defp validate_optional_repeat(nil), do: {:ok, nil}
+
+  defp validate_optional_repeat(%{} = repeat) do
+    with {:ok, schedule} <- validate_repeat(repeat) do
+      {:ok, Map.put(schedule, "kind", "cron")}
+    end
+  end
+
+  defp validate_optional_repeat(_), do: {:error, :invalid_job}
+
+  defp validate_event_triggers(nil), do: {:ok, []}
+  defp validate_event_triggers([]), do: {:ok, []}
+
+  defp validate_event_triggers(list) when is_list(list) do
+    list
+    |> Enum.reduce_while({:ok, []}, fn raw, {:ok, acc} ->
+      case normalize_event_trigger(raw) do
+        {:ok, trigger} -> {:cont, {:ok, [trigger | acc]}}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+    |> case do
+      {:ok, triggers} -> {:ok, Enum.reverse(triggers)}
+      error -> error
+    end
+  end
+
+  defp validate_event_triggers(_), do: {:error, :invalid_job}
+
+  defp normalize_event_trigger(%{} = raw) do
+    map = Map.new(raw, fn {k, v} -> {to_string(k), v} end)
+    config_ref = map["config_ref"] || map["configRef"]
+
+    if is_binary(config_ref) and String.trim(config_ref) != "" do
+      {:ok,
+       %{
+         config_ref: String.trim(config_ref),
+         name: map["name"],
+         filters: map["filters"] || %{},
+         watched_field_ids: map["watched_field_ids"] || map["watchedFieldIDs"],
+         coalesce: map["coalesce"]
+       }}
+    else
+      {:error, :invalid_job}
+    end
+  end
+
+  defp normalize_event_trigger(_), do: {:error, :invalid_job}
+
+  defp attach_routine_event_triggers_in_tx(_actor, _routine_id, [], _create_status), do: :ok
+
+  defp attach_routine_event_triggers_in_tx(_actor, _routine_id, _triggers, :already_exists),
+    do: :ok
+
+  defp attach_routine_event_triggers_in_tx(actor, routine_id, triggers, :created) do
+    attrs_list =
+      Enum.map(triggers, fn trigger ->
+        %{
+          config_ref: trigger.config_ref,
+          agent_routine_id: routine_id,
+          filters: trigger.filters,
+          enabled: true
+        }
+        |> maybe_put_change(:name, trigger.name)
+        |> maybe_put_change(:watched_field_ids, trigger.watched_field_ids)
+        |> maybe_put_change(:coalesce, trigger.coalesce)
+      end)
+
+    case Signals.put_event_bindings_in_tx(actor, attrs_list) do
+      {:ok, _bindings} -> :ok
+      {:error, _} -> {:error, :invalid_job}
+    end
   end
 
   defp validate_repeat(%{} = repeat) do
@@ -304,24 +522,17 @@ defmodule Ankole.Pod.JobsBoard.Operations do
 
   defp validate_repeat(_), do: {:error, :invalid_job}
 
-  defp apply_cron_action(id, :pause), do: Schedule.pause_cron_schedule(id)
-  defp apply_cron_action(id, :resume), do: Schedule.resume_cron_schedule(id)
-  defp apply_cron_action(id, :remove), do: Schedule.remove_cron_schedule(id)
+  defp apply_routine_action(id, :pause), do: Schedule.pause_routine(id)
+  defp apply_routine_action(id, :resume), do: Schedule.resume_routine(id)
+  defp apply_routine_action(id, :remove), do: Schedule.remove_routine(id)
 
-  defp apply_cron_action(id, :run),
+  defp apply_routine_action(id, :run),
     do:
-      Schedule.run_cron_schedule(id,
+      Schedule.run_routine(id,
         idempotency_key: "pod-jobs-run:" <> Ankole.Ecto.UUIDv7.autogenerate()
       )
 
-  defp fetch_card(actor, card_id) do
-    with {:ok, %{items: items}} <- Queries.list(actor),
-         %{} = card <- Enum.find(items, &(&1.id == card_id)) do
-      {:ok, card}
-    else
-      _ -> {:error, :job_not_found}
-    end
-  end
+  defp fetch_card(actor, card_id), do: Queries.get_card(actor, card_id)
 
   defp normalize_dispatch_error({:ok, _} = ok), do: ok
 

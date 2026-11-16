@@ -31,15 +31,32 @@ defmodule Ankole.Files.Vfs.Auth do
   end
 
   def refresh(payload, library_only \\ false) do
-    Repo.transact_top_level(fn ->
-      with {:ok, _} <- context_in_tx(payload, library_only),
-           do:
-             SecretKeyBase.seal(
-               Torque.encode!(Map.put(payload, "expires_at", System.system_time(:second) + 3600)),
-               "drive.vfs",
-               []
-             )
-    end)
+    result =
+      Repo.transact_top_level(fn ->
+        with {:ok, _} <- context_in_tx(payload, library_only),
+             {:ok, refreshed_payload, disclosure_changed?} <- refreshed_payload_in_tx(payload),
+             {:ok, token} <-
+               SecretKeyBase.seal(Torque.encode!(refreshed_payload), "drive.vfs", []) do
+          {:ok, {token, disclosure_changed?}}
+        end
+      end)
+
+    case result do
+      {:ok, {token, true}} ->
+        Phoenix.PubSub.broadcast(
+          Ankole.PubSub,
+          "drive-vfs-access:" <> Repo.tenant_id!(),
+          :vfs_access_changed
+        )
+
+        {:ok, token}
+
+      {:ok, {token, false}} ->
+        {:ok, token}
+
+      error ->
+        error
+    end
   end
 
   def issue(agent_uid, metadata) do
@@ -53,6 +70,7 @@ defmodule Ankole.Files.Vfs.Auth do
       # Signal and each request rereads the Job's frozen Skill selection.
       payload = %{
         "tenant_id" => Repo.tenant_id!(),
+        "signal_id" => signal_id,
         "job_signal_id" => if(projection, do: signal_id),
         "agent_uid" => agent_uid,
         "disclosure" => context.disclosure,
@@ -116,7 +134,10 @@ defmodule Ankole.Files.Vfs.Auth do
              else: Brain.Access.for_querier(principal.uid)
            ),
          {:ok, brain_access} <-
-           if(library_only, do: {:ok, access}, else: Brain.Access.for_context(context)) do
+           if(library_only,
+             do: {:ok, access},
+             else: Brain.Access.for_context(context, access)
+           ) do
       {:ok,
        %{
          actor: Actor.new(principal),
@@ -132,24 +153,65 @@ defmodule Ankole.Files.Vfs.Auth do
     end
   end
 
+  defp refreshed_payload_in_tx(payload) do
+    expires_at = System.system_time(:second) + 3600
+
+    cond do
+      Map.has_key?(payload, "signal_id") ->
+        recompute_disclosure_in_tx(payload, payload["signal_id"], expires_at)
+
+      is_binary(payload["job_signal_id"]) and payload["job_signal_id"] != "" ->
+        recompute_disclosure_in_tx(payload, payload["job_signal_id"], expires_at)
+
+      true ->
+        {:ok, Map.put(payload, "expires_at", expires_at), false}
+    end
+  end
+
+  defp recompute_disclosure_in_tx(payload, signal_id, expires_at) do
+    case Brain.RequestContext.build(payload["agent_uid"], %{"signal_id" => signal_id}) do
+      {:ok, context} ->
+        previous = normalized_disclosure(payload["disclosure"])
+        current = normalized_disclosure(context.disclosure)
+
+        refreshed =
+          payload
+          |> Map.put("disclosure", context.disclosure)
+          |> Map.put("conversation_id", context.conversation_id)
+          |> Map.put("expires_at", expires_at)
+
+        {:ok, refreshed, previous != current}
+
+      {:error, _reason} ->
+        {:error, :unauthorized}
+    end
+  end
+
+  defp normalized_disclosure(value) do
+    parsed = disclosure(value || %{})
+    %{parsed | present_uids: Enum.sort(parsed.present_uids)}
+  end
+
   defp disclosure(value) do
+    raw_mode = Map.get(value, "mode", Map.get(value, :mode))
+
     %{
-      mode: if(value["mode"] == "strict", do: :strict, else: :relaxed),
-      asker_uid: value["asker_uid"],
-      present_uids: value["present_uids"] || []
+      mode: if(raw_mode in ["strict", :strict], do: :strict, else: :relaxed),
+      asker_uid: Map.get(value, "asker_uid", Map.get(value, :asker_uid)),
+      present_uids: Map.get(value, "present_uids", Map.get(value, :present_uids)) || []
     }
   end
 
   defp scope_key(payload, projection) do
-    disclosure = payload["disclosure"] |> Torque.encode!() |> Torque.decode!()
+    parsed = normalized_disclosure(payload["disclosure"])
 
     Kernel.vfs_fingerprint(
       Torque.encode!([
         payload["tenant_id"],
         payload["agent_uid"],
-        disclosure["mode"],
-        disclosure["asker_uid"],
-        Enum.sort(disclosure["present_uids"] || []),
+        Atom.to_string(parsed.mode),
+        parsed.asker_uid,
+        parsed.present_uids,
         projection
       ])
     )

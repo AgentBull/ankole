@@ -651,6 +651,9 @@ import type {
   UpdatePodAdminSettingsData,
   UpdatePodAdminSettingsErrors,
   UpdatePodAdminSettingsResponses,
+  UpdatePodJobRoutineData,
+  UpdatePodJobRoutineErrors,
+  UpdatePodJobRoutineResponses,
   UpdatePodProfileData,
   UpdatePodProfileErrors,
   UpdatePodProfileResponses,
@@ -849,6 +852,23 @@ export const updateConversationQueue = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/conversations/{id}/queue',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * updatePodJobRoutine operation on pod_job_operation resource
+ */
+export const updatePodJobRoutine = <ThrowOnError extends boolean = true>(
+  options: Options<UpdatePodJobRoutineData, ThrowOnError>
+): RequestResult<UpdatePodJobRoutineResponses, UpdatePodJobRoutineErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<UpdatePodJobRoutineResponses, UpdatePodJobRoutineErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/jobs/routines/cron/{raw_id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

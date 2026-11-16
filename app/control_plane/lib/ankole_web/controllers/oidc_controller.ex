@@ -247,6 +247,9 @@ defmodule AnkoleWeb.OIDCController do
           "authentication dependency unavailable"
         )
 
+      {:error, "invalid_request", description} ->
+        oauth_json_error(conn, 400, "invalid_request", description)
+
       _ ->
         conn
         |> put_resp_header("www-authenticate", "Basic realm=\"OIDC introspection\"")

@@ -76,7 +76,39 @@ defmodule Ankole.Brain.Access do
   def for_querier(uid), do: for_readers(uid, open_disclosure())
   def for_readers(uid, disclosure), do: for_context(%{querier_uid: uid, disclosure: disclosure})
 
-  def for_context(%{querier_uid: uid} = context) do
+  def for_context(context, querier_access \\ nil)
+
+  def for_context(
+        %{querier_uid: uid, disclosure: disclosure} = context,
+        %__MODULE__{querier_uid: uid, reachable: querier_reachable} = querier_access
+      ) do
+    recipients = recipients(disclosure)
+    authn = Map.get(context, :authn, %{})
+
+    cond do
+      disclosure.mode == :strict and recipients == [] ->
+        {:ok, %__MODULE__{querier_uid: uid}}
+
+      recipients -- [uid] == [] ->
+        {:ok, querier_access}
+
+      true ->
+        with {:ok, reachable} <-
+               intersect_readers(recipients -- [uid], querier_reachable, authn, []) do
+          {containers, pages} = Graph.visibility_ids(reachable)
+
+          {:ok,
+           %__MODULE__{
+             querier_uid: uid,
+             reachable: reachable,
+             containers: containers,
+             pages: pages
+           }}
+        end
+    end
+  end
+
+  def for_context(%{querier_uid: uid} = context, _querier_access) do
     with {:ok, reachable} <- visibility(context) do
       {containers, pages} = Graph.visibility_ids(reachable)
 
@@ -96,18 +128,22 @@ defmodule Ankole.Brain.Access do
     if disclosure.mode == :strict and recipients == [] do
       {:ok, %{}}
     else
-      [uid | recipients]
-      |> Enum.uniq()
-      |> Enum.reduce_while({:ok, nil}, fn reader, {:ok, accumulated} ->
-        with {:ok, principal} <- Ankole.Principals.get_principal(reader),
-             {:ok, reachable} <-
-               Graph.reachable_anchors(Ankole.AuthZ.Actor.new(principal, authn: authn), opts) do
-          {:cont, {:ok, intersect_reachable(accumulated, reachable)}}
-        else
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      intersect_readers([uid | recipients], nil, authn, opts)
     end
+  end
+
+  defp intersect_readers(readers, initial_reachable, authn, opts) do
+    readers
+    |> Enum.uniq()
+    |> Enum.reduce_while({:ok, initial_reachable}, fn reader, {:ok, accumulated} ->
+      with {:ok, principal} <- Ankole.Principals.get_principal(reader),
+           {:ok, reachable} <-
+             Graph.reachable_anchors(Ankole.AuthZ.Actor.new(principal, authn: authn), opts) do
+        {:cont, {:ok, intersect_reachable(accumulated, reachable)}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   def visible_node?(%__MODULE__{reachable: reachable}, node),

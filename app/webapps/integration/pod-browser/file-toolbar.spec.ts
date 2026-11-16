@@ -263,6 +263,7 @@ test('html file pages default to a sandboxed iframe preview with a unified toolb
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
   let id: string | undefined
+  let docId: string | undefined
   try {
     await page.goto(pageRoute(state.report_id))
     id = (await request<{ page: { id: string } }>(page, '/pages', 'POST', { type: 'file', title: 'HTML Applet' })).page
@@ -278,6 +279,7 @@ test('html file pages default to a sandboxed iframe preview with a unified toolb
           '<head><title>Sandboxed Applet</title></head>',
           '<body>',
           '<h1 id="heading">Interactive Report</h1>',
+          ...Array.from({ length: 180 }, (_, idx) => `<p>Section line ${idx + 1}</p>`),
           '<script>',
           'window.parentLeak = true;',
           'localStorage.setItem("draft", "ready");',
@@ -299,9 +301,17 @@ test('html file pages default to a sandboxed iframe preview with a unified toolb
 
     const download = page.getByRole('link', { name: '下载原文件', exact: true })
     const replaceButton = page.getByRole('button', { name: '选择替换文件', exact: true })
-    for (const width of [900, 390]) {
-      await page.setViewportSize({ width, height: 800 })
+    for (const [width, height, minStageHeight] of [
+      [1440, 1200, 900],
+      [900, 800, 520],
+      [390, 800, 480]
+    ] as const) {
+      await page.setViewportSize({ width, height })
       const stage = await page.getByTestId('html-file-preview-stage').boundingBox()
+      expect(stage!.height).toBeGreaterThanOrEqual(minStageHeight)
+      expect(stage!.y + stage!.height).toBeLessThanOrEqual(height)
+      const overflow = await page.locator('.pod-page-scroll').evaluate(el => el.scrollHeight - el.clientHeight)
+      expect(overflow).toBeLessThanOrEqual(1)
       for (const action of [download, replaceButton]) {
         await expect(action).toBeInViewport({ ratio: 1 })
         const bounds = await action.boundingBox()
@@ -311,10 +321,40 @@ test('html file pages default to a sandboxed iframe preview with a unified toolb
       }
     }
 
+    await page.setViewportSize({ width: 1440, height: 1200 })
     await sourceTab.click()
     await expect(sourceTab).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator('[data-file-line="1"] code')).toHaveText('<!doctype html>')
+    await expect(page.locator('[data-file-line="180"]')).toBeAttached()
+    const sourceScroller = page
+      .locator('[data-file-line="1"]')
+      .locator('xpath=ancestor::div[contains(@class,"overflow-auto")][1]')
+    const sourceBox = await sourceScroller.boundingBox()
+    expect(sourceBox!.height).toBeGreaterThanOrEqual(900)
+    expect(await sourceScroller.evaluate(el => el.scrollHeight - el.clientHeight)).toBeGreaterThan(1000)
+    expect(
+      await page.locator('.pod-page-scroll').evaluate(el => el.scrollHeight - el.clientHeight)
+    ).toBeLessThanOrEqual(1)
+
+    const doc = (
+      await request<{ page: { id: string; revision: number } }>(page, '/pages', 'POST', {
+        type: 'doc',
+        title: 'Embedded HTML Review'
+      })
+    ).page
+    docId = doc.id
+    await request(page, `/pages/${docId}/content`, 'PUT', {
+      base_revision: doc.revision,
+      xml: `<page><p>Before embed</p><embed ref="${id}"/><p>After embed</p></page>`
+    })
+    await page.setViewportSize({ width: 1280, height: 1000 })
+    await page.goto(pageRoute(docId))
+    const embeddedStage = page.locator('.pod-inline-page').getByTestId('html-file-preview-stage')
+    await expect(embeddedStage).toBeVisible({ timeout: 15_000 })
+    const embeddedBox = await embeddedStage.boundingBox()
+    expect(embeddedBox!.height).toBe(640)
   } finally {
+    if (docId) await request(page, `/pages/${docId}`, 'DELETE')
     if (id) await request(page, `/pages/${id}`, 'DELETE')
     await context.close()
   }

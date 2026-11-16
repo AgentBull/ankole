@@ -73,7 +73,11 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
         "item_id" => item_id
       }
       when is_binary(item_id) ->
-        {:ok, put_in(state.pending_completed[item_id], event), []}
+        if Map.has_key?(state.persisted_image_ids, item_id) do
+          {:ok, remember_public_event(state, event), [event]}
+        else
+          {:ok, put_in(state.pending_completed[item_id], event), []}
+        end
 
       %{"type" => "response.image_generation_call.completed"} = event ->
         fail_completed_item(

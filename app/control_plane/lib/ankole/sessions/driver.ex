@@ -13,6 +13,7 @@ defmodule Ankole.Sessions.Driver do
     defstruct [
       :turn,
       :stream,
+      :stream_monitor,
       :phase,
       :activity_conversation_id,
       :worker_cli_context_id,
@@ -156,7 +157,7 @@ defmodule Ankole.Sessions.Driver do
         transition({data, actions ++ Model.inactivity_deadline(data.turn.run)})
 
       {:terminal, outcome} ->
-        transition(advance(%{data | stream: nil}, {:model_closed, outcome}), actions)
+        transition(advance(clear_stream(data), {:model_closed, outcome}), actions)
     end
   end
 
@@ -174,6 +175,16 @@ defmodule Ankole.Sessions.Driver do
         Process.demonitor(ref, [:flush])
         transition(complete(%{data | tasks: tasks}, kind, result))
     end
+  end
+
+  def handle_event(
+        :info,
+        {:DOWN, ref, :process, _pid, _reason},
+        _state,
+        %{stream_monitor: ref} = data
+      )
+      when is_reference(ref) do
+    transition(advance(%{data | stream: nil, stream_monitor: nil}, {:model_closed, nil}))
   end
 
   def handle_event(:info, {:DOWN, ref, :process, _pid, reason}, _state, data) do
@@ -207,12 +218,11 @@ defmodule Ankole.Sessions.Driver do
     data = Activity.clear(data, "unavailable")
     Presentation.stop(run)
     if data.stream, do: AIGateway.cancel_response_stream(data.stream, "conversation_edit")
-    data = data |> finish_spans(error_type: "fenced") |> Tasks.clear_tasks()
+    data = data |> clear_stream() |> finish_spans(error_type: "fenced") |> Tasks.clear_tasks()
 
     next_data = %{
       data
       | turn: %Turn{key: data.turn.key},
-        stream: nil,
         early_stream: [],
         phase: nil
     }
@@ -303,9 +313,11 @@ defmodule Ankole.Sessions.Driver do
 
   # Stream handles and monitor references stay in the process adapter.
   defp complete(%{turn: %{stage: :requesting_model}} = data, :model, {:ok, stream, _meta}) do
+    data = clear_stream(data)
+    monitor = AIGateway.ResponseStream.monitor(stream)
     :ok = AIGateway.read_response_stream(stream)
     actions = Enum.map(Enum.reverse(data.early_stream), &{:next_event, :internal, &1})
-    {%{data | stream: stream, early_stream: []}, actions}
+    {%{data | stream: stream, stream_monitor: monitor, early_stream: []}, actions}
   end
 
   defp complete(data, :model, {:ok, stream, _meta}) do
@@ -369,8 +381,9 @@ defmodule Ankole.Sessions.Driver do
   defp execute(:open_model, data) do
     receiver = self()
     run = data.turn.run
+    data = clear_stream(data)
 
-    {Tasks.task(%{data | stream: nil, early_stream: []}, :model, fn ->
+    {Tasks.task(%{data | early_stream: []}, :model, fn ->
        Model.open(run, receiver)
      end), Model.inactivity_deadline(run)}
   end
@@ -529,7 +542,7 @@ defmodule Ankole.Sessions.Driver do
 
   defp execute({:cancel_stream, reason}, data) do
     if data.stream, do: AIGateway.cancel_response_stream(data.stream, reason)
-    {data, []}
+    {clear_stream(data), []}
   end
 
   defp execute({:present, events}, data),
@@ -585,7 +598,7 @@ defmodule Ankole.Sessions.Driver do
     data = Activity.clear(data, "unavailable")
     Presentation.stop(data.turn.run)
     if data.stream, do: AIGateway.cancel_response_stream(data.stream, "conversation_retry")
-    {data |> finish_spans(error_type: error["code"]) |> Tasks.clear_tasks(), []}
+    {data |> clear_stream() |> finish_spans(error_type: error["code"]) |> Tasks.clear_tasks(), []}
   end
 
   defp execute({:refund, reason}, data) do
@@ -685,6 +698,7 @@ defmodule Ankole.Sessions.Driver do
     Activity.clear(data, "unavailable")
     Tasks.clear_tasks(data)
     if data.stream, do: AIGateway.cancel_response_stream(data.stream, "driver_stopped")
+    data = clear_stream(data)
     run = data.turn.run
 
     if run && state not in [:backing_off, :deferred] &&
@@ -700,6 +714,13 @@ defmodule Ankole.Sessions.Driver do
 
     :ok
   end
+
+  defp clear_stream(%{stream_monitor: ref} = data) when is_reference(ref) do
+    Process.demonitor(ref, [:flush])
+    %{data | stream: nil, stream_monitor: nil}
+  end
+
+  defp clear_stream(data), do: %{data | stream: nil, stream_monitor: nil}
 
   defp session_signal(%{agent_uid: uid, session_id: session}, id) do
     case Ankole.Signals.get_signal!(id) do

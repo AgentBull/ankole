@@ -33,13 +33,16 @@ export function exitCode(code: string): number {
 export const CLIHelp = `Usage: ankole-browser [--session NAME] [--json] [--timeout MS] <command> ...
 
 Core commands:
-  open [URL]                         Open or navigate the current page
-  snapshot [-i] [-c] [-d N]         Print a Playwright AI snapshot with @eN refs
-  click|fill|type|hover|focus ...    Act on @eN refs or CSS selectors
-  get|is|find|wait ...               Observe or wait for page state
-  tab|frame|dialog ...               Manage browser-side state
-  screenshot [PATH] [--full]        Save a PNG artifact
-  batch [--bail] <COMMAND...>        Execute commands under one session lock
-  run <FILE.mjs> [-- ARGS...]        Execute model-written Playwright code
-  status|close                       Inspect or close the live browser
+  open [URL]                              Open or navigate the current page
+  snapshot [-i] [--diff] [-q PATTERN]     Print a Playwright AI snapshot with @eN refs
+  click|fill|select|... [--snap-diff]     Act on @eN refs or CSS selectors
+  get|is|find|wait ...                    Observe or wait for page state
+  diagnostics [--all] [--clear]           Inspect JS errors, 4xx/5xx requests, and downloads
+  network [status|default|no-media]       Inspect or toggle static media blocking
+  webmcp [list | call <TOOL> [JSON]]      Discover or invoke page WebMCP tools
+  tab|frame|dialog ...                    Manage browser-side state
+  screenshot [PATH] [--full]             Save a PNG artifact
+  batch [--bail] [--snap-diff] <CMD...>   Execute commands under one session lock
+  run <FILE.mjs> [-- ARGS...]             Execute model-written Playwright code
+  status|close                            Inspect or close the live browser
 `

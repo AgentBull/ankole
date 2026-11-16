@@ -78,27 +78,20 @@ defmodule Ankole.Plugins.WeComAdapter.Delivery do
   end
 
   defp send_markdown_chunks(client, delivery, chunks, _intent) do
-    chunks
-    |> Enum.reduce_while([], fn chunk, results ->
-      case send_markdown(client, delivery, chunk) do
-        {:ok, ack} ->
-          case confirmed_send_result(ack, chunk, %{"attachments" => []}) do
-            {:ok, record} -> {:cont, [record | results]}
-            {:unknown, _} = unknown -> {:halt, unknown}
-          end
+    with {:ok, results} <-
+           Ankole.Conversations.Delivery.send_chunks(chunks, fn chunk ->
+             case send_markdown(client, delivery, chunk) do
+               {:ok, ack} ->
+                 confirmed_send_result(ack, chunk, %{"attachments" => []})
 
-        {:error, _reason} when results != [] ->
-          {:halt, :unknown}
+               {:error, %Error{} = error} ->
+                 if uncertain?(error), do: :unknown, else: {:error, error}
 
-        {:error, _reason} = error ->
-          {:halt, error}
-      end
-    end)
-    |> case do
-      :unknown -> :unknown
-      {:unknown, _} = unknown -> unknown
-      {:error, _reason} = error -> error
-      results -> {:ok, combined_result(Enum.reverse(results))}
+               {:error, _reason} = error ->
+                 error
+             end
+           end) do
+      {:ok, combined_result(results)}
     end
   end
 
@@ -128,6 +121,9 @@ defmodule Ankole.Plugins.WeComAdapter.Delivery do
       |> case do
         {:ok, ack} ->
           confirmed_send_result(ack, nil, Map.put(intent.payload, "attachments", [attachment]))
+
+        {:error, %Error{} = error} ->
+          if uncertain?(error), do: :unknown, else: {:error, error}
 
         {:error, _reason} = error ->
           error
@@ -274,4 +270,9 @@ defmodule Ankole.Plugins.WeComAdapter.Delivery do
   end
 
   def normalize_delivery_result(result), do: result
+
+  @doc false
+  @spec uncertain?(Error.t()) :: boolean()
+  def uncertain?(%Error{reason: reason, http_status: status}),
+    do: reason in [:ack_timeout, :transport] or (is_integer(status) and status >= 500)
 end

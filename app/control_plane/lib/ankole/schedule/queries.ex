@@ -172,6 +172,63 @@ defmodule Ankole.Schedule.Queries do
     {latest_events, pending_manual_ids}
   end
 
+  def routine_cron_fire_rollups(schedules_by_routine) when is_map(schedules_by_routine) do
+    routine_by_cron =
+      for {routine_id, crons} <- schedules_by_routine,
+          cron <- crons,
+          into: %{},
+          do: {cron.id, routine_id}
+
+    cron_ids = Map.keys(routine_by_cron)
+
+    if cron_ids == [] do
+      {%{}, MapSet.new()}
+    else
+      unlinked_events =
+        ScheduledEvent
+        |> Ash.Query.filter(
+          cron_schedule_id in ^cron_ids and kind == "cron_fire" and is_nil(signal_id)
+        )
+        |> Ash.Query.distinct([:cron_schedule_id])
+        |> Ash.Query.distinct_sort(cron_schedule_id: :asc, due_at: :desc, id: :desc)
+        |> read()
+
+      latest_by_routine =
+        Enum.reduce(unlinked_events, %{}, fn event, acc ->
+          routine_id = Map.fetch!(routine_by_cron, event.cron_schedule_id)
+
+          Map.update(acc, routine_id, event, fn prev ->
+            if DateTime.compare(event.due_at, prev.due_at) == :gt, do: event, else: prev
+          end)
+        end)
+
+      pending_manual_routine_ids =
+        ScheduledEvent
+        |> Ash.Query.filter(
+          cron_schedule_id in ^cron_ids and kind == "cron_fire" and status == :scheduled
+        )
+        |> Ash.Query.select([:cron_schedule_id])
+        |> read()
+        |> Enum.map(&Map.fetch!(routine_by_cron, &1.cron_schedule_id))
+        |> MapSet.new()
+
+      {latest_by_routine, pending_manual_routine_ids}
+    end
+  end
+
+  def list_unlinked_cron_fire_events([], _limit), do: []
+
+  def list_unlinked_cron_fire_events(cron_ids, limit)
+      when is_list(cron_ids) and is_integer(limit) and limit > 0 do
+    ScheduledEvent
+    |> Ash.Query.filter(
+      cron_schedule_id in ^cron_ids and kind == "cron_fire" and is_nil(signal_id)
+    )
+    |> Ash.Query.sort(due_at: :desc, id: :desc)
+    |> Ash.Query.limit(limit)
+    |> read()
+  end
+
   def schedules_by_owner_jobs([]), do: %{}
 
   def schedules_by_owner_jobs(job_ids) when is_list(job_ids) do

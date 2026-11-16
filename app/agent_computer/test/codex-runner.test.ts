@@ -156,6 +156,15 @@ describe('@ankole/agent-computer Codex job runner', () => {
         traceparent,
         'x-ankole-observability-user-id': Buffer.from(observabilityUserID).toString('base64url')
       })
+      const shellEnv = threadStart.config.shell_environment_policy.set as Record<string, string>
+      expect(shellEnv.ANKOLE_RUNTIME_FILES_CLI_SOCKET).toEndWith('.sock')
+      expect(shellEnv.ANKOLE_RUNTIME_POD_CLI_SOCKET).toEndWith('.sock')
+      expect(shellEnv.ANKOLE_RUNTIME_WEBHOOK_CLI_SOCKET).toEndWith('.sock')
+      expect(shellEnv.ANKOLE_RUNTIME_CLI_CONTEXT_FILE).toEndWith('context-generation.json')
+      expect(existsSync(shellEnv.ANKOLE_RUNTIME_FILES_CLI_SOCKET!)).toBe(false)
+      expect(existsSync(shellEnv.ANKOLE_RUNTIME_POD_CLI_SOCKET!)).toBe(false)
+      expect(existsSync(shellEnv.ANKOLE_RUNTIME_WEBHOOK_CLI_SOCKET!)).toBe(false)
+      expect(existsSync(shellEnv.ANKOLE_RUNTIME_CLI_CONTEXT_FILE!)).toBe(false)
       const browserEnv = JSON.parse(
         readFileSync(join(jobProjectFor(fixture.root), 'browser-env.json'), 'utf8')
       ) as Record<string, string>
@@ -1492,7 +1501,6 @@ function options(
 
   return {
     agentHome,
-    workspaceRoot: join(agentHome, 'jobs', jobID),
     drive: new FakeDrive(agentHome).drive(),
     builtinSkillsRoot,
     browserRuntime,

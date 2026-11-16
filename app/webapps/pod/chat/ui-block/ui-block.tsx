@@ -5,7 +5,7 @@ import {
   withExternalTranslationGuardClass
 } from '../../../common/external-translation-guard'
 import { CodeBlockView } from '../code-block-view'
-import { compileUIBlock } from './compile'
+import { compileUIBlock, validateUIBlockState } from './compile'
 import { uiBlockRegistry } from './registry'
 import { useLatestHandlers } from './use-latest-handlers'
 import { useViewState } from './view-state'
@@ -22,7 +22,12 @@ export default function UIBlock({
   onReply?: (text: string) => void
 }) {
   const spec = useMemo(() => compileUIBlock(code, streaming), [code, streaming])
-  const store = useViewState(code, streaming, spec?.state)
+  const store = useViewState(
+    code,
+    streaming,
+    spec?.state,
+    spec ? candidate => validateUIBlockState(spec, candidate) : undefined
+  )
   const handlers = useLatestHandlers({
     reply: params => {
       if (typeof params.text === 'string' && params.text.trim()) onReply?.(params.text)

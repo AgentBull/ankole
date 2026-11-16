@@ -2,7 +2,7 @@ import i18n from '../common/i18n'
 import { InternalAPIError } from '../common/internal-api-client'
 import { requestErrorCode } from '../common/request-errors'
 import { chatError, podKeys } from './api'
-import { podJobRoutine, podJobs, podJobsSummary } from './api/generated/sdk.gen'
+import { podEventBindings, podJobRoutine, podJobs, podJobsSummary } from './api/generated/sdk.gen'
 import type { PodJobRoutineResponse, PodJobsResponse } from './api/generated/types.gen'
 
 export type JobBoardItem = PodJobsResponse['items'][number]
@@ -29,9 +29,16 @@ export const jobsKeys = {
     return [...jobsKeys.all, 'board'] as const
   },
   routine: (kind: JobRoutineKind, rawID: string) => [...jobsKeys.all, 'routine', kind, rawID] as const,
+  routineBindings: (rawID: string) => [...jobsKeys.all, 'routine-bindings', rawID] as const,
   execution: (kind: 'background_agent_job' | 'workflow', runID: string) =>
     [...jobsKeys.all, 'execution', kind, runID] as const
 }
+
+export const jobRoutineBindingsQuery = (rawID: string) => ({
+  queryKey: jobsKeys.routineBindings(rawID),
+  queryFn: ({ signal }: { signal: AbortSignal }) => podEventBindings({ query: { routine_id: rawID }, signal }),
+  retry: false
+})
 
 export const jobsSummaryQuery = {
   queryKey: jobsKeys.summary,
