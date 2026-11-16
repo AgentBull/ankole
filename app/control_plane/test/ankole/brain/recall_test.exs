@@ -69,10 +69,23 @@ defmodule Ankole.Brain.RecallTest do
   end
 
   test "a claim leaves recall when its Object is soft-deleted and its source stays live", ctx do
-    assert {:ok, _object} = Ankole.Brain.soft_delete_object(ctx.public.slug)
+    {:ok, source} =
+      page_fixture_result(
+        %{slug: "concepts/tanker-log", title: "Tanker log", body: "Shipping notes."},
+        :system
+      )
 
-    assert {:ok, result} = Recall.recall(ctx.member.uid, %{query: "crude oil"})
-    refute ctx.private.id in Enum.map(result.claims, & &1.id)
+    claim = fact(ctx.public.id, source.id, "Crude oil tankers wait outside Hormuz")
+
+    recalled_ids = fn ->
+      assert {:ok, result} = Recall.recall(ctx.member.uid, %{query: "crude oil"})
+      Enum.map(result.claims, & &1.id)
+    end
+
+    assert claim.id in recalled_ids.()
+    assert {:ok, _object} = Ankole.Brain.soft_delete_object(ctx.public.slug)
+    assert Ankole.Pod.page_live?(source.id)
+    refute claim.id in recalled_ids.()
   end
 
   test "strict disclosure intersects Agent, requester and every present recipient", ctx do
