@@ -317,7 +317,7 @@
   margin: 0 0 6px;
   padding-inline: 12px;
   color: var(--fg-secondary);
-  font-size: 12px;
+  font-size: var(--text-50);
   line-height: 18px;
 }
 .pod-chat-delegation-hint > svg {
@@ -332,7 +332,7 @@
   line-height: 18px;
 }
 .pod-mention-agent > small {
-  font-size: 11px;
+  font-size: var(--text-50);
   line-height: 15px;
 }
 .pod-chat-colleague-intro {
@@ -344,15 +344,15 @@
   width: 48px;
   height: 48px;
   margin-bottom: 12px;
-  font-size: 18px;
+  font-size: var(--text-200);
 }
 .pod-chat-colleague-uid {
   color: var(--fg-tertiary);
-  font-size: 13px;
+  font-size: var(--text-65);
 }
 .pod-chat-home-eyebrow {
   margin-bottom: 8px;
-  font-size: 13px;
+  font-size: var(--text-65);
   line-height: 20px;
   color: var(--fg-tertiary);
 }
@@ -364,7 +364,7 @@
 .pod-chat-home-subtitle {
   margin: 8px 0 16px;
   color: var(--fg-secondary);
-  font-size: 15px;
+  font-size: var(--text-85);
   line-height: 24px;
 }
 .pod-chat-home-guides {
@@ -395,7 +395,7 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   padding: 5px 12px;
-  font-size: 13px;
+  font-size: var(--text-65);
   line-height: 20px;
   color: var(--fg-secondary);
   text-align: left;
@@ -460,7 +460,7 @@
   padding: 4px 6px;
   margin-inline: -6px;
   border-radius: var(--radius-control);
-  font-size: 13px;
+  font-size: var(--text-65);
   line-height: 20px;
 }
 .pod-chat-recent-copy {
@@ -478,7 +478,7 @@
 /* A chat avatar takes its size, shape, fill, and edge from the kit (see `ChatAvatar`); chat sets only the type of its
    initials. */
 .pod-chat-avatar {
-  font-size: 10px;
+  font-size: var(--text-25);
   font-weight: 500;
 }
 .pod-chat-avatar [data-slot='avatar-fallback'] {
@@ -495,7 +495,7 @@
   border-radius: 50%;
   background: var(--layer-03);
   color: var(--fg-secondary);
-  font-size: 9px;
+  font-size: 9px; /* glyph */
 }
 .pod-chat-human-text .pod-chat-markdown p,
 .pod-chat-human-text .pod-chat-markdown li {
@@ -542,7 +542,7 @@
   border-radius: var(--radius-mini);
   padding: 2px 6px;
   background: var(--layer-hover);
-  font-size: 12px;
+  font-size: var(--text-50);
   color: var(--fg-secondary);
 }
 /* A room's right sidebar is its summary, an execution, or a file. A file's preview takes everything right of a 300px
@@ -680,11 +680,11 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   gap: 8px;
   min-width: 0;
   margin-block: 7px;
-  font-size: 12px;
+  font-size: var(--text-50);
 }
 .pod-chat-subtle {
   color: var(--fg-tertiary);
-  font-size: 12px;
+  font-size: var(--text-50);
 }
 .pod-chat-member > span:nth-child(2) {
   flex: 1;
@@ -717,7 +717,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 }
 .pod-chat-members h3,
 .pod-chat-access legend {
-  font-size: 12px;
+  font-size: var(--text-50);
   font-weight: 500;
 }
 .pod-chat-access {
@@ -728,7 +728,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-chat-access label {
   display: flex;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--text-50);
 }
 .pod-chat-find {
   @apply ceramic ceramic-primary;
@@ -748,7 +748,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-chat-find > span {
   min-width: 35px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--text-50);
   font-variant-numeric: tabular-nums;
   color: var(--fg-tertiary);
 }
@@ -798,7 +798,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-chat-section-more {
   width: 100%;
   color: var(--fg-tertiary);
-  font-size: 12px;
+  font-size: var(--text-50);
 }
 /* Sidebar conversation rows. A task row is one 32px line; a DM, group, or colleague row is the kit's two-line row
    (`SidebarMenuButton size="lg"` with a `SidebarMenuText`). In a task row the trailing slot keeps the state in one
@@ -836,7 +836,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   align-items: center;
   gap: 8px;
   padding: 0 4px 0 8px;
-  font-size: 13px;
+  font-size: var(--text-65);
 }
 /* A two-line row keeps its height and its avatar's place while its title is edited. */
 .pod-chat-row-editing[data-lines='2'] {
@@ -859,7 +859,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-conversation-glyph .pod-chat-avatar {
   width: 18px;
   height: 18px;
-  font-size: 9px;
+  font-size: 9px; /* glyph */
 }
 .pod-conversation-glyph[data-size='md'] {
   width: 24px;
@@ -872,7 +872,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-conversation-glyph[data-size='md'] .pod-chat-avatar {
   width: 24px;
   height: 24px;
-  font-size: 11px;
+  font-size: 11px; /* glyph */
 }
 /* In a one-line sidebar row the mark fills the row's 20px icon slot, as a page icon does. */
 [data-sidebar='menu-button'] .pod-conversation-glyph,
@@ -1053,7 +1053,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   border: 1px solid color-mix(in srgb, var(--fg-placeholder) 32%, var(--border-subtle));
   border-radius: var(--radius-mini, 4px);
   font-family: var(--font-family-sans);
-  font-size: 10px;
+  font-size: var(--text-25);
   font-weight: 500;
   line-height: 16px;
   color: var(--fg-placeholder);
@@ -1063,7 +1063,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
     background-color var(--duration-feedback, 120ms);
 }
 .pod-chat-composer-suggestion-glyph {
-  font-size: 11px;
+  font-size: var(--text-50);
   line-height: 1;
 }
 .pod-chat-composer-suggestion-accept:hover:not(:disabled) .pod-chat-composer-suggestion-kbd {
@@ -1103,7 +1103,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   border-radius: var(--radius-control);
   background: var(--layer-03);
   color: var(--fg-secondary);
-  font-size: 12px;
+  font-size: var(--text-50);
   line-height: 18px;
   margin-bottom: 8px;
 }
@@ -1307,7 +1307,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-50);
   color: var(--fg-secondary);
 }
 .pod-chat-embedded .pod-chat-room-body > .pod-chat-summary {
@@ -1399,7 +1399,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   border-radius: var(--radius-mini);
   padding: 2px 6px;
   background: var(--layer-hover);
-  font-size: 12px;
+  font-size: var(--text-50);
   color: var(--fg-secondary);
 }
 
@@ -1565,7 +1565,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   padding: 1px 8px;
   background: var(--layer-hover);
   color: var(--fg-secondary);
-  font-size: 12px;
+  font-size: var(--text-50);
   line-height: 18px;
   white-space: nowrap;
 }
@@ -1671,7 +1671,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   height: 14px;
   border-radius: 50%;
   background: var(--layer-03);
-  font-size: 8px;
+  font-size: 8px; /* glyph */
 }
 /* Chat prose is 14px primary text on a 26px line in the regular weight, with blocks 12px apart, as in a document,
    and no room before the first or after the last. The message, a list item, and a quote each stack their own blocks
@@ -1867,7 +1867,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   justify-content: center;
   gap: 8px;
   padding-right: 30px;
-  font-size: 12px;
+  font-size: var(--text-50);
   color: var(--fg-tertiary);
 }
 .pod-chat-lightbox-image {
@@ -1935,7 +1935,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-page-icon.pod-page-mark {
   width: 20px;
   height: 20px;
-  font-size: 16px;
+  font-size: var(--text-100);
 }
 img.pod-page-icon.pod-page-mark {
   padding: 1px;
@@ -2671,7 +2671,7 @@ summary.pod-chat-block-card-header:hover {
   margin-bottom: 8px;
   border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 8px;
-  font-size: 13px;
+  font-size: var(--text-65);
   line-height: 20px;
 }
 .pod-chat-answer-context > div {
@@ -3113,7 +3113,7 @@ summary.pod-chat-block-card-header:hover {
   padding: 10px 12px;
   color: var(--fg-primary);
   text-align: left;
-  font-size: 12px;
+  font-size: var(--text-50);
   line-height: 18px;
 }
 .pod-chat-turn-preview strong {
@@ -3121,7 +3121,7 @@ summary.pod-chat-block-card-header:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--text-65);
   line-height: 20px;
 }
 .pod-chat-turn-preview span {

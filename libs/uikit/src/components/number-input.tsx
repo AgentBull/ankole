@@ -206,7 +206,7 @@ function NumberInput({
       className={cn(
         'inline-flex h-8 w-full min-w-0 items-center overflow-hidden text-sm transition-[background-color,border-color,box-shadow] duration-(--duration-feedback)',
         variant === 'overlay'
-          ? 'h-9 rounded-[6px] border border-(--menu-field-edge) bg-(--menu-field) focus-within:border-[color-mix(in_srgb,var(--menu-icon-blue)_55%,transparent)] focus-within:shadow-[0_0_0_2px_color-mix(in_srgb,var(--menu-icon-blue)_12%,transparent)]'
+          ? 'h-9 rounded-(--menu-field-radius) border border-(--menu-field-edge) bg-(--menu-field) focus-within:border-[color-mix(in_srgb,var(--menu-icon-blue)_55%,transparent)] focus-within:shadow-[0_0_0_2px_color-mix(in_srgb,var(--menu-icon-blue)_12%,transparent)]'
           : 'rounded-control border border-field-edge border-b-field-border bg-field hover:bg-field-hover focus-within:border-control-edge focus-within:border-b-ring focus-within:bg-page focus-within:shadow-[inset_0_-1px_0_var(--color-ring)] data-disabled:border-b-transparent data-disabled:bg-field',
         className
       )}>

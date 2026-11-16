@@ -1337,7 +1337,7 @@ export function HtmlFilePreview({
                     allow="fullscreen"
                     srcDoc={srcDoc}
                     style={{ colorScheme: 'light' }}
-                    className="block h-full w-full flex-1 border-0 bg-white text-neutral-950"
+                    className="block h-full w-full flex-1 border-0 bg-white text-black"
                   />
                 </div>
               )}
@@ -1434,7 +1434,7 @@ export function HtmlFilePreview({
                   allow="fullscreen"
                   srcDoc={srcDoc}
                   style={{ colorScheme: 'light' }}
-                  className="block h-full w-full border-0 bg-white text-neutral-950"
+                  className="block h-full w-full border-0 bg-white text-black"
                 />
               )}
             </div>

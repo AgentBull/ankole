@@ -551,7 +551,7 @@ function RoutineInspectorContent({
               </section>
 
               {detail?.instructions ? (
-                <section className="pod-chat-inspector-outcome [&_.pod-chat-markdown]:text-[13px] [&_.pod-chat-markdown]:leading-5">
+                <section className="pod-chat-inspector-outcome [&_.pod-chat-markdown]:text-65 [&_.pod-chat-markdown]:leading-5">
                   <header>{t('pod.jobs.instructions')}</header>
                   <ChatMarkdown text={detail.instructions} />
                 </section>
@@ -572,7 +572,7 @@ function RoutineInspectorContent({
                             <ExecutionStatusMark status={exec.status} />
                           </span>
                           <span className="min-w-0 flex-1 truncate font-medium text-fg-primary">{exec.title}</span>
-                          <span className="shrink-0 text-[11px] text-fg-tertiary tabular-nums">
+                          <span className="shrink-0 text-50 text-fg-tertiary tabular-nums">
                             {formatRelativeTime(exec.completedAt ?? exec.startedAt ?? exec.createdAt, i18n.language)}
                           </span>
                           <CaretRightFilled
@@ -601,11 +601,11 @@ function RoutineInspectorContent({
                           </span>
                           <span className="font-medium text-fg-primary">{routineStatusLabel(entry.status, t)}</span>
                           {entry.trigger && (
-                            <span className="rounded-mini bg-layer-01 px-1.5 py-0.5 font-mono text-[11px] leading-3.5 text-fg-tertiary">
+                            <span className="rounded-mini bg-layer-01 px-1.5 py-0.5 font-mono text-50 leading-3.5 text-fg-tertiary">
                               {entry.trigger}
                             </span>
                           )}
-                          <span className="ms-auto shrink-0 text-[11px] text-fg-tertiary tabular-nums">
+                          <span className="ms-auto shrink-0 text-50 text-fg-tertiary tabular-nums">
                             {formatRelativeTime(entry.finishedAt ?? entry.startedAt, i18n.language)}
                           </span>
                         </div>

@@ -93,8 +93,8 @@ export function JobsBoardHeader({
             </BoardPresence>
           )}
           {attentionCount > 0 && (
-            <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-amber-40/70 bg-amber-10 px-2.5 text-xs leading-4 font-medium text-fg-primary dark:border-amber-80/55 dark:bg-amber-100/25">
-              <WarningRegular aria-hidden className="size-3.5 text-amber-80 dark:text-amber-50" />
+            <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-(--board-warning-chip-edge) bg-(--board-warning-chip) px-2.5 text-xs leading-4 font-medium text-fg-primary">
+              <WarningRegular aria-hidden className="size-3.5 text-(--board-warning-icon)" />
               {t('pod.jobs.summary_attention', { count: attentionCount })}
             </span>
           )}

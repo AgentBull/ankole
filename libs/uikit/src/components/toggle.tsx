@@ -6,7 +6,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@ankole/uikit/lib/utils'
 
 const toggleVariants = cva(
-  "group/toggle inline-flex items-center justify-center gap-1.5 rounded-control border border-transparent text-[13px] font-medium whitespace-nowrap text-fg-secondary transition-colors hover:bg-layer-hover hover:text-fg-primary focus-visible:outline-offset-1 disabled:pointer-events-none disabled:text-fg-disabled aria-invalid:border-destructive aria-pressed:bg-field aria-pressed:text-fg-primary [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/toggle inline-flex items-center justify-center gap-1.5 rounded-control border border-transparent text-65 font-medium whitespace-nowrap text-fg-secondary transition-colors hover:bg-layer-hover hover:text-fg-primary focus-visible:outline-offset-1 disabled:pointer-events-none disabled:text-fg-disabled aria-invalid:border-destructive aria-pressed:bg-field aria-pressed:text-fg-primary [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {

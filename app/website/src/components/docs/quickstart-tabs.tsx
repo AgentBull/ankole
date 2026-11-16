@@ -314,7 +314,7 @@ function SectionContent({
               ))}
 
               {step.caution ? (
-                <p className="mt-4 mb-0 border-l-2 border-amber-500/70 pl-4 text-sm leading-6 text-fg-primary">
+                <p className="mt-4 mb-0 border-l-2 border-warning pl-4 text-sm leading-6 text-fg-primary">
                   {step.caution}
                 </p>
               ) : null}

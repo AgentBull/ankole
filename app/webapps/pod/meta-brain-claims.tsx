@@ -100,7 +100,7 @@ function BrainClaimRow({
             }
             supersede.mutate(trimmed)
           }}>
-          <label htmlFor={inputId} className="block text-[11px] font-medium text-fg-secondary">
+          <label htmlFor={inputId} className="block text-50 font-medium text-fg-secondary">
             {t('pod.meta.claim_edit_label')}
           </label>
           <textarea
@@ -145,8 +145,8 @@ function BrainClaimRow({
         <div className="space-y-1.5">
           <p className="leading-relaxed text-fg-primary">{claim.claim}</p>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-fg-tertiary">
-              <Badge variant="outline" className="px-1.5 py-0 font-mono text-[10px]">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-50 text-fg-tertiary">
+              <Badge variant="outline" className="px-1.5 py-0 font-mono text-25">
                 {t(`pod.meta.claim_kind_${claim.kind}`, { defaultValue: claim.kind })}
               </Badge>
               {claim.source_title && !contextPageId && (
@@ -210,7 +210,7 @@ export function BrainNodeClaimsSection({ pageId }: { pageId: string }) {
 
   return (
     <div className="space-y-1.5 border-t border-border-subtle/70 pt-2.5">
-      <div className="flex items-center justify-between gap-2 text-[11px] font-medium text-fg-tertiary">
+      <div className="flex items-center justify-between gap-2 text-50 font-medium text-fg-tertiary">
         <span>{t('pod.meta.active_claims')}</span>
         {!claimsQuery.isPending && <span className="font-mono">{claims.length}</span>}
       </div>
@@ -219,7 +219,7 @@ export function BrainNodeClaimsSection({ pageId }: { pageId: string }) {
       ) : claimsQuery.error ? (
         <ContentError error={claimsQuery.error} retry={() => void claimsQuery.refetch()} />
       ) : claims.length === 0 ? (
-        <p className="text-[11px] text-fg-tertiary">{t('pod.meta.no_active_claims')}</p>
+        <p className="text-50 text-fg-tertiary">{t('pod.meta.no_active_claims')}</p>
       ) : (
         <ul className="max-h-52 space-y-1.5 overflow-y-auto pr-0.5">
           {claims.map(claim => (

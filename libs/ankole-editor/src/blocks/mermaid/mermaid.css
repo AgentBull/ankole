@@ -108,7 +108,6 @@
   --pele-surface: var(--layer-01);
   --pele-surface-alt: var(--layer-03);
   --pele-border: var(--border-subtle);
-  --pele-accent: var(--brand);
   --pele-critical: var(--destructive);
   --pele-error: var(--destructive);
   --pele-font: var(--font-family-sans);
@@ -233,7 +232,6 @@
   width: 16px;
   height: 16px;
   margin-left: auto;
-  color: var(--brand);
 }
 
 :where(.ankole-editor-overlay).mermaid-expanded {
@@ -336,7 +334,6 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   --pele-surface: var(--layer-01);
   --pele-surface-alt: var(--layer-03);
   --pele-border: var(--border-subtle);
-  --pele-accent: var(--brand);
   --pele-error: var(--destructive);
   --pele-font: var(--font-family-sans);
   --pele-font-mono: var(--font-family-mono);
@@ -393,7 +390,6 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   --pele-surface: var(--layer-01);
   --pele-surface-alt: var(--layer-03);
   --pele-border: var(--border-subtle);
-  --pele-accent: var(--brand);
   --pele-critical: var(--destructive);
   --pele-error: var(--destructive);
   --pele-font: var(--font-family-sans);

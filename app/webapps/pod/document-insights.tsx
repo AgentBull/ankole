@@ -70,7 +70,7 @@ export function DocumentInsights({
               </section>
               <section className="space-y-3">
                 <h3 className="text-sm font-semibold">{t('pod.document.source')}</h3>
-                <dl className="pod-document-source grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[13px]">
+                <dl className="pod-document-source grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-65">
                   <dt className="text-fg-tertiary">{t('pod.document.created')}</dt>
                   <dd className="m-0">
                     <time dateTime={insights.data.created_at}>{date(insights.data.created_at)}</time>

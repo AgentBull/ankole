@@ -1,4 +1,6 @@
 @theme static {
+  /* Ankole defines its own palette; Tailwind's default colours do not exist. */
+  --color-*: initial;
   --color-white: #ffffff;
   --color-black: #000000;
 
@@ -434,6 +436,8 @@
   --color-page: var(--page);
   /* The ground is an image in both themes, so `bg-ground` paints it as the element's background image. */
   --background-image-ground: var(--ground);
+  --color-destructive-solid: var(--destructive-solid);
+  --color-destructive-solid-hover: var(--destructive-solid-hover);
 }
 
 :root {
@@ -657,6 +661,47 @@
   --fog-rose: rgb(255 210 220 / 0.64);
   --fog-sage: rgb(218 228 214 / 0.7);
   --fog-warm: rgb(255 228 200 / 0.62);
+
+  /* A solid destructive button fills with red-80 and darkens to red-90 under the pointer in both themes. */
+  --destructive-solid: var(--color-red-80);
+  --destructive-solid-hover: var(--color-red-90);
+
+  /* Component roles that depart from the semantic layer. */
+  --switch-track: var(--color-gray-70);
+  --switch-track-disabled: var(--color-gray-50);
+  --badge-secondary-hover: var(--color-gray-50);
+  --table-head-border: var(--color-gray-50);
+  /* A field inside a menu or the composer rounds to 6px, between the control and the surface radius. */
+  --menu-field-radius: 6px;
+  /* A board card's tone dot and the edges of its warning and danger states. */
+  --board-tone-gray: var(--color-gray-50);
+  --board-tone-blue: var(--color-blue-50);
+  --board-tone-amber: var(--color-amber-50);
+  --board-tone-purple: var(--color-purple-50);
+  --board-tone-green: var(--color-green-50);
+  --board-tone-red: var(--color-red-50);
+  --board-progress-warning: var(--color-amber-60);
+  --board-warning-edge: color-mix(in oklab, var(--color-amber-50) 75%, transparent);
+  --board-danger-edge: color-mix(in oklab, var(--color-red-40) 65%, transparent);
+  /* The pill that names who is working on a board, and the pill that counts the jobs needing attention. */
+  --board-chip: var(--color-blue-10);
+  --board-chip-edge: color-mix(in oklab, var(--color-blue-30) 60%, transparent);
+  --board-warning-chip: var(--color-amber-10);
+  --board-warning-chip-edge: color-mix(in oklab, var(--color-amber-40) 70%, transparent);
+  --board-warning-icon: var(--color-amber-80);
+  /* A found match in a Page, and the match the find bar points at. */
+  --search-mark: var(--badge-yellow);
+  --search-mark-current: color-mix(in oklab, var(--color-amber-50) 55%, transparent);
+  --search-mark-current-edge: var(--color-amber-90);
+  /* The caret and selection of the Word, spreadsheet, and presentation editors. */
+  --doc-accent: var(--color-blue-60);
+  /* JSON and code tokens. */
+  --syntax-key: var(--color-blue-70);
+  --syntax-string: var(--color-teal-80);
+  --syntax-number: var(--color-purple-70);
+  --syntax-boolean: var(--color-green-80);
+  --syntax-null: var(--color-red-70);
+  --syntax-punctuation: var(--color-gray-80);
 }
 
 [data-theme='dark'] {
@@ -825,6 +870,25 @@
   --fog-rose: rgb(140 28 54 / 0.36);
   --fog-sage: rgb(26 80 66 / 0.4);
   --fog-warm: rgb(110 70 30 / 0.3);
+
+  --switch-track: var(--color-gray-80);
+  --switch-track-disabled: var(--color-gray-90);
+  --badge-secondary-hover: var(--color-gray-80);
+  --table-head-border: var(--color-gray-90);
+  --board-warning-edge: color-mix(in oklab, var(--color-amber-60) 50%, transparent);
+  --board-danger-edge: color-mix(in oklab, var(--color-red-50) 50%, transparent);
+  --board-chip: color-mix(in oklab, var(--color-blue-100) 45%, transparent);
+  --board-chip-edge: color-mix(in oklab, var(--color-blue-80) 60%, transparent);
+  --board-warning-chip: color-mix(in oklab, var(--color-amber-100) 25%, transparent);
+  --board-warning-chip-edge: color-mix(in oklab, var(--color-amber-80) 55%, transparent);
+  --board-warning-icon: var(--color-amber-50);
+  --search-mark: color-mix(in oklab, var(--color-yellow-80) 42%, transparent);
+  --syntax-key: var(--color-blue-30);
+  --syntax-string: var(--color-teal-30);
+  --syntax-number: var(--color-purple-30);
+  --syntax-boolean: var(--color-green-30);
+  --syntax-null: var(--color-red-30);
+  --syntax-punctuation: var(--color-gray-60);
 }
 
 /* Applet CSS contract. Agents build Applets without Tailwind and style them through CSS variables (see the Pod CLI

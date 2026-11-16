@@ -58,7 +58,7 @@ export function PrincipalBadge({
       <span className="truncate text-sm font-medium text-fg-primary">{displayName}</span>
       {showUid && displayName !== uid && <span className="truncate text-xs text-fg-secondary">@{uid}</span>}
       {kind === 'agent' && agentLabel && (
-        <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px]">
+        <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-25">
           {agentLabel}
         </Badge>
       )}

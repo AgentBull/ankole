@@ -1228,8 +1228,10 @@ export function WordDocumentSurface({
                                 key={`find-${mIdx}-${rIdx}`}
                                 aria-hidden
                                 className={cn(
-                                  'pointer-events-none absolute rounded-[2px]',
-                                  mIdx === findIndex ? 'bg-amber-400/55 ring-1 ring-amber-600' : 'bg-yellow-300/40'
+                                  'pointer-events-none absolute rounded-micro',
+                                  mIdx === findIndex
+                                    ? 'bg-(--search-mark-current) ring-1 ring-(--search-mark-current-edge)'
+                                    : 'bg-(--search-mark)'
                                 )}
                                 style={{
                                   left: rect.x * cssScale,
@@ -1266,7 +1268,7 @@ export function WordDocumentSurface({
                             return pageRects.map((rect, rIdx) => (
                               <div
                                 key={`lock-${lIdx}-${rIdx}`}
-                                className="absolute rounded-[3px]"
+                                className="absolute rounded-mini"
                                 style={{
                                   left: Math.max(0, rect.x * cssScale - 3),
                                   top: Math.max(0, rect.y * cssScale - 2),
@@ -1276,7 +1278,7 @@ export function WordDocumentSurface({
                                 }}>
                                 {rIdx === 0 && (
                                   <span
-                                    className="absolute -top-5 right-0 rounded-xs px-1.5 py-0.5 text-[10px] leading-none font-medium whitespace-nowrap text-white shadow-xs"
+                                    className="absolute -top-5 right-0 rounded-xs px-1.5 py-0.5 text-25 leading-none font-medium whitespace-nowrap text-white shadow-xs"
                                     style={{ backgroundColor: `var(${collab.color})` }}>
                                     {t('pod.office.locked_by', { name: collab.name })}
                                   </span>
@@ -1294,7 +1296,7 @@ export function WordDocumentSurface({
                           <div
                             key={`local-sel-${rIdx}`}
                             aria-hidden
-                            className="pointer-events-none absolute bg-blue-60/22"
+                            className="pointer-events-none absolute bg-(--doc-accent)/22"
                             style={{
                               left: rect.x * cssScale,
                               top: rect.y * cssScale,
@@ -1308,7 +1310,7 @@ export function WordDocumentSurface({
                       {editable && selectionRects.length === 0 && caretRect && caretRect.page === idx && (
                         <div
                           aria-hidden
-                          className="pointer-events-none absolute w-[2px] animate-pulse bg-blue-60"
+                          className="pointer-events-none absolute w-[2px] animate-pulse bg-(--doc-accent)"
                           style={{
                             left: caretRect.x * cssScale,
                             top: caretRect.y * cssScale,

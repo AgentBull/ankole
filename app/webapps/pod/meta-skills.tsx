@@ -277,7 +277,7 @@ function SkillRow({ skill }: { skill: MetaSkill }) {
             <Link to={`/meta/skills/${skill.slug}`} className="font-semibold hover:underline">
               {skill.name}
             </Link>
-            <code className="rounded-mini bg-layer-03 px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
+            <code className="rounded-mini bg-layer-03 px-1.5 py-0.5 font-mono text-50 text-fg-secondary">
               /{skill.slug}
             </code>
             {isPersonal ? (

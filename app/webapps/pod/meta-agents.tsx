@@ -286,11 +286,11 @@ function AgentSkillsSection({ agent }: { agent: MetaAgent }) {
                   <label htmlFor={switchId} className="font-medium text-sm text-fg-primary">
                     {skill.name}
                   </label>
-                  <code className="rounded-mini bg-layer-03 px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
+                  <code className="rounded-mini bg-layer-03 px-1.5 py-0.5 font-mono text-50 text-fg-secondary">
                     /{skill.slug}
                   </code>
                   {isPersonal && (
-                    <span className="rounded-mini bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+                    <span className="rounded-mini bg-primary/10 px-1.5 py-0.5 text-50 font-medium text-primary">
                       {t('pod.meta.scope_personal_badge', { defaultValue: 'Personal' })}
                     </span>
                   )}

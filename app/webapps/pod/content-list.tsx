@@ -604,7 +604,7 @@ function ContentListFrame({ title, actions, children }: { title: string; actions
 }
 
 const listLinkClass =
-  'pod-content-list-link flex min-h-8 min-w-0 items-center gap-3 rounded-control px-3 py-1 text-[13px] leading-5 text-fg-primary no-underline hover:bg-layer-hover focus-visible:bg-layer-hover focus-visible:outline-2 focus-visible:outline-ring'
+  'pod-content-list-link flex min-h-8 min-w-0 items-center gap-3 rounded-control px-3 py-1 text-65 leading-5 text-fg-primary no-underline hover:bg-layer-hover focus-visible:bg-layer-hover focus-visible:outline-2 focus-visible:outline-ring'
 
 function PageListItem({
   page: sourcePage,
@@ -653,12 +653,12 @@ function PageListItem({
         {showSnippet && match?.snippet && <SearchSnippet snippet={match.snippet} className="mt-0.5" />}
       </span>
       {targetBadge && (
-        <span className="max-w-44 shrink-0 truncate rounded-mini bg-layer-03 px-1.5 py-0.5 text-[11px] leading-4 text-fg-secondary">
+        <span className="max-w-44 shrink-0 truncate rounded-mini bg-layer-03 px-1.5 py-0.5 text-50 leading-4 text-fg-secondary">
           {targetBadge}
         </span>
       )}
       {showPrivateBadge && (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-mini bg-layer-03 px-1.5 py-0.5 text-[11px] leading-4 text-fg-secondary">
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-mini bg-layer-03 px-1.5 py-0.5 text-50 leading-4 text-fg-secondary">
           <LockClosedRegular aria-hidden className="size-3" />
           {t('pod.content.private')}
         </span>

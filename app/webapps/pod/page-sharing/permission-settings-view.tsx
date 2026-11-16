@@ -54,7 +54,7 @@ export function PermissionSettingsView({
 
         <section className="grid gap-2">
           <div className="grid gap-0.5">
-            <h3 className="text-[13px] font-medium text-fg-primary">{t('pod.sharing.advanced_rules_title')}</h3>
+            <h3 className="text-65 font-medium text-fg-primary">{t('pod.sharing.advanced_rules_title')}</h3>
             <p className="text-xs leading-4 text-fg-secondary">{t('pod.sharing.advanced_rules_desc')}</p>
           </div>
 

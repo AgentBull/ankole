@@ -43,7 +43,7 @@ export function AccessWaterfallView({ explain, compact = false }: { explain: Pag
             <div className="font-medium text-fg-primary">
               {explain.subject_name}
               {explain.authority_uid !== explain.subject_uid && (
-                <span className="ml-1 font-mono text-[11px] font-normal text-fg-tertiary">
+                <span className="ml-1 font-mono text-50 font-normal text-fg-tertiary">
                   {`(@${explain.authority_uid})`}
                 </span>
               )}
@@ -92,7 +92,7 @@ export function AccessWaterfallView({ explain, compact = false }: { explain: Pag
                   />
                   <span className="truncate">{`${index + 1}. ${title}`}</span>
                 </span>
-                <Badge variant={badgeVariant} className="shrink-0 px-1.5 py-0 text-[10px]">
+                <Badge variant={badgeVariant} className="shrink-0 px-1.5 py-0 text-25">
                   {stageStatusText(stage.status, t)}
                 </Badge>
               </div>

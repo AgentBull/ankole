@@ -205,7 +205,7 @@ body:has(.pod-shell) [data-slot='dialog-content']:has(> form.contents > .pod-dia
 
 body:has(.pod-shell) [data-slot='dialog-title'] {
   padding-right: 24px;
-  font-size: 16px;
+  font-size: var(--text-100);
   line-height: 24px;
   font-weight: 600;
 }
@@ -433,7 +433,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   justify-content: center;
   color: var(--nav-icon, var(--fg-tertiary));
   text-align: center;
-  font-size: 15px;
+  font-size: var(--text-85);
   line-height: 1;
 }
 
@@ -517,14 +517,9 @@ body:has(.pod-shell) .pod-command-dialog[data-slot='dialog-content'] {
 .pod-search-mark {
   padding-inline: 2px;
   border-radius: 2px;
-  background-color: var(--badge-yellow);
+  background-color: var(--search-mark);
   color: var(--fg-primary);
   font-weight: 500;
-}
-
-[data-theme='dark'] .pod-search-mark {
-  background-color: color-mix(in oklab, var(--color-yellow-80) 42%, transparent);
-  color: var(--fg-primary);
 }
 
 @media (forced-colors: active) {

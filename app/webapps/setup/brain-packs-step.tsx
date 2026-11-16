@@ -91,7 +91,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
             <div className="grid gap-1.5 rounded-control bg-layer-03/30 px-3.5 py-3 [overflow-wrap:anywhere]">
               <span className="text-xs text-fg-secondary">{t('setup.tenant_slug')}</span>
               {model.editingSlug.value ? (
-                <div className="flex items-center gap-2 text-[13px]">
+                <div className="flex items-center gap-2 text-65">
                   <Input
                     id={slugID}
                     aria-label={t('setup.tenant_slug')}
@@ -121,7 +121,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
                   </Button>
                 </div>
               ) : (
-                <div className="flex min-h-8 items-center gap-2 font-mono text-[13px]">
+                <div className="flex min-h-8 items-center gap-2 font-mono text-65">
                   <span className="min-w-0 flex-1">
                     {slug ||
                       t(model.transliteration.value === 'loading' ? 'setup.slug_pending' : 'setup.slug_required')}

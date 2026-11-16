@@ -87,7 +87,7 @@ function TableHead({ className, scope = 'col', ...props }: React.ComponentProps<
       data-slot="table-head"
       scope={scope}
       className={cn(
-        'h-8 border-b border-gray-50 px-3 text-left align-middle text-xs leading-4 font-medium whitespace-nowrap text-fg-secondary dark:border-gray-90 [&:has([role=checkbox])]:pr-0',
+        'h-8 border-b border-(--table-head-border) px-3 text-left align-middle text-xs leading-4 font-medium whitespace-nowrap text-fg-secondary [&:has([role=checkbox])]:pr-0',
         className
       )}
       {...props}

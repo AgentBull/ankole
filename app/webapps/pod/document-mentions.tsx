@@ -69,7 +69,7 @@ function PrincipalAvatar({
 }) {
   const [failed, setFailed] = useState(false)
   const initial = avatarInitials(name)
-  const shape = isAgent ? 'rounded-[6px]' : 'rounded-full'
+  const shape = isAgent ? 'rounded-[25%]' : 'rounded-full'
   if (avatarUrl && !failed) {
     return (
       <img

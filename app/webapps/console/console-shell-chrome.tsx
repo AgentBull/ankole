@@ -206,7 +206,7 @@ function ConsoleFrame() {
         <div className="flex min-w-0 items-center gap-2">
           <Link to="/" className="flex min-w-0 items-center gap-2.5 rounded-control py-1 pr-1.5">
             <BrandIcon className="size-6 shrink-0" />
-            <h1 className="truncate text-[13px] font-semibold tracking-normal">{t('console.title')}</h1>
+            <h1 className="truncate text-65 font-semibold tracking-normal">{t('console.title')}</h1>
           </Link>
         </div>
         {/* The top bar spans the whole window, so the account actions sit at its far end. */}
@@ -310,7 +310,7 @@ function ConsoleFrame() {
                 <SheetHeader className="flex-row items-center justify-between border-b border-border-subtle p-3">
                   <div className="flex min-w-0 items-center gap-2.5">
                     <BrandIcon className="size-6 shrink-0" />
-                    <SheetTitle className="truncate text-[13px] font-semibold text-fg-primary">
+                    <SheetTitle className="truncate text-65 font-semibold text-fg-primary">
                       {t('console.title')}
                     </SheetTitle>
                   </div>
@@ -499,7 +499,7 @@ function ConsoleNavLink({
       aria-current={isActive ? 'page' : undefined}
       onClick={onNavigate}
       className={cn(
-        'nav-row flex items-center gap-2 rounded-control px-2 text-left text-[13px] leading-5 focus-visible:-outline-offset-2',
+        'nav-row flex items-center gap-2 rounded-control px-2 text-left text-65 leading-5 focus-visible:-outline-offset-2',
         mobile ? 'min-h-10 py-2' : 'min-h-7 py-0.5'
       )}>
       <Icon className="size-4 shrink-0 text-(--nav-icon)" aria-hidden />

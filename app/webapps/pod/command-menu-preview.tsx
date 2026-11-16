@@ -183,7 +183,7 @@ export function CommandMenuPreview({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-tertiary">
-            <code className="rounded-mini bg-layer-03 px-1.5 py-0.5 font-mono text-[11px] text-fg-secondary">
+            <code className="rounded-mini bg-layer-03 px-1.5 py-0.5 font-mono text-50 text-fg-secondary">
               /{activeEntry.skill.slug}
             </code>
             <span>·</span>
@@ -273,7 +273,7 @@ export function CommandMenuPreview({
                       block.kind === 'heading'
                         ? 'font-medium text-fg-primary'
                         : block.kind === 'code'
-                          ? 'overflow-x-auto rounded-mini bg-layer-03 px-2 py-1 font-mono text-[11px]'
+                          ? 'overflow-x-auto rounded-mini bg-layer-03 px-2 py-1 font-mono text-50'
                           : block.kind === 'quote'
                             ? 'border-l-2 border-border-subtle pl-2 italic'
                             : 'line-clamp-3'
@@ -291,7 +291,7 @@ export function CommandMenuPreview({
                 {(() => {
                   const badge = formatSearchTargetBadge(previewMatch.primary_target, t)
                   return badge ? (
-                    <span className="inline-block rounded-mini bg-layer-03 px-1.5 py-0.5 text-[11px] text-fg-secondary">
+                    <span className="inline-block rounded-mini bg-layer-03 px-1.5 py-0.5 text-50 text-fg-secondary">
                       {badge}
                     </span>
                   ) : null

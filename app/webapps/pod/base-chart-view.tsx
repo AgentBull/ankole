@@ -702,7 +702,7 @@ function ChartDisplayOptionsPopover({
               <span>{t('pod.content.cumulative_total', { defaultValue: 'Cumulative running total' })}</span>
             </label>
             {!cumulativeAllowed && (
-              <p className="text-[11px] text-fg-tertiary">
+              <p className="text-50 text-fg-tertiary">
                 {t('pod.content.cumulative_sum_count_only', {
                   defaultValue: 'Available for Count and Sum metrics.'
                 })}

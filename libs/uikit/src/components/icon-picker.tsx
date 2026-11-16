@@ -246,7 +246,7 @@ function IconUploadDialog({ labels, upload }: { labels: IconPickerLabels; upload
         </DialogHeader>
         <PictureDropzone file={file} busy={busy} labels={labels} onFile={choose} />
         <div className="flex flex-col gap-1.5">
-          <label className="text-[13px] leading-5 font-medium text-fg-primary" htmlFor={inputID}>
+          <label className="text-65 leading-5 font-medium text-fg-primary" htmlFor={inputID}>
             {labels.uploadNameLabel}
           </label>
           <Input

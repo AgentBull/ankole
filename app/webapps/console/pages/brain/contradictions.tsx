@@ -128,7 +128,7 @@ export function BrainContradictionsPage() {
           <BrainPageLink pageID={objectSlug} />
         ) : text ? (
           <Link
-            className="link text-[11px] text-fg-secondary"
+            className="link text-50 text-fg-secondary"
             {...linkTarget(`/brain/claims?search=${encodeURIComponent(text)}`)}>
             {t('console.brain.claims')}
           </Link>

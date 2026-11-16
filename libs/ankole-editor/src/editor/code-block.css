@@ -235,7 +235,6 @@
 :where(.ankole-editor-overlay).code-language-menu .code-language-check {
   width: 16px;
   height: 16px;
-  color: var(--brand);
 }
 
 :where(.ankole-editor-overlay).code-language-menu .code-language-empty {

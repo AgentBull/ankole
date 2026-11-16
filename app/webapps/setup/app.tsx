@@ -140,7 +140,7 @@ export function SetupApp() {
                     aria-current={itemState === 'current' ? 'step' : undefined}
                     disabled={!navigable}
                     onClick={() => item.id !== 'bootstrap' && progress.select(item.id)}
-                    className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] leading-5 whitespace-nowrap transition-colors focus-visible:-outline-offset-2 enabled:cursor-pointer disabled:cursor-default ${
+                    className={`flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-65 leading-5 whitespace-nowrap transition-colors focus-visible:-outline-offset-2 enabled:cursor-pointer disabled:cursor-default ${
                       itemState === 'current'
                         ? 'bg-layer-hover text-fg-primary'
                         : itemState === 'locked'
@@ -148,7 +148,7 @@ export function SetupApp() {
                           : 'text-fg-secondary enabled:hover:bg-layer-hover/60 enabled:hover:text-fg-primary'
                     }`}>
                     <span
-                      className={`grid w-5 shrink-0 place-items-center font-mono text-[11px] leading-none ${
+                      className={`grid w-5 shrink-0 place-items-center font-mono text-50 leading-none ${
                         itemState === 'current' ? 'text-fg-primary' : 'text-fg-secondary'
                       }`}>
                       {itemState === 'completed' ? (

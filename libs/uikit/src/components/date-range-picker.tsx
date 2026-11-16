@@ -354,7 +354,7 @@ function CalendarMonth({
               <th
                 key={index}
                 scope="col"
-                className="size-8 text-center text-[11px] font-medium text-fg-secondary select-none">
+                className="size-8 text-center text-50 font-medium text-fg-secondary select-none">
                 {dayLabel}
               </th>
             ))}
@@ -498,7 +498,7 @@ export function DatePicker({
           <CalendarRegular aria-hidden="true" className="size-4 shrink-0 text-fg-secondary" />
           <span className={cn('tabular-nums', !selected && 'text-fg-placeholder')}>{selected ?? placeholder}</span>
           {timezone && (
-            <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px] font-normal">
+            <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-25 font-normal">
               {timezone}
             </Badge>
           )}
@@ -645,7 +645,7 @@ export function DateRangePicker({
           <CalendarRegular aria-hidden="true" className="size-4 shrink-0 text-fg-secondary" />
           <span className={cn('tabular-nums', !summary && 'text-fg-placeholder')}>{summary ?? placeholder}</span>
           {timezone && (
-            <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px] font-normal">
+            <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-25 font-normal">
               {timezone}
             </Badge>
           )}

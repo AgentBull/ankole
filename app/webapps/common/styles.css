@@ -23,7 +23,7 @@
 
 .ak-auth-card h1 {
   margin: 4px 0 8px;
-  font-size: 32px;
+  font-size: var(--text-500);
   line-height: 1.12;
   letter-spacing: 0;
 }
@@ -72,13 +72,13 @@
 
 .ak-login-provider strong {
   display: block;
-  font-size: 14px;
+  font-size: var(--text-75);
 }
 
 .ak-login-provider small {
   display: block;
   color: var(--fg-secondary);
-  font-size: 12px;
+  font-size: var(--text-50);
   line-height: 1.45;
 }
 
@@ -102,7 +102,7 @@
   gap: 12px;
   margin-top: 18px;
   color: var(--fg-secondary);
-  font-size: 12px;
+  font-size: var(--text-50);
 }
 
 .ak-login-divider::before,

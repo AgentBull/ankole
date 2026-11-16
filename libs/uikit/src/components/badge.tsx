@@ -11,14 +11,14 @@ const badgeVariants = cva(
       // `sm` fits inside a 28px navigation row or tab, so a count or a short state sits beside a label.
       size: {
         default: 'h-6 min-w-8 px-2 text-xs',
-        sm: 'h-4 min-w-4 px-1.5 text-[11px] tabular-nums'
+        sm: 'h-4 min-w-4 px-1.5 text-50 tabular-nums'
       },
       variant: {
         // A status badge is the status background with ink text, in both themes.
         info: 'bg-badge-blue text-fg-primary hover:bg-badge-blue-hover [a]:hover:text-fg-primary',
         success: 'bg-badge-green text-fg-primary hover:bg-badge-green-hover [a]:hover:text-fg-primary',
         warning: 'bg-badge-yellow text-fg-primary hover:bg-badge-yellow-hover [a]:hover:text-fg-primary',
-        secondary: 'bg-layer-03 text-fg-primary hover:bg-gray-50 [a]:hover:text-fg-primary dark:hover:bg-gray-80',
+        secondary: 'bg-layer-03 text-fg-primary hover:bg-(--badge-secondary-hover) [a]:hover:text-fg-primary',
         destructive: 'bg-badge-red text-fg-primary hover:bg-badge-red-hover [a]:hover:text-fg-primary',
         outline: 'border-control-edge bg-transparent text-fg-primary hover:bg-layer-03 [a]:hover:text-fg-primary',
         ghost: 'bg-transparent text-fg-secondary hover:bg-layer-03 hover:text-fg-primary',

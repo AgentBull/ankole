@@ -202,7 +202,7 @@ function SlideThumbnailItem({
             <div className="absolute right-1 bottom-1 flex -space-x-1">
               {badges.slice(0, 3).map(({ member }) => (
                 <Avatar key={member.uid} size="sm" title={member.name} className="size-4 ring-1 ring-page">
-                  <AvatarFallback className="text-[9px] text-white" style={{ background: `var(${member.color})` }}>
+                  <AvatarFallback className="text-25 text-white" style={{ background: `var(${member.color})` }}>
                     {member.name.slice(0, 1).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>

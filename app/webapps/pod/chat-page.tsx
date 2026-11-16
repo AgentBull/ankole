@@ -882,7 +882,7 @@ function EditRecovery({
   const saved = editingSnapshot(data, editing)
   const conflict = saved && model.savedEditChanged(saved)
   return (
-    <div className="space-y-2 text-[13px] leading-5">
+    <div className="space-y-2 text-65 leading-5">
       <Button type="button" size="sm" variant="outline" disabled={recovery.loading} onClick={recovery.refresh}>
         {t('pod.chat.refresh_edit')}
       </Button>
@@ -923,7 +923,7 @@ function ConversationGone({
     .map((text, index) => ({ key: String(index), text }))
   return (
     <section className="pod-chat-loading pod-chat-gone">
-      <p role="alert" className="text-[13px] text-fg-tertiary">
+      <p role="alert" className="text-65 text-fg-tertiary">
         {t('pod.chat.errors.conversation_not_found')}
       </p>
       <LocalChatDrafts drafts={drafts} />
@@ -954,7 +954,7 @@ function RequestFailure({
 }) {
   const { t } = useTranslation()
   return (
-    <div role="alert" className="space-y-2 text-[13px] leading-5">
+    <div role="alert" className="space-y-2 text-65 leading-5">
       <p className="text-destructive">{requestErrorMessage(chatError(error))}</p>
       {sendFailure ? <p className="text-fg-tertiary">{t('pod.chat.draft_preserved')}</p> : null}
       {action ??

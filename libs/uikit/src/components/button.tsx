@@ -6,7 +6,7 @@ import { cn } from '@ankole/uikit/lib/utils'
 import { Spinner } from './spinner'
 
 const buttonVariantClasses = cva(
-  "group/button inline-flex shrink-0 items-center justify-center gap-2 rounded-control border border-transparent bg-clip-padding text-[13px] leading-none font-medium whitespace-nowrap transition-[background-color,border-color,color] duration-(--duration-feedback) ease-productive select-none focus-visible:outline-offset-1 disabled:pointer-events-none aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center gap-2 rounded-control border border-transparent bg-clip-padding text-65 leading-none font-medium whitespace-nowrap transition-[background-color,border-color,color] duration-(--duration-feedback) ease-productive select-none focus-visible:outline-offset-1 disabled:pointer-events-none aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -23,7 +23,7 @@ const buttonVariantClasses = cva(
         // The confirmation of an action that cannot be undone. Deep red sits darker than the brand primary, so the two
         // solid buttons differ in lightness as well as hue; the white label stays above 7:1 in both themes.
         destructive:
-          'border-red-80 border-b-red-90 bg-red-80 text-white hover:border-red-90 hover:bg-red-90 active:bg-red-90 disabled:border-border-subtle disabled:bg-transparent disabled:text-fg-disabled',
+          'border-destructive-solid border-b-destructive-solid-hover bg-destructive-solid text-white hover:border-destructive-solid-hover hover:bg-destructive-solid-hover active:bg-destructive-solid-hover disabled:border-border-subtle disabled:bg-transparent disabled:text-fg-disabled',
         link: 'link border-0 disabled:text-fg-disabled disabled:decoration-border-subtle'
       },
       size: {

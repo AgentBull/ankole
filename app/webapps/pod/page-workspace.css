@@ -90,7 +90,7 @@
   height: 48px;
   padding: 0;
   margin: 0;
-  font-size: 40px;
+  font-size: 40px; /* glyph */
   line-height: 1;
 }
 
@@ -158,7 +158,7 @@ img.pod-page-title-icon.pod-page-icon {
   color: var(--fg-primary);
   background: transparent;
   font-family: inherit;
-  font-size: 32px;
+  font-size: var(--text-500);
   font-weight: 600;
   line-height: 42px;
 }
@@ -382,7 +382,7 @@ textarea.pod-page-title:focus-visible {
   }
 
   .pod-page-title {
-    font-size: 32px;
+    font-size: var(--text-500);
     min-height: 42px;
   }
 
@@ -422,7 +422,7 @@ textarea.pod-page-title:focus-visible {
 .pod-page-find > span {
   min-width: 38px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--text-50);
   font-variant-numeric: tabular-nums;
   color: var(--fg-tertiary);
 }

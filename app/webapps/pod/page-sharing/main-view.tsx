@@ -91,7 +91,7 @@ export function MainSharingView({
       <div className="grid gap-4 overflow-y-auto px-4 pb-3.5">
         <section className="grid gap-2">
           <div className="flex min-h-7 items-center justify-between gap-2">
-            <span className="text-[13px] font-medium text-fg-primary">
+            <span className="text-65 font-medium text-fg-primary">
               {canManage ? t('pod.sharing.invite_collaborators') : t('pod.sharing.collaborators')}
             </span>
             {(preview.total > 0 || ordinaryGrants.length > 0) && (
@@ -106,7 +106,7 @@ export function MainSharingView({
                     <SubjectAvatar key={item.key} subject={item} size="sm" />
                   ))}
                   {preview.overflow > 0 && (
-                    <AvatarGroupCount className="text-[11px] tabular-nums">{`+${preview.overflow}`}</AvatarGroupCount>
+                    <AvatarGroupCount className="text-50 tabular-nums">{`+${preview.overflow}`}</AvatarGroupCount>
                   )}
                 </AvatarGroup>
                 <ChevronRightRegular
@@ -204,7 +204,7 @@ function AccessScopeSection({
   if (isPrivateRoot) {
     return (
       <section className="grid gap-1.5">
-        <span className="text-[13px] font-medium text-fg-primary">{t('pod.sharing.access_scope')}</span>
+        <span className="text-65 font-medium text-fg-primary">{t('pod.sharing.access_scope')}</span>
         <div className="flex items-start gap-2.5 rounded-control bg-layer-03/45 px-3 py-2.5">
           <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-layer-03 text-fg-secondary">
             <LockClosedRegular aria-hidden className="size-4" />
@@ -225,7 +225,7 @@ function AccessScopeSection({
 
   return (
     <section className="grid gap-1.5">
-      <span className="text-[13px] font-medium text-fg-primary">{t('pod.sharing.access_scope')}</span>
+      <span className="text-65 font-medium text-fg-primary">{t('pod.sharing.access_scope')}</span>
       <div className="flex items-start gap-2.5 rounded-control bg-layer-03/45 px-3 py-2.5">
         <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-layer-03 text-fg-primary">
           <ActiveIcon aria-hidden className="size-4" />

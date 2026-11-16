@@ -303,7 +303,7 @@
 }
 
 @utility title-inline {
-  font-size: 14px;
+  font-size: var(--text-75);
   line-height: 20px;
   font-weight: 600;
 }
@@ -324,7 +324,7 @@
   margin: 0;
   padding-inline: 6px;
   overflow: hidden;
-  font-size: 14px;
+  font-size: var(--text-75);
   line-height: 20px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -1030,7 +1030,7 @@
     padding: 4px 10px;
     color: var(--fg-primary);
     font-family: var(--font-family-sans);
-    font-size: 13px;
+    font-size: var(--text-65);
     line-height: 20px;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1042,21 +1042,12 @@
     --jer-select-border: var(--field-border);
     --jer-select-focus: var(--ring);
     --jer-select-arrow: var(--fg-secondary);
-    --ankole-json-key: var(--color-blue-70);
-    --ankole-json-string: var(--color-teal-80);
-    --ankole-json-number: var(--color-purple-70);
-    --ankole-json-boolean: var(--color-green-80);
-    --ankole-json-null: var(--color-red-70);
-    --ankole-json-punctuation: var(--color-gray-80);
-  }
-
-  [data-theme='dark'] .ankole-json-editor {
-    --ankole-json-key: var(--color-blue-30);
-    --ankole-json-string: var(--color-teal-30);
-    --ankole-json-number: var(--color-purple-30);
-    --ankole-json-boolean: var(--color-green-30);
-    --ankole-json-null: var(--color-red-30);
-    --ankole-json-punctuation: var(--color-gray-60);
+    --ankole-json-key: var(--syntax-key);
+    --ankole-json-string: var(--syntax-string);
+    --ankole-json-number: var(--syntax-number);
+    --ankole-json-boolean: var(--syntax-boolean);
+    --ankole-json-null: var(--syntax-null);
+    --ankole-json-punctuation: var(--syntax-punctuation);
   }
 
   .ankole-json-editor.jer-editor-container {
