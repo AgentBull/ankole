@@ -103,14 +103,15 @@ defmodule Ankole.Pod.Comments do
     replies = Enum.group_by(replies, & &1.root_id)
     caps = capabilities(actor, page)
     read_at = Activity.read_at_in_tx(actor, page.id)
+    own_uids = own_uids(actor)
 
     Enum.map(roots, fn root ->
       root
-      |> present(actor, page, caps, anchor_ids, profiles)
+      |> present(own_uids, page, caps, anchor_ids, profiles)
       |> Map.put(:unread, Activity.unread?(root, actor, read_at))
       |> Map.put(
         :replies,
-        Enum.map(replies[root.id] || [], &present(&1, actor, page, caps, anchor_ids, profiles))
+        Enum.map(replies[root.id] || [], &present(&1, own_uids, page, caps, anchor_ids, profiles))
       )
     end)
   end
@@ -702,7 +703,7 @@ defmodule Ankole.Pod.Comments do
               comment:
                 present(
                   comment,
-                  actor,
+                  own_uids(actor),
                   page,
                   caps,
                   anchor_ids,
@@ -719,8 +720,8 @@ defmodule Ankole.Pod.Comments do
 
   defp comment_anchor_ids_in_tx(%{type: type}) when type in [:knowledge, :file], do: {:ok, []}
 
-  defp present(comment, actor, page, caps, ids, profiles) do
-    own = own?(actor, comment)
+  defp present(comment, own_uids, page, caps, ids, profiles) do
+    own = own?(own_uids, comment)
     root = is_nil(comment.root_id)
     can_edit = is_nil(comment.deleted_at) && (caps.manage || (caps.comment && own))
     can_resolve = root && (caps.edit || (caps.comment && own))
@@ -1078,7 +1079,11 @@ defmodule Ankole.Pod.Comments do
     }
   end
 
-  defp own?(actor, comment), do: comment.author.uid == AuthZ.Actor.uid(actor)
+  # A Human and their personal assistant own each other's comments.
+  defp own_uids(actor), do: Principals.equivalent_uids(AuthZ.Actor.uid(actor))
+
+  defp own?(%AuthZ.Actor{} = actor, comment), do: own?(own_uids(actor), comment)
+  defp own?(own_uids, comment), do: MapSet.member?(own_uids, comment.author.uid)
 
   defp require_any_mutation_capability(caps) do
     if caps.comment or caps.edit or caps.manage, do: :ok, else: {:error, :forbidden}

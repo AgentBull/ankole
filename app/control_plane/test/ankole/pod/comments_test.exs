@@ -415,6 +415,49 @@ defmodule Ankole.Pod.CommentsTest do
              })
   end
 
+  test "a commenter and their personal assistant own each other's comments", ctx do
+    assistant =
+      agent_fixture(%{
+        type: :personal_assistant,
+        owner_principal_uid: ctx.contributor.principal.uid
+      }).principal
+      |> actor_fixture()
+
+    {:ok, %{comment: root}} = Comments.create(assistant, ctx.page.id, %{body: "Draft question"})
+    assert root.author.principal_uid == assistant.principal.uid
+
+    assert {:ok, %{threads: [%{can_edit: true, can_resolve: true}]}} =
+             Comments.list(ctx.contributor, ctx.page.id)
+
+    assert {:ok, %{threads: [%{can_edit: false, can_resolve: false}]}} =
+             Comments.list(ctx.colleague, ctx.page.id)
+
+    assert {:error, :forbidden} =
+             Comments.update(ctx.colleague, ctx.page.id, root.id, %{
+               version: root.version,
+               body: "Someone else's comment"
+             })
+
+    assert {:ok, %{comment: updated}} =
+             Comments.update(ctx.contributor, ctx.page.id, root.id, %{
+               version: root.version,
+               body: "Final question"
+             })
+
+    assert {:ok, %{comment: resolved}} =
+             Comments.resolve(ctx.contributor, ctx.page.id, root.id, %{
+               version: updated.version,
+               resolved: true
+             })
+
+    {:ok, %{comment: own}} = Comments.create(ctx.contributor, ctx.page.id, %{body: "Mine"})
+
+    assert {:ok, _} =
+             Comments.delete(assistant, ctx.page.id, own.id, %{version: own.version})
+
+    assert resolved.author.principal_uid == assistant.principal.uid
+  end
+
   test "deleted original text leaves a detached discussion until an authorized explicit reanchor",
        ctx do
     {:ok, %{comment: root, revision: revision}} =

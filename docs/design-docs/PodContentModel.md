@@ -1786,7 +1786,8 @@ across Document (`doc`), Knowledge (`knowledge`), and File (`file`) Pages
 (`page_comments.page_id` references `pages`). `node_view` permits reading, while `node_comment`
 permits posting. Authors can edit or delete their own comments; `node_manage` can
 manage other authors' comments. The root author or a caller with `node_edit` can
-resolve, reopen, or explicitly relocate a thread. Deleting a root with replies
+resolve, reopen, or explicitly relocate a thread. For these author checks, a
+Human and their personal assistant count as the same author. Deleting a root with replies
 preserves a tombstone and the remaining discussion. Posting a reply does not
 resolve or reopen it. Every author is an existing Principal represented by
 `ActorRef`, including Human and Agent authors.
