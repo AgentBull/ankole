@@ -866,7 +866,11 @@ In the timeline, compact event notices sit alongside attributed messages:
   branches, switchers (`ToggleGroup`, `Select`, and `Tabs`) bind their active
   choice with `$bindState` (seeding the first option when the state path starts
   unset), and container elements may repeat their children over a state array
-  with `repeat` (`$item` and `$index`). Before Pod renders a block,
+  with `repeat` (`$item` and `$index`). An Agent writes `props` and `children`
+  only for an element that has any. A `Table` or a `Chart` may read its rows
+  from a state array through `$state`, and a block may append one row per line
+  to that array at `/state/<name>/-`, so several elements share one set of rows
+  and each row shows as soon as its line arrives. Before Pod renders a block,
   `pod/chat/ui-block/compile.ts` validates the compiled spec (`compileUIBlock`)
   and restores any remembered view state through `validateUIBlockState`
   (discarding invalid remembered snapshots back to `spec.state`) against the catalog: JSON patch
@@ -875,7 +879,17 @@ In the timeline, compact event notices sit alongside attributed messages:
   its `$cond` expression branches and initial state, the tree is acyclic and expands to at most 500 elements
   counting repeated items, each event binds `setState` or `reply` with valid
   parameters and safe target pointers only, and no element uses `watch` or named slots. A settled block
-  that fails compile-time validation shows its source as code. While a reply streams, Pod
+  that fails compile-time validation shows its source as code, and Pod writes
+  the reason from `explainUIBlockFailure` to the browser console: a failure
+  code, the JSON Pointer of the part of the block that failed, and a detail
+  such as the unknown component name or the message for the rejected prop.
+  For a settled block of a reply that carries a Signal, Pod hands the outcome
+  to the listeners in `pod/chat/ui-block/outcome.ts`: the failure, when
+  validation found one, and the Signal that the reply answers. Pod reports a
+  block once while that block stays among the 200 that the page reported most
+  recently, so a block that mounts again is not counted again. An edition adds
+  a listener there to count how blocks come out, and the open-source edition
+  adds none. While a reply streams, Pod
   renders the ready branches that have arrived, holds back children still
   waiting on later element or state lines, and checks every settled branch once
   the block finishes. A settled block that mounts again, for example after the

@@ -1,11 +1,12 @@
 import { JSONUIProvider, Renderer } from '@json-render/react'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import {
   EXTERNAL_TRANSLATION_GUARD_ATTRS,
   withExternalTranslationGuardClass
 } from '../../../common/external-translation-guard'
 import { CodeBlockView } from '../code-block-view'
-import { compileUIBlock, validateUIBlockState } from './compile'
+import { compileUIBlock, explainUIBlockFailure, validateUIBlockState } from './compile'
+import { recordUIBlockOutcome } from './outcome'
 import { uiBlockRegistry } from './registry'
 import { useLatestHandlers } from './use-latest-handlers'
 import { useViewState } from './view-state'
@@ -14,10 +15,13 @@ import { useViewState } from './view-state'
 export default function UIBlock({
   code,
   streaming,
+  signalID,
   onReply
 }: {
   code: string
   streaming: boolean
+  /** The Signal that the reply answers. Pod reports the outcome of a block only when its reply carries one. */
+  signalID?: string
   /** Receives the text of a reply button. A surface without a composer leaves it out, and the button does nothing. */
   onReply?: (text: string) => void
 }) {
@@ -33,6 +37,10 @@ export default function UIBlock({
       if (typeof params.text === 'string' && params.text.trim()) onReply?.(params.text)
     }
   })
+  const usable = Boolean(spec)
+  useEffect(() => {
+    if (!streaming) recordUIBlockOutcome(code, usable ? undefined : explainUIBlockFailure(code), signalID)
+  }, [streaming, usable, code, signalID])
   if (!spec) return streaming ? null : <CodeBlockView code={code} language="ui" />
   return (
     <div

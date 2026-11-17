@@ -38,7 +38,7 @@ const LazyUIBlock = lazy(() => import('./ui-block/ui-block'))
 const StreamingMarkdownContext = createContext(false)
 const RevealWordsContext = createContext(false)
 /** Set for an Agent's message, whose `ui` blocks render; a Human's fenced `ui` block stays code. */
-const UIBlocksContext = createContext<{ onReply?: (text: string) => void } | null>(null)
+const UIBlocksContext = createContext<{ signalID?: string; onReply?: (text: string) => void } | null>(null)
 
 type HastNode = {
   type: string
@@ -98,15 +98,17 @@ export default function MarkdownRenderer({
   generated = false,
   streaming = false,
   reveal = false,
+  signalID,
   onReply
 }: {
   text: string
   generated?: boolean
   streaming?: boolean
   reveal?: boolean
+  signalID?: string
   onReply?: (text: string) => void
 }) {
-  const uiBlocks = useMemo(() => (generated ? { onReply } : null), [generated, onReply])
+  const uiBlocks = useMemo(() => (generated ? { signalID, onReply } : null), [generated, signalID, onReply])
   const markdown = (
     <Markdown
       remarkPlugins={generated ? AGENT_REMARK_PLUGINS : HUMAN_REMARK_PLUGINS}
@@ -148,7 +150,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
     return (
       <ErrorBoundary resetKeys={[code]} fallback={fallback}>
         <Suspense fallback={streaming ? null : fallback}>
-          <LazyUIBlock code={code} streaming={streaming} onReply={uiBlocks.onReply} />
+          <LazyUIBlock code={code} streaming={streaming} signalID={uiBlocks.signalID} onReply={uiBlocks.onReply} />
         </Suspense>
       </ErrorBoundary>
     )

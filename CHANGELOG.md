@@ -1,5 +1,16 @@
 # Changelog
 
+## Version 2.0.0-alpha.162 (2026-11-17)
+
+- Teach Agents a shorter form of the interactive Pod Chat `ui` block. A table
+  and a chart can read the same rows from the block's state, so an Agent
+  writes the rows once, and rows that an Agent appends one per line appear in
+  the message while the reply streams. An Agent leaves out the empty `props`
+  and `children` of an element.
+- When Pod shows a `ui` block as code because the block is not usable, Pod
+  writes the reason to the browser console: a failure code, the part of the
+  block that failed, and a detail such as the unknown component name.
+
 ## Version 2.0.0-alpha.161 (2026-11-16)
 
 - Align the Pod, Console, setup, and sign-in screens with the Ankole design

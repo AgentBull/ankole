@@ -302,7 +302,13 @@ export const MessageView = memo(function MessageView({
             <>
               {text && (!connectorAuth || text !== `Connect ${connectorAuth.display_name} to continue.`) && (
                 <div className={human ? 'pod-chat-human-text' : undefined}>
-                  <ChatMarkdown text={text} generated={agent} streaming={!!live} onReply={onReply} />
+                  <ChatMarkdown
+                    text={text}
+                    generated={agent}
+                    streaming={!!live}
+                    signalID={message?.signalID ?? undefined}
+                    onReply={onReply}
+                  />
                 </div>
               )}
               {connectorAuth && <ConnectorAuthCardView prompt={connectorAuth} />}

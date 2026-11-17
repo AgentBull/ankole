@@ -1,5 +1,5 @@
 import { resolveActionParam } from '@json-render/core'
-import { beforeAll, expect, test } from 'bun:test'
+import { beforeAll, expect, spyOn, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -7,7 +7,8 @@ import { loadLocale } from '../../../common/i18n'
 import { repositoryRoot } from '../../../scripts/edition'
 import MarkdownRenderer from '../markdown-renderer'
 import { uiBlockCatalog } from './catalog'
-import { compileUIBlock, validateUIBlockState } from './compile'
+import { compileUIBlock, explainUIBlockFailure, validateUIBlockState } from './compile'
+import { recordUIBlockOutcome, uiBlockOutcomeListeners, type UIBlockOutcome } from './outcome'
 import UIBlock from './ui-block'
 import { rememberViewState } from './view-state'
 
@@ -22,8 +23,9 @@ const element = (key: string, type: string, props: object, children: string[] = 
 const block = (...lines: string[]) => [ROOT, ...lines].join('\n')
 
 const reference = `${uiBlockCatalog.prompt()}\n`
-/** The example that the Skill reference shows to the model. */
-const example = /```ui\n([\s\S]*?)\n```/.exec(reference)![1]!
+/** The examples that the Skill reference shows to the model, the first of which the tests below take apart. */
+const examples = [...reference.matchAll(/```ui\n([\s\S]*?)\n```/g)].map(match => match[1]!)
+const example = examples[0]!
 
 /** A block that Pod cannot use shows its source and renders none of its elements. */
 function expectSource(code: string) {
@@ -699,4 +701,159 @@ test('action parameters distinguish `setState.statePath` addresses from `$item` 
     })
   )
   expectSource(badReply)
+})
+
+test('a block that Pod cannot use says which part failed and why', () => {
+  expect(explainUIBlockFailure(block(element('main', 'Text', { text: 'Hi' })))).toBeUndefined()
+  expect(explainUIBlockFailure('not a patch')).toEqual({ code: 'invalid_line', path: '', detail: 'line 1' })
+  expect(explainUIBlockFailure(ROOT)).toEqual({ code: 'missing_root', path: '/root' })
+  expect(
+    explainUIBlockFailure([ROOT, '{"op":"add","path":"/state/__proto__/polluted","value":true}'].join('\n'))
+  ).toEqual({ code: 'unsafe_patch', path: '/state/__proto__/polluted', detail: 'line 2' })
+  expect(explainUIBlockFailure(block(element('main', 'Marquee', { text: 'Unknown' })))).toEqual({
+    code: 'unknown_component',
+    path: '/elements/main/type',
+    detail: 'Marquee'
+  })
+  expect(explainUIBlockFailure(block(element('main', 'Stack', {}, ['rows'])))).toEqual({
+    code: 'missing_element',
+    path: '/elements/rows'
+  })
+  expect(explainUIBlockFailure(block(element('main', 'Stack', {}, ['main'])))).toEqual({
+    code: 'cycle',
+    path: '/elements/main'
+  })
+  expect(
+    explainUIBlockFailure(
+      block(element('main', 'Button', { label: 'Go' }, [], { on: { press: { action: 'navigate', params: {} } } }))
+    )
+  ).toEqual({ code: 'invalid_action', path: '/elements/main/on' })
+  // The path of a rejected prop leads to the value that the component schema refuses.
+  expect(
+    explainUIBlockFailure(block(element('main', 'Table', { columns: [{ key: 'team', label: 1 }], rows: [] })))
+  ).toMatchObject({ code: 'invalid_props', path: '/elements/main/props/columns/0/label' })
+  expect(explainUIBlockFailure(block(element('main', 'Text', { text: { $state: '/missing' } })))).toMatchObject({
+    code: 'invalid_props',
+    path: '/elements/main/props/text'
+  })
+  // The path of a prop that reads state continues into the value that the state holds.
+  expect(
+    explainUIBlockFailure(
+      block(
+        statePatch('rows', [{ team: { nested: true } }]),
+        element('main', 'Table', { columns: [{ key: 'team', label: 'Team' }], rows: { $state: '/rows' } })
+      )
+    )
+  ).toMatchObject({ code: 'invalid_props', path: '/elements/main/props/rows/0/team' })
+
+  const text = (rest: object) => block(element('main', 'Text', { text: 'x' }, [], rest))
+  const many = Array.from({ length: 500 }, (_, index) => `item${index}`)
+  for (const [source, failure] of [
+    [[ROOT, '{"op":"test","path":"/root","value":"other"}'].join('\n'), { code: 'invalid_patch', path: '/root' }],
+    [
+      block(element('main', 'Stack', {}, many), ...many.map(key => element(key, 'Text', { text: key }))),
+      { code: 'over_budget', path: '/elements/item499' }
+    ],
+    [block('{"op":"add","path":"/elements/main","value":"Text"}'), { code: 'invalid_element', path: '/elements/main' }],
+    [text({ watch: {} }), { code: 'unsupported_field', path: '/elements/main/watch' }],
+    [text({ repeat: { statePath: '/rows' } }), { code: 'invalid_repeat', path: '/elements/main/repeat' }],
+    [text({ visible: { $unknown: true } }), { code: 'invalid_visible', path: '/elements/main/visible' }],
+    [
+      block(element('main', 'Text', { text: { $computed: 'now' } })),
+      { code: 'invalid_expression', path: '/elements/main/props' }
+    ]
+  ] as const) {
+    expect(explainUIBlockFailure(source)).toMatchObject(failure)
+  }
+})
+
+test('an element may leave out empty `props` and `children`', () => {
+  const lean = [
+    ROOT,
+    '{"op":"add","path":"/elements/main","value":{"type":"Stack","children":["note"]}}',
+    '{"op":"add","path":"/elements/note","value":{"type":"Text","props":{"text":"Lean line"}}}'
+  ].join('\n')
+  expect(markup(lean)).toContain('Lean line')
+  expect(compileUIBlock(lean)!.elements.main).toMatchObject({ props: {}, children: ['note'] })
+})
+
+test('a table and a chart read the same rows from state, and appended rows show while the block streams', () => {
+  // The reference teaches this pattern with its own example, which has to stay a usable block.
+  expect(examples).toHaveLength(2)
+  expect(markup(examples[1]!)).toContain('Alpha')
+
+  const lines = [
+    ROOT,
+    statePatch('rows', []),
+    element('main', 'Stack', {}, ['table', 'chart']),
+    element('table', 'Table', {
+      columns: [
+        { key: 'team', label: 'Team' },
+        { key: 'revenue', label: 'Revenue', align: 'end' }
+      ],
+      rows: { $state: '/rows' }
+    }),
+    element('chart', 'Chart', { type: 'column', data: { $state: '/rows' }, xField: 'team', yField: 'revenue' }),
+    '{"op":"add","path":"/state/rows/-","value":{"team":"Alpha","revenue":12}}',
+    '{"op":"add","path":"/state/rows/-","value":{"team":"Beta","revenue":7}}'
+  ]
+  const settled = lines.join('\n')
+  expect(compileUIBlock(settled)!.state).toEqual({
+    rows: [
+      { team: 'Alpha', revenue: 12 },
+      { team: 'Beta', revenue: 7 }
+    ]
+  })
+  expect(markup(settled)).toContain('Alpha')
+  expect(markup(settled)).toContain('Beta')
+
+  // Each appended row is its own line, so the table grows while the block streams.
+  const empty = markup(lines.slice(0, 5).join('\n'), true)
+  expect(empty).toContain('Team')
+  expect(empty).not.toContain('Alpha')
+  const oneRow = markup([...lines.slice(0, 6), lines[6]!.slice(0, 40)].join('\n'), true)
+  expect(oneRow).toContain('Alpha')
+  expect(oneRow).not.toContain('Beta')
+})
+
+test('a settled block of a reply reaches the listeners once, and an unusable block leaves its reason in the console', () => {
+  const usable = block(element('main', 'Text', { text: 'Counted once' }))
+  const unusable = block(element('main', 'Marquee', { text: 'Counted once' }))
+  const failure = explainUIBlockFailure(unusable)!
+  const warn = spyOn(console, 'warn').mockImplementation(() => {})
+  const heard: UIBlockOutcome[] = []
+  const listener = (outcome: UIBlockOutcome) => void heard.push(outcome)
+
+  try {
+    // With no listener, Pod keeps no record, so a listener that registers later still hears the block.
+    recordUIBlockOutcome(usable, undefined, 'signal-1')
+    uiBlockOutcomeListeners.add(listener)
+
+    recordUIBlockOutcome(usable, undefined, 'signal-1')
+    recordUIBlockOutcome(usable, undefined, 'signal-1')
+    // The same block in another reply is another block, and a copy outside a reply carries no Signal to report.
+    recordUIBlockOutcome(usable, undefined, 'signal-2')
+    recordUIBlockOutcome(usable, undefined, undefined)
+    recordUIBlockOutcome(unusable, failure, 'signal-3')
+    recordUIBlockOutcome(unusable, failure, undefined)
+    expect(heard).toEqual([{ signalID: 'signal-1' }, { signalID: 'signal-2' }, { failure, signalID: 'signal-3' }])
+    expect(warn.mock.calls).toEqual([
+      ['[Ankole] A ui block is shown as code', failure],
+      ['[Ankole] A ui block is shown as code', failure]
+    ])
+
+    // The page remembers its 200 most recent reports, so the oldest block is heard again after 200 others.
+    for (let index = 0; index < 200; index++) recordUIBlockOutcome(usable, undefined, `later-${index}`)
+    heard.length = 0
+    recordUIBlockOutcome(usable, undefined, 'later-199')
+    recordUIBlockOutcome(usable, undefined, 'signal-1')
+    expect(heard).toEqual([{ signalID: 'signal-1' }])
+
+    uiBlockOutcomeListeners.delete(listener)
+    recordUIBlockOutcome(usable, undefined, 'after-the-listener-left')
+    expect(heard).toHaveLength(1)
+  } finally {
+    uiBlockOutcomeListeners.delete(listener)
+    warn.mockRestore()
+  }
 })

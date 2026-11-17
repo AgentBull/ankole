@@ -9,12 +9,15 @@ export function ChatMarkdown({
   generated = false,
   streaming = false,
   className,
+  signalID,
   onReply
 }: {
   text: string
   generated?: boolean
   streaming?: boolean
   className?: string
+  /** The Signal that an Agent reply answers; a `ui` block passes it on with its outcome. */
+  signalID?: string
   /** Receives the follow-up text of a `ui` block's reply button; without it the button does nothing. */
   onReply?: (text: string) => void
 }) {
@@ -30,6 +33,7 @@ export function ChatMarkdown({
             generated={generated}
             streaming={streaming}
             reveal={generated && streaming}
+            signalID={signalID}
             onReply={onReply}
           />
         </Suspense>

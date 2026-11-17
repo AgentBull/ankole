@@ -20,12 +20,22 @@ type CatalogData = {
 
 const EXAMPLE = [
   '{"op":"add","path":"/root","value":"main"}',
-  '{"op":"add","path":"/elements/main","value":{"type":"Stack","props":{},"children":["region","east","west","more"]}}',
+  '{"op":"add","path":"/elements/main","value":{"type":"Stack","children":["region","east","west","more"]}}',
   '{"op":"add","path":"/state/region","value":"east"}',
-  '{"op":"add","path":"/elements/region","value":{"type":"ToggleGroup","props":{"options":[{"value":"east","label":"East"},{"value":"west","label":"West"}],"value":{"$bindState":"/region"}},"children":[]}}',
-  '{"op":"add","path":"/elements/east","value":{"type":"Stat","props":{"label":"East revenue","value":"1.28M","delta":"+12%"},"visible":{"$state":"/region","eq":"east"},"children":[]}}',
-  '{"op":"add","path":"/elements/west","value":{"type":"Stat","props":{"label":"West revenue","value":"0.94M","delta":"-3%"},"visible":{"$state":"/region","eq":"west"},"children":[]}}',
-  '{"op":"add","path":"/elements/more","value":{"type":"Button","props":{"label":"Break down by team","variant":"outline"},"on":{"press":{"action":"reply","params":{"text":{"$template":"Break the ${/region} region down by team"}}}},"children":[]}}'
+  '{"op":"add","path":"/elements/region","value":{"type":"ToggleGroup","props":{"options":[{"value":"east","label":"East"},{"value":"west","label":"West"}],"value":{"$bindState":"/region"}}}}',
+  '{"op":"add","path":"/elements/east","value":{"type":"Stat","props":{"label":"East revenue","value":"1.28M","delta":"+12%"},"visible":{"$state":"/region","eq":"east"}}}',
+  '{"op":"add","path":"/elements/west","value":{"type":"Stat","props":{"label":"West revenue","value":"0.94M","delta":"-3%"},"visible":{"$state":"/region","eq":"west"}}}',
+  '{"op":"add","path":"/elements/more","value":{"type":"Button","props":{"label":"Break down by team","variant":"outline"},"on":{"press":{"action":"reply","params":{"text":{"$template":"Break the ${/region} region down by team"}}}}}}'
+].join('\n')
+
+const ROWS_EXAMPLE = [
+  '{"op":"add","path":"/root","value":"main"}',
+  '{"op":"add","path":"/state/rows","value":[]}',
+  '{"op":"add","path":"/elements/main","value":{"type":"Stack","children":["chart","table"]}}',
+  '{"op":"add","path":"/elements/chart","value":{"type":"Chart","props":{"type":"column","data":{"$state":"/rows"},"xField":"team","yField":"revenue"}}}',
+  '{"op":"add","path":"/elements/table","value":{"type":"Table","props":{"columns":[{"key":"team","label":"Team"},{"key":"revenue","label":"Revenue","align":"end","format":"number"}],"rows":{"$state":"/rows"},"sortable":true}}}',
+  '{"op":"add","path":"/state/rows/-","value":{"team":"Alpha","revenue":128000}}',
+  '{"op":"add","path":"/state/rows/-","value":{"team":"Beta","revenue":94000}}'
 ].join('\n')
 
 /**
@@ -56,15 +66,18 @@ function reference({ catalog, formatZodType }: PromptContext<CatalogData>) {
     [
       '- Write one complete JSON object per line, with no blank lines, comments or wrapped lines.',
       '- Set `/root` first, then add each element at `/elements/<key>`, parents before children. Add each `/state/<name>` value before the first element that reads it.',
-      '- Every element has `type`, `props` and `children`. `children` lists element keys in order and is `[]` for a leaf. Every key in `children` must be defined in the same block, and every element must be reachable from the root.',
+      '- Every element has a `type`. Give it `props` when the component takes any, and `children`, the element keys in order, when it contains other elements; leave out a field that would be empty. Every key in `children` must be defined in the same block, and every element must be reachable from the root.',
       '- `visible`, `on` and `repeat` are fields of the element, beside `props`, never inside it.',
       '- State paths are JSON Pointers such as `/region`. Props and action `params` read state with `{"$state": "/path"}`, interpolate strings with `{"$template": "Break ${/region} down"}`, or branch with `{"$cond": <condition>, "$then": <value>, "$else": <value>}` instead of duplicating elements. `ToggleGroup`, `Select` and `Tabs` read and write their `value` with `{"$bindState": "/path"}`.',
       '- A container element may set `"repeat": {"statePath": "/items", "key": "id"}` to render its `children` once per array item; inside that subtree, `{"$item": "field"}` (`""` for the whole item) and `{"$index": true}` read the current item and zero-based index.',
       '- `visible` takes `{"$state": "/path", "eq": "value"}` (also `neq`, `gt`, `gte`, `lt`, `lte`, or no operator for truthiness; add `"not": true` to invert), or a list of such conditions that must all hold.',
       '- `on` maps an event name to `{"action": "<name>", "params": {...}}`. `Button` emits `press`.',
-      '- Keep a block under about 40 elements, and inline at most 50 table or chart rows.',
+      '- Keep a block under about 40 elements, and give a table or chart at most 50 rows.',
       '- Use only what this reference describes. Pod shows a block as code when it names an unknown component, gives a component or action invalid parameters, leaves a child undefined, nests an element inside itself, nests JSON deeper than 32 levels, expands past 500 elements (counting repeated items), binds an action other than `setState` and `reply`, or uses `watch` or named slots.'
     ].join('\n'),
+    '## Rows in state',
+    'Write the rows of a table or chart into state when the block has more than a few of them, or when more than one element shows them. Add the array as `[]`, bind `rows` or `data` to it with `$state`, and then append one row per line at `/state/<name>/-`. The reader sees each row as soon as its line arrives, and a table and a chart that read the same array cannot disagree:',
+    `\`\`\`ui\n${ROWS_EXAMPLE}\n\`\`\``,
     '## Components',
     components.join('\n'),
     '## Actions',
@@ -210,7 +223,7 @@ export const uiBlockCatalog = defineCatalog(schema, {
         stacked: z.boolean().nullish()
       }),
       description:
-        'A chart over inline rows. xField names the category or time column, yField the numeric column, and seriesField an optional column that splits the rows into series. For pie and donut, xField names the slice.'
+        'A chart over rows. xField names the category or time column, yField the numeric column, and seriesField an optional column that splits the rows into series. For pie and donut, xField names the slice.'
     },
     Progress: {
       props: z.object({ label: z.string().nullish(), value: z.number() }),
