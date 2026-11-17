@@ -2,6 +2,7 @@
 
 ## Version 2.0.0-alpha.168 (2026-11-18)
 
+- Keep keyboard focus on the Pod sidebar tabs when the chat composer finishes loading.
 - Restore native dragging on editor block and table handles, and keep Applet
   record reads stable across unrelated renders while an edit is pending.
 - Fix HTML preview table-of-contents links opening the Pod login page inside

@@ -95,7 +95,7 @@ export function PodSidebar({
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'o') {
         event.preventDefault()
         drafts.startNew()
-        void navigate({ to: podLocation('/').pathname, state: { keepSidebarTab: tab } as never })
+        void navigate({ to: podLocation('/').pathname, state: { keepSidebarTab: tab, focusComposer: true } as never })
       }
     }
     window.addEventListener('keydown', newChat)

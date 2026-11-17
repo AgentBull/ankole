@@ -116,6 +116,11 @@ export function Composer({
     navigate = useNavigate()
   const shell = useRef<HTMLDivElement>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => {
+    const input = textarea.current
+    // The chat can finish loading after the user has started navigating the sidebar tabs.
+    if (input && !input.ownerDocument.activeElement?.closest('[role="tablist"]')) input.focus()
+  }, [])
   const pendingCaret = useRef<number>(undefined)
   const [modelOpen, setModelOpen] = useState(false)
   const recipientControl = useRef<HTMLButtonElement>(null)
@@ -584,7 +589,6 @@ export function Composer({
           <div className="pod-chat-composer-editor">
             <InputGroupTextarea
               ref={textarea}
-              autoFocus
               disabled={answering}
               aria-label={t('pod.chat.message_label')}
               aria-placeholder={replySuggestion?.text}

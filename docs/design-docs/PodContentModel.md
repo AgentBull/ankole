@@ -1467,8 +1467,9 @@ parallel `Brain`, `Skills`, and `Agents` branches expose a matching navigation
 tree. Each disclosure button controls expansion separately from the link that
 opens the module or item, switching between `Home` and `Chat` preserves expanded
 branches, clicking a file-directory label expands its branch, and only the
-current destination receives page highlighting. Agent availability updates
-preserve the user's tab selection and keyboard focus.
+current destination receives page highlighting. Users who navigate the sidebar
+tabs keep their selection and keyboard focus when Agent availability updates or
+the chat composer finishes loading. The New Chat shortcut puts focus in the composer.
 The workspace scrolls beneath the module navigation so long packages and Agent
 contracts remain reachable on desktop and narrow screens.
 Pod hosts serve `/meta` and its descendant paths directly, selecting the `Home`

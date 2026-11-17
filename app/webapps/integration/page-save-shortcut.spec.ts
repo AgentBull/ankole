@@ -244,10 +244,10 @@ test('Document Page intercepts Mod+S, shows top-bar Saving status until the serv
   await expect(page.locator('header [data-sync-status="saved"] span')).toHaveClass(/sr-only/)
 
   // 2. Dirty Document body + Meta+s flushes changes immediately with 0 extra sync and shows visible "Saving…".
-  holdChanges = true
-  await page.keyboard.insertText('!')
   const syncBeforeBodySave = syncCount
   const changesBeforeBodySave = changeCount
+  holdChanges = true
+  await page.keyboard.insertText('!')
   await page.keyboard.press('Meta+s')
   await expect.poll(() => pendingChangeReplies.length).toBe(1)
   expect(changeCount).toBe(changesBeforeBodySave + 1)

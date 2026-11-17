@@ -72,6 +72,8 @@ for (const mobile of [false, true]) {
     ).fulfill({
       json: { agents: [], personalAssistant: null, personalAssistantAvailable: true } satisfies PodAgentsResponse
     })
+    await expect(page.getByRole('link', { name: 'New conversation', exact: true })).toBeVisible()
+    if (!mobile) await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible()
     await expect(tabs.getByRole('tab')).toHaveCount(2)
     await expect(tabs.getByRole('tab', { name: 'Meta Ankole', exact: true })).toHaveCount(0)
     await expect(home).toHaveAttribute('aria-selected', 'true')
@@ -121,6 +123,9 @@ for (const mobile of [false, true]) {
           expect(size.iconHeight).toBe(glyph)
         }
       }
+    } else {
+      await home.press('ControlOrMeta+Shift+o')
+      await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeFocused()
     }
   })
 }
