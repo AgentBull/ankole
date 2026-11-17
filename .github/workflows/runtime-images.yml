@@ -775,20 +775,21 @@ jobs:
             node --version
             codex --version
             mcporter --version
-            ankole-rclone version
+            ankole-rclone --version
             python3 --version
           '
 
           export COMPOSE_PROJECT_NAME="ankole_release_smoke_${GITHUB_RUN_ID}"
           export ANKOLE_CONTROL_PLANE_IMAGE="${CONTROL_PLANE_IMAGE}:${RELEASE_REVISION}"
           export ANKOLE_FUNCTION_RUNTIME_IMAGE="${FUNCTION_RUNTIME_IMAGE}:${RELEASE_REVISION}"
-          export ANKOLE_SECRET_BASE="$(openssl rand -hex 64)"
-          export RELEASE_COOKIE="$(openssl rand -hex 32)"
+          ANKOLE_SECRET_BASE="$(openssl rand -hex 64)"
+          RELEASE_COOKIE="$(openssl rand -hex 32)"
           export POSTGRES_PASSWORD="release-smoke-password"
           export ANKOLE_HOST="ankole.localhost"
           export ANKOLE_FUNCTION_RUNTIME_TOKEN="release-smoke-fn-token"
           export ACME_EMAIL="smoke@example.invalid"
-          export ANKOLE_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+          ANKOLE_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+          export ANKOLE_SECRET_BASE RELEASE_COOKIE ANKOLE_DOCKER_GID
 
           cleanup() {
             docker compose -f tools/deploy/docker-compose/compose.yaml down -v --remove-orphans || true
