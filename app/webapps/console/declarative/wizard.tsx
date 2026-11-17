@@ -103,24 +103,80 @@ function sanitizeConfirmValue(value: unknown): string {
   )
 }
 
-export function DeclarativeWizardModal({
-  surface,
-  open,
-  i18nPrefix = 'console',
-  onClose,
-  onComplete,
-  onExecute
-}: {
+interface WizardActionPreview {
+  readonly columns: readonly string[]
+  readonly rows: readonly Readonly<Record<string, string>>[]
+}
+
+interface WizardTriggerProps {
   surface: DeclarativeSurfaceDescriptor
-  open: boolean
+  surfaceById: ReadonlyMap<string, DeclarativeSurfaceDescriptor>
+  visibleIds: ReadonlySet<string>
   i18nPrefix?: string
-  onClose: () => void
   onComplete?: () => void
   onExecute: (
     targetSurface: DeclarativeSurfaceDescriptor,
     payload: Record<string, unknown>
   ) => Promise<readonly Record<string, unknown>[]>
-}) {
+}
+
+export async function executeWizardStep(
+  { surfaceById, visibleIds, onExecute }: Pick<WizardTriggerProps, 'surfaceById' | 'visibleIds' | 'onExecute'>,
+  actionSurfaceId: string,
+  draft: Readonly<Record<string, unknown>>
+): Promise<WizardActionPreview> {
+  const action = surfaceById.get(actionSurfaceId)
+  if (action?.kind !== 'action') throw new Error(`Unknown wizard action: ${actionSurfaceId}`)
+  if (!visibleIds.has(action.surface)) throw new Error('Unauthorized')
+  const columns = action.columns.filter(
+    column => !action.fields.some(field => field.name === column && field.type === 'secret')
+  )
+  const result = await onExecute(action, serializeDeclarativeFields(action, draft))
+  return {
+    columns,
+    rows: result.map(row => Object.fromEntries(columns.map(column => [column, sanitizeConfirmValue(row[column])])))
+  }
+}
+
+export function WizardActionTable({ preview, i18nPrefix }: { preview: WizardActionPreview; i18nPrefix: string }) {
+  const { t } = useTranslation()
+  if (preview.columns.length === 0) return null
+  return (
+    <div className="overflow-x-auto border border-border-subtle">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            {preview.columns.map(column => (
+              <TableHead key={column}>
+                {t(`${i18nPrefix}.field.${column}`, { defaultValue: formatIdentifierLabel(column) })}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {preview.rows.map((row, index) => (
+            <TableRow key={index}>
+              {preview.columns.map(column => (
+                <TableCell key={column}>{row[column]}</TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
+export function DeclarativeWizardModal({
+  surface,
+  surfaceById,
+  visibleIds,
+  open,
+  i18nPrefix = 'console',
+  onClose,
+  onComplete,
+  onExecute
+}: WizardTriggerProps & { open: boolean; onClose: () => void }) {
   const { t } = useTranslation()
   const steps = surface.stepSchemas
   const secretFieldNames = new Set(
@@ -136,9 +192,11 @@ export function DeclarativeWizardModal({
   const [defaultScheme, setDefaultScheme] = useState('http')
   const [pkce, setPkce] = useState<PkceSession | null>(null)
   const [previewItems, setPreviewItems] = useState<readonly ParsedBatchItem[]>([])
+  const [actionPreviews, setActionPreviews] = useState<readonly (WizardActionPreview | undefined)[]>([])
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const actionPreview = actionPreviews.findLast(item => item !== undefined)
   const step = steps[stepIndex]
   const isFinal = stepIndex >= steps.length - 1
   const oauthStep = steps.find(item => item.kind === 'oauth_pkce' && item.oauthConfig)?.oauthConfig
@@ -225,7 +283,15 @@ export function DeclarativeWizardModal({
       }
 
       if (!isFinal) {
-        if (step.kind === 'oauth_pkce' && oauthStep) validatedOAuthPayload()
+        const input = step.kind === 'oauth_pkce' && oauthStep ? validatedOAuthPayload() : draft
+        if (step.actionSurfaceId !== undefined) {
+          const preview = await executeWizardStep({ surfaceById, visibleIds, onExecute }, step.actionSurfaceId, input)
+          setActionPreviews(previous => {
+            const next = previous.slice(0, stepIndex)
+            next[stepIndex] = preview
+            return next
+          })
+        }
         setStepIndex(prev => prev + 1)
         return
       }
@@ -301,6 +367,7 @@ export function DeclarativeWizardModal({
 
         <form
           ref={formRef}
+          inert={pending}
           onSubmit={event => {
             event.preventDefault()
             void handleAdvance()
@@ -367,6 +434,14 @@ export function DeclarativeWizardModal({
                 </div>
               )
             }
+            if (actionPreview && (step.kind === 'preview_items' || step.kind === 'confirm')) {
+              return (
+                <>
+                  <WizardActionTable i18nPrefix={i18nPrefix} preview={actionPreview} />
+                  <DeclarativeFields draft={draft} fields={step.fields} i18nPrefix={i18nPrefix} onChange={setDraft} />
+                </>
+              )
+            }
             if ((step.kind === 'preview_items' || step.kind === 'confirm') && batchStep) {
               return (
                 <div className="overflow-x-auto border border-border-subtle">
@@ -429,7 +504,11 @@ export function DeclarativeWizardModal({
               size="sm"
               type="button"
               variant="outline"
-              onClick={() => setStepIndex(prev => prev - 1)}>
+              onClick={() => {
+                setActionPreviews(previous => previous.slice(0, stepIndex - 1))
+                setStepIndex(stepIndex - 1)
+                setError(null)
+              }}>
               {t('common.back', { defaultValue: 'Back' })}
             </Button>
           ) : null}
@@ -451,18 +530,12 @@ export function DeclarativeWizardModal({
 
 export function DeclarativeWizardTrigger({
   surface,
+  surfaceById,
+  visibleIds,
   i18nPrefix = 'console',
   onComplete,
   onExecute
-}: {
-  surface: DeclarativeSurfaceDescriptor
-  i18nPrefix?: string
-  onComplete?: () => void
-  onExecute: (
-    targetSurface: DeclarativeSurfaceDescriptor,
-    payload: Record<string, unknown>
-  ) => Promise<readonly Record<string, unknown>[]>
-}) {
+}: WizardTriggerProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   return (
@@ -475,6 +548,8 @@ export function DeclarativeWizardTrigger({
           i18nPrefix={i18nPrefix}
           open={open}
           surface={surface}
+          surfaceById={surfaceById}
+          visibleIds={visibleIds}
           onClose={() => setOpen(false)}
           onComplete={onComplete}
           onExecute={onExecute}

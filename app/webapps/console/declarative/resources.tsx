@@ -226,6 +226,8 @@ export function DeclarativeResourceTable({
                       key={action.id}
                       i18nPrefix={i18nPrefix}
                       surface={action}
+                      surfaceById={surfaceById}
+                      visibleIds={visibleIds}
                       onExecute={runExecute}
                     />
                   ) : (

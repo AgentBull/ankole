@@ -5,14 +5,19 @@ import { I18nextProvider } from 'react-i18next'
 import { normalizeSeriesPoints } from './charts'
 import { buildKeyValueRecord, DeclarativeFields, formatKeyValueEntry } from './fields'
 import { resolveRouteTabSelection } from './resources'
-import { parseBatchLine, redactBatchLine, redactUrlCredentials } from './wizard'
+import { executeWizardStep, parseBatchLine, redactBatchLine, redactUrlCredentials, WizardActionTable } from './wizard'
 import {
   executeDeclarativeAction,
   useDeclarativeVisibility,
   serializeDeclarativeFields,
   serializeNullablePatchPayload
 } from './transport'
-import type { DeclarativeConsoleManifest, DeclarativeFieldDescriptor, DeclarativeRuleSection } from './types'
+import type {
+  DeclarativeConsoleManifest,
+  DeclarativeFieldDescriptor,
+  DeclarativeRuleSection,
+  DeclarativeSurfaceDescriptor
+} from './types'
 import { createDeclarativeConsoleModule } from './index'
 
 async function loadVisibility(endpoint: string, ids: readonly string[]) {
@@ -424,6 +429,88 @@ test('serializeDeclarativeFields coerces nested ruleSchema paths beyond 2 segmen
     { policy: { limits: { window: { max_rps: '42' } } } }
   )
   expect(serialized).toEqual({ policy: { limits: { window: { max_rps: 42 } } } })
+})
+
+const PREVIEW_ACTION: DeclarativeSurfaceDescriptor = {
+  ...FIXTURE_MANIFEST.surfaces[1]!,
+  id: 'preview-widgets',
+  surface: 'console:action:preview-widgets',
+  kind: 'action',
+  operationKind: 'action',
+  method: 'POST',
+  columns: ['widget_name', 'details', 'access_key'],
+  fields: [
+    { name: 'source', type: 'string', labelKey: 'source', required: true, readOnly: false },
+    { name: 'access_key', type: 'secret', labelKey: 'access_key', required: false, readOnly: true }
+  ]
+}
+
+test('wizard step executes the visible action and renders the preview table shared by confirmation', async () => {
+  const i18n = i18next.createInstance()
+  await i18n.init({ lng: 'en', resources: { en: { translation: { 'widgets.field.widget_name': 'Widget' } } } })
+  const preview = await executeWizardStep(
+    {
+      surfaceById: new Map([[PREVIEW_ACTION.id, PREVIEW_ACTION]]),
+      visibleIds: new Set([PREVIEW_ACTION.surface]),
+      onExecute: async (action, payload) => {
+        expect(action).toBe(PREVIEW_ACTION)
+        expect(payload).toEqual({ source: 'widget input' })
+        return [
+          {
+            id: 'internal-id',
+            widget_name: 'Blue widget',
+            details: 'https://demo:synthetic@example.test/',
+            access_key: 'private key',
+            private_value: 'private'
+          }
+        ]
+      }
+    },
+    PREVIEW_ACTION.id,
+    { source: 'widget input', unrelated: 'draft only' }
+  )
+  expect(preview.columns).toEqual(['widget_name', 'details'])
+  expect(preview.rows).toEqual([{ widget_name: 'Blue widget', details: 'https://***@example.test/' }])
+  const html = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <WizardActionTable i18nPrefix="widgets" preview={preview} />
+    </I18nextProvider>
+  )
+  expect(html).toContain('>Widget</th>')
+  expect(html).toContain('>Details</th>')
+  expect(html).toContain('>Blue widget</td>')
+  expect(html).toContain('>https://***@example.test/</td>')
+  expect(html).not.toContain('private')
+})
+
+test('wizard step rejects unknown and hidden actions before execution and reports request failures', async () => {
+  let calls = 0
+  const scope = {
+    surfaceById: new Map([[PREVIEW_ACTION.id, PREVIEW_ACTION]]),
+    visibleIds: new Set<string>(),
+    onExecute: async () => {
+      calls++
+      throw new Error('Preview unavailable')
+    }
+  }
+  await expect(executeWizardStep(scope, 'missing', {})).rejects.toThrow('Unknown wizard action')
+  await expect(executeWizardStep(scope, PREVIEW_ACTION.id, {})).rejects.toThrow('Unauthorized')
+  expect(calls).toBe(0)
+
+  scope.visibleIds.add(PREVIEW_ACTION.surface)
+  await expect(executeWizardStep(scope, PREVIEW_ACTION.id, {})).rejects.toThrow('Preview unavailable')
+  expect(calls).toBe(1)
+})
+
+test('parseBatchLine keeps the name and scheme while sending the original endpoint', () => {
+  const cfg = { urlField: 'endpoint_url', nameField: 'name', schemeField: 'protocol', schemes: ['http', 'https'] }
+  const row = parseBatchLine('Widget|demo:synthetic@example.test:8080', 'https', cfg)
+  expect(row).toEqual({
+    name: 'Widget',
+    protocol: 'https',
+    endpoint_url: 'https://demo:synthetic@example.test:8080/'
+  })
+  expect(redactUrlCredentials(row.endpoint_url!)).toBe('https://***@example.test:8080/')
 })
 
 test('parseBatchLine redacts embedded credentials on invalid schemes and malformed URLs', () => {
