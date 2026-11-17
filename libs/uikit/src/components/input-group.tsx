@@ -25,13 +25,13 @@ function InputGroup({
       data-variant={variant}
       role="group"
       className={cn(
-        'group/input-group relative flex h-8 w-full min-w-0 items-center px-3 outline-none transition-[background-color] duration-(--duration-feedback) has-[:is(input,textarea):disabled]:text-fg-disabled has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3',
+        'group/input-group relative flex h-control-md w-full min-w-0 items-center px-3 outline-none transition-[background-color] duration-(--duration-feedback) has-[:is(input,textarea):disabled]:text-fg-disabled has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3',
         variant === 'composer'
           ? 'composer-surface h-auto flex-col items-stretch px-0'
           : variant === 'paper'
             ? 'rounded-panel bg-page shadow-(--paper-shadow) has-[:is(input,textarea):focus-visible]:shadow-[0_0_0_1px_var(--border-strong),0_2px_8px_rgb(35_37_38/0.06)]'
             : variant === 'overlay'
-              ? 'h-9 rounded-(--menu-field-radius) border border-(--menu-field-edge) bg-(--menu-field) shadow-none has-[:is(input,textarea):focus-visible]:border-[color-mix(in_srgb,var(--menu-icon-blue)_55%,transparent)] has-[:is(input,textarea):focus-visible]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--menu-icon-blue)_12%,transparent)] has-[[aria-invalid=true]]:border-destructive-fg has-[[aria-invalid=true]]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-fg)_12%,transparent)] has-[:user-invalid]:border-destructive-fg has-[:user-invalid]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-fg)_12%,transparent)]'
+              ? 'h-control-lg rounded-(--menu-field-radius) border border-(--menu-field-edge) bg-(--menu-field) shadow-none has-[:is(input,textarea):focus-visible]:border-[color-mix(in_srgb,var(--menu-icon-blue)_55%,transparent)] has-[:is(input,textarea):focus-visible]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--menu-icon-blue)_12%,transparent)] has-[[aria-invalid=true]]:border-destructive-fg has-[[aria-invalid=true]]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-fg)_12%,transparent)] has-[:user-invalid]:border-destructive-fg has-[:user-invalid]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-fg)_12%,transparent)]'
               : 'rounded-control border border-field-border bg-field hover:bg-field-hover has-[:is(input,textarea):focus-visible]:border-control-edge has-[:is(input,textarea):focus-visible]:border-b-ring has-[:is(input,textarea):focus-visible]:bg-page has-[:is(input,textarea):focus-visible]:shadow-[inset_0_-1px_0_var(--color-ring)] has-[[data-slot][aria-invalid=true]]:bg-(--field-invalid) has-[:user-invalid]:bg-(--field-invalid) has-[:is(input,textarea):disabled]:border-transparent',
         className
       )}
@@ -51,7 +51,7 @@ const inputGroupAddonVariants = cva(
         'inline-end': 'order-last',
         'block-start': 'order-first w-full justify-start pt-3 group-has-[>input]/input-group:pt-3.5 [.border-b]:pb-3.5',
         'block-end':
-          'order-last w-full justify-start pb-3 group-has-[>input]/input-group:pb-3.5 [.border-t]:pt-3.5 group-data-[variant=composer]/input-group:h-8 group-data-[variant=composer]/input-group:gap-0 group-data-[variant=composer]/input-group:px-2.5 group-data-[variant=composer]/input-group:py-0'
+          'order-last w-full justify-start pb-3 group-has-[>input]/input-group:pb-3.5 [.border-t]:pt-3.5 group-data-[variant=composer]/input-group:h-control-md group-data-[variant=composer]/input-group:gap-0 group-data-[variant=composer]/input-group:px-2.5 group-data-[variant=composer]/input-group:py-0'
       }
     },
     defaultVariants: {
@@ -86,10 +86,10 @@ function InputGroupAddon({
 const inputGroupButtonVariants = cva('flex min-w-0! items-center justify-center shadow-none', {
   variants: {
     size: {
-      xs: "h-6 gap-1 rounded-mini px-1.5 text-xs [&>svg:not([class*='size-'])]:size-3.5",
+      xs: "h-control-xs gap-1 rounded-mini px-1.5 text-xs [&>svg:not([class*='size-'])]:size-3.5",
       sm: 'gap-2 rounded-mini text-sm',
-      'icon-xs': 'size-6 gap-2 rounded-mini p-0 text-xs has-[>svg]:p-0',
-      'icon-sm': 'size-7 gap-2 rounded-mini p-0 text-sm has-[>svg]:p-0',
+      'icon-xs': 'size-control-xs gap-2 rounded-mini p-0 text-xs has-[>svg]:p-0',
+      'icon-sm': 'size-control-sm gap-2 rounded-mini p-0 text-sm has-[>svg]:p-0',
       'icon-lg': '',
       toolbar: ''
     }

@@ -32,15 +32,15 @@ const buttonVariantClasses = cva(
         // composer's tools, takes 32px controls: an icon button that holds a 20px icon 6px inside its edge, and a
         // label of 12px text with a 12px arrow. The action row under content, such as a chat message's, takes the same
         // 32px icon buttons. `icon-lg` keeps its name for the shell toolbar and draws the same button as `icon-md`.
-        default: 'h-8 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
-        sm: 'h-7 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
-        xs: "h-6 gap-1 px-2 text-50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        icon: 'size-8',
-        'icon-md': "size-8 p-1.25 [&_svg:not([class*='size-'])]:size-5",
-        'icon-sm': 'size-7',
-        'icon-xs': "size-6 [&_svg:not([class*='size-'])]:size-3.5",
-        'icon-lg': "size-8 p-1.25 [&_svg:not([class*='size-'])]:size-5",
-        toolbar: "h-8 gap-1 px-1.75 py-1.25 text-50 font-normal [&_svg:not([class*='size-'])]:size-3"
+        default: 'h-control-md px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
+        sm: 'h-control-sm gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+        xs: "h-control-xs gap-1 px-2 text-50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        icon: 'size-control-md',
+        'icon-md': "size-control-md p-1.25 [&_svg:not([class*='size-'])]:size-5",
+        'icon-sm': 'size-control-sm',
+        'icon-xs': "size-control-xs [&_svg:not([class*='size-'])]:size-3.5",
+        'icon-lg': "size-control-md p-1.25 [&_svg:not([class*='size-'])]:size-5",
+        toolbar: "h-control-md gap-1 px-1.75 py-1.25 text-50 font-normal [&_svg:not([class*='size-'])]:size-3"
       }
     },
     compoundVariants: [

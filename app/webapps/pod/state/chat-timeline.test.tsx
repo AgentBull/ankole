@@ -668,7 +668,7 @@ test('a reply’s action row offers select, quote, and copy as 32px buttons, the
   expect(order(reply)).toEqual(['Select messages', 'Quote reply', 'Copy message', 'Edit and regenerate', 'time'])
   expect(reply.match(/data-slot="button"/g)).toHaveLength(4)
   expect(reply).not.toContain('size-6')
-  expect(reply).toContain('size-8')
+  expect(reply).toContain('size-control-md')
   expect(order(render(<MessageActions {...props} timeFirst />))[0]).toBe('time')
 })
 

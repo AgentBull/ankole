@@ -23,7 +23,8 @@ const badgeVariants = cva(
           'bg-badge-yellow/(--status-fill-alpha) text-(--badge-yellow-fg) hover:bg-badge-yellow-hover [a]:hover:text-(--badge-yellow-fg)',
         // A count that asks for attention, such as unread items on a navigation tab: brand-60 with a white figure.
         primary: 'bg-primary px-1 text-primary-fg',
-        secondary: 'bg-layer-03 text-fg-primary hover:bg-(--badge-secondary-hover) [a]:hover:text-fg-primary',
+        secondary:
+          'bg-layer-03 text-fg-primary hover:bg-(--badge-secondary-hover) [a]:hover:text-fg-primary [&>svg]:text-fg-secondary',
         destructive:
           'bg-badge-red/(--status-fill-alpha) text-(--badge-red-fg) hover:bg-badge-red-hover [a]:hover:text-(--badge-red-fg)',
         // An outline badge, such as a version, draws the strong overlay border around secondary text.
