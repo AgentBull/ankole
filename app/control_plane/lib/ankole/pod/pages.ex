@@ -166,7 +166,8 @@ defmodule Ankole.Pod.Pages do
                  parent_id: parent.id,
                  type: kind,
                  name: Nodes.name_from_title(title),
-                 owner_uid: if(kind in [:applet, "applet"], do: uid),
+                 owner_uid:
+                   if(kind in [:applet, "applet"], do: Ankole.Principals.authority_uid(uid)),
                  created_by: ActorRef.from_principal(principal),
                  title: title,
                  icon: icon,
@@ -692,12 +693,20 @@ defmodule Ankole.Pod.Pages do
 
   defp delete_embedded_child(%Ankole.AuthZ.Actor{} = actor, child) do
     action =
-      if child.inherit_permissions and child.created_by == ActorRef.from_actor(actor),
+      if child.inherit_permissions and created_by_authority?(child, actor),
         do: "node_edit",
         else: Nodes.deletion_action(child)
 
     Nodes.trash_node_in_tx(actor, child, action)
   end
+
+  # A personal assistant and its Human owner count as the same creator.
+  defp created_by_authority?(%{created_by: %{uid: uid}}, actor),
+    do:
+      Ankole.Principals.authority_uid(uid) ==
+        Ankole.Principals.authority_uid(Ankole.AuthZ.Actor.uid(actor))
+
+  defp created_by_authority?(_child, _actor), do: false
 
   def restore(%Ankole.AuthZ.Actor{} = actor, id, authority \\ nil) do
     authority = authority || actor.turn_authority

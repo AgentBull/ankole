@@ -106,7 +106,7 @@ Write operations:
   jobs.configure {page_id, id, label?, config?}
   jobs.delete {page_id, id}
   bindings.put {id?, config_ref, automation_job_id?, agent_uid?, target?, filters?, watched_field_ids?, enabled?}
-  applets.transfer_owner {id: page_id, owner_uid} — current owner or Pod administrator
+  applets.transfer_owner {id: page_id, owner_uid} — current owner, the owner's personal assistant, or Pod administrator; naming a personal assistant assigns its Human owner
   applets.call      {id, method: GET|POST|PUT|PATCH|DELETE, path, query?, body?}
     Returns {status, body?, logs?}, including handler errors. Never replay a
     write after a disconnect: first read its saved result.

@@ -196,6 +196,33 @@ defmodule Ankole.Pod.AppletsTest do
     assert {:error, :not_found} = call(ctx.owner, page.id, "GET", "/")
   end
 
+  test "a personal assistant's Applets belong to its Human owner, and either of them can transfer",
+       ctx do
+    assistant =
+      agent_fixture(%{type: :personal_assistant, owner_principal_uid: ctx.owner}).principal.uid
+
+    colleague = agent_fixture().principal.uid
+    page = create(assistant, ctx.owner)
+    assert page.owner_uid == ctx.owner
+
+    assert {:error, :forbidden} =
+             Ankole.Pod.transfer_applet_owner(actor_fixture(ctx.reader), page.id, ctx.reader)
+
+    assert {:ok, %{owner_uid: ^colleague}} =
+             Ankole.Pod.transfer_applet_owner(actor_fixture(ctx.owner), page.id, colleague)
+
+    {:ok, _} = Ankole.Pod.transfer_applet_owner(actor_fixture(colleague), page.id, ctx.owner)
+
+    # The assistant transfers its owner's Applet; naming the assistant assigns its owner.
+    assert {:ok, %{owner_uid: ^colleague}} =
+             Ankole.Pod.transfer_applet_owner(actor_fixture(assistant), page.id, colleague)
+
+    assert {:ok, %{owner_uid: owner}} =
+             Ankole.Pod.transfer_applet_owner(actor_fixture(colleague), page.id, assistant)
+
+    assert owner == ctx.owner
+  end
+
   test "trashing an Applet closes its capabilities on other live Pages", ctx do
     actor = actor_fixture(ctx.owner)
     page = create(ctx.owner)
@@ -740,13 +767,13 @@ defmodule Ankole.Pod.AppletsTest do
     end
   end
 
-  defp create(uid),
+  defp create(uid, private_owner_uid \\ nil),
     do:
       elem(
         Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{
           type: "applet",
           title: "Backend",
-          private_owner_uid: uid
+          private_owner_uid: private_owner_uid || uid
         }),
         1
       )

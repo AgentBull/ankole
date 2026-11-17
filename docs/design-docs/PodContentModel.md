@@ -985,7 +985,8 @@ state), `acl_anchor_chain` (walking `inherit_permissions`, Space defaults, and
 matching `permission_grants`), and `brain_disclosure_gate` (evaluating
 `Ankole.Brain.Access.authorize_turn` when AI retrieval intersection applies).
 Viewers who lack `node_manage` on the Page may inspect only themselves and their
-own Personal Assistant, whereas Page managers may inspect any collaborator or
+equivalent Principal, meaning a Human's own Personal Assistant or an assistant's
+owning Human, whereas Page managers may inspect any collaborator or
 Agent and grant `view` access directly from the Share popover's `Check access`
 view. Drafting a `pod.page.set_sharing` ActionCard attaches `explain_summaries`
 for affected principals so approvers can compare current access before
@@ -2099,7 +2100,10 @@ the child Page in the tree first, deleting a direct child embed from the block
 menu trashes that child Page. For a multi-block menu deletion, the editor sends
 all selected embed references to `POST /api/v2/pod/pages/:id/embeds/delete`.
 `Pages` checks the parent and each direct child's permissions in one tree
-transaction and commits all child deletions together. A rejected child leaves
+transaction and commits all child deletions together. A child that inherits
+permissions and was created by the caller, by the caller's personal assistant,
+or by the assistant's owning Human needs only `node_edit`; any other child needs
+its ordinary deletion permission. A rejected child leaves
 all children and their purge jobs unchanged. After success, the editor removes
 the captured block selection if the document is still unchanged. Deleting a
 block that refers to a Page outside this document's direct children leaves the
@@ -2972,8 +2976,13 @@ results may supply `{status, body}`. Published flat route maps remain supported
 for existing Applets. `AnkoleRuntime.HttpError` carries explicit client errors;
 Agent calls also receive bounded diagnostics and console output.
 
-An Applet has an explicit `owner_uid`, initially its creator. Only that current
-owner or a tenant Pod administrator can transfer ownership. Ordinary capabilities
+An Applet has an explicit `owner_uid`, initially its creator. A personal
+assistant counts as its Human owner for Applet ownership: when an assistant
+creates an Applet, or a transfer names an assistant, Ankole records the
+assistant's owner as `owner_uid`. The Page's `created_by` still records the
+assistant that actually created it. Only the current owner, that owner's
+personal assistant, or a tenant Pod administrator can transfer ownership.
+Ordinary capabilities
 use the caller for interactive routes or the enabling Human for personal Jobs.
 `AnkoleRuntime.admin` capabilities use the Page's current owner and record that
 Principal in audit fields. Team Jobs use `admin` capabilities because they have

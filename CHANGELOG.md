@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 2.0.0-alpha.167 (2026-11-18)
+
+- A personal assistant now counts as its owner for Pod Page ownership. An
+  Applet that your assistant creates belongs to you, so you can transfer it and
+  its `AnkoleRuntime.admin` capabilities run and audit as you; the Page still
+  shows the assistant as its creator. Your assistant can also transfer Applets
+  you own, and naming an assistant as the new owner assigns its owner. You can
+  remove an inline subpage your assistant created with edit access alone, and
+  you and your assistant can check each other's access to a Page. The upgrade
+  migration moves every existing assistant-owned Applet to the assistant's
+  owner.
+
 ## Version 2.0.0-alpha.166 (2026-11-18)
 
 - Fix Worker and Function Runtime DNS on clusters that enforce NetworkPolicy

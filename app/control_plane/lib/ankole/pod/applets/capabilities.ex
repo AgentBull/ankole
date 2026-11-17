@@ -91,8 +91,7 @@ defmodule Ankole.Pod.Applets.Capabilities do
              do: {:ok, caller}
 
       admin? ->
-        with {:ok, owner} <- Ankole.Pod.Applets.owner(page),
-             {:ok, principal} <- resolve_admin_principal(owner, operation) do
+        with {:ok, principal} <- Ankole.Pod.Applets.owner(page) do
           authority = Ankole.AutomationJobs.applet_attempt_authority(context, principal.uid)
 
           {:ok,
@@ -109,21 +108,6 @@ defmodule Ankole.Pod.Applets.Capabilities do
              do: {:ok, caller}
     end
   end
-
-  defp resolve_admin_principal(%{type: :agent} = owner, "notifications.post") do
-    case Ankole.Principals.authority_uid(owner.uid) do
-      uid when uid != owner.uid ->
-        case Ankole.Principals.get_principal(uid) do
-          {:ok, %{type: :human, status: :active} = human} -> {:ok, human}
-          _ -> {:error, :applet_owner_unavailable}
-        end
-
-      _ ->
-        {:ok, owner}
-    end
-  end
-
-  defp resolve_admin_principal(owner, _operation), do: {:ok, owner}
 
   defp dispatch_context(context, _page, _actor, _caller, "state." <> operation, args),
     do: Ankole.AutomationJobs.applet_state(context, operation, args)

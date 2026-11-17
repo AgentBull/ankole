@@ -487,8 +487,11 @@ operation after admitting an active member.
 
 The assistant executes, speaks, stores runtime files and incurs usage under its
 own identity. `Principals.authority_uid/1` reads its owner for business AuthZ,
-the owner's Pod private tree and Human work admission. Management permissions
-use the assistant's own grants. Disabling or offboarding the owner, or changing
+the owner's Pod private tree, Pod Page ownership and Human work admission. An
+Applet that the assistant creates therefore belongs to the owner, and the owner
+and the assistant can each manage what the other owns or created; Page
+attribution such as `created_by` still names the assistant. Management
+permissions use the assistant's own grants. Disabling or offboarding the owner, or changing
 them to guest, disables the assistant; restoring an active member enables an
 existing assistant. Each synchronization enqueues Worker reconciliation in the
 same transaction, so the provider applies the committed lifecycle state.

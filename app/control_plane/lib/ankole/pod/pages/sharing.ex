@@ -150,10 +150,11 @@ defmodule Ankole.Pod.Pages.Sharing do
        ) do
     uid = subject_principal.uid
 
-    # Without node_manage, a viewer may inspect only themselves and their own
-    # Personal Assistant; a manager may inspect any collaborator or Agent.
+    # Without node_manage, a viewer may inspect only themselves and the
+    # equivalent Human or Personal Assistant; a manager may inspect any
+    # collaborator or Agent.
     cond do
-      uid == caller_uid or own_personal_assistant?(subject_principal, caller_uid) ->
+      Ankole.Principals.authority_uid(uid) == Ankole.Principals.authority_uid(caller_uid) ->
         :ok
 
       not can_manage ->
@@ -179,15 +180,6 @@ defmodule Ankole.Pod.Pages.Sharing do
         :ok
     end
   end
-
-  defp own_personal_assistant?(%{type: :agent, uid: uid}, caller_uid) do
-    match?(
-      {:ok, %{type: :personal_assistant, owner_principal_uid: ^caller_uid}},
-      Ankole.Principals.get_agent_record(uid)
-    )
-  end
-
-  defp own_personal_assistant?(_subject_principal, _caller_uid), do: false
 
   def set_sharing(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
     authority = authority || actor.turn_authority

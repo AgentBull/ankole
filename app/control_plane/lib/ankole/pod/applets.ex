@@ -348,16 +348,21 @@ defmodule Ankole.Pod.Applets do
   end
 
   def transfer_owner(actor, page_id, owner_uid) do
+    actor_uid = Ankole.AuthZ.Actor.uid(actor)
+
     with {:ok, updated} <-
            Ankole.Repo.transact_top_level(fn ->
-             with {:ok, _} <- Ankole.Principals.lock_principals_in_tx([owner_uid]),
+             # A personal assistant is equivalent to its Human owner for ownership.
+             with owner_uid when is_binary(owner_uid) <-
+                    if(is_binary(owner_uid), do: Ankole.Principals.authority_uid(owner_uid)),
+                  {:ok, _} <- Ankole.Principals.lock_principals_in_tx([owner_uid]),
                   :ok <- Ankole.AuthZ.authorize_turn_in_tx(actor.turn_authority),
                   {:ok, _} <- Access.principal(actor),
                   {:ok, page} <- Pages.lock(page_id),
                   :ok <- applet_type(page),
                   true <-
-                    page.owner_uid == Ankole.AuthZ.Actor.uid(actor) or
-                      Ankole.AuthZ.pod_admin?(Ankole.AuthZ.Actor.uid(actor)),
+                    page.owner_uid == Ankole.Principals.authority_uid(actor_uid) or
+                      Ankole.AuthZ.pod_admin?(actor_uid),
                   {:ok, %{status: :active}} <- Ankole.Principals.get_principal(owner_uid) do
                Ankole.Ash.update(page, :transfer_owner, %{owner_uid: owner_uid})
              else

@@ -121,7 +121,7 @@ defmodule Ankole.Pod.AppletNotificationsTest do
              })
   end
 
-  test "personal-assistant-owned Applets post admin notifications through their human owner authority" do
+  test "Applets a personal assistant creates belong to its Human owner and post admin notifications as that owner" do
     owner = human_fixture().principal
     actor = actor_fixture(owner)
 
@@ -148,7 +148,7 @@ defmodule Ankole.Pod.AppletNotificationsTest do
         private_owner_uid: owner.uid
       })
 
-    assert page.owner_uid == assistant.uid
+    assert page.owner_uid == owner.uid
 
     publish_applet_fixture(%{actor: actor, page: page}, """
     export default {
@@ -161,7 +161,7 @@ defmodule Ankole.Pod.AppletNotificationsTest do
     {:ok, job} =
       AutomationJobs.create_applet_job(actor, page.id, "warn", %{authorization_kind: "service"})
 
-    notice = payload(conversation_id, "Assistant-owned applet alert.")
+    notice = payload(conversation_id, "Assistant-created applet alert.")
 
     {:ok, %{automation_job_run: run}} =
       Repo.transact_top_level(fn ->
