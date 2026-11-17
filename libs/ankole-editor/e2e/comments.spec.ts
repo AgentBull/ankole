@@ -171,7 +171,9 @@ test('dragging a paragraph keeps its anchor and duplicating it does not duplicat
 
 test('asking an Agent hands the selected text to the host and leaves the document unchanged', async ({ page }) => {
   const first = page.getByTestId('first-editor').locator('.editor-content')
-  const before = await page.getByLabel('First Markdown', { exact: true }).textContent()
+  const markdown = page.getByLabel('First Markdown', { exact: true })
+  const source = 'Anchored text\n\nDestination'
+  await expect(markdown).toHaveJSProperty('textContent', source)
   await first.evaluate(element => {
     const text = element.querySelector('p')!.firstChild!.firstChild!
     ;(element as HTMLElement).focus()
@@ -182,7 +184,7 @@ test('asking an Agent hands the selected text to the host and leaves the documen
   await toolbar.getByRole('button', { name: '问 Agent', exact: true }).click()
   await expect(page.getByLabel('Agent event', { exact: true })).toHaveText('{"from":1,"to":9,"quote":"Anchored"}')
   await expect(toolbar).toBeHidden()
-  await expect(page.getByLabel('First Markdown', { exact: true })).toHaveText(before!)
+  await expect(markdown).toHaveJSProperty('textContent', source)
 })
 
 test('a same-editor cut pasted over selected cells fills the first cell and empties the others', async ({ page }) => {

@@ -300,7 +300,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.frontend_browser == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -327,17 +327,17 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - if: ${{ steps.wasm-cache.outputs.cache-hit != 'true' }}
         run: bun run --filter @ankole/kernel build:wasm
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ github.ref == 'refs/heads/main' && steps.wasm-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: app/kernel/dist
+          key: ${{ steps.wasm-cache.outputs.cache-primary-key }}
       - run: bun run --filter @ankole/webapps test
       - run: bunx playwright install --with-deps chromium
         working-directory: app/webapps
       - run: bunx playwright test --project=chromium
         working-directory: libs/ankole-editor
       - run: bun run --filter @ankole/webapps test:browser
-      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: ${{ github.ref == 'refs/heads/main' && steps.wasm-cache.outputs.cache-hit != 'true' }}
-        with:
-          path: app/kernel/dist
-          key: ${{ steps.wasm-cache.outputs.cache-primary-key }}
 
   # Require this job, not the individual checks, in branch protection. It
   # reports success when every check passed or a documentation-only change
