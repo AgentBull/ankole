@@ -153,7 +153,6 @@ export function InsertMenu({
   const label = useEditorLabel()
   const kind = hovered ? 'handle-insert' : 'insert'
   const { editor, open, change, finalFocus } = useMenu(kind)
-  const triggerId = useId()
   const toggle = (next: boolean, reason?: string, before = false) => {
     if (next && !open) {
       const pos = hovered?.()
@@ -162,13 +161,8 @@ export function InsertMenu({
     change(next, hovered ? currentBlock(editor.state) : null, reason)
   }
   return (
-    <DropdownMenu
-      modal={false}
-      open={open}
-      triggerId={triggerId}
-      onOpenChange={(next, details) => toggle(next, details.reason)}>
+    <DropdownMenu modal={false} open={open} onOpenChange={(next, details) => toggle(next, details.reason)}>
       <DropdownMenuTrigger
-        id={triggerId}
         {...(hovered ? handleTriggerEvents(event => toggle(!open, undefined, event.altKey)) : {})}
         render={
           trigger ?? (
@@ -273,7 +267,6 @@ export function BlockMenu({
     <DropdownMenu
       modal={false}
       open={open}
-      triggerId={triggerId}
       onOpenChange={(next, details) => change(next, hovered ? hovered() : currentBlock(editor.state), details.reason)}>
       {typeTrigger && (
         <DropdownMenuTrigger id={typeId} {...handleTriggerEvents(() => toggle(typeId))} render={typeTrigger} />
@@ -297,6 +290,8 @@ export function BlockMenu({
       <DropdownMenuContent
         className="block-menu block-actions ankole-editor-overlay"
         aria-label={label(inserting ? 'insert_block' : 'block_actions')}
+        // The menu opens under the trigger that was pressed, not the first one.
+        anchor={`[id="${triggerId}"]`}
         finalFocus={finalFocus}>
         <BlockMenuBody close={() => change(false)} insertMenu={insertMenu} />
       </DropdownMenuContent>
@@ -314,7 +309,6 @@ export function KeyboardBlockMenu({ insertMenu }: { insertMenu?: InsertExtras })
   })
   const inserting = useEditorState(state => state.field(menuField, false)?.inserting)
   const [top, setTop] = useState(0)
-  const triggerId = useId()
   const anchor = useRef<HTMLButtonElement>(null)
   const handled = useRef<number | undefined>(undefined)
   // ⌘/ records a request in the editor state. The menu opens once the editor has drawn it, and
@@ -332,12 +326,10 @@ export function KeyboardBlockMenu({ insertMenu }: { insertMenu?: InsertExtras })
     <DropdownMenu
       modal={false}
       open={open}
-      triggerId={triggerId}
       onOpenChange={(next, details) => {
         if (!next) change(false, null, details.reason)
       }}>
       <DropdownMenuTrigger
-        id={triggerId}
         render={
           <button ref={anchor} tabIndex={-1} aria-hidden="true" className="keyboard-block-anchor" style={{ top }} />
         }
@@ -354,13 +346,14 @@ export function KeyboardBlockMenu({ insertMenu }: { insertMenu?: InsertExtras })
 
 /**
  * Handle buttons open their menu on click, so that a press that moves starts a drag of the block
- * instead.
+ * instead. Calling `preventDefault()` skips the menu's own handler for that event: its opening on
+ * press and its toggle on click.
  */
 function handleTriggerEvents(toggle: (event: { altKey?: boolean }) => void) {
   return {
-    onMouseDown: (event: { preventBaseUIHandler(): void }) => event.preventBaseUIHandler(),
-    onClick: (event: { altKey?: boolean; preventBaseUIHandler(): void }) => {
-      event.preventBaseUIHandler()
+    onPointerDown: (event: { preventDefault(): void }) => event.preventDefault(),
+    onClick: (event: { altKey?: boolean; preventDefault(): void }) => {
+      event.preventDefault()
       toggle(event)
     }
   }
@@ -423,10 +416,11 @@ function BlockActions() {
       </DropdownMenuSub>
       <DropdownMenuItem
         disabled={!block}
-        closeOnClick={false}
+        closeOnSelect={false}
         onClick={event => {
           const menu = editor.state.field(menuField, false)
-          if (!menu || menu.pos === null || !insertBesideBlock(editor, menu.pos, 'paragraph', event.altKey)) return
+          const before = 'altKey' in event && event.altKey === true
+          if (!menu || menu.pos === null || !insertBesideBlock(editor, menu.pos, 'paragraph', before)) return
           editor.dispatch({ effects: setMenu.of({ ...menu, pos: currentBlock(editor.state), inserting: true }) })
         }}>
         <AddRegular aria-hidden />

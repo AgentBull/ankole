@@ -295,7 +295,7 @@ the sheet's edge:
     for categorical charts: steps `60`–`70` in light mode, `30`–`50` in dark
     mode; the neutral `--color-gray-{10..100}` ramp runs from `#fbfbfb` to
     `#1c1c1e`).
-- **Use `@ankole/uikit` components and `@base-ui/react` composition**: Native
+- **Use `@ankole/uikit` components and `@ui-sdk/react` composition**: Native
   HTML `<button>`, `<input>`, `<select>`, and `<table>` elements do not carry
   Pod control styling. Import components from root `@ankole/uikit`:
   - Actions & navigation: `Button` (`variant`: `'default' | 'outline' | 'ghost' | 'destructive' | 'link'`,
@@ -339,7 +339,7 @@ the sheet's edge:
   - Overlays: `Dialog` / `DialogTrigger` / `DialogContent` / `DialogHeader` /
     `DialogTitle` / `DialogDescription` / `DialogFooter`, `Sheet`, `Drawer`,
     `Popover`, `DropdownMenu`, `Tooltip`. `@ankole/uikit` is built on
-    `@base-ui/react` (not Radix): compose trigger buttons with
+    `@ui-sdk/react` (not Radix): compose trigger buttons with
     `render={<Button variant="outline" />}` instead of `asChild`.
 
 Use `useRecords(tableID, query)` for records and its `create`, `update`, and

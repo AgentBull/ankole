@@ -135,7 +135,7 @@ export function QuickstartTabs({ ariaLabel, defaultValue, labels, queryParam, ta
 
   return (
     <div className="not-prose my-10 w-full min-w-0 max-w-4xl border-y border-border-subtle/80">
-      <Tabs value={value} onValueChange={changeTab} className="w-full min-w-0 gap-0">
+      <Tabs value={value} onValueChange={next => next && changeTab(next)} className="w-full min-w-0 gap-0">
         <TabsList
           aria-label={ariaLabel}
           className="no-scrollbar w-full min-w-0 max-w-full justify-start gap-6 overflow-x-auto group-data-horizontal/tabs:h-auto sm:gap-8">

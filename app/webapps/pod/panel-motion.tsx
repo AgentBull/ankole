@@ -16,10 +16,13 @@ const popupContents = [
   'hover-card-content',
   'tooltip-content'
 ]
-  .map(slot => `[data-slot='${slot}']`)
+  .map(slot => `[data-slot='${slot}']:not([hidden])`)
   .join(',')
 
-/** Escape closes only the topmost layer, so an open popup takes it even before focus moves inside. */
+/**
+ * Escape closes only the topmost layer, so an open popup takes it even before focus moves inside. A closed tooltip
+ * stays in the page with `hidden`, so only content that shows counts as open.
+ */
 export const popupOpen = () => document.querySelector(popupContents) !== null
 
 // Intent belongs to one visibility change, not to the last input device used in the app.

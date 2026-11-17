@@ -1,4 +1,8 @@
-import { Avatar as AvatarPrimitive } from '@base-ui/react/avatar'
+import {
+  Avatar as AvatarPrimitive,
+  AvatarFallback as AvatarFallbackPrimitive,
+  AvatarImage as AvatarImagePrimitive
+} from '@ui-sdk/react/avatar'
 import type * as React from 'react'
 
 import { cn } from '../lib/utils'
@@ -15,13 +19,12 @@ function Avatar({
   size = 'default',
   shape = 'circle',
   ...props
-}: AvatarPrimitive.Root.Props & {
+}: React.ComponentProps<typeof AvatarPrimitive> & {
   size?: 'default' | 'sm' | 'xs' | 'lg'
   shape?: 'circle' | 'square'
 }) {
   return (
-    <AvatarPrimitive.Root
-      data-slot="avatar"
+    <AvatarPrimitive
       data-size={size}
       data-shape={shape}
       className={cn(
@@ -33,20 +36,18 @@ function Avatar({
   )
 }
 
-function AvatarImage({ className, ...props }: AvatarPrimitive.Image.Props) {
+function AvatarImage({ className, ...props }: React.ComponentProps<typeof AvatarImagePrimitive>) {
   return (
-    <AvatarPrimitive.Image
-      data-slot="avatar-image"
+    <AvatarImagePrimitive
       className={cn('aspect-square size-full rounded-[inherit] object-cover', className)}
       {...props}
     />
   )
 }
 
-function AvatarFallback({ className, ...props }: AvatarPrimitive.Fallback.Props) {
+function AvatarFallback({ className, ...props }: React.ComponentProps<typeof AvatarFallbackPrimitive>) {
   return (
-    <AvatarPrimitive.Fallback
-      data-slot="avatar-fallback"
+    <AvatarFallbackPrimitive
       className={cn(
         'flex size-full items-center justify-center rounded-[inherit] bg-layer-03 text-sm text-fg-secondary group-data-[size=sm]/avatar:text-xs group-data-[size=xs]/avatar:text-25',
         className

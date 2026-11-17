@@ -1,41 +1,40 @@
-import { Dialog as SheetPrimitive } from '@base-ui/react/dialog'
+import {
+  type DialogFinalFocus,
+  type DialogInitialFocus,
+  DialogBackdrop,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  Dialog as SheetPrimitive,
+  DialogTitle,
+  DialogTrigger
+} from '@ui-sdk/react/dialog'
 import { DismissRegular } from '../icons'
 import type * as React from 'react'
 import { Button } from './button'
+import { type FocusTarget, focusTarget } from '../lib/focus-target'
+import { usePopupContainer } from '../lib/popup-container'
 import { cn } from '../lib/utils'
 
-function Sheet({ ...props }: SheetPrimitive.Root.Props) {
-  return <SheetPrimitive.Root data-slot="sheet" {...props} />
+// A sheet is a ui-sdk dialog. The kit names its surface, overlay, title and description `sheet-*`, so that dialog
+// styles in app stylesheets leave sheets alone.
+
+function Sheet({ container, ...props }: React.ComponentProps<typeof SheetPrimitive>) {
+  return <SheetPrimitive container={usePopupContainer(container)} {...props} />
 }
 
-function SheetTrigger({ className, ...props }: SheetPrimitive.Trigger.Props) {
+function SheetTrigger({ className, ...props }: React.ComponentProps<typeof DialogTrigger>) {
+  return <DialogTrigger className={cn('cursor-pointer disabled:cursor-not-allowed', className)} {...props} />
+}
+
+function SheetClose({ className, ...props }: React.ComponentProps<typeof DialogClose>) {
+  return <DialogClose className={cn('cursor-pointer disabled:cursor-not-allowed', className)} {...props} />
+}
+
+function SheetOverlay({ className, ...props }: React.ComponentProps<typeof DialogBackdrop>) {
   return (
-    <SheetPrimitive.Trigger
-      data-slot="sheet-trigger"
-      className={cn('cursor-pointer disabled:cursor-not-allowed', className)}
-      {...props}
-    />
-  )
-}
-
-function SheetClose({ className, ...props }: SheetPrimitive.Close.Props) {
-  return (
-    <SheetPrimitive.Close
-      data-slot="sheet-close"
-      className={cn('cursor-pointer disabled:cursor-not-allowed', className)}
-      {...props}
-    />
-  )
-}
-
-function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
-  return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />
-}
-
-function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
-  return (
-    <SheetPrimitive.Backdrop
-      data-slot="sheet-overlay"
+    <DialogBackdrop
+      render={<div data-slot="sheet-overlay" />}
       className={cn(
         'fixed inset-0 z-50 bg-scrim transition-opacity duration-(--duration-drawer) ease-drawer data-ending-style:opacity-0 data-starting-style:opacity-0',
         className
@@ -51,18 +50,26 @@ function SheetContent({
   closeLabel = 'Close',
   side = 'right',
   showCloseButton = true,
+  initialFocus,
+  finalFocus,
   ...props
-}: SheetPrimitive.Popup.Props & {
+}: Omit<React.ComponentProps<typeof DialogContent>, 'children' | 'initialFocus' | 'finalFocus'> & {
+  children?: React.ReactNode
   closeLabel?: string
+  initialFocus?: FocusTarget<DialogInitialFocus>
+  finalFocus?: FocusTarget<DialogFinalFocus>
   side?: 'top' | 'right' | 'bottom' | 'left'
   showCloseButton?: boolean
 }) {
   return (
-    <SheetPortal>
+    <>
       <SheetOverlay />
-      <SheetPrimitive.Popup
-        data-slot="sheet-content"
+      <DialogContent
+        // ui-sdk's own `data-slot` wins over a prop, so the kit sets the caller's slot, such as a sidebar's, here.
+        render={<div data-slot={(props as { 'data-slot'?: string })['data-slot'] ?? 'sheet-content'} />}
         data-side={side}
+        initialFocus={focusTarget(initialFocus)}
+        finalFocus={focusTarget(finalFocus)}
         className={cn(
           'ceramic fixed z-50 flex max-w-[calc(100%-1rem)] flex-col overflow-hidden text-sm outline-none text-fg-primary transition-[translate,opacity] duration-(--duration-drawer) ease-drawer data-starting-style:opacity-0 data-ending-style:opacity-0 data-[side=bottom]:inset-x-2 data-[side=bottom]:bottom-2 data-[side=bottom]:h-auto data-[side=bottom]:data-ending-style:translate-y-[calc(100%+--spacing(2))] data-[side=bottom]:data-starting-style:translate-y-[calc(100%+--spacing(2))] data-[side=left]:inset-y-2 data-[side=left]:left-2 data-[side=left]:w-3/4 data-[side=left]:data-ending-style:-translate-x-[calc(100%+--spacing(2))] data-[side=left]:data-starting-style:-translate-x-[calc(100%+--spacing(2))] data-[side=right]:inset-y-2 data-[side=right]:right-2 data-[side=right]:w-3/4 data-[side=right]:data-ending-style:translate-x-[calc(100%+--spacing(2))] data-[side=right]:data-starting-style:translate-x-[calc(100%+--spacing(2))] data-[side=top]:inset-x-2 data-[side=top]:top-2 data-[side=top]:h-auto data-[side=top]:data-ending-style:-translate-y-[calc(100%+--spacing(2))] data-[side=top]:data-starting-style:-translate-y-[calc(100%+--spacing(2))] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm',
           className
@@ -70,8 +77,7 @@ function SheetContent({
         {...props}>
         {children}
         {showCloseButton && (
-          <SheetPrimitive.Close
-            data-slot="sheet-close"
+          <DialogClose
             render={
               <Button
                 variant="ghost"
@@ -81,10 +87,10 @@ function SheetContent({
             }>
             <DismissRegular />
             <span className="sr-only">{closeLabel}</span>
-          </SheetPrimitive.Close>
+          </DialogClose>
         )}
-      </SheetPrimitive.Popup>
-    </SheetPortal>
+      </DialogContent>
+    </>
   )
 }
 
@@ -105,20 +111,20 @@ function SheetFooter({ className, ...props }: React.ComponentProps<'div'>) {
   )
 }
 
-function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
+function SheetTitle({ className, ...props }: React.ComponentProps<typeof DialogTitle>) {
   return (
-    <SheetPrimitive.Title
-      data-slot="sheet-title"
+    <DialogTitle
+      render={<h2 data-slot="sheet-title" />}
       className={cn('title-overlay text-fg-primary', className)}
       {...props}
     />
   )
 }
 
-function SheetDescription({ className, ...props }: SheetPrimitive.Description.Props) {
+function SheetDescription({ className, ...props }: React.ComponentProps<typeof DialogDescription>) {
   return (
-    <SheetPrimitive.Description
-      data-slot="sheet-description"
+    <DialogDescription
+      render={<p data-slot="sheet-description" />}
       className={cn('mt-0.5 text-sm leading-5 text-fg-secondary', className)}
       {...props}
     />

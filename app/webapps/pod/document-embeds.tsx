@@ -99,7 +99,8 @@ export function ChartEmbedPickerDialog({
         closeLabel={t('common.close')}
         finalFocus={() => {
           onFocusEditor()
-          return false
+          // The dialog keeps focus where the editor put it only when it gets that element back.
+          return document.activeElement as HTMLElement | null
         }}>
         <DialogTitle>{t('pod.content.embed_base_chart', { defaultValue: 'Insert Base chart' })}</DialogTitle>
         <div className="pod-dialog-body grid gap-3">
@@ -303,7 +304,7 @@ export function PageEmbed({
                 <Button
                   variant="ghost"
                   size="xs"
-                  className="shrink-0 gap-1 text-fg-secondary opacity-0 transition-opacity duration-120 group-focus-within/inline-page:opacity-100 group-hover/inline-page:opacity-100 data-popup-open:opacity-100 [@media(hover:none)]:opacity-100"
+                  className="shrink-0 gap-1 text-fg-secondary opacity-0 transition-opacity duration-120 group-focus-within/inline-page:opacity-100 group-hover/inline-page:opacity-100 data-open:opacity-100 [@media(hover:none)]:opacity-100"
                   aria-label={t('pod.editor.resource_view')}
                 />
               }>

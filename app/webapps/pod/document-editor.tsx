@@ -670,7 +670,8 @@ export function DocumentPage({
             closeLabel={t('common.close')}
             finalFocus={() => {
               editor.current?.focus()
-              return false
+              // The dialog keeps focus where the editor put it only when it gets that element back.
+              return document.activeElement as HTMLElement | null
             }}>
             <DialogTitle>{t('pod.content.embed_existing_content')}</DialogTitle>
             <div className="pod-dialog-body grid gap-3">

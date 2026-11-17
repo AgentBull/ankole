@@ -1,5 +1,4 @@
-import { mergeProps } from '@base-ui/react/merge-props'
-import { useRender } from '@base-ui/react/use-render'
+import { mergeProps, renderElement, type RenderProp } from '@ui-sdk/react/primitive'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { Separator } from './separator'
 import { cn } from '../lib/utils'
@@ -37,11 +36,12 @@ function ButtonGroup({
   )
 }
 
-function ButtonGroupText({ className, render, ...props }: useRender.ComponentProps<'div'>) {
-  return useRender({
-    defaultTagName: 'div',
-    props: mergeProps<'div'>(
+function ButtonGroupText({ className, render, ...props }: React.ComponentProps<'div'> & { render?: RenderProp }) {
+  return renderElement(
+    'div',
+    mergeProps(
       {
+        'data-slot': 'button-group-text',
         className: cn(
           "flex items-center gap-2 rounded-control border border-field-edge border-b-field-border bg-field px-2.5 text-sm leading-5 font-normal text-fg-secondary [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-3.5",
           className
@@ -49,11 +49,8 @@ function ButtonGroupText({ className, render, ...props }: useRender.ComponentPro
       },
       props
     ),
-    render,
-    state: {
-      slot: 'button-group-text'
-    }
-  })
+    render
+  )
 }
 
 function ButtonGroupSeparator({

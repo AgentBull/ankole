@@ -5,6 +5,28 @@ import { CaretDownFilled } from '../src/icons'
 import { attributeOf, classesOf, pathOf, tagWith } from './markup'
 
 describe('Select', () => {
+  test('gives the trigger the id and field relations that a form field passes to the select', () => {
+    const html = renderToStaticMarkup(
+      <>
+        <label htmlFor="provider">Provider</label>
+        <Select id="provider" aria-describedby="provider-error" aria-invalid value="">
+          <SelectTrigger>
+            <SelectValue placeholder="Select a provider" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="openai">OpenAI</SelectItem>
+          </SelectContent>
+        </Select>
+      </>
+    )
+
+    const trigger = tagWith(html, 'data-slot="select-trigger"')
+    expect(attributeOf(trigger, 'id')).toBe('provider')
+    expect(attributeOf(trigger, 'aria-describedby')).toBe('provider-error')
+    expect(attributeOf(trigger, 'aria-invalid')).toBe('true')
+    expect(html).toContain('Select a provider')
+  })
+
   test('shows the selected item label instead of its raw value', () => {
     const html = renderToStaticMarkup(
       <Select value="openrouter">

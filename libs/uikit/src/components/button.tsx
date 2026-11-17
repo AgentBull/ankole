@@ -1,6 +1,7 @@
-import { Button as ButtonPrimitive } from '@base-ui/react/button'
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button'
+import { renderElement } from '@ui-sdk/react/primitive'
 import { cva, type VariantProps } from 'class-variance-authority'
-import { Children, isValidElement, type MouseEvent, type ReactNode } from 'react'
+import { Children, isValidElement, type ComponentProps, type MouseEvent, type ReactNode } from 'react'
 
 import { cn } from '@ankole/uikit/lib/utils'
 import { Spinner } from './spinner'
@@ -98,13 +99,21 @@ function Button({
   className,
   children,
   'aria-busy': busy,
+  'data-slot': slot = 'button',
   loading = false,
   incomplete = false,
   variant = 'default',
   size = 'default',
   onClick,
+  render,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { incomplete?: boolean; loading?: boolean }) {
+}: Omit<ComponentProps<typeof ButtonPrimitive>, 'children'> &
+  VariantProps<typeof buttonVariants> & {
+    children?: ReactNode
+    'data-slot'?: string
+    incomplete?: boolean
+    loading?: boolean
+  }) {
   const isBusy = loading || busy === true || busy === 'true'
   const items = isBusy ? Children.toArray(children) : []
   const firstText = items.findIndex(child => typeof child === 'string' && child.trim())
@@ -116,8 +125,10 @@ function Button({
       aria-busy={loading ? true : busy}
       data-incomplete={incomplete || undefined}
       data-loading={loading || undefined}
-      data-slot="button"
       onClick={loading ? ignoreClick : onClick}
+      // ui-sdk names every button `data-slot="button"`. A caller's own slot, such as a popup trigger's or an input
+      // group's send button, replaces that name, so the styles keyed on the caller's slot still find the element.
+      render={(part, state) => renderElement('button', { ...part, 'data-slot': slot }, render, state)}
       className={cn(
         buttonVariants({ variant, size }),
         'motion-safe:button-press',

@@ -142,7 +142,7 @@ img.pod-page-title-icon.pod-page-icon {
     opacity: 0;
   }
   .pod-page-heading:hover .pod-page-add-icon,
-  .pod-page-add-icon:is(:focus-visible, [data-popup-open]) {
+  .pod-page-add-icon:is(:focus-visible, [data-open]) {
     opacity: 1;
   }
 }

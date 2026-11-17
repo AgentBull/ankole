@@ -1,5 +1,4 @@
-import { mergeProps } from '@base-ui/react/merge-props'
-import { useRender } from '@base-ui/react/use-render'
+import { mergeProps, renderElement, type RenderProp } from '@ui-sdk/react/primitive'
 import type * as React from 'react'
 import { cn } from '../lib/utils'
 
@@ -18,16 +17,17 @@ function MenuRichItem({
   hint,
   children,
   ...props
-}: useRender.ComponentProps<'div'> &
-  Omit<React.ComponentProps<'div'>, 'children'> & {
-    icon?: React.ReactNode
-    hint?: React.ReactNode
-    children?: React.ReactNode
-  }) {
-  return useRender({
-    defaultTagName: 'div',
-    props: mergeProps<'div'>(
+}: Omit<React.ComponentProps<'div'>, 'children'> & {
+  render?: RenderProp
+  icon?: React.ReactNode
+  hint?: React.ReactNode
+  children?: React.ReactNode
+}) {
+  return renderElement(
+    'div',
+    mergeProps(
       {
+        'data-slot': render === undefined ? 'menu-rich-item' : undefined,
         className: cn(
           'relative flex h-15 min-h-15 w-full cursor-pointer items-center gap-2 rounded-none py-0 ps-2 pe-4 text-start text-75 text-fg-primary outline-hidden select-none fine-hover:hover:bg-layer-hover data-highlighted:bg-layer-hover data-[selected=true]:bg-layer-hover aria-selected:bg-layer-hover data-disabled:pointer-events-none data-disabled:text-fg-disabled data-[disabled=true]:pointer-events-none data-[disabled=true]:text-fg-disabled aria-disabled:pointer-events-none aria-disabled:text-fg-disabled',
           className
@@ -52,20 +52,20 @@ function MenuRichItem({
       },
       props
     ),
-    render,
-    state: render === undefined ? { slot: 'menu-rich-item' } : {}
-  })
+    render
+  )
 }
 
 /**
  * The footer row of a menu, such as the slash menu's "Explore": a 32px row of 12px medium tertiary text that starts
  * 16px in, with an optional 16px icon at its end. `render` turns it into a button or a link.
  */
-function MenuFooter({ className, render, ...props }: useRender.ComponentProps<'div'> & React.ComponentProps<'div'>) {
-  return useRender({
-    defaultTagName: 'div',
-    props: mergeProps<'div'>(
+function MenuFooter({ className, render, ...props }: React.ComponentProps<'div'> & { render?: RenderProp }) {
+  return renderElement(
+    'div',
+    mergeProps(
       {
+        'data-slot': 'menu-footer',
         className: cn(
           "flex h-8 shrink-0 items-center justify-between gap-2 px-4 text-50 font-medium text-fg-tertiary [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
           className
@@ -73,11 +73,8 @@ function MenuFooter({ className, render, ...props }: useRender.ComponentProps<'d
       },
       props
     ),
-    render,
-    state: {
-      slot: 'menu-footer'
-    }
-  })
+    render
+  )
 }
 
 export { MenuFooter, MenuRichItem }

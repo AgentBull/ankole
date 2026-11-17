@@ -12,7 +12,7 @@ Each layer answers one question and may reference only the layers below it. A la
 | L1 semantic tokens | What role a value plays on screen: body text, hover, a field's fill, danger | The design system | L0 | `:root` in `theme.css` |
 | Theme | Which L0 value each L1 role takes in light mode, dark mode, or a tenant brand | The design system | L0 | `[data-theme='dark']` in `theme.css` |
 | L2 component tokens | Where one component departs from the semantic layer | The component's author | L1 (L0 only inside a theme block) | `:root` in `theme.css`, prefixed by the component |
-| Base components | Behaviour from Base UI plus an appearance recipe from `cva` | `@ankole/uikit` | L1, L2 | `libs/uikit/src/components` |
+| Base components | Behaviour from ui-sdk (`@ui-sdk/react`) plus an appearance recipe from `cva` | `@ankole/uikit` | L1, L2 | `libs/uikit/src/components` |
 | Patterns | Domain-free compositions such as Field, Empty, ReferenceCard, FileCard, StatCard, DataGrid, and BoardCard | `@ankole/uikit` | base components | `libs/uikit/src/components` |
 | Business components | Screens and parts that know a domain concept: Principals, Agents, approvals, jobs, quotas, Pages | The domain's app code | everything above, with layout classes only | `app/webapps/pod`, `app/webapps/console`, `app/webapps/common` |
 

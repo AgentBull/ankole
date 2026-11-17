@@ -53,19 +53,23 @@ export function TableMenu({
       }}>
       <DropdownMenuTrigger
         render={trigger}
+        // With `select`, the click selects first and then toggles the menu, so the press must not open it.
+        // `preventDefault()` skips the menu's own handler for that event.
+        onPointerDown={event => {
+          if (select) event.preventDefault()
+        }}
         onMouseDown={event => {
-          if (select) event.preventBaseUIHandler()
-          else event.preventDefault()
+          if (!select) event.preventDefault()
         }}
         onClick={event => {
           if (!select) return
-          event.preventBaseUIHandler()
+          event.preventDefault()
           select(event.shiftKey)
           setOpen(!open)
         }}
       />
       <DropdownMenuContent className="ankole-editor-overlay" finalFocus={() => false}>
-        {/* Base UI mounts the content only while the menu is open, so a closed menu checks no command. */}
+        {/* ui-sdk mounts the content only while the menu is open, so a closed menu checks no command. */}
         <TableMenuItems scope={scope} context={context} close={() => setOpen(false)} />
       </DropdownMenuContent>
     </DropdownMenu>

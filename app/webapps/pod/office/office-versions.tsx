@@ -41,7 +41,7 @@ export function OfficeVersions({ pageID }: { pageID: string }) {
     onError: error => toast.error(requestErrorMessage(contentError(error)))
   })
   return (
-    <Drawer open={open} onOpenChange={setOpen} swipeDirection="right">
+    <Drawer open={open} onOpenChange={setOpen} side="right">
       <DrawerTrigger
         render={
           <Button

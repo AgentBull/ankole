@@ -2175,8 +2175,9 @@ export function SpreadsheetCanvas({
         event.preventDefault()
         openMenu()
       }}>
-      <ContextMenu disabled={!editable}>
+      <ContextMenu>
         <ContextMenuTrigger
+          disabled={!editable}
           ref={scroller}
           role="grid"
           aria-label={t('pod.spreadsheet.grid_label', { sheet: sheet?.name ?? '' })}

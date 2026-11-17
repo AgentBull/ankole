@@ -155,14 +155,14 @@ export function PodSidebar({
           if (state === 'collapsed') setPreviewOpen(true)
         }}
         onPointerLeave={leavePreview}>
-        <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0">
+        <Tabs
+          value={tab}
+          onValueChange={next => next && setTab(next)}
+          activation="automatic"
+          className="min-h-0 flex-1 gap-0">
           <SidebarHeader className="pod-sidebar-header">
             <SidebarHeaderRow className="pod-sidebar-top">
-              <TabsList
-                className="pod-sidebar-tabs"
-                activateOnFocus
-                variant="chip"
-                aria-label={t('pod.sidebar.tabs_label')}>
+              <TabsList className="pod-sidebar-tabs" variant="chip" aria-label={t('pod.sidebar.tabs_label')}>
                 {(
                   [
                     ['home', HomeRegular, t('pod.sidebar.tabs.home')],

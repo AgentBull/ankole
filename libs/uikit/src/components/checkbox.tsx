@@ -1,11 +1,13 @@
 'use client'
 
-import { Checkbox as CheckboxPrimitive } from '@base-ui/react/checkbox'
+import { Checkbox as CheckboxPrimitive, CheckboxIndicator } from '@ui-sdk/react/checkbox'
+import type { ComponentProps } from 'react'
+
 import { cn } from '../lib/utils'
 
-function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
+function Checkbox({ className, ...props }: ComponentProps<typeof CheckboxPrimitive>) {
   return (
-    <CheckboxPrimitive.Root
+    <CheckboxPrimitive
       data-slot="checkbox"
       className={cn(
         'peer group/checkbox relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-mini border border-field-border bg-page after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:outline-offset-1 data-disabled:cursor-not-allowed data-disabled:data-unchecked:border-border-subtle! data-disabled:data-unchecked:bg-field! aria-invalid:border-destructive',
@@ -14,11 +16,7 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
         className
       )}
       {...props}>
-      <CheckboxPrimitive.Indicator
-        data-slot="checkbox-indicator"
-        keepMounted
-        aria-hidden
-        className="grid place-content-center">
+      <CheckboxIndicator data-slot="checkbox-indicator" keepMounted aria-hidden className="grid place-content-center">
         <svg
           viewBox="0 0 16 16"
           className="size-4"
@@ -38,8 +36,8 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
             className="opacity-0 [stroke-dasharray:1] [stroke-dashoffset:1] group-data-indeterminate/checkbox:opacity-100 group-data-indeterminate/checkbox:[stroke-dashoffset:0] motion-safe:group-data-indeterminate/checkbox:[transition:stroke-dashoffset_200ms_cubic-bezier(.22,1,.36,1)]"
           />
         </svg>
-      </CheckboxPrimitive.Indicator>
-    </CheckboxPrimitive.Root>
+      </CheckboxIndicator>
+    </CheckboxPrimitive>
   )
 }
 
