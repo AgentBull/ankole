@@ -1,0 +1,6 @@
+rules:
+  # checks.yml is also called as a reusable workflow from AgentBull/infra at a pinned SHA. Switching its
+  # local action to the `$/` self-repository syntax needs a test of how GitHub resolves `$/` in that caller
+  # first, so this audit stays off until then.
+  self-repository:
+    disable: true

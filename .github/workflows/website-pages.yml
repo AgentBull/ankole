@@ -33,10 +33,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Build website
+        env:
+          PAGES_ORIGIN: ${{ steps.pages.outputs.origin }}
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
         run: >-
           bun run --filter @ankole/website build --
-          --site "${{ steps.pages.outputs.origin }}"
-          --base "${{ steps.pages.outputs.base_path }}"
+          --site "${PAGES_ORIGIN}"
+          --base "${PAGES_BASE_PATH}"
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

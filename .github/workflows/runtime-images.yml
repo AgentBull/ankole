@@ -48,6 +48,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Bun
@@ -128,6 +129,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Bun
@@ -287,6 +289,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ env.RELEASE_REVISION }}
 
       # The runner is discarded after the job, so removing the builder only
@@ -428,6 +431,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ env.RELEASE_REVISION }}
 
       # The runner is discarded after the job, so removing the builder only
@@ -522,6 +526,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ env.RELEASE_REVISION }}
 
       # The runner is discarded after the job, so removing the builder only
@@ -618,6 +623,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ env.RELEASE_REVISION }}
 
       # The runner is discarded after the job, so removing the builder only
@@ -738,12 +744,14 @@ jobs:
 
       - name: Verify pair labels
         shell: bash
+        env:
+          PROTOCOL_VERSION: ${{ needs.inspect_existing.outputs.protocol_version }}
         run: |
           set -euo pipefail
 
           bun tools/devkit/src/runtime-image-pair.ts verify \
             --revision "${RELEASE_REVISION}" \
-            --protocol-version "${{ needs.inspect_existing.outputs.protocol_version }}" \
+            --protocol-version "${PROTOCOL_VERSION}" \
             --control-plane-ref "${CONTROL_PLANE_IMAGE}:${RELEASE_REVISION}" \
             --control-plane-metadata "${RUNNER_TEMP}/control-plane-image.json" \
             --worker-ref "${WORKER_IMAGE}:${RELEASE_REVISION}" \
