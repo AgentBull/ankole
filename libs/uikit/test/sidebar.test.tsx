@@ -110,7 +110,7 @@ describe('Sidebar shell', () => {
     const trigger = classesOf(
       tagWith(shell(<SidebarTrigger size="icon-lg" label="Expand sidebar" />), 'data-slot="sidebar-trigger"')
     )
-    expect(trigger).toEqual(expect.arrayContaining(['size-9', "[&_svg:not([class*='size-'])]:size-5"]))
+    expect(trigger).toEqual(expect.arrayContaining(['size-8', "[&_svg:not([class*='size-'])]:size-5"]))
     expect(trigger).not.toContain("[&_svg:not([class*='size-'])]:size-6")
   })
 })
@@ -186,7 +186,7 @@ describe('Sidebar menu rows', () => {
         <SidebarMenuItem>
           <SidebarMenuButton size="lg" data-testid="row">
             <SidebarMenuIcon size="lg" data-testid="avatar">
-              <Avatar shape="square">
+              <Avatar>
                 <AvatarFallback>GR</AvatarFallback>
               </Avatar>
             </SidebarMenuIcon>

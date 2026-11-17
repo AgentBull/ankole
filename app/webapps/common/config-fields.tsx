@@ -156,7 +156,7 @@ export function ConfigField({
         <FieldLabel id={`${controlID}-label`}>{labelContent}</FieldLabel>
         <FieldLabel
           htmlFor={controlID}
-          className="h-8 w-full cursor-pointer items-center justify-between rounded-control border border-field-edge border-b-field-border bg-field px-3 text-sm font-normal transition-[background-color,border-color] hover:bg-field-hover has-data-checked:border-field-edge has-data-checked:border-b-field-border has-focus-visible:border-b-ring has-focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)]">
+          className="h-8 w-full cursor-pointer items-center justify-between rounded-control border border-field-border bg-field px-3 text-sm font-normal transition-[background-color,border-color] hover:bg-field-hover has-data-checked:border-field-border has-focus-visible:border-b-ring has-focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)]">
           <span>{i18n.t('common.enable')}</span>
           <Switch
             id={controlID}

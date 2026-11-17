@@ -251,7 +251,7 @@ function Sidebar({
 
 /**
  * The sidebar toggle: a 24px ghost button whose 24px icon fills it. At another button size, such as the top bar's
- * 36px `icon-lg`, it draws a 20px icon like the buttons beside it. The default icon is the panel mark turned a quarter,
+ * 32px `icon-lg`, it draws a 20px icon like the buttons beside it. The default icon is the panel mark turned a quarter,
  * so its bar sits at the start like the column it toggles; `children` replaces it.
  */
 function SidebarTrigger({

@@ -171,17 +171,17 @@ function SelectValue({
 
 // A field select is a slot that holds a value. A ghost select sits in a header or toolbar band, where a
 // slot would read as an input: it is ink text with a chevron and shows a wash only on hover. The `toolbar` size is
-// the 36px selector of a shell toolbar, such as the composer's: a label of 12px text and a 12px filled arrow whose
+// the 32px selector of a shell toolbar, such as the composer's: a label of 12px text and a 12px filled arrow whose
 // wash, like a toolbar button's, tints only the box that holds them. When the toolbar runs out of room, the value
 // ends in an ellipsis and gives up its width, while the arrow and the padding around it stay, so the selector
 // never narrows past 32px.
 const selectTriggerVariants = cva(
-  "flex w-fit max-w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-control border px-3 py-0 text-sm leading-5 whitespace-nowrap transition-[background-color,color] duration-(--duration-feedback) disabled:cursor-not-allowed disabled:text-fg-disabled data-placeholder:text-fg-placeholder data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[size=toolbar]:h-9 data-[size=toolbar]:min-w-8 data-[size=toolbar]:gap-1 data-[size=toolbar]:rounded-[calc(var(--radius-micro)+var(--spacing)*2)] data-[size=toolbar]:bg-clip-content data-[size=toolbar]:p-1.75 data-[size=toolbar]:text-50 data-[size=toolbar]:font-normal data-[size=toolbar]:*:data-[slot=select-value]:block data-[size=toolbar]:*:data-[slot=select-value]:truncate",
+  "flex w-fit max-w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-control border px-3 py-0 text-sm leading-5 whitespace-nowrap transition-[background-color,color] duration-(--duration-feedback) disabled:cursor-not-allowed disabled:text-fg-disabled data-placeholder:text-fg-placeholder data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[size=toolbar]:h-8 data-[size=toolbar]:min-w-8 data-[size=toolbar]:gap-1 data-[size=toolbar]:rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)] data-[size=toolbar]:bg-clip-content data-[size=toolbar]:px-1.75 data-[size=toolbar]:py-1.25 data-[size=toolbar]:text-50 data-[size=toolbar]:font-normal data-[size=toolbar]:*:data-[slot=select-value]:block data-[size=toolbar]:*:data-[slot=select-value]:truncate",
   {
     variants: {
       variant: {
         field:
-          'border-field-edge border-b-field-border bg-field outline-none hover:bg-field-hover focus-visible:border-control-edge focus-visible:border-b-ring focus-visible:bg-page focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)] disabled:border-b-transparent disabled:bg-field aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-invalid:border-b-destructive data-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)]',
+          'border-field-border bg-field outline-none hover:bg-field-hover focus-visible:border-control-edge focus-visible:border-b-ring focus-visible:bg-page focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)] disabled:border-transparent disabled:bg-field aria-invalid:bg-(--field-invalid) data-invalid:bg-(--field-invalid)',
         ghost:
           'border-transparent bg-transparent text-fg-secondary hover:bg-layer-hover hover:text-fg-primary focus-visible:outline-offset-1 data-open:bg-layer-hover data-open:text-fg-primary'
       }
@@ -225,7 +225,7 @@ function SelectTrigger({
 
 /**
  * The list of a select. It is ceramic, like every menu. A select in the composer's toolbar opens on the
- * `composer` surface instead, so the list and the composer read as one object.
+ * `composer` surface: the same ceramic with rows that run from edge to edge.
  */
 function SelectContent({
   className,
@@ -402,7 +402,7 @@ function SelectScrollUpButton({ className, ...props }: React.ComponentProps<'div
       aria-hidden
       data-slot="select-scroll-up-button"
       className={cn(
-        "top-0 z-10 flex w-full cursor-pointer items-center justify-center bg-[rgb(var(--ceramic-body))] bg-[linear-gradient(var(--ceramic-glaze),var(--ceramic-glaze))] py-1 [&_svg:not([class*='size-'])]:size-3.5",
+        "top-0 z-10 flex w-full cursor-pointer items-center justify-center bg-[rgb(var(--ceramic-body))] py-1 [&_svg:not([class*='size-'])]:size-3.5",
         className
       )}
       {...props}>
@@ -417,7 +417,7 @@ function SelectScrollDownButton({ className, ...props }: React.ComponentProps<'d
       aria-hidden
       data-slot="select-scroll-down-button"
       className={cn(
-        "bottom-0 z-10 flex w-full cursor-pointer items-center justify-center bg-[rgb(var(--ceramic-body))] bg-[linear-gradient(var(--ceramic-glaze),var(--ceramic-glaze))] py-1 [&_svg:not([class*='size-'])]:size-3.5",
+        "bottom-0 z-10 flex w-full cursor-pointer items-center justify-center bg-[rgb(var(--ceramic-body))] py-1 [&_svg:not([class*='size-'])]:size-3.5",
         className
       )}
       {...props}>

@@ -1,5 +1,27 @@
 # Changelog
 
+## Version 2.0.0-alpha.165 (2026-11-18)
+
+- Bring the kit in line with the design team's latest Paper review. The
+  ceramic material on menus, dialogs, tooltips, and toasts now blurs 20px and
+  draws a fine white edge, a soft rim of light, and a short shadow, in place of
+  the heavier layered edge; the lists that open from the chat composer are
+  ceramic too. A new `Ceramic` component, with `ceramicVariants`, puts the same
+  material on any display surface, such as a card or a pill over the Brain
+  graph.
+- Fields, selects, and text areas draw one even gray edge, and an invalid field
+  turns pale brand pink. Buttons, toggles, and keys drop the darker bottom edge
+  and drop shadow. The destructive button is a brighter red that darkens on
+  hover and press. In the light theme, checkboxes, radios, switches, and the
+  chosen tab and segment take deeppurple, status badges and alerts lay their
+  color at half strength, and badge labels take the dark step of their hue.
+  The attention count on the Pod sidebar tabs is brand red.
+- Shell toolbars use 32px controls: the top bar's icon buttons and the chat
+  composer's tools, model picker, and labels shrink from 36px to 32px, and the
+  icons keep their places against the content card's edge.
+- Agents and groups get round avatars like people, in the Pod sidebar, the
+  task board, and member lists. The kit's `Avatar` drops its `shape` option.
+
 ## Version 2.0.0-alpha.164 (2026-11-17)
 
 - Build the `@ankole/uikit` components on ui-sdk (`@ui-sdk/react`) in place of

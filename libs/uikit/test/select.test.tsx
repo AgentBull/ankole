@@ -117,8 +117,9 @@ describe('Select', () => {
     expect(attributeOf(trigger, 'data-size')).toBe('toolbar')
     expect(classesOf(trigger)).toEqual(
       expect.arrayContaining([
-        'data-[size=toolbar]:h-9',
-        'data-[size=toolbar]:p-1.75',
+        'data-[size=toolbar]:h-8',
+        'data-[size=toolbar]:px-1.75',
+        'data-[size=toolbar]:py-1.25',
         'data-[size=toolbar]:text-50',
         'data-[size=toolbar]:bg-clip-content',
         'hover:bg-layer-hover'

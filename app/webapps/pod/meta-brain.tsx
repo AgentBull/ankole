@@ -1,6 +1,7 @@
 import {
   AnkoleGraph,
   Button,
+  ceramicVariants,
   buttonVariants,
   cn,
   Dialog,
@@ -103,7 +104,7 @@ function BrainLayersCard({
   const { t } = useTranslation()
 
   return (
-    <div className="ceramic w-56 rounded-control border border-border-subtle p-3 text-xs shadow-sm">
+    <div className={cn(ceramicVariants({ tier: 'primary', radius: 'control' }), 'w-56 p-3 text-xs')}>
       <div className="mb-2.5 flex items-center justify-between gap-2">
         <span className="font-semibold text-fg-primary">{t('pod.meta.toggle_layers')}</span>
         <div className="flex items-center gap-1">
@@ -210,7 +211,7 @@ function BrainInspectorCard({
 
   if (selection.kind === 'hub') {
     return (
-      <div className="ceramic w-72 space-y-3 rounded-control border border-border-subtle p-3.5 text-xs shadow-sm">
+      <div className={cn(ceramicVariants({ tier: 'primary', radius: 'control' }), 'w-72 space-y-3 p-3.5 text-xs')}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -280,7 +281,7 @@ function BrainInspectorCard({
   const { object, category, ancestors, children, relations } = selection
 
   return (
-    <div className="ceramic w-72 space-y-3 rounded-control border border-border-subtle p-3.5 text-xs shadow-sm">
+    <div className={cn(ceramicVariants({ tier: 'primary', radius: 'control' }), 'w-72 space-y-3 p-3.5 text-xs')}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -769,7 +770,11 @@ export function MetaBrain() {
             }
             bottomOverlay={
               projection.visibleObjects.length > 0 ? (
-                <div className="ceramic rounded-full border border-border-subtle px-3 py-1 text-xs text-fg-secondary shadow-xs">
+                <div
+                  className={cn(
+                    ceramicVariants({ tier: 'primary', radius: 'full' }),
+                    'px-3 py-1 text-xs text-fg-secondary'
+                  )}>
                   {t('pod.meta.graph_stats', {
                     nodes: projection.visibleObjects.length,
                     edges: projection.edges.length

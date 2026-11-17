@@ -1,6 +1,7 @@
 import {
   Badge,
   Button,
+  ceramicVariants,
   Input,
   Select,
   SelectContent,
@@ -270,7 +271,7 @@ export function BrainMyContextView() {
 
   return (
     <div className="space-y-6">
-      <div className="ceramic rounded-control border border-border-subtle p-4 shadow-xs">
+      <div className={ceramicVariants({ radius: 'control', className: 'p-4' })}>
         <h2 id="brain-add-memory-heading" className="text-sm font-semibold text-fg-primary">
           {t('pod.meta.add_personal_memory')}
         </h2>

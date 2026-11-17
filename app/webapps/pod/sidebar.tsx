@@ -190,7 +190,7 @@ export function PodSidebar({
                       <TabsLabel aria-hidden>{label}</TabsLabel>
                       {/* Both tabs announce work that waits for the viewer with the same badge. */}
                       {(value === 'chat' ? chatAttention : homeAttention) > 0 && (
-                        <Badge variant="info" size="sm" aria-hidden>
+                        <Badge variant="primary" size="sm" aria-hidden>
                           {value === 'chat' ? chatAttention : homeAttention}
                         </Badge>
                       )}
