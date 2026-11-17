@@ -11,7 +11,7 @@ import { cn } from '../lib/utils'
  * `default` is a slot in a form. `overlay` is a field inside ceramic. `paper` is a writing surface on the page: a
  * sheet of paper lifted a little off the page, whose edge darkens while it has focus. `composer` is the chat
  * composer that floats over the bottom of the page on the `composer-surface`, and the editor of a sent message takes
- * the same surface: its text area sits on top, and a 36px toolbar along its bottom edge holds the tools and
+ * the same surface: its text area sits on top, and a 32px toolbar along its bottom edge holds the tools and
  * `InputGroupSend`.
  */
 function InputGroup({
@@ -25,14 +25,14 @@ function InputGroup({
       data-variant={variant}
       role="group"
       className={cn(
-        'group/input-group relative flex h-8 w-full min-w-0 items-center px-3 outline-none transition-[background-color] duration-(--duration-feedback) has-[:is(input,textarea):disabled]:text-fg-disabled has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3',
+        'group/input-group relative flex h-control-md w-full min-w-0 items-center px-3 outline-none transition-[background-color] duration-(--duration-feedback) has-[:is(input,textarea):disabled]:text-fg-disabled has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-3 has-[>[data-align=block-start]]:[&>input]:pb-3',
         variant === 'composer'
           ? 'composer-surface h-auto flex-col items-stretch px-0'
           : variant === 'paper'
             ? 'rounded-panel bg-page shadow-(--paper-shadow) has-[:is(input,textarea):focus-visible]:shadow-[0_0_0_1px_var(--border-strong),0_2px_8px_rgb(35_37_38/0.06)]'
             : variant === 'overlay'
-              ? 'h-9 rounded-(--menu-field-radius) border border-(--menu-field-edge) bg-(--menu-field) shadow-none has-[:is(input,textarea):focus-visible]:border-[color-mix(in_srgb,var(--menu-icon-blue)_55%,transparent)] has-[:is(input,textarea):focus-visible]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--menu-icon-blue)_12%,transparent)] has-[[aria-invalid=true]]:border-destructive-fg has-[[aria-invalid=true]]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-fg)_12%,transparent)] has-[:user-invalid]:border-destructive-fg has-[:user-invalid]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-fg)_12%,transparent)]'
-              : 'rounded-control border border-field-edge border-b-field-border bg-field hover:bg-field-hover has-[:is(input,textarea):focus-visible]:border-control-edge has-[:is(input,textarea):focus-visible]:border-b-ring has-[:is(input,textarea):focus-visible]:bg-page has-[:is(input,textarea):focus-visible]:shadow-[inset_0_-1px_0_var(--color-ring)] has-[[data-slot][aria-invalid=true]]:border-b-destructive has-[[data-slot][aria-invalid=true]]:shadow-[inset_0_-1px_0_var(--color-destructive)] has-[:user-invalid]:border-b-destructive has-[:user-invalid]:shadow-[inset_0_-1px_0_var(--color-destructive)] has-[:is(input,textarea):disabled]:border-b-transparent',
+              ? 'h-control-lg rounded-(--menu-field-radius) border border-(--menu-field-edge) bg-(--menu-field) shadow-none has-[:is(input,textarea):focus-visible]:border-[color-mix(in_srgb,var(--menu-icon-blue)_55%,transparent)] has-[:is(input,textarea):focus-visible]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--menu-icon-blue)_12%,transparent)] has-[[aria-invalid=true]]:border-destructive-fg has-[[aria-invalid=true]]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-fg)_12%,transparent)] has-[:user-invalid]:border-destructive-fg has-[:user-invalid]:shadow-[0_0_0_2px_color-mix(in_srgb,var(--destructive-fg)_12%,transparent)]'
+              : 'rounded-control border border-field-border bg-field hover:bg-field-hover has-[:is(input,textarea):focus-visible]:border-control-edge has-[:is(input,textarea):focus-visible]:border-b-ring has-[:is(input,textarea):focus-visible]:bg-page has-[:is(input,textarea):focus-visible]:shadow-[inset_0_-1px_0_var(--color-ring)] has-[[data-slot][aria-invalid=true]]:bg-(--field-invalid) has-[:user-invalid]:bg-(--field-invalid) has-[:is(input,textarea):disabled]:border-transparent',
         className
       )}
       {...props}
@@ -40,7 +40,7 @@ function InputGroup({
   )
 }
 
-// In the composer, the bottom addon is the toolbar: a 36px row 10px from the composer's edges, whose controls sit
+// In the composer, the bottom addon is the toolbar: a 32px row 10px from the composer's edges, whose controls sit
 // side by side with no gap.
 const inputGroupAddonVariants = cva(
   "flex h-auto cursor-text items-center justify-center gap-2 py-2 text-sm leading-5 font-medium text-fg-secondary select-none group-data-[disabled=true]/input-group:text-fg-disabled group-has-[:is(input,textarea):disabled]/input-group:text-fg-disabled [&>svg:not([class*='size-'])]:size-3.5",
@@ -51,7 +51,7 @@ const inputGroupAddonVariants = cva(
         'inline-end': 'order-last',
         'block-start': 'order-first w-full justify-start pt-3 group-has-[>input]/input-group:pt-3.5 [.border-b]:pb-3.5',
         'block-end':
-          'order-last w-full justify-start pb-3 group-has-[>input]/input-group:pb-3.5 [.border-t]:pt-3.5 group-data-[variant=composer]/input-group:h-9 group-data-[variant=composer]/input-group:gap-0 group-data-[variant=composer]/input-group:px-2.5 group-data-[variant=composer]/input-group:py-0'
+          'order-last w-full justify-start pb-3 group-has-[>input]/input-group:pb-3.5 [.border-t]:pt-3.5 group-data-[variant=composer]/input-group:h-control-md group-data-[variant=composer]/input-group:gap-0 group-data-[variant=composer]/input-group:px-2.5 group-data-[variant=composer]/input-group:py-0'
       }
     },
     defaultVariants: {
@@ -82,14 +82,14 @@ function InputGroupAddon({
   )
 }
 
-// `icon-lg` and `toolbar` are the composer toolbar's 36px controls, which take Button's sizes of the same names.
+// `icon-lg` and `toolbar` are the composer toolbar's 32px controls, which take Button's sizes of the same names.
 const inputGroupButtonVariants = cva('flex min-w-0! items-center justify-center shadow-none', {
   variants: {
     size: {
-      xs: "h-6 gap-1 rounded-mini px-1.5 text-xs [&>svg:not([class*='size-'])]:size-3.5",
+      xs: "h-control-xs gap-1 rounded-mini px-1.5 text-xs [&>svg:not([class*='size-'])]:size-3.5",
       sm: 'gap-2 rounded-mini text-sm',
-      'icon-xs': 'size-6 gap-2 rounded-mini p-0 text-xs has-[>svg]:p-0',
-      'icon-sm': 'size-7 gap-2 rounded-mini p-0 text-sm has-[>svg]:p-0',
+      'icon-xs': 'size-control-xs gap-2 rounded-mini p-0 text-xs has-[>svg]:p-0',
+      'icon-sm': 'size-control-sm gap-2 rounded-mini p-0 text-sm has-[>svg]:p-0',
       'icon-lg': '',
       toolbar: ''
     }
@@ -159,7 +159,7 @@ function InputGroupSend({
       data-slot="input-group-send"
       data-ready={ready || undefined}
       className={cn(
-        "relative h-5 min-w-13 rounded-surface border-0 bg-field-hover px-4 text-fg-disabled after:absolute after:inset-x-0 after:-inset-y-2 hover:bg-field-hover hover:text-fg-disabled active:bg-field-hover data-ready:bg-primary data-ready:text-primary-fg data-ready:hover:bg-primary-hover data-ready:hover:text-primary-fg data-ready:active:bg-primary-active [[data-slot=input-group-addon]>&]:ms-auto [[data-slot=input-group-addon]>[data-slot=input-group-stop]+&]:ms-0 [&_svg:not([class*='size-'])]:size-5",
+        "relative h-5 min-w-13 rounded-surface border-0 bg-field-hover px-4 text-fg-disabled after:absolute after:inset-x-0 after:-inset-y-1.5 hover:bg-field-hover hover:text-fg-disabled active:bg-field-hover data-ready:bg-primary data-ready:text-primary-fg data-ready:hover:bg-primary-hover data-ready:hover:text-primary-fg data-ready:active:bg-primary-active [[data-slot=input-group-addon]>&]:ms-auto [[data-slot=input-group-addon]>[data-slot=input-group-stop]+&]:ms-0 [&_svg:not([class*='size-'])]:size-5",
         className
       )}
       {...props}
@@ -196,12 +196,12 @@ function InputGroupText({ className, ...props }: React.ComponentProps<'span'>) {
   )
 }
 
-function InputGroupInput({ className, ...props }: React.ComponentProps<'input'>) {
+function InputGroupInput({ className, ...props }: React.ComponentProps<typeof Input>) {
   return (
     <Input
       data-slot="input-group-control"
       className={cn(
-        'flex-1 border-0 bg-transparent px-0 ring-0 group-has-[>[data-align=inline-end]]/input-group:pr-2 group-has-[>[data-align=inline-start]]/input-group:pl-2 hover:bg-transparent focus-visible:bg-transparent focus-visible:shadow-none focus-visible:ring-0 user-invalid:border-b-0 user-invalid:shadow-none aria-invalid:shadow-none aria-invalid:ring-0 dark:bg-transparent',
+        'flex-1 border-0 bg-transparent px-0 ring-0 group-has-[>[data-align=inline-end]]/input-group:pr-2 group-has-[>[data-align=inline-start]]/input-group:pl-2 hover:bg-transparent focus-visible:bg-transparent focus-visible:shadow-none focus-visible:ring-0 user-invalid:bg-transparent aria-invalid:bg-transparent aria-invalid:ring-0 dark:bg-transparent',
         className
       )}
       {...props}
@@ -217,7 +217,7 @@ function InputGroupTextarea({ className, ...props }: React.ComponentProps<'texta
     <Textarea
       data-slot="input-group-control"
       className={cn(
-        'flex-1 resize-none border-0 bg-transparent py-2 ring-0 hover:bg-transparent focus-visible:bg-transparent focus-visible:shadow-none focus-visible:ring-0 user-invalid:border-b-0 user-invalid:shadow-none aria-invalid:shadow-none aria-invalid:ring-0 dark:bg-transparent group-data-[variant=composer]/input-group:min-h-16 group-data-[variant=composer]/input-group:max-h-60 group-data-[variant=composer]/input-group:px-5.5 group-data-[variant=composer]/input-group:pt-4 group-data-[variant=composer]/input-group:pb-2 group-data-[variant=composer]/input-group:text-100 group-data-[variant=composer]/input-group:leading-6 group-data-[variant=composer]/input-group:caret-primary group-data-[variant=composer]/input-group:placeholder:text-fg-disabled group-data-[variant=composer]/input-group:disabled:bg-transparent',
+        'flex-1 resize-none border-0 bg-transparent py-2 ring-0 hover:bg-transparent focus-visible:bg-transparent focus-visible:shadow-none focus-visible:ring-0 user-invalid:bg-transparent aria-invalid:bg-transparent aria-invalid:ring-0 dark:bg-transparent group-data-[variant=composer]/input-group:min-h-16 group-data-[variant=composer]/input-group:max-h-60 group-data-[variant=composer]/input-group:px-5.5 group-data-[variant=composer]/input-group:pt-4 group-data-[variant=composer]/input-group:pb-2 group-data-[variant=composer]/input-group:text-100 group-data-[variant=composer]/input-group:leading-6 group-data-[variant=composer]/input-group:caret-primary group-data-[variant=composer]/input-group:placeholder:text-fg-disabled group-data-[variant=composer]/input-group:disabled:bg-transparent',
         className
       )}
       {...props}

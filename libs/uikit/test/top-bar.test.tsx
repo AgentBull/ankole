@@ -31,8 +31,8 @@ describe('TopBar', () => {
     expect(attributeOf(open, 'data-docked')).toBe('')
     expect(classesOf(open)).toEqual(
       expect.arrayContaining([
-        'max-w-[calc(var(--sidebar-width,var(--spacing-sidebar))-var(--spacing)*2)]',
-        'data-docked:min-w-[calc(var(--sidebar-width)-var(--spacing)*2)]'
+        'max-w-[calc(var(--sidebar-width,var(--spacing-sidebar))-var(--spacing)*1.5)]',
+        'data-docked:min-w-[calc(var(--sidebar-width)-var(--spacing)*1.5)]'
       ])
     )
 
@@ -66,12 +66,12 @@ describe('TopBar', () => {
     )
   })
 
-  test('groups history buttons 4px apart in tertiary ink, starts the title 2px later and 4px in, and spaces actions 12px', () => {
+  test('groups history buttons 8px apart in tertiary ink, starts the title 2px later and 4px in, and spaces actions 12px', () => {
     const html = renderToStaticMarkup(bar())
     const history = tagWith(html, 'data-slot="top-bar-history"')
     expect(attributeOf(history, 'role')).toBe('group')
     expect(attributeOf(history, 'aria-label')).toBe('History')
-    expect(classesOf(history)).toEqual(expect.arrayContaining(['gap-1', 'me-0.5', '*:text-fg-tertiary']))
+    expect(classesOf(history)).toEqual(expect.arrayContaining(['gap-2', 'me-0.5', '*:text-fg-tertiary']))
     expect(classesOf(tagWith(html, 'data-slot="top-bar-title"'))).toEqual(
       expect.arrayContaining(['min-w-0', 'flex-1', 'ps-1'])
     )

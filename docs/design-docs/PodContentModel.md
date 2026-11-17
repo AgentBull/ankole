@@ -1015,7 +1015,8 @@ state), `acl_anchor_chain` (walking `inherit_permissions`, Space defaults, and
 matching `permission_grants`), and `brain_disclosure_gate` (evaluating
 `Ankole.Brain.Access.authorize_turn` when AI retrieval intersection applies).
 Viewers who lack `node_manage` on the Page may inspect only themselves and their
-own Personal Assistant, whereas Page managers may inspect any collaborator or
+equivalent Principal, meaning a Human's own Personal Assistant or an assistant's
+owning Human, whereas Page managers may inspect any collaborator or
 Agent and grant `view` access directly from the Share popover's `Check access`
 view. Drafting a `pod.page.set_sharing` ActionCard attaches `explain_summaries`
 for affected principals so approvers can compare current access before
@@ -1840,7 +1841,8 @@ and Base (`base`) Pages (`page_comments.page_id` references `pages`).
 `node_view` permits reading, while `node_comment`
 permits posting. Authors can edit or delete their own comments; `node_manage` can
 manage other authors' comments. The root author or a caller with `node_edit` can
-resolve, reopen, or explicitly relocate a thread. Deleting a root with replies
+resolve, reopen, or explicitly relocate a thread. For these author checks, a
+Human and their personal assistant count as the same author. Deleting a root with replies
 preserves a tombstone and the remaining discussion. Posting a reply does not
 resolve or reopen it. Every author is an existing Principal represented by
 `ActorRef`, including Human and Agent authors.
@@ -2172,7 +2174,10 @@ the child Page in the tree first, deleting a direct child embed from the block
 menu trashes that child Page. For a multi-block menu deletion, the editor sends
 all selected embed references to `POST /api/v2/pod/pages/:id/embeds/delete`.
 `Pages` checks the parent and each direct child's permissions in one tree
-transaction and commits all child deletions together. A rejected child leaves
+transaction and commits all child deletions together. A child that inherits
+permissions and was created by the caller, by the caller's personal assistant,
+or by the assistant's owning Human needs only `node_edit`; any other child needs
+its ordinary deletion permission. A rejected child leaves
 all children and their purge jobs unchanged. After success, the editor removes
 the captured block selection if the document is still unchanged. Deleting a
 block that refers to a Page outside this document's direct children leaves the
@@ -3118,7 +3123,7 @@ observer across Applet generations until the Pod unmounts:
   `PrincipalBadge` renders Human member and AI colleague identity chips; and
   `Slider`, `NumberInput`, `DatePicker`, `DateRangePicker`, and `FileDropzone`
   provide accessible numeric scrubbing, timezone-aware ISO calendar selection,
-  and file selection primitives on top of `@base-ui/react` and semantic theme
+  and file selection primitives on top of `@ui-sdk/react` and semantic theme
   tokens.
 - **`usePrincipals`, `usePrincipal`, `normalizePrincipalUID`, and host navigation bridges**:
   `pod.principals()` shares the workspace subject directory cache (`{ uid, name, kind }`),
@@ -3150,20 +3155,24 @@ results may supply `{status, body}`. Published flat route maps remain supported
 for existing Applets. `AnkoleRuntime.HttpError` carries explicit client errors;
 Agent calls also receive bounded diagnostics and console output.
 
-An Applet has an explicit `owner_uid`, initially its creator, paired with a
-dedicated `:applet` service account (`svc_applet_<page_id>`) created in the
-Applet Page creation transaction that holds intrinsic `:system` `manage`
-authority over its live `:applet` host Page and permission-inheriting
-descendants without materializing a user-facing `permission_grants` row. While
-`owner_uid` remains `active`, `AnkoleRuntime.admin` capabilities
-and team Jobs execute as `owner_uid`; if `owner_uid` is suspended or offboarded,
-`Applets.owner/1` seamlessly falls back to `svc_applet_<page_id>` so the Applet
-stays live on its own Page's Bases and Files, and Pod surfaces an inline banner
-letting any collaborator holding `node_manage` (or a Pod administrator) claim
-ownership via `PUT /api/v2/pod/pages/:page_id/applet-owner`. Ordinary
-capabilities use the caller for interactive routes or the enabling Human for
-personal Jobs, and admission rejects trashed Pages; resource AuthZ remains
-responsible for the actual execution Principal's grants.
+An Applet records its creator in `created_by`. When a personal assistant
+creates an Applet, Ankole sets `owner_uid` to the assistant's Human owner.
+Other creators become the initial owner themselves. The current owner, that
+owner's personal assistant, or a Pod administrator can transfer the Applet.
+A transfer naming a personal assistant assigns its Human owner.
+
+Ankole creates a dedicated `:applet` service account (`svc_applet_<page_id>`)
+in the Page creation transaction. This account holds intrinsic `:system`
+`manage` authority over its live Applet Page and permission-inheriting
+descendants. While the owner is active, `AnkoleRuntime.admin` capabilities
+and team Jobs execute and record that Principal in audit fields. If the owner
+is suspended or offboarded, `Applets.owner/1` uses the service account so the
+Applet can continue working with its own Bases and Files. A collaborator with
+`node_manage` or a Pod administrator can claim ownership from the Pod banner
+through `PUT /api/v2/pod/pages/:page_id/applet-owner`. Ordinary capabilities
+use the caller for interactive routes or the enabling Human for personal Jobs.
+Admission rejects trashed Pages, and resource AuthZ checks the grants of the
+Principal performing the operation.
 
 Interactive route bodies have an 8,000,000-byte cumulative limit across all
 HTTP fragments. Ankole accepts fragmented bodies within that limit and returns

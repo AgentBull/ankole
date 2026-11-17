@@ -603,7 +603,9 @@ test('a settings group reopened during a save does not reuse its old draft', asy
   await expect(input).toHaveValue(endpoint)
 })
 
-test('document Page title Tab, last-line ArrowDown, and body Shift+Tab move focus between the title and the body', async ({ page }) => {
+test('document Page title Tab, last-line ArrowDown, and body Shift+Tab move focus between the title and the body', async ({
+  page
+}) => {
   await page.setViewportSize({ width: 1000, height: 800 })
   const id = '00112233-4455-6677-8899-aabbccddeeff'
   let titleValue = ''

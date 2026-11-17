@@ -1,7 +1,8 @@
 'use client'
 
-import { Toggle as TogglePrimitive } from '@base-ui/react/toggle'
+import { Toggle as TogglePrimitive } from '@ui-sdk/react/toggle'
 import { cva, type VariantProps } from 'class-variance-authority'
+import type { ComponentProps } from 'react'
 
 import { cn } from '@ankole/uikit/lib/utils'
 
@@ -12,15 +13,16 @@ const toggleVariants = cva(
       variant: {
         default: 'bg-transparent',
         outline:
-          'border-control-edge border-b-control-base bg-control shadow-control hover:bg-control-hover aria-pressed:bg-field aria-pressed:shadow-none disabled:border-border-subtle disabled:bg-field disabled:shadow-none'
+          'border-control-edge bg-control hover:bg-control-hover aria-pressed:bg-field disabled:border-border-subtle disabled:bg-field'
       },
       size: {
-        default: 'h-8 min-w-8 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
-        sm: 'h-7 min-w-7 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
-        // A shell toolbar's 36px toggle, like the `icon-lg` button: its fills tint only the box that holds the 20px
-        // icon, 8px inside the toggle's edge, and keep the micro radius there.
+        default:
+          'h-control-md min-w-control-md px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
+        sm: 'h-control-sm min-w-control-sm px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+        // A shell toolbar's 32px toggle, like the `icon-lg` button: its fills tint only the box that holds the 20px
+        // icon, 6px inside the toggle's edge, and keep the micro radius there.
         'icon-lg':
-          "size-9 min-w-9 rounded-[calc(var(--radius-micro)+var(--spacing)*2)] bg-clip-content p-1.75 [&_svg:not([class*='size-'])]:size-5"
+          "size-control-md min-w-control-md rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)] bg-clip-content p-1.25 [&_svg:not([class*='size-'])]:size-5"
       }
     },
     defaultVariants: {
@@ -35,7 +37,7 @@ function Toggle({
   variant = 'default',
   size = 'default',
   ...props
-}: TogglePrimitive.Props & VariantProps<typeof toggleVariants>) {
+}: ComponentProps<typeof TogglePrimitive> & VariantProps<typeof toggleVariants>) {
   return <TogglePrimitive data-slot="toggle" className={cn(toggleVariants({ variant, size, className }))} {...props} />
 }
 

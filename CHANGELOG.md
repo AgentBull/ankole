@@ -165,6 +165,66 @@
   Insights and `/api/v2/pod/pages/:id/user-state` so document editors always see
   recorded viewers.
 
+## Version 2.0.0-alpha.167 (2026-11-18)
+
+- A personal assistant now counts as its owner for Pod Page ownership. An Applet
+  that your assistant creates belongs to you, so you can transfer it and its
+  `AnkoleRuntime.admin` capabilities run and audit as you; the Page still shows
+  the assistant as its creator. Your assistant can also transfer Applets you
+  own, and naming an assistant as the new owner assigns its owner. You and your
+  assistant can each remove an inline subpage the other created with edit access
+  alone, edit, delete, or resolve the other's comments, and check each other's
+  access to a Page. The upgrade migration moves every existing assistant-owned
+  Applet to the assistant's owner.
+
+## Version 2.0.0-alpha.166 (2026-11-18)
+
+- Fix Worker and Function Runtime DNS on clusters that enforce NetworkPolicy
+  with AWS VPC CNI. The Helm chart allowed port 53 without naming a
+  destination, and VPC CNI applies such a rule as `0.0.0.0/0`, so the longer
+  private prefixes in `networkPolicy.workerDeniedCIDRs` and
+  `functionRuntime.deniedCIDRs` blocked the kube-dns Service and Pods. Both
+  policies now also allow TCP/UDP 53 to `kube-system` Pods labeled
+  `k8s-app: kube-dns`.
+
+## Version 2.0.0-alpha.165 (2026-11-18)
+
+- Bring the kit in line with the design team's latest Paper review. The
+  ceramic material on menus, dialogs, tooltips, and toasts now blurs 20px and
+  draws a fine white edge, a soft rim of light, and a short shadow, in place of
+  the heavier layered edge; the lists that open from the chat composer are
+  ceramic too. A new `Ceramic` component, with `ceramicVariants`, puts the same
+  material on any display surface, such as a card or a pill over the Brain
+  graph.
+- Fields, selects, and text areas draw one even gray edge, and an invalid field
+  turns pale brand pink. Buttons, toggles, and keys drop the darker bottom edge
+  and drop shadow. The destructive button is a brighter red that darkens on
+  hover and press. In the light theme, checkboxes, radios, switches, and the
+  chosen tab and segment take deeppurple, status badges and alerts lay their
+  color at half strength, and badge labels take the dark step of their hue.
+  The attention count on the Pod sidebar tabs is brand red.
+- Shell toolbars use 32px controls: the top bar's icon buttons and the chat
+  composer's tools, model picker, and labels shrink from 36px to 32px, and the
+  icons keep their places against the content card's edge.
+- Agents and groups get round avatars like people, in the Pod sidebar, the
+  task board, and member lists. The kit's `Avatar` drops its `shape` option.
+
+## Version 2.0.0-alpha.164 (2026-11-17)
+
+- Build the `@ankole/uikit` components on ui-sdk (`@ui-sdk/react`) in place of
+  Base UI. Each component now carries ui-sdk's state and actions, which
+  ui-sdk's agent bridge reads and calls once a page connects it. Menus,
+  popovers, selects, dialogs, and tooltips open in the browser's top layer.
+- Applets keep composing triggers with `render={<Button />}`. Two prop names
+  changed: a Drawer takes `side` in place of `swipeDirection`, and a Combobox
+  takes `itemToLabel`, `itemToValue`, `query`, and `onQueryChange` in place of
+  `itemToStringLabel`, `itemToStringValue`, `inputValue`, and
+  `onInputValueChange`.
+- A Button whose click handler returns a promise shows itself busy and ignores
+  further presses until the promise settles. While a dialog animates closed, a
+  press on the page behind it does nothing, so the press cannot reach a control
+  that the dialog still covers.
+
 ## Version 2.0.0-alpha.163 (2026-11-17)
 
 - Notify people in the browser when an Agent replies, a task finishes, someone

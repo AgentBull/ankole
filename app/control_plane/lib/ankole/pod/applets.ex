@@ -399,7 +399,10 @@ defmodule Ankole.Pod.Applets do
   def transfer_owner(actor, page_id, owner_uid) do
     with {:ok, updated} <-
            Ankole.Repo.transact_top_level(fn ->
-             with {:ok, _} <- Ankole.Principals.lock_principals_in_tx([owner_uid]),
+             # A personal assistant is equivalent to its Human owner for ownership.
+             with owner_uid when is_binary(owner_uid) <-
+                    if(is_binary(owner_uid), do: Ankole.Principals.authority_uid(owner_uid)),
+                  {:ok, _} <- Ankole.Principals.lock_principals_in_tx([owner_uid]),
                   :ok <- Ankole.AuthZ.authorize_turn_in_tx(actor.turn_authority),
                   {:ok, _} <- Access.principal(actor),
                   {:ok, page} <- Pages.lock(page_id),
@@ -421,7 +424,7 @@ defmodule Ankole.Pod.Applets do
   defp can_transfer_owner?(actor, page) do
     caller_uid = Ankole.AuthZ.Actor.uid(actor)
 
-    page.owner_uid == caller_uid or
+    page.owner_uid == Ankole.Principals.authority_uid(caller_uid) or
       Ankole.AuthZ.pod_admin?(caller_uid) or
       (continuity_active?(page) and match?({:ok, _}, Access.authorize(actor, page, "node_manage")))
   end

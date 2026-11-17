@@ -131,6 +131,21 @@ defmodule Ankole.Pod.AccessExplainAndContinuationTest do
     assert {:ok, _} =
              Pages.explain_sharing(ctx.member_actor, viewed_page.id, ctx.member.uid, :node_view)
 
+    # A personal assistant and its owner are equivalent, so each may inspect the other
+    member_pa =
+      agent_fixture(%{type: :personal_assistant, owner_principal_uid: ctx.member.uid}).principal
+
+    assert {:ok, _} =
+             Pages.explain_sharing(ctx.member_actor, viewed_page.id, member_pa.uid, :node_view)
+
+    assert {:ok, _} =
+             Pages.explain_sharing(
+               actor_fixture(member_pa),
+               viewed_page.id,
+               ctx.member.uid,
+               :node_view
+             )
+
     for subject <- [ctx.outsider, ctx.colleague, ctx.owner_pa] do
       assert {:error, :not_found} =
                Pages.explain_sharing(ctx.member_actor, viewed_page.id, subject.uid, :node_view)

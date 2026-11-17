@@ -598,7 +598,7 @@ export function ReadOnlyValue({ children, mono = false }: { children: ReactNode;
   return (
     <div
       className={cn(
-        'flex min-h-8 cursor-default items-center rounded-control border border-field-edge border-b-field-border bg-layer-03 px-3 py-1.5 text-sm leading-5 text-fg-secondary',
+        'flex min-h-8 cursor-default items-center rounded-control border border-field-border bg-layer-03 px-3 py-1.5 text-sm leading-5 text-fg-secondary',
         mono && 'font-mono text-xs leading-5'
       )}>
       {children === null || children === undefined || children === '' ? '—' : children}

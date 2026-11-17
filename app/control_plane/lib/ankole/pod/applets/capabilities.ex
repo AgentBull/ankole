@@ -135,19 +135,6 @@ defmodule Ankole.Pod.Applets.Capabilities do
   defp resolve_admin_principal(%{type: :system}, "notifications.post"),
     do: {:error, :applet_owner_unavailable}
 
-  defp resolve_admin_principal(%{type: :agent} = owner, "notifications.post") do
-    case Ankole.Principals.authority_uid(owner.uid) do
-      uid when uid != owner.uid ->
-        case Ankole.Principals.get_principal(uid) do
-          {:ok, %{type: :human, status: :active} = human} -> {:ok, human}
-          _ -> {:error, :applet_owner_unavailable}
-        end
-
-      _ ->
-        {:ok, owner}
-    end
-  end
-
   defp resolve_admin_principal(owner, _operation), do: {:ok, owner}
 
   defp dispatch_context(context, _page, _actor, _caller, _admin?, "state." <> operation, args),

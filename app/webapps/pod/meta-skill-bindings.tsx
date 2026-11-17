@@ -98,8 +98,8 @@ export function SkillBindings({ skill }: { skill: MetaSkill }) {
             value={selected}
             disabled={disabled}
             isItemEqualToValue={(a, b) => a.uid === b.uid}
-            itemToStringLabel={agent => agent.display_name}
-            itemToStringValue={agent => agent.uid}
+            itemToLabel={agent => agent.display_name}
+            itemToValue={agent => agent.uid}
             onValueChange={next => change.mutate({ kind: 'colleagues', agents: next })}>
             <ComboboxChips ref={anchor}>
               <ComboboxValue>
@@ -107,6 +107,7 @@ export function SkillBindings({ skill }: { skill: MetaSkill }) {
                   values.map(agent => (
                     <ComboboxChip
                       key={agent.uid}
+                      value={agent}
                       showRemove={agent.can_bind}
                       removeLabel={t('pod.meta.disable_for', { name: agent.display_name })}>
                       {agent.display_name}

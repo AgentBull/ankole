@@ -94,7 +94,9 @@ describe('Sidebar shell', () => {
 
     const trigger = tagWith(html, 'data-slot="sidebar-trigger"')
     expect(attributeOf(trigger, 'aria-label')).toBe('Collapse sidebar')
-    expect(classesOf(trigger)).toEqual(expect.arrayContaining(['size-6', "[&_svg:not([class*='size-'])]:size-6"]))
+    expect(classesOf(trigger)).toEqual(
+      expect.arrayContaining(['size-control-xs', "[&_svg:not([class*='size-'])]:size-6"])
+    )
     // The default icon is Fluent's left panel mark, whose bar sits at the start.
     expect(html).toContain(pathOf(<PanelLeftRegular />))
 
@@ -110,7 +112,7 @@ describe('Sidebar shell', () => {
     const trigger = classesOf(
       tagWith(shell(<SidebarTrigger size="icon-lg" label="Expand sidebar" />), 'data-slot="sidebar-trigger"')
     )
-    expect(trigger).toEqual(expect.arrayContaining(['size-9', "[&_svg:not([class*='size-'])]:size-5"]))
+    expect(trigger).toEqual(expect.arrayContaining(['size-control-md', "[&_svg:not([class*='size-'])]:size-5"]))
     expect(trigger).not.toContain("[&_svg:not([class*='size-'])]:size-6")
   })
 })
@@ -137,7 +139,7 @@ describe('Sidebar menu rows', () => {
     expect(classesOf(row)).toEqual(
       expect.arrayContaining([
         'nav-row',
-        'h-8',
+        'h-control-md',
         'rounded-control',
         'gap-1.5',
         'text-75',
@@ -186,7 +188,7 @@ describe('Sidebar menu rows', () => {
         <SidebarMenuItem>
           <SidebarMenuButton size="lg" data-testid="row">
             <SidebarMenuIcon size="lg" data-testid="avatar">
-              <Avatar shape="square">
+              <Avatar>
                 <AvatarFallback>GR</AvatarFallback>
               </Avatar>
             </SidebarMenuIcon>
@@ -203,7 +205,7 @@ describe('Sidebar menu rows', () => {
     )
     const row = classesOf(tagWith(html, 'data-testid="row"'))
     expect(row).toEqual(expect.arrayContaining(['h-12', 'gap-2']))
-    expect(row).not.toContain('h-8')
+    expect(row).not.toContain('h-control-md')
     const avatar = tagWith(html, 'data-testid="avatar"')
     expect(attributeOf(avatar, 'data-size')).toBe('lg')
     expect(classesOf(avatar)).toContain('size-8')
@@ -238,14 +240,14 @@ describe('Sidebar menu rows', () => {
     expect(classesOf(group)).toEqual(expect.arrayContaining(['px-2', 'pt-(--sidebar-group-gap)', 'extra']))
   })
 
-  test('draws the header separator as a 1px hairline through the orientation that Base UI sets', () => {
+  test('draws the header separator as a 1px hairline through the orientation that ui-sdk sets', () => {
     const html = shell(
       <SidebarHeader>
         <SidebarSeparator />
       </SidebarHeader>
     )
     const separator = tagWith(html, 'data-slot="sidebar-separator"')
-    // Base UI marks the orientation only in `data-orientation`, so the line's size has to key on that attribute.
+    // ui-sdk marks the orientation only in `data-orientation`, so the line's size has to key on that attribute.
     expect(attributeOf(separator, 'data-orientation')).toBe('horizontal')
     expect(classesOf(separator)).toEqual(
       expect.arrayContaining([
@@ -282,7 +284,7 @@ describe('Sidebar menu rows', () => {
     expect(attributeOf(tagWith(html, 'data-testid="flat"'), 'style')).toBe('--sidebar-menu-level:3')
     // A child row shares the row geometry, so only the level moves it.
     expect(classesOf(tagWith(html, 'data-slot="sidebar-menu-sub-button"'))).toEqual(
-      expect.arrayContaining(['nav-row', 'h-8', 'text-75'])
+      expect.arrayContaining(['nav-row', 'h-control-md', 'text-75'])
     )
   })
 
@@ -350,13 +352,13 @@ describe('Sidebar menu rows', () => {
     const grouped = tagWith(html, 'aria-label="More"')
     expect(attributeOf(grouped, 'data-reveal')).toBeUndefined()
     expect(classesOf(grouped)).toEqual(
-      expect.arrayContaining(['size-6', 'text-fg-primary', '[&>svg:not([class*=size-])]:size-4'])
+      expect.arrayContaining(['size-control-xs', 'text-fg-primary', '[&>svg:not([class*=size-])]:size-4'])
     )
     expect(classesOf(grouped)).not.toContain('absolute')
 
     const single = tagWith(html, 'aria-label="Edit"')
     expect(attributeOf(single, 'data-reveal')).toBe('hover')
-    expect(classesOf(single)).toEqual(expect.arrayContaining(['absolute', 'end-1', 'size-6']))
+    expect(classesOf(single)).toEqual(expect.arrayContaining(['absolute', 'end-1', 'size-control-xs']))
     expect(attributeOf(tagWith(html, 'aria-label="Empty"'), 'data-reveal')).toBeUndefined()
   })
 })
@@ -531,7 +533,7 @@ describe('Sidebar phone sheet', () => {
     expect(sheet).toEqual(
       expect.arrayContaining([
         '[--sidebar-menu-indent:calc(var(--spacing)*6)]',
-        '[&_button]:min-h-8',
+        '[&_button]:min-h-control-md',
         '[&_button]:min-w-8'
       ])
     )
@@ -612,8 +614,9 @@ describe('Sidebar motion', () => {
       )
       expect(group).not.toContain('overflow-hidden')
     }
-    // A group that is open when it renders shows open at once, with its rows' height.
-    expect(attributeOf(tagWith(open, 'data-testid="list"'), 'style')).toContain('--collapsible-panel-height:auto')
+    // A group that is open when it renders shows open at once: ui-sdk measures no height on the server, so the unset
+    // variable leaves the group at its rows' height.
+    expect(attributeOf(tagWith(open, 'data-testid="list"'), 'style')).not.toContain('--collapsible-panel-height')
     expect(attributeOf(tagWith(open, 'data-testid="list"'), 'style')).toContain('--sidebar-menu-level:1')
     expect(open).toContain('Child')
     // The list stays a direct child of its item, and the body of its section, with no wrapper of their own.
@@ -708,7 +711,7 @@ describe('Sidebar footer row', () => {
         'h-10.5',
         'gap-1',
         'pe-1',
-        'data-popup-open:bg-layer-hover',
+        'data-open:bg-layer-hover',
         '*:data-[slot=avatar]:size-6.5',
         '[&>[data-slot=avatar]_[data-slot=avatar-fallback]]:text-50',
         '[&>svg:last-child]:size-4.5',

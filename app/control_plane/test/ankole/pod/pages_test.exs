@@ -289,6 +289,14 @@ defmodule Ankole.Pod.PagesTest do
     assert {:error, :forbidden} = Pages.authorize(editor, child.id, "node_manage")
     assert {:ok, nil} = Pages.delete_embeds(editor, parent.id, [child.id])
     assert %DateTime{} = Repo.get_by!(Page, id: child.id).deleted_at
+
+    # The editor's personal assistant counts as the same creator.
+    assistant =
+      agent_fixture(%{type: :personal_assistant, owner_principal_uid: ctx.reader.uid}).principal
+
+    {:ok, assisted} = Pages.create(actor_fixture(assistant), %{parent_id: parent.id})
+    assert {:ok, nil} = Pages.delete_embeds(editor, parent.id, [assisted.id])
+    assert %DateTime{} = Repo.get_by!(Page, id: assisted.id).deleted_at
   end
 
   test "trash scans past 200 inaccessible candidates with its database timestamp cursor", ctx do

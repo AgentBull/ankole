@@ -1,18 +1,22 @@
-import { Collapsible as CollapsiblePrimitive } from '@base-ui/react/collapsible'
+import {
+  CollapsiblePanel,
+  Collapsible as CollapsiblePrimitive,
+  CollapsibleTrigger as CollapsibleTriggerPrimitive
+} from '@ui-sdk/react/collapsible'
+import type * as React from 'react'
 import { cn } from '../lib/utils'
 
-function Collapsible({ ...props }: CollapsiblePrimitive.Root.Props) {
-  return <CollapsiblePrimitive.Root data-slot="collapsible" {...props} />
+function Collapsible(props: React.ComponentProps<typeof CollapsiblePrimitive>) {
+  return <CollapsiblePrimitive {...props} />
 }
 
-function CollapsibleTrigger({ ...props }: CollapsiblePrimitive.Trigger.Props) {
-  return <CollapsiblePrimitive.Trigger data-slot="collapsible-trigger" {...props} />
+function CollapsibleTrigger(props: React.ComponentProps<typeof CollapsibleTriggerPrimitive>) {
+  return <CollapsibleTriggerPrimitive {...props} />
 }
 
-function CollapsibleContent({ className, ...props }: CollapsiblePrimitive.Panel.Props) {
+function CollapsibleContent({ className, ...props }: React.ComponentProps<typeof CollapsiblePanel>) {
   return (
-    <CollapsiblePrimitive.Panel
-      data-slot="collapsible-content"
+    <CollapsiblePanel
       className={cn(
         'h-(--collapsible-panel-height) overflow-hidden motion-safe:transition-[height] motion-safe:duration-(--duration-dialog) motion-safe:ease-out data-ending-style:h-0 data-starting-style:h-0',
         className

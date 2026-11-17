@@ -17,8 +17,7 @@
 
 :is(.ceramic .ankole-emoji-picker, .ankole-emoji-picker.ceramic) {
   --ankole-emoji-sticky-bg:
-    linear-gradient(var(--ceramic-tint, var(--ceramic-glaze)), var(--ceramic-tint, var(--ceramic-glaze))),
-    rgb(var(--ceramic-body));
+    linear-gradient(var(--ceramic-tint, transparent), var(--ceramic-tint, transparent)), rgb(var(--ceramic-body));
 }
 
 .ankole-emoji-picker-search {
@@ -253,16 +252,14 @@
   gap: 2px;
   padding: 4px;
   border-radius: var(--ceramic-radius);
-  background: linear-gradient(var(--ceramic-glaze), var(--ceramic-glaze)), rgb(var(--ceramic-body));
+  background: rgb(var(--ceramic-body) / var(--ceramic-opacity));
+  -webkit-backdrop-filter: blur(var(--ceramic-blur));
+  backdrop-filter: blur(var(--ceramic-blur));
   box-shadow:
-    2px 2px 0 var(--ceramic-rim),
-    inset 2px 2px 0 var(--ceramic-inner),
-    inset 0 0 0 0.2px var(--ceramic-stroke),
-    inset 0 1px 0 var(--ceramic-edge),
-    inset 0 0 0 1px var(--ceramic-edge-ring),
-    0 0 0 0.5px var(--ceramic-hairline),
-    var(--ceramic-lift),
-    0 4px 12px var(--ceramic-shadow);
+    inset 0.5px 0.5px 0 var(--ceramic-rim),
+    inset 0 0 0 0.5px var(--ceramic-hairline),
+    0.5px 0.5px 0 var(--ceramic-shadow),
+    0.5px 0.5px 12px var(--ceramic-shadow);
   transition: opacity var(--duration-overlay) var(--ease-out);
 }
 

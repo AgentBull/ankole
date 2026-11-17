@@ -615,7 +615,10 @@ any ingress rules. Its egress rules permit control-plane HTTP, TCP/UDP port 53
 to **any destination**, and IPv4 destinations outside
 `networkPolicy.workerDeniedCIDRs`. Because the port 53 rule also applies inside
 `workerDeniedCIDRs`, that list is not an absolute deny list for private
-addresses.
+addresses. The Worker and Function Runtime policies also permit TCP/UDP port 53
+to `kube-system` Pods labeled `k8s-app: kube-dns`. Some network plugins, such as
+AWS VPC CNI, apply a rule that lists only ports as `0.0.0.0/0`, so the longer
+prefixes in the denied CIDRs would otherwise block cluster DNS.
 
 Enforcing NetworkPolicy requires a CNI plugin with NetworkPolicy support. Other
 policies selecting the same Pods can grant additional access, and traffic to or

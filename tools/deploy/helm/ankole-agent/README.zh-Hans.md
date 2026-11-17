@@ -515,7 +515,9 @@ Secret，并将分布式通信端口固定为 `controlPlane.distributionPort`（
 网络策略，选中当前命名空间内带有本安装标签的 Worker Pod：该策略不放行任何入站连接，出站仅放行控制面
 HTTP 端口、发往**任意目标**的 TCP/UDP 53 端口（DNS），以及 `networkPolicy.workerDeniedCIDRs`
 网段之外的 IPv4 地址。由于 53 端口放行规则同样覆盖 `workerDeniedCIDRs` 内部地址，该列表并非绝对的
-私网完全封禁列表。
+私网完全封禁列表。Worker 与 Function Runtime 的网络策略还会放行发往 `kube-system` 中带
+`k8s-app: kube-dns` 标签的 Pod 的 TCP/UDP 53 端口。AWS VPC CNI 等网络插件会把只写端口的规则下发为
+`0.0.0.0/0`，被拒网段的前缀更长，没有这条规则时会盖过它，拦住集群 DNS。
 
 NetworkPolicy 需依赖支持网络策略的 CNI 插件才能实际生效；选中同一批 Pod 的其他策略可能会叠加放行
 权限，而 Pod 与宿主机节点之间的流量还受 Kubernetes 自身路由规则支配，详见

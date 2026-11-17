@@ -668,7 +668,7 @@ test('a reply’s action row offers select, quote, and copy as 32px buttons, the
   expect(order(reply)).toEqual(['Select messages', 'Quote reply', 'Copy message', 'Edit and regenerate', 'time'])
   expect(reply.match(/data-slot="button"/g)).toHaveLength(4)
   expect(reply).not.toContain('size-6')
-  expect(reply).toContain('size-8')
+  expect(reply).toContain('size-control-md')
   expect(order(render(<MessageActions {...props} timeFirst />))[0]).toBe('time')
 })
 
@@ -1137,7 +1137,8 @@ test('an Agent without an uploaded avatar shows the bot mark beside its message,
     }) as unknown as TimelineMessage
   // What the 32px avatar beside the message shows in place of a picture.
   const avatar = (html: string) =>
-    html.match(/pod-chat-message-avatar[^>]*><span data-slot="avatar-fallback"[^>]*>(.*?)<\/span><\/span>/s)?.[1] ?? ''
+    html.match(/pod-chat-message-avatar[^>]*><span[^>]*data-slot="avatar-fallback"[^>]*>(.*?)<\/span><\/span>/s)?.[1] ??
+    ''
   try {
     const view = (item: TimelineMessage) =>
       render(

@@ -1,6 +1,5 @@
-import { mergeProps } from '@base-ui/react/merge-props'
-import { useRender } from '@base-ui/react/use-render'
-import type { ReactNode } from 'react'
+import { mergeProps, renderElement, type RenderProp } from '@ui-sdk/react/primitive'
+import type { ComponentProps, ReactNode } from 'react'
 
 import { ChevronRightRegular } from '../icons'
 import { cn } from '../lib/utils'
@@ -22,17 +21,18 @@ function ReferenceCard({
   className,
   render,
   ...props
-}: useRender.ComponentProps<'a'> & {
+}: ComponentProps<'a'> & {
+  render?: RenderProp
   /** The Page's 20px mark. */
   mark: ReactNode
   /** The Page's title. */
   children?: ReactNode
 }) {
-  return useRender({
-    defaultTagName: 'a',
-    render,
-    props: mergeProps<'a'>(
+  return renderElement(
+    'a',
+    mergeProps(
       {
+        'data-slot': 'reference-card',
         className: cn(
           'group/reference surface-outline inline-flex h-7 max-w-[min(318px,100%)] min-w-0 items-center gap-1.5 py-0 ps-[7px] pe-[5px] align-[calc(0.38em-10px)] text-75 leading-5 text-fg-primary no-underline transition-colors duration-(--duration-feedback) hover:bg-layer-hover active:bg-layer-pressed',
           className
@@ -58,8 +58,8 @@ function ReferenceCard({
       },
       props
     ),
-    state: { slot: 'reference-card' }
-  })
+    render
+  )
 }
 
 export { ReferenceCard }

@@ -130,6 +130,23 @@ defmodule Ankole.Principals.Agents do
   end
 
   @doc """
+  Returns the UIDs that count as the same Principal as `uid`: a Human and their
+  personal assistant.
+  """
+  def equivalent_uids(uid) do
+    owner_uid = authority_uid(uid)
+
+    Agent
+    |> Ash.Query.filter(type == :personal_assistant and owner_principal_uid == ^owner_uid)
+    |> Ash.Query.select([:uid])
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.uid)
+    |> MapSet.new()
+    |> MapSet.put(uid)
+    |> MapSet.put(owner_uid)
+  end
+
+  @doc """
   Returns the Human that an Agent's work serves: the Human who asked for it,
   or else the owner of a personal assistant. Other work serves no Human.
   """

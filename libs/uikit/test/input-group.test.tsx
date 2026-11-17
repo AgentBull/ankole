@@ -54,9 +54,9 @@ describe('InputGroup composer', () => {
       'inset: -1px; padding: 1px; border-radius: inherit; background: linear-gradient(var(--composer-edge-angle), var(--composer-edge-stops));'
     )
     expect(surface).toContain('mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);')
-    // A list that opens from the composer keeps the overlay hairline and draws no ring.
+    // A list that opens from the composer is ceramic like every menu and draws no composer ring.
     const menu = utility('composer-menu')
-    expect(menu).toContain('border: 1px solid var(--ceramic-hairline);')
+    expect(menu).toContain('@apply ceramic ceramic-primary;')
     expect(menu).not.toContain('--composer-edge')
     // The edge turns once every 8 seconds while the text field holds focus, rests where it stopped, and keeps still
     // for a person who asks for less motion.
@@ -95,20 +95,20 @@ describe('InputGroup composer', () => {
     )
   })
 
-  test('lays the tools along a 36px toolbar 10px from the edges, with 36px buttons that tint their icon box', () => {
+  test('lays the tools along a 32px toolbar 10px from the edges, with 32px buttons that tint their icon box', () => {
     const html = composer(false)
     expect(classesOf(tagWith(html, 'data-slot="input-group-addon"'))).toEqual(
       expect.arrayContaining([
-        'group-data-[variant=composer]/input-group:h-9',
+        'group-data-[variant=composer]/input-group:h-control-md',
         'group-data-[variant=composer]/input-group:px-2.5',
         'group-data-[variant=composer]/input-group:gap-0'
       ])
     )
     const attach = classesOf(tagWith(html, 'aria-label="Attach"'))
-    expect(attach).toEqual(expect.arrayContaining(['size-9', 'p-1.75', 'bg-clip-content']))
+    expect(attach).toEqual(expect.arrayContaining(['size-control-md', 'p-1.25', 'bg-clip-content']))
     expect(attach).not.toContain('rounded-mini')
     const selector = classesOf(tagWith(html, 'data-size="toolbar"'))
-    expect(selector).toEqual(expect.arrayContaining(['h-9', 'text-50', 'font-normal']))
+    expect(selector).toEqual(expect.arrayContaining(['h-control-md', 'text-50', 'font-normal']))
   })
 
   test('keeps an empty send pill in the slot fill and turns it primary once the draft is ready', () => {
@@ -167,8 +167,8 @@ describe('InputGroup composer', () => {
       const pill = classesOf(tagWith(html, `aria-label="${label}"`))
       // A pill takes no margin of its own, so two pills never split the free room between them.
       expect(pill).not.toContain('ms-auto')
-      // The hit area spans the 36px toolbar but stays out of the 8px gap, so the pills' areas never overlap.
-      expect(pill).toEqual(expect.arrayContaining(['after:absolute', 'after:-inset-y-2', 'after:inset-x-0']))
+      // The hit area spans the 32px toolbar but stays out of the 8px gap, so the pills' areas never overlap.
+      expect(pill).toEqual(expect.arrayContaining(['after:absolute', 'after:-inset-y-1.5', 'after:inset-x-0']))
       expect(pill).not.toContain('after:-inset-2')
     }
   })

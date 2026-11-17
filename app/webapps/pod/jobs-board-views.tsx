@@ -241,7 +241,7 @@ export function AgentColumnsBoard({
                 column.key === '__automations__' ? (
                   <FlashRegular />
                 ) : (
-                  <ChatAvatar name={column.title} src={column.avatarURL} agent round size="xs" />
+                  <ChatAvatar name={column.title} src={column.avatarURL} agent size="xs" />
                 )
               }
               tone={tone}
@@ -425,7 +425,7 @@ function JobCard({
           </>
         ) : item.agentUID ? (
           <>
-            <ChatAvatar name={item.agentName || `@${item.agentUID}`} src={agentAvatarURL} agent round size="xs" />
+            <ChatAvatar name={item.agentName || `@${item.agentUID}`} src={agentAvatarURL} agent size="xs" />
             <span className="min-w-0 truncate">{item.agentName || `@${item.agentUID}`}</span>
           </>
         ) : item.pageTitle ? (

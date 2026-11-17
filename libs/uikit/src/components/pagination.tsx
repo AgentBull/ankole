@@ -36,7 +36,6 @@ function PaginationLink({ className, isActive, size = 'icon', ...props }: Pagina
         'relative size-8! min-w-0! justify-center! p-0! text-fg-primary! hover:bg-layer-hover! data-[active=true]:bg-transparent! data-[active=true]:font-semibold data-[active=true]:after:absolute data-[active=true]:after:inset-x-2 data-[active=true]:after:bottom-0 data-[active=true]:after:h-0.5 data-[active=true]:after:bg-fg-primary',
         className
       )}
-      nativeButton={false}
       render={
         <a aria-current={isActive ? 'page' : undefined} data-slot="pagination-link" data-active={isActive} {...props} />
       }

@@ -10,10 +10,12 @@ const alertVariants = cva(
   {
     variants: {
       variant: {
-        default: 'border-info/40 bg-info-subtle text-fg-primary after:bg-info *:[svg]:text-info',
+        default:
+          'border-info/40 bg-info-subtle/(--status-fill-alpha) text-(--alert-info-fg) after:bg-info *:[svg]:text-info',
         destructive:
-          'border-destructive/40 bg-destructive-subtle text-fg-primary after:bg-destructive *:data-[slot=alert-description]:text-fg-primary *:[svg]:text-destructive',
-        warning: 'border-warning/40 bg-warning-subtle text-fg-primary after:bg-warning *:[svg]:text-warning'
+          'border-destructive/40 bg-destructive-subtle/(--status-fill-alpha) text-fg-primary after:bg-destructive *:data-[slot=alert-description]:text-fg-primary *:[svg]:text-destructive',
+        warning:
+          'border-warning/40 bg-warning-subtle/(--status-fill-alpha) text-warning-fg after:bg-warning *:[svg]:text-warning'
       }
     },
     defaultVariants: {

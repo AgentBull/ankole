@@ -479,8 +479,7 @@
   background: transparent;
   box-shadow: none;
 }
-:where(.ankole-editor-overlay).selection-toolbar
-  [data-slot='button']:is(:hover, [aria-pressed='true'], [data-popup-open]) {
+:where(.ankole-editor-overlay).selection-toolbar [data-slot='button']:is(:hover, [aria-pressed='true'], [data-open]) {
   background: var(--layer-hover);
 }
 :where(.ankole-editor-overlay) .link-form {

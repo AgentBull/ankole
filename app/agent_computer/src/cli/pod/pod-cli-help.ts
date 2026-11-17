@@ -115,7 +115,7 @@ Write operations:
   jobs.configure {page_id, id, label?, config?}
   jobs.delete {page_id, id}
   bindings.put {id?, config_ref, automation_job_id?, agent_uid?, target?, filters?, watched_field_ids?, enabled?}
-  applets.transfer_owner {id: page_id, owner_uid} — current owner or Pod administrator
+  applets.transfer_owner {id: page_id, owner_uid} — current owner, the owner's personal assistant, or Pod administrator; naming a personal assistant assigns its Human owner; if the owner is inactive, a Page manager can claim ownership
   applets.bindings.put {id: page_id, slot_key, table_id?, field_overrides?} — override a declared Applet table slot
   applets.bindings.delete {id: page_id, slot_key} — reset a declared Applet table slot to source defaults
   applets.call      {id, method: GET|POST|PUT|PATCH|DELETE, path, query?, body?}
@@ -209,7 +209,7 @@ DatePicker, DateRangePicker, FileDropzone, Stepper, PrincipalBadge, Textarea, Se
 Checkbox, Switch, Field, Label, Dialog, Sheet, Drawer, Popover, DropdownMenu, Tooltip,
 Alert, Empty, Skeleton, Spinner, Toaster, toast, useTheme, AnkoleChart, AnkoleFinancialChart,
 AnkoleYieldCurveChart, AnkoleInfographic, AnkoleStatCard, AnkoleSparkline, Graph) from the root "@ankole/uikit"
-export (@base-ui/react: pass render={<Button variant="outline" />} on triggers instead of asChild;
+export (@ui-sdk/react: pass render={<Button variant="outline" />} on triggers instead of asChild;
 Badge variants are secondary|info|success|warning|destructive|outline|ghost; use at most one
 default primary Button per view and outline/ghost for other actions).
 While data loads, render Skeleton blocks shaped like the coming view (size them in src/style.css),

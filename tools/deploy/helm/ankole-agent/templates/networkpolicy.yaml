@@ -31,7 +31,7 @@ spec:
 {{- if and .Values.networkPolicy.enabled .Values.worker.localPods }}
 ---
 # This policy adds no Worker ingress allowance. Egress allows the control plane,
-# TCP/UDP 53 to any destination, and IPv4 addresses outside workerDeniedCIDRs.
+# TCP/UDP 53 to any destination and to kube-dns, and IPv4 addresses outside workerDeniedCIDRs.
 # The DNS allowance also applies inside those CIDRs. Enforcement needs a
 # supporting network plugin; other applicable policies can add allowances.
 apiVersion: networking.k8s.io/v1
@@ -57,6 +57,20 @@ spec:
         - port: {{ .Values.controlPlane.port }}
           protocol: TCP
     - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # AWS VPC CNI applies the port-only rule above as 0.0.0.0/0:53, and the longer
+    # prefixes in the ipBlock except below then block cluster DNS unless this rule names kube-dns.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
         - port: 53
           protocol: UDP
         - port: 53

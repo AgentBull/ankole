@@ -315,7 +315,10 @@ async function saveSiteOCRProfile(page: Page, unread: { files: number; pages: nu
 
   const ocr = page.locator('form').filter({ has: page.getByRole('button', { name: /^OCR model/ }) })
   await ocr.getByRole('button', { name: /^OCR model/ }).click()
-  await ocr.getByRole('combobox', { name: 'Model', exact: true }).fill('mistral-ocr-latest')
+  const model = ocr.getByRole('combobox', { name: 'Model', exact: true })
+  // The option list sits in the viewport beside its field, so the field has to be in view first, as it is for a person.
+  await model.scrollIntoViewIfNeeded()
+  await model.fill('mistral-ocr-latest')
   await page.getByRole('option', { name: /Use.*mistral-ocr-latest/ }).click()
   const counted = page.waitForResponse(response => response.url().includes('/api/v2/site/unread-scans'))
   await ocr.getByRole('button', { name: 'Save', exact: true }).click()

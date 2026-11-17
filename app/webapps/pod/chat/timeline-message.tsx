@@ -72,14 +72,7 @@ export function MessageIdentity({
   return (
     <header className="pod-chat-message-identity" data-quiet={quiet || undefined}>
       {!quiet && (
-        <ChatAvatar
-          name={name}
-          src={avatarURL}
-          agent={agent}
-          round
-          size="default"
-          className="pod-chat-message-avatar"
-        />
+        <ChatAvatar name={name} src={avatarURL} agent={agent} size="default" className="pod-chat-message-avatar" />
       )}
       <strong className={quiet ? 'sr-only' : undefined}>{name}</strong>
       {archived && <span className="pod-chat-archived">{t('pod.chat_timeline.archived')}</span>}
@@ -183,7 +176,7 @@ export const MessageView = memo(function MessageView({
     const label = timelineEventLabel(message, t, i18n.language)
     return (
       <div className="pod-chat-timeline-event">
-        <ChatAvatar name={name} src={avatarURL} agent={agent} round size="xs" className="pod-chat-notice-avatar" />
+        <ChatAvatar name={name} src={avatarURL} agent={agent} size="xs" className="pod-chat-notice-avatar" />
         <p title={label}>{label}</p>
         <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString(i18n.language)}>
           {messageTime(message.createdAt, i18n.language)}

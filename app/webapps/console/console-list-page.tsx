@@ -457,7 +457,7 @@ export function ResourceSearch({
   return (
     <div className="flex min-w-0 flex-1 basis-72 flex-wrap items-center gap-x-4 gap-y-2">
       <SearchField
-        className="flex-1 basis-72"
+        className="max-w-[420px] flex-1 basis-72"
         clearLabel={t('console.empty.clear_search')}
         label={label}
         maxLength={maxLength}
@@ -513,7 +513,7 @@ export function SearchField({
       {!value ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-10 left-10 flex items-center truncate text-sm leading-5 text-fg-secondary">
+          className="pointer-events-none absolute inset-y-0 right-10 left-10 flex items-center truncate text-sm leading-5 text-fg-placeholder">
           {placeholder ?? label}
         </span>
       ) : null}

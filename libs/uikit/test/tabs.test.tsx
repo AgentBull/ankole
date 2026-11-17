@@ -31,15 +31,15 @@ test('draws chip tabs as a 24px icon with a label that opens only on the current
   expect(trigger).toContain("group-data-[variant=chip]/tabs-list:[&_svg:not([class*='size-'])]:size-6")
   // A closed tab draws in the secondary colour; the open tab draws its icon and Medium label in the primary colour.
   expect(trigger).toContain('group-data-[variant=chip]/tabs-list:text-fg-secondary')
-  expect(trigger).toContain('group-data-[variant=chip]/tabs-list:data-active:text-fg-primary')
-  expect(trigger).toContain('group-data-[variant=chip]/tabs-list:data-active:font-medium')
-  expect(trigger).not.toContain('group-data-[variant=chip]/tabs-list:data-active:text-fg-secondary')
+  expect(trigger).toContain('group-data-[variant=chip]/tabs-list:data-selected:text-fg-primary')
+  expect(trigger).toContain('group-data-[variant=chip]/tabs-list:data-selected:font-medium')
+  expect(trigger).not.toContain('group-data-[variant=chip]/tabs-list:data-selected:text-fg-secondary')
   // A label column is closed by default and opens with its tab's active state.
   const labels = [...html.matchAll(/<span[^>]*data-slot="tabs-label"[^>]*>/g)].map(match => classesOf(match[0]))
   expect(labels).toHaveLength(2)
   for (const label of labels) {
     expect(label).toContain('grid-cols-[minmax(0,0fr)]')
-    expect(label).toContain('group-data-active/tabs-trigger:grid-cols-[minmax(0,1fr)]')
+    expect(label).toContain('group-data-selected/tabs-trigger:grid-cols-[minmax(0,1fr)]')
   }
 })
 

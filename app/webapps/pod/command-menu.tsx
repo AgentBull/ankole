@@ -174,10 +174,11 @@ export function PodCommandMenu({
   const [inCurrentPage, setInCurrentPage] = useState(false)
   const [activeValue, setActiveValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
-  const selected = useRef(false)
+  // A chosen result moves focus by navigating, so the dialog that closes for it leaves focus alone.
+  const [selected, setSelected] = useState(false)
 
   useEffect(() => {
-    if (open) selected.current = false
+    if (open) setSelected(false)
   }, [open])
 
   const resetMenuState = () => {
@@ -194,7 +195,7 @@ export function PodCommandMenu({
     <Dialog
       open={open}
       onOpenChange={(next, details) => {
-        if (!next && details.reason === 'escape-key' && details.event.target === inputRef.current && query) {
+        if (!next && details.reason === 'escape-key' && details.event?.target === inputRef.current && query) {
           details.cancel()
           setQuery('')
           setActiveValue('')
@@ -207,15 +208,18 @@ export function PodCommandMenu({
         className="pod-dialog-wide pod-command-dialog pod-command-dialog-split transition-none duration-0 data-starting-style:scale-100 data-starting-style:opacity-100 data-ending-style:scale-100 data-ending-style:opacity-100"
         showCloseButton={false}
         closeLabel={t('common.close')}
-        finalFocus={() => {
-          if (selected.current) return false
-          if (returnFocus.current?.isConnected) return returnFocus.current
-          return (
-            [...document.querySelectorAll<HTMLElement>('[data-sidebar="trigger"]')].find(
-              element => element.getClientRects().length > 0
-            ) ?? null
-          )
-        }}>
+        finalFocus={
+          selected
+            ? 'none'
+            : () => {
+                if (returnFocus.current?.isConnected) return returnFocus.current
+                return (
+                  [...document.querySelectorAll<HTMLElement>('[data-sidebar="trigger"]')].find(
+                    element => element.getClientRects().length > 0
+                  ) ?? null
+                )
+              }
+        }>
         <DialogTitle className="sr-only">{label}</DialogTitle>
         <PodCommandSurface
           open={open}
@@ -233,7 +237,7 @@ export function PodCommandMenu({
           inputRef={inputRef}
           onSelectTarget={(href, state) => {
             if (state?.focusComposer) drafts.startNew()
-            selected.current = true
+            setSelected(true)
             resetMenuState()
             onOpenChange(false)
             setOpenMobile(false)
@@ -246,7 +250,7 @@ export function PodCommandMenu({
           }}
           onOpenNewWindow={url => {
             window.open(url, '_blank', 'noopener,noreferrer')
-            selected.current = true
+            setSelected(true)
             resetMenuState()
             onOpenChange(false)
             setOpenMobile(false)

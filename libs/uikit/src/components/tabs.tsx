@@ -1,19 +1,30 @@
 'use client'
 
-import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
+import {
+  TabsIndicator,
+  TabsList as TabsListPrimitive,
+  TabsPanel,
+  Tabs as TabsPrimitive,
+  TabsTab
+} from '@ui-sdk/react/tabs'
 import { cva, type VariantProps } from 'class-variance-authority'
-import { useLayoutEffect, useRef, type ComponentProps } from 'react'
+import { useLayoutEffect, useRef, type ComponentProps, type ReactNode } from 'react'
 
 import { cn } from '../lib/utils'
 
-function Tabs({ className, orientation = 'horizontal', ...props }: TabsPrimitive.Root.Props) {
+/** Arrow keys move focus between tabs and Enter or Space opens one, unless the caller asks for `activation="automatic"`. */
+function Tabs<T extends string = string>({
+  className,
+  orientation = 'horizontal',
+  activation = 'manual',
+  ...props
+}: ComponentProps<typeof TabsPrimitive<T>>) {
   return (
-    <TabsPrimitive.Root
-      data-slot="tabs"
-      data-orientation={orientation}
+    <TabsPrimitive
       data-horizontal={orientation === 'horizontal' ? '' : undefined}
       data-vertical={orientation === 'vertical' ? '' : undefined}
       orientation={orientation}
+      activation={activation}
       className={cn('group/tabs flex gap-2 data-horizontal:flex-col', className)}
       {...props}
     />
@@ -21,18 +32,18 @@ function Tabs({ className, orientation = 'horizontal', ...props }: TabsPrimitive
 }
 
 const tabsListVariants = cva(
-  'group/tabs-list relative isolate inline-flex w-fit items-center justify-center text-fg-secondary group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col',
+  'group/tabs-list relative isolate inline-flex w-fit items-center justify-center text-fg-secondary group-data-horizontal/tabs:h-control-md group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col',
   {
     variants: {
       variant: {
         default: 'border-b border-border-subtle bg-transparent',
         // Tabs that name a place, like a segmented control: the open tab sits on the selected fill, which slides
         // and stretches to the next tab when the selection changes.
-        object: 'gap-0.5 bg-transparent group-data-horizontal/tabs:h-7',
+        object: 'gap-0.5 bg-transparent group-data-horizontal/tabs:h-control-sm',
         // Tabs that name the sections of a navigation column: the current tab is a chip that shows its `TabsLabel`
         // on the selected fill, and every other tab is its bare 24px icon. The fill travels like the object fill.
         // In a sidebar's phone sheet the chips grow to 36px for touch.
-        chip: 'gap-2 bg-transparent group-data-horizontal/tabs:h-7 in-data-[mobile=true]:group-data-horizontal/tabs:h-9'
+        chip: 'gap-2 bg-transparent group-data-horizontal/tabs:h-control-sm in-data-[mobile=true]:group-data-horizontal/tabs:h-control-lg'
       }
     },
     defaultVariants: {
@@ -46,10 +57,11 @@ function TabsList({
   variant = 'default',
   children,
   ...props
-}: TabsPrimitive.List.Props & VariantProps<typeof tabsListVariants>) {
+}: Omit<ComponentProps<typeof TabsListPrimitive>, 'children'> & { children?: ReactNode } & VariantProps<
+    typeof tabsListVariants
+  >) {
   return (
-    <TabsPrimitive.List
-      data-slot="tabs-list"
+    <TabsListPrimitive
       data-variant={variant ?? 'default'}
       className={cn(tabsListVariants({ variant }), className)}
       {...props}>
@@ -57,13 +69,9 @@ function TabsList({
       {variant === 'object' || variant === 'chip' ? (
         <SegmentIndicator />
       ) : (
-        <TabsPrimitive.Indicator
-          data-slot="tabs-indicator"
-          aria-hidden
-          className="pointer-events-none absolute bg-fg-primary"
-        />
+        <TabsIndicator aria-hidden className="pointer-events-none absolute bg-(--tab-indicator)" />
       )}
-    </TabsPrimitive.List>
+    </TabsListPrimitive>
   )
 }
 
@@ -75,7 +83,7 @@ function settledBox(list: HTMLElement): SegmentBox | null {
   const tabs = [...list.querySelectorAll<HTMLElement>('[role="tab"]')].filter(
     tab => tab.closest('[role="tablist"]') === list
   )
-  const index = tabs.findIndex(tab => tab.hasAttribute('data-active'))
+  const index = tabs.findIndex(tab => tab.hasAttribute('data-selected'))
   if (index < 0 || !list.parentElement || list.offsetWidth === 0) return null
   const ghost = list.cloneNode(true) as HTMLElement
   ghost.setAttribute('data-tabs-measure', '')
@@ -153,7 +161,7 @@ function SegmentIndicator() {
     }
     place()
     const mutations = new MutationObserver(place)
-    mutations.observe(list, { subtree: true, attributes: true, attributeFilter: ['data-active', 'data-open'] })
+    mutations.observe(list, { subtree: true, attributes: true, attributeFilter: ['data-selected', 'data-open'] })
     const resizes = new ResizeObserver(place)
     resizes.observe(list)
     return () => {
@@ -172,18 +180,17 @@ function SegmentIndicator() {
   )
 }
 
-function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
+function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsTab>) {
   return (
-    <TabsPrimitive.Tab
-      data-slot="tabs-trigger"
+    <TabsTab
       className={cn(
-        "group/tabs-trigger relative inline-flex h-full flex-1 cursor-pointer items-center justify-center gap-2 border border-transparent px-3 py-0 text-65 font-normal whitespace-nowrap text-fg-secondary transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-1.5 hover:text-fg-primary focus-visible:-outline-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-fg-disabled has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:text-fg-disabled dark:text-fg-secondary dark:hover:text-fg-primary [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        'data-active:text-fg-primary',
-        'group-data-[variant=object]/tabs-list:flex-none group-data-[variant=object]/tabs-list:gap-1.5 group-data-[variant=object]/tabs-list:rounded-control group-data-[variant=object]/tabs-list:px-2 group-data-[variant=object]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=object]/tabs-list:border-0 group-data-[variant=object]/tabs-list:fine-hover:hover:bg-layer-hover group-data-[variant=object]/tabs-list:hover:text-fg-primary group-data-[variant=object]/tabs-list:data-active:text-fg-primary group-data-[variant=object]/tabs-list:data-active:fine-hover:hover:bg-transparent',
+        "group/tabs-trigger relative inline-flex h-full flex-1 cursor-pointer items-center justify-center gap-2 border border-transparent px-3 py-0 text-65 font-normal whitespace-nowrap text-(--tab-idle) transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-1.5 hover:text-fg-primary focus-visible:-outline-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-fg-disabled has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:text-fg-disabled [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        'data-selected:text-(--tab-current)',
+        'group-data-[variant=object]/tabs-list:flex-none group-data-[variant=object]/tabs-list:gap-1.5 group-data-[variant=object]/tabs-list:rounded-control group-data-[variant=object]/tabs-list:px-2 group-data-[variant=object]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=object]/tabs-list:border-0 group-data-[variant=object]/tabs-list:fine-hover:hover:bg-layer-hover group-data-[variant=object]/tabs-list:hover:text-fg-primary group-data-[variant=object]/tabs-list:data-selected:text-(--tab-current) group-data-[variant=object]/tabs-list:data-selected:fine-hover:hover:bg-transparent',
         // A chip keeps 2px and 4px of padding around a 24px icon and 15px text, so the bare icon of a closed tab holds
         // still when the tab opens. A closed tab draws in the secondary colour; the open tab draws its icon and its
         // Medium label in the primary colour.
-        "group-data-[variant=chip]/tabs-list:flex-none group-data-[variant=chip]/tabs-list:gap-0 group-data-[variant=chip]/tabs-list:rounded-control group-data-[variant=chip]/tabs-list:border-0 group-data-[variant=chip]/tabs-list:px-1 group-data-[variant=chip]/tabs-list:py-0.5 in-data-[mobile=true]:group-data-[variant=chip]/tabs-list:py-1.5 group-data-[variant=chip]/tabs-list:text-85 group-data-[variant=chip]/tabs-list:text-fg-secondary group-data-[variant=chip]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=chip]/tabs-list:fine-hover:hover:bg-layer-hover group-data-[variant=chip]/tabs-list:data-active:font-medium group-data-[variant=chip]/tabs-list:data-active:text-fg-primary group-data-[variant=chip]/tabs-list:data-active:fine-hover:hover:bg-transparent group-data-[variant=chip]/tabs-list:[&_svg:not([class*='size-'])]:size-6",
+        "group-data-[variant=chip]/tabs-list:flex-none group-data-[variant=chip]/tabs-list:gap-0 group-data-[variant=chip]/tabs-list:rounded-control group-data-[variant=chip]/tabs-list:border-0 group-data-[variant=chip]/tabs-list:px-1 group-data-[variant=chip]/tabs-list:py-0.5 in-data-[mobile=true]:group-data-[variant=chip]/tabs-list:py-1.5 group-data-[variant=chip]/tabs-list:text-85 group-data-[variant=chip]/tabs-list:text-fg-secondary group-data-[variant=chip]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=chip]/tabs-list:fine-hover:hover:bg-layer-hover group-data-[variant=chip]/tabs-list:data-selected:font-medium group-data-[variant=chip]/tabs-list:data-selected:text-fg-primary group-data-[variant=chip]/tabs-list:data-selected:fine-hover:hover:bg-transparent group-data-[variant=chip]/tabs-list:[&_svg:not([class*='size-'])]:size-6",
         className
       )}
       {...props}
@@ -201,27 +208,21 @@ function TabsLabel({ className, children, ...props }: ComponentProps<'span'>) {
     <span
       data-slot="tabs-label"
       className={cn(
-        'grid grid-cols-[minmax(0,0fr)] transition-[grid-template-columns] duration-(--duration-segment) ease-segment group-data-active/tabs-trigger:grid-cols-[minmax(0,1fr)] motion-reduce:transition-none',
+        'grid grid-cols-[minmax(0,0fr)] transition-[grid-template-columns] duration-(--duration-segment) ease-segment group-data-selected/tabs-trigger:grid-cols-[minmax(0,1fr)] motion-reduce:transition-none',
         className
       )}
       {...props}>
-      <span className="min-w-0 overflow-hidden ps-1 whitespace-nowrap opacity-0 blur-[2px] transition-[opacity,filter] duration-160 ease-out group-data-active/tabs-trigger:opacity-100 group-data-active/tabs-trigger:blur-none group-data-active/tabs-trigger:delay-60 group-data-active/tabs-trigger:duration-240 motion-reduce:transition-none">
+      <span className="min-w-0 overflow-hidden ps-1 whitespace-nowrap opacity-0 blur-[2px] transition-[opacity,filter] duration-160 ease-out group-data-selected/tabs-trigger:opacity-100 group-data-selected/tabs-trigger:blur-none group-data-selected/tabs-trigger:delay-60 group-data-selected/tabs-trigger:duration-240 motion-reduce:transition-none">
         {children}
       </span>
     </span>
   )
 }
 
-function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
-  // Base UI keeps a closing panel in layout for one frame to finish exit animations; tabs have none, so the closing
-  // panel leaves at once instead of pushing the opening one down for that frame.
-  return (
-    <TabsPrimitive.Panel
-      data-slot="tabs-content"
-      className={cn('flex-1 text-sm outline-none data-ending-style:hidden', className)}
-      {...props}
-    />
-  )
+function TabsContent({ className, ...props }: ComponentProps<typeof TabsPanel>) {
+  // ui-sdk keeps a closing panel in layout while it animates out; tabs have no exit animation, so the closing panel
+  // leaves at once instead of pushing the opening one down meanwhile.
+  return <TabsPanel className={cn('flex-1 text-sm outline-none data-ending-style:hidden', className)} {...props} />
 }
 
 export { Tabs, TabsContent, TabsLabel, TabsList, TabsTrigger, tabsListVariants }

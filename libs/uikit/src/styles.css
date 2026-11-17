@@ -1,3 +1,7 @@
+/* ui-sdk adds the little CSS its popups and sheets need to a cascade layer named `ui-sdk`. Declaring the layer
+   first keeps that layer below Tailwind and the uikit theme, so uikit styles win wherever the page loads them. */
+@layer ui-sdk;
+
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import './components/emoji-picker.css';
@@ -105,27 +109,27 @@
   box-shadow: var(--paper-shadow);
 }
 
-/* Every overlay is ceramic: menus, popovers, tooltips, dialogs, sheets, drawers, and toasts.
-   Pages and records stay on paper. */
+/* Ceramic is the kit's one translucent material. Every overlay takes it: menus, popovers, tooltips, dialogs, sheets,
+   drawers, and toasts. A display surface that floats over the ground or over content, such as a sign-in card, a
+   pill, or a floating stats card, takes it through the `Ceramic` component. Pages and records stay on paper.
+   The material blurs what lies beneath it and draws three marks: a rim of light inside the top-left edge, a white
+   hairline around the edge, and a short shadow below and to the right with a soft spread under it. A large surface,
+   such as a dialog, sets `--ceramic-offset` to 1px so its rim and shadow keep their weight. */
 @utility ceramic {
   background:
-    linear-gradient(145deg, var(--ceramic-tint, var(--ceramic-glaze)), transparent 70%),
+    linear-gradient(var(--ceramic-tint, transparent), var(--ceramic-tint, transparent)),
     rgb(var(--ceramic-tier-body, var(--ceramic-body)) / var(--ceramic-tier-opacity, var(--ceramic-opacity)));
-  -webkit-backdrop-filter: blur(var(--ceramic-blur)) saturate(1.15);
-  backdrop-filter: blur(var(--ceramic-blur)) saturate(1.15);
+  -webkit-backdrop-filter: blur(var(--ceramic-blur));
+  backdrop-filter: blur(var(--ceramic-blur));
   border-radius: var(--ceramic-radius);
   box-shadow:
-    1px 1px 0 var(--ceramic-rim),
-    inset 1px 1px 0 var(--ceramic-inner),
-    inset 0 0 0 0.2px var(--ceramic-stroke),
-    inset 0 1px 0 var(--ceramic-edge),
-    inset 0 0 0 1px var(--ceramic-edge-ring),
-    0 0 0 0.5px var(--ceramic-hairline),
-    var(--ceramic-lift),
-    0 4px 12px var(--ceramic-shadow);
+    inset var(--ceramic-offset, 0.5px) var(--ceramic-offset, 0.5px) 0 var(--ceramic-rim),
+    inset 0 0 0 0.5px var(--ceramic-hairline),
+    var(--ceramic-offset, 0.5px) var(--ceramic-offset, 0.5px) 0 var(--ceramic-shadow),
+    var(--ceramic-offset, 0.5px) var(--ceramic-offset, 0.5px) 12px var(--ceramic-shadow);
 }
 
-/* A decision that waits for a person: the glaze turns a faint amber, the status color for "needs a person". */
+/* A decision that waits for a person: the body takes a faint amber tint, the status color for "needs a person". */
 @utility ceramic-attention {
   --ceramic-tint: var(--ceramic-glaze-attention);
 }
@@ -210,12 +214,11 @@
   }
 }
 
-/* A list that opens from the composer, such as its completions or the list of one of its selectors, lies on the
-   composer's glass inside the overlay hairline, with 10px above and below its rows. Its 40px rows run from edge to
-   edge, so the fill of the active row spans the surface. */
+/* A list that opens from the composer, such as its completions or the list of one of its selectors, is ceramic like
+   every menu, with 10px above and below its rows. Its 40px rows run from edge to edge, so the fill of the active row
+   spans the surface. */
 @utility composer-menu {
-  @apply composer-glass;
-  border: 1px solid var(--ceramic-hairline);
+  @apply ceramic ceramic-primary;
   padding: --spacing(2.5) 0;
 
   & :is([role='option'], [role^='menuitem'], [data-slot='select-highlight']) {
@@ -450,7 +453,7 @@
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  height: 44px;
+  height: var(--spacing-top-bar);
   padding-inline: 12px;
 }
 
@@ -955,7 +958,7 @@
   }
 
   @media (prefers-reduced-motion: no-preference) {
-    [data-slot='tabs-list']:is([data-variant='object'], [data-variant='chip']):has(> [role='tab'][data-active]:active)
+    [data-slot='tabs-list']:is([data-variant='object'], [data-variant='chip']):has(> [role='tab'][data-selected]:active)
       > [data-slot='tabs-indicator'] {
       scale: 0.97;
     }
@@ -968,7 +971,7 @@
   }
 
   @media (prefers-reduced-motion: no-preference) {
-    [data-slot='select-content'][data-open]:not([data-side='none']) {
+    [data-slot='select-content'][data-open] {
       animation: ankole-select-enter 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
     }
 
@@ -1062,9 +1065,9 @@
   :is([data-sidebar='menu-action'][data-reveal='hover'], [data-sidebar='menu-actions']):is(
     :hover,
     :focus-within,
-    [data-popup-open],
+    [data-open],
     [aria-expanded='true'],
-    :has([data-popup-open], [aria-expanded='true'])
+    :has([data-open], [aria-expanded='true'])
   ) {
     opacity: 1;
     pointer-events: auto;
@@ -1083,7 +1086,7 @@
       [data-active],
       [aria-current='page'],
       [data-sidebar='menu-toggle']:hover + *,
-      :has(~ [data-sidebar='menu-action']:is(:hover, :focus-visible, [data-popup-open], [aria-expanded='true']))
+      :has(~ [data-sidebar='menu-action']:is(:hover, :focus-visible, [data-open], [aria-expanded='true']))
     ) {
     --sidebar-menu-trail: --spacing(6);
   }
@@ -1095,7 +1098,7 @@
       [aria-current='page'],
       [data-sidebar='menu-toggle']:hover + *,
       :has(~ [data-sidebar='menu-actions']:is(:hover, :focus-within)),
-      :has(~ [data-sidebar='menu-actions'] :is([data-popup-open], [aria-expanded='true']))
+      :has(~ [data-sidebar='menu-actions'] :is([data-open], [aria-expanded='true']))
     ) {
     --sidebar-menu-trail: --spacing(12);
   }

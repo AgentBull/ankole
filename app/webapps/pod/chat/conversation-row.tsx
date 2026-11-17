@@ -87,7 +87,7 @@ function plainProse(line: string) {
 
 /**
  * The leading mark tells the three kinds apart at a glance: a colleague DM shows the colleague's avatar and a group
- * shows the group's avatar, one rounded square with the same fill and edge, and an assistant task shows a plain
+ * shows the group's avatar, one round avatar with the same fill and edge, and an assistant task shows a plain
  * conversation mark, because every task belongs to the same assistant and repeating its avatar on each row would add
  * noise rather than information. `lg` is the 32px avatar of a two-line sidebar row.
  */

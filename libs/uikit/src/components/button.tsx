@@ -1,6 +1,7 @@
-import { Button as ButtonPrimitive } from '@base-ui/react/button'
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button'
+import { renderElement } from '@ui-sdk/react/primitive'
 import { cva, type VariantProps } from 'class-variance-authority'
-import { Children, isValidElement, type MouseEvent, type ReactNode } from 'react'
+import { Children, isValidElement, type ComponentProps, type MouseEvent, type ReactNode } from 'react'
 
 import { cn } from '@ankole/uikit/lib/utils'
 import { Spinner } from './spinner'
@@ -10,52 +11,45 @@ const buttonVariantClasses = cva(
   {
     variants: {
       variant: {
-        // The one solid button of a view: brand-60 with a darker bottom edge. Disabled, it keeps a faint brand fill so
-        // it still reads as the primary action that cannot be pressed now.
+        // The one solid button of a view: a flat brand-60 fill. Disabled, it keeps a faint brand fill so it still reads
+        // as the primary action that cannot be pressed now.
         default:
-          'border-primary border-b-primary-edge bg-primary text-primary-fg hover:border-primary-hover hover:border-b-primary-edge hover:bg-primary-hover active:border-primary-active active:bg-primary-active disabled:border-primary-disabled disabled:bg-primary-disabled disabled:text-primary-disabled-fg',
-        // The normal button is a paper object. Pressed, it sinks into a slot. Disabled, it keeps its outline and drops
-        // its fill, so it still reads as a button rather than an empty field.
+          'border-primary bg-primary text-primary-fg hover:border-primary-hover hover:bg-primary-hover active:border-primary-active active:bg-primary-active disabled:border-primary-disabled disabled:bg-primary-disabled disabled:text-primary-disabled-fg',
+        // The normal button is a paper object inside one even edge. Pressed, it sinks into a slot. Disabled, it keeps
+        // its outline and drops its fill, so it still reads as a button rather than an empty field.
         outline:
-          'border-control-edge border-b-control-base bg-control text-fg-primary shadow-control hover:bg-control-hover active:bg-field active:shadow-none aria-expanded:bg-field aria-expanded:shadow-none disabled:border-border-subtle disabled:bg-transparent disabled:text-fg-disabled disabled:shadow-none',
+          'border-control-edge bg-control text-fg-primary hover:bg-control-hover active:bg-field aria-expanded:bg-field disabled:border-border-subtle disabled:bg-transparent disabled:text-fg-disabled',
         ghost:
           'text-fg-secondary hover:bg-layer-hover hover:text-fg-primary active:bg-layer-pressed aria-expanded:bg-layer-hover aria-expanded:text-fg-primary disabled:text-fg-disabled',
-        // The confirmation of an action that cannot be undone. Deep red sits darker than the brand primary, so the two
-        // solid buttons differ in lightness as well as hue; the white label stays above 7:1 in both themes.
+        // The confirmation of an action that cannot be undone: a flat destructive fill that darkens like the primary
+        // button under the pointer and when pressed.
         destructive:
-          'border-destructive-solid border-b-destructive-solid-hover bg-destructive-solid text-white hover:border-destructive-solid-hover hover:bg-destructive-solid-hover active:bg-destructive-solid-hover disabled:border-border-subtle disabled:bg-transparent disabled:text-fg-disabled',
+          'border-destructive-solid bg-destructive-solid text-white hover:border-destructive-solid-hover hover:bg-destructive-solid-hover active:border-destructive-solid-active active:bg-destructive-solid-active disabled:border-border-subtle disabled:bg-transparent disabled:text-fg-disabled',
         link: 'link border-0 disabled:text-fg-disabled disabled:decoration-border-subtle'
       },
       size: {
         // 32px by default, 28px in rows, 24px inside another control. A shell toolbar, such as the top bar or the
-        // composer's tools, takes 36px controls: an icon button that holds a 20px icon, and a label of 12px text with
-        // a 12px arrow. The action row under content, such as a chat message's, takes 32px icon buttons that hold a
-        // 20px icon 6px inside their edge.
-        default: 'h-8 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
-        sm: 'h-7 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
-        xs: "h-6 gap-1 px-2 text-50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        icon: 'size-8',
-        'icon-md': "size-8 p-1.25 [&_svg:not([class*='size-'])]:size-5",
-        'icon-sm': 'size-7',
-        'icon-xs': "size-6 [&_svg:not([class*='size-'])]:size-3.5",
-        'icon-lg': "size-9 p-1.75 [&_svg:not([class*='size-'])]:size-5",
-        toolbar: "h-9 gap-1 p-1.75 text-50 font-normal [&_svg:not([class*='size-'])]:size-3"
+        // composer's tools, takes 32px controls: an icon button that holds a 20px icon 6px inside its edge, and a
+        // label of 12px text with a 12px arrow. The action row under content, such as a chat message's, takes the same
+        // 32px icon buttons. `icon-lg` keeps its name for the shell toolbar and draws the same button as `icon-md`.
+        default: 'h-control-md px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
+        sm: 'h-control-sm gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+        xs: "h-control-xs gap-1 px-2 text-50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        icon: 'size-control-md',
+        'icon-md': "size-control-md p-1.25 [&_svg:not([class*='size-'])]:size-5",
+        'icon-sm': 'size-control-sm',
+        'icon-xs': "size-control-xs [&_svg:not([class*='size-'])]:size-3.5",
+        'icon-lg': "size-control-md p-1.25 [&_svg:not([class*='size-'])]:size-5",
+        toolbar: "h-control-md gap-1 px-1.75 py-1.25 text-50 font-normal [&_svg:not([class*='size-'])]:size-3"
       }
     },
     compoundVariants: [
-      // A ghost toolbar control tints only the box that holds its icon or label. The fill clips to the content box,
-      // 8px inside the button's edge (its 1px border and 7px of padding), and the outer radius adds those 8px, so the
-      // tinted box keeps the micro radius.
+      // A ghost toolbar or action-row control tints only the box that holds its icon or label. The fill clips to the
+      // content box, 6px inside the button's top and bottom edges (its 1px border and 5px of padding), and the outer
+      // radius adds those 6px, so the tinted box keeps the micro radius.
       {
         variant: 'ghost',
-        size: ['icon-lg', 'toolbar'],
-        className: 'bg-clip-content rounded-[calc(var(--radius-micro)+var(--spacing)*2)]'
-      },
-      // The action row's ghost icon button tints its 20px icon box the same way, 6px inside its edge (its 1px border
-      // and 5px of padding).
-      {
-        variant: 'ghost',
-        size: 'icon-md',
+        size: ['icon-lg', 'icon-md', 'toolbar'],
         className: 'bg-clip-content rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)]'
       }
     ],
@@ -98,13 +92,21 @@ function Button({
   className,
   children,
   'aria-busy': busy,
+  'data-slot': slot = 'button',
   loading = false,
   incomplete = false,
   variant = 'default',
   size = 'default',
   onClick,
+  render,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { incomplete?: boolean; loading?: boolean }) {
+}: Omit<ComponentProps<typeof ButtonPrimitive>, 'children'> &
+  VariantProps<typeof buttonVariants> & {
+    children?: ReactNode
+    'data-slot'?: string
+    incomplete?: boolean
+    loading?: boolean
+  }) {
   const isBusy = loading || busy === true || busy === 'true'
   const items = isBusy ? Children.toArray(children) : []
   const firstText = items.findIndex(child => typeof child === 'string' && child.trim())
@@ -116,8 +118,10 @@ function Button({
       aria-busy={loading ? true : busy}
       data-incomplete={incomplete || undefined}
       data-loading={loading || undefined}
-      data-slot="button"
       onClick={loading ? ignoreClick : onClick}
+      // ui-sdk names every button `data-slot="button"`. A caller's own slot, such as a popup trigger's or an input
+      // group's send button, replaces that name, so the styles keyed on the caller's slot still find the element.
+      render={(part, state) => renderElement('button', { ...part, 'data-slot': slot }, render, state)}
       className={cn(
         buttonVariants({ variant, size }),
         'motion-safe:button-press',

@@ -114,7 +114,7 @@ describe('InputOTP and InputGroup', () => {
     expect(alphaOtp).toContain('inputMode="text"')
   })
 
-  test('suppresses duplicate inner user-invalid borders inside InputGroup', () => {
+  test('suppresses a duplicate inner invalid fill inside InputGroup', () => {
     const html = renderToStaticMarkup(
       <InputGroup>
         <InputGroupAddon>https://</InputGroupAddon>
@@ -122,9 +122,9 @@ describe('InputOTP and InputGroup', () => {
         <InputGroupTextarea disabled />
       </InputGroup>
     )
-    expect(html).toContain('user-invalid:border-b-0')
-    expect(html).toContain('user-invalid:shadow-none')
-    expect(html).toContain('has-[:is(input,textarea):disabled]:border-b-transparent')
+    expect(html).toContain('user-invalid:bg-transparent')
+    expect(html).toContain('aria-invalid:bg-transparent')
+    expect(html).toContain('has-[:is(input,textarea):disabled]:border-transparent')
   })
 })
 
