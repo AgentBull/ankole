@@ -575,7 +575,7 @@ and `/api/v2/identity-providers` in the Site Console (and
 `/api/v2/pod/admin/identity-providers` in Pod settings):
 
 - The provider editor enables its fields after the adapter catalog and provider list initialize its draft. Background refreshes preserve the initialized draft.
-- Pod's member precreation, invitation, and identity-provider forms, together with Principal rename dialogs, disable their fields while a submission is pending. Editing a field clears a settled request's feedback without resetting a pending request. General Pod settings remain editable during a save. When the server acknowledges that save, the browser advances the saved baseline while retaining any edits made after submission.
+- Pod's member precreation, invitation, and identity-provider forms, together with Principal rename dialogs, disable their fields while a submission is pending. Editing a field clears a settled request's feedback without resetting a pending request. In general Pod settings, administrators can keep editing while a save is pending. They can submit those edits once the pending request finishes. When the server acknowledges a save, the browser records the submitted values and keeps any later edits in the form.
 - Credential-bearing identity providers store their application credentials in a shared `Ankole.Connectors` connection (`connector_auth_configs`), referenced by `authConfigId` through `Ankole.Connectors.LegacyConfig` while keeping provider behavior settings in `AppConfigure`. Read responses redact stored secrets, and submitting a blank secret field keeps the existing stored secret.
 - Approving a directory sync requires matching the current snapshot fingerprint
   and explicitly confirming user removals; reviewing a sync event checks both

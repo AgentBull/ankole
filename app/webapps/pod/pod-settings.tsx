@@ -391,6 +391,7 @@ function GeneralSettings({ model }: { model: Model }) {
     if (settings.data) model.initialize(podID() ?? 'default', settings.data)
   }, [settings.data, model])
   const save = useMutation({
+    mutationKey: keys.settings,
     mutationFn: () => {
       const captured = model.captureSave()
       return api.updatePodAdminSettings({ body: { data: captured.payload } }).then(() => captured)
@@ -410,6 +411,10 @@ function GeneralSettings({ model }: { model: Model }) {
       void refreshSpaceProfileQueries(client)
     }
   })
+  const saving = () => client.isMutating({ mutationKey: keys.settings, exact: true }) > 0
+  const clearSaveError = () => {
+    if (save.isError && !saving()) save.reset()
+  }
   const avatarUploaded = (avatarURL: string) => {
     client.setQueryData<PodAdminSettingsResponse>(keys.settings, current =>
       current ? { ...current, avatarURL } : current
@@ -421,7 +426,7 @@ function GeneralSettings({ model }: { model: Model }) {
       className="grid gap-7"
       onSubmit={event => {
         event.preventDefault()
-        if (!save.isPending) save.mutate()
+        if (!saving()) save.mutate()
       }}>
       <ContentError error={settings.error ?? save.error} />
       <SettingsSection
@@ -442,7 +447,7 @@ function GeneralSettings({ model }: { model: Model }) {
               required
               value={model.displayName.value}
               onChange={event => {
-                if (!save.isPending) save.reset()
+                clearSaveError()
                 model.displayName.value = event.target.value
               }}
             />
@@ -453,7 +458,7 @@ function GeneralSettings({ model }: { model: Model }) {
               value={model.defaultLocale.value}
               onValueChange={locale => {
                 if (!locale) return
-                if (!save.isPending) save.reset()
+                clearSaveError()
                 model.defaultLocale.value = locale
               }}>
               <SelectTrigger id="space-default-locale" className="w-full">
@@ -475,7 +480,7 @@ function GeneralSettings({ model }: { model: Model }) {
             <Checkbox
               checked={model.guests.value}
               onCheckedChange={value => {
-                if (!save.isPending) save.reset()
+                clearSaveError()
                 model.guests.value = value === true
               }}
             />
@@ -503,7 +508,7 @@ function GeneralSettings({ model }: { model: Model }) {
               aria-describedby="domains-hint"
               value={model.domains.value}
               onChange={event => {
-                if (!save.isPending) save.reset()
+                clearSaveError()
                 model.domains.value = event.target.value
               }}
             />
@@ -525,7 +530,7 @@ function GeneralSettings({ model }: { model: Model }) {
                     ['allow_email_otp', 'allow_member_credential_change'].includes(key)
                   }
                   onCheckedChange={value => {
-                    if (!save.isPending) save.reset()
+                    clearSaveError()
                     model.policy.value = { ...model.policy.value, [key]: value === true }
                   }}
                 />
