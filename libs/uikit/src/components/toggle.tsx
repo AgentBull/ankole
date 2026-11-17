@@ -16,12 +16,13 @@ const toggleVariants = cva(
           'border-control-edge bg-control hover:bg-control-hover aria-pressed:bg-field disabled:border-border-subtle disabled:bg-field'
       },
       size: {
-        default: 'h-8 min-w-8 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
-        sm: 'h-7 min-w-7 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+        default:
+          'h-control-md min-w-control-md px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
+        sm: 'h-control-sm min-w-control-sm px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
         // A shell toolbar's 32px toggle, like the `icon-lg` button: its fills tint only the box that holds the 20px
         // icon, 6px inside the toggle's edge, and keep the micro radius there.
         'icon-lg':
-          "size-8 min-w-8 rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)] bg-clip-content p-1.25 [&_svg:not([class*='size-'])]:size-5"
+          "size-control-md min-w-control-md rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)] bg-clip-content p-1.25 [&_svg:not([class*='size-'])]:size-5"
       }
     },
     defaultVariants: {

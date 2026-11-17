@@ -99,16 +99,16 @@ describe('InputGroup composer', () => {
     const html = composer(false)
     expect(classesOf(tagWith(html, 'data-slot="input-group-addon"'))).toEqual(
       expect.arrayContaining([
-        'group-data-[variant=composer]/input-group:h-8',
+        'group-data-[variant=composer]/input-group:h-control-md',
         'group-data-[variant=composer]/input-group:px-2.5',
         'group-data-[variant=composer]/input-group:gap-0'
       ])
     )
     const attach = classesOf(tagWith(html, 'aria-label="Attach"'))
-    expect(attach).toEqual(expect.arrayContaining(['size-8', 'p-1.25', 'bg-clip-content']))
+    expect(attach).toEqual(expect.arrayContaining(['size-control-md', 'p-1.25', 'bg-clip-content']))
     expect(attach).not.toContain('rounded-mini')
     const selector = classesOf(tagWith(html, 'data-size="toolbar"'))
-    expect(selector).toEqual(expect.arrayContaining(['h-8', 'text-50', 'font-normal']))
+    expect(selector).toEqual(expect.arrayContaining(['h-control-md', 'text-50', 'font-normal']))
   })
 
   test('keeps an empty send pill in the slot fill and turns it primary once the draft is ready', () => {

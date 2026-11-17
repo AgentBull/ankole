@@ -32,18 +32,18 @@ function Tabs<T extends string = string>({
 }
 
 const tabsListVariants = cva(
-  'group/tabs-list relative isolate inline-flex w-fit items-center justify-center text-fg-secondary group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col',
+  'group/tabs-list relative isolate inline-flex w-fit items-center justify-center text-fg-secondary group-data-horizontal/tabs:h-control-md group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col',
   {
     variants: {
       variant: {
         default: 'border-b border-border-subtle bg-transparent',
         // Tabs that name a place, like a segmented control: the open tab sits on the selected fill, which slides
         // and stretches to the next tab when the selection changes.
-        object: 'gap-0.5 bg-transparent group-data-horizontal/tabs:h-7',
+        object: 'gap-0.5 bg-transparent group-data-horizontal/tabs:h-control-sm',
         // Tabs that name the sections of a navigation column: the current tab is a chip that shows its `TabsLabel`
         // on the selected fill, and every other tab is its bare 24px icon. The fill travels like the object fill.
         // In a sidebar's phone sheet the chips grow to 36px for touch.
-        chip: 'gap-2 bg-transparent group-data-horizontal/tabs:h-7 in-data-[mobile=true]:group-data-horizontal/tabs:h-9'
+        chip: 'gap-2 bg-transparent group-data-horizontal/tabs:h-control-sm in-data-[mobile=true]:group-data-horizontal/tabs:h-control-lg'
       }
     },
     defaultVariants: {

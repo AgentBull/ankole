@@ -188,7 +188,7 @@ function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="data-[side=left]:w-(--sidebar-width) data-[side=right]:w-(--sidebar-width) p-0 text-fg-primary [--sidebar-menu-indent:calc(var(--spacing)*6)] [&_button]:min-h-8 [&_button]:min-w-8 [&>button]:hidden"
+          className="data-[side=left]:w-(--sidebar-width) data-[side=right]:w-(--sidebar-width) p-0 text-fg-primary [--sidebar-menu-indent:calc(var(--spacing)*6)] [&_button]:min-h-control-md [&_button]:min-w-8 [&>button]:hidden"
           style={
             {
               '--sidebar-width': SIDEBAR_WIDTH_MOBILE
@@ -350,7 +350,10 @@ function SidebarInput({ className, ...props }: React.ComponentProps<typeof Input
     <Input
       data-slot="sidebar-input"
       data-sidebar="input"
-      className={cn('h-8 w-full border-field-border bg-transparent shadow-none in-data-[mobile=true]:h-10', className)}
+      className={cn(
+        'h-control-md w-full border-field-border bg-transparent shadow-none in-data-[mobile=true]:h-10',
+        className
+      )}
       {...props}
     />
   )
@@ -529,7 +532,7 @@ function SidebarGroupAction({ className, render, ...props }: React.ComponentProp
         'data-slot': 'sidebar-group-action',
         'data-sidebar': 'group-action',
         className: cn(
-          'absolute end-3 top-[calc(var(--sidebar-group-gap,0px)+var(--spacing))] flex size-6 cursor-pointer items-center justify-center rounded-mini p-0 text-fg-secondary transition-colors duration-(--duration-feedback) group-data-[collapsible=icon]:hidden after:absolute after:-inset-1 hover:bg-layer-hover hover:text-fg-primary active:bg-layer-pressed focus-visible:-outline-offset-2 md:after:hidden [&>svg]:size-4 [&>svg]:shrink-0',
+          'absolute end-3 top-[calc(var(--sidebar-group-gap,0px)+var(--spacing))] flex size-control-xs cursor-pointer items-center justify-center rounded-mini p-0 text-fg-secondary transition-colors duration-(--duration-feedback) group-data-[collapsible=icon]:hidden after:absolute after:-inset-1 hover:bg-layer-hover hover:text-fg-primary active:bg-layer-pressed focus-visible:-outline-offset-2 md:after:hidden [&>svg]:size-4 [&>svg]:shrink-0',
           className
         )
       },
@@ -672,12 +675,12 @@ function SidebarMenuRow({ className, render, ...props }: React.ComponentProps<'d
  * states come from `nav-row`, and the row gives up room at its end while its actions show (see `styles.css`).
  */
 const sidebarMenuButtonVariants = cva(
-  "nav-row peer/menu-button group/menu-button flex w-full min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-control py-0 ps-[calc(var(--spacing)*3+var(--sidebar-menu-level,0)*var(--sidebar-menu-indent,calc(var(--spacing)*5)))] pe-[calc(var(--spacing)*2+var(--sidebar-menu-trail,0px))] text-left text-75 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-1.5! focus-visible:-outline-offset-2 in-data-[mobile=true]:min-h-10 disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-fg-disabled aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:text-fg-disabled [&_svg]:shrink-0 [&_svg]:text-(--nav-icon) [&_svg:not([class*='size-'])]:size-5 [&>span:last-child]:truncate",
+  "nav-row peer/menu-button group/menu-button flex w-full min-w-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-control py-0 ps-[calc(var(--spacing)*3+var(--sidebar-menu-level,0)*var(--sidebar-menu-indent,calc(var(--spacing)*5)))] pe-[calc(var(--spacing)*2+var(--sidebar-menu-trail,0px))] text-left text-75 group-data-[collapsible=icon]:size-control-md! group-data-[collapsible=icon]:p-1.5! focus-visible:-outline-offset-2 in-data-[mobile=true]:min-h-10 disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-fg-disabled aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:text-fg-disabled [&_svg]:shrink-0 [&_svg]:text-(--nav-icon) [&_svg:not([class*='size-'])]:size-5 [&>span:last-child]:truncate",
   {
     variants: {
       size: {
-        default: 'h-8',
-        sm: 'h-7 text-65 leading-5',
+        default: 'h-control-md',
+        sm: 'h-control-sm text-65 leading-5',
         lg: 'h-12 gap-2 group-data-[collapsible=icon]:p-0!'
       }
     },
@@ -871,7 +874,7 @@ function SidebarMenuAction({
         'data-sidebar': 'menu-action',
         'data-reveal': !grouped && showOnHover ? 'hover' : undefined,
         className: cn(
-          'flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-mini p-0 text-fg-primary transition-[background-color,opacity] duration-(--duration-feedback) ease-productive group-data-[collapsible=icon]:hidden hover:bg-layer-hover active:bg-layer-pressed aria-expanded:bg-layer-hover data-open:bg-layer-hover focus-visible:-outline-offset-2 [&>svg]:shrink-0 [&>svg:not([class*=size-])]:size-4',
+          'flex size-control-xs shrink-0 cursor-pointer items-center justify-center rounded-mini p-0 text-fg-primary transition-[background-color,opacity] duration-(--duration-feedback) ease-productive group-data-[collapsible=icon]:hidden hover:bg-layer-hover active:bg-layer-pressed aria-expanded:bg-layer-hover data-open:bg-layer-hover focus-visible:-outline-offset-2 [&>svg]:shrink-0 [&>svg:not([class*=size-])]:size-4',
           !grouped && 'absolute end-1 top-1/2 -translate-y-1/2 after:absolute after:-inset-1 md:after:hidden',
           className
         )
