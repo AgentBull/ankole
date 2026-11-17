@@ -22,7 +22,9 @@ test('slash aliases insert media and all six heading levels', async ({ page }) =
     await page.keyboard.insertText(`/${query}`)
     await expect(page.getByRole('option', { name: '媒体', exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
-    await page.keyboard.press('ControlOrMeta+Backspace')
+    await page.keyboard.press('ControlOrMeta+a')
+    await page.keyboard.press('Backspace')
+    await expect(editor.locator('p').last()).toHaveText('')
   }
   await page.keyboard.insertText('/h6')
   await page.getByRole('option', { name: '六级标题', exact: true }).click()
@@ -115,15 +117,14 @@ test('webpage link and card switch seamlessly across link, title, card, and embe
   await expect(card.locator('.resource-summary')).toHaveCount(0)
   // The switch leaves the caret after the block instead of selecting it, so the block toolbar follows the pointer.
   await expect(page.locator('.editor-selected-block')).toHaveCount(0)
+  // The inline link was the whole document, so the switch adds an empty paragraph after the block for the caret.
+  await expectMarkdown(page, `<embed href="${targetUrl}" title="Embedded resource" />\n\n<p />`)
   await card.hover()
   const embedToolbar = page.getByRole('toolbar', { name: '嵌入', exact: true })
   await expect(embedToolbar.getByRole('button', { name: '刷新预览', exact: true })).toBeVisible()
   await expect(
     page.frameLocator('iframe[title="Embedded resource"]').getByRole('heading', { name: 'Embedded resource' })
   ).toBeVisible()
-  // The inline link was the whole document, so the switch adds an empty paragraph after the block for the caret.
-  await expectMarkdown(page, `<embed href="${targetUrl}" title="Embedded resource" />\n\n<p />`)
-
   // Preview view -> Card view (mutates `view="card"` on the same `<embed>` node and unfurls description + cover image)
   await embedToolbar.getByRole('button', { name: '视图', exact: true }).click()
   await page.getByRole('menuitem', { name: '卡片视图', exact: true }).click()

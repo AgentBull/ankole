@@ -530,7 +530,7 @@ test('clicking the Mermaid toolbar or choosing a template focuses the Mermaid bl
   await expectMarkdown(page, `Intro\n\n${fence('flowchart LR\n  A[输入] --> B[处理] --> C[输出]\n  C --> D')}`)
 
   await caret(block.locator('.mermaid-pre'), 'end')
-  await page.keyboard.press('Meta+A')
+  await page.keyboard.press('ControlOrMeta+a')
   await page.keyboard.press('Backspace')
   await expect(block.locator('[data-mermaid-action="template"]')).toBeVisible()
 
