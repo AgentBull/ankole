@@ -207,7 +207,7 @@ defmodule Ankole.Pod.JobsBoard.Operations do
     Executions.stop_with_policy(actor, exec_kind, "Stopped from Pod Jobs board", fn ->
       case Queries.authorize_execution_read(actor, exec_kind, run_id) do
         {:ok, run, true} -> {:ok, run}
-        {:ok, _run, false} -> {:error, :execution_not_found}
+        {:ok, _run, false} -> {:error, :forbidden}
         error -> error
       end
     end)
@@ -221,7 +221,7 @@ defmodule Ankole.Pod.JobsBoard.Operations do
       Executions.message_with_policy(actor, normalized_request_id, text, fn ->
         case Queries.authorize_execution_read(actor, :background_agent_job, run_id) do
           {:ok, %AgentJob{} = job, true} -> {:ok, job, job.reply_route || %{}}
-          {:ok, _job, false} -> {:error, :execution_not_found}
+          {:ok, _job, false} -> {:error, :forbidden}
           error -> error
         end
       end)

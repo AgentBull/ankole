@@ -15,15 +15,17 @@ import {
   documentPlainText,
   documentPrincipalUIDs,
   documentReferenceIDs,
+  type DocumentElement,
   type DocumentPrincipalReference,
   type DocumentReference
 } from './document-tools'
 
 export async function loadDocumentReferences(
   client: QueryClient,
-  xmls: string[]
+  sources: ReadonlyArray<string | DocumentElement>,
+  extraReferenceIDs: readonly string[] = []
 ): Promise<Map<string, DocumentReference>> {
-  const refs = [...new Set(xmls.flatMap(documentReferenceIDs))]
+  const refs = [...new Set([...sources.flatMap(documentReferenceIDs), ...extraReferenceIDs.filter(Boolean)])]
   return new Map<string, DocumentReference>(
     await Promise.all(
       refs.map(async ref => {
@@ -65,10 +67,10 @@ export async function loadDocumentReferences(
 }
 
 export async function loadDocumentPrincipals(
-  xmls: string[],
+  sources: ReadonlyArray<string | DocumentElement>,
   contextPageID?: string
 ): Promise<Map<string, DocumentPrincipalReference>> {
-  const uids = [...new Set(xmls.flatMap(documentPrincipalUIDs))]
+  const uids = [...new Set(sources.flatMap(documentPrincipalUIDs))]
   if (uids.length === 0) return new Map()
   const entries = new Map<string, DocumentPrincipalReference>()
   for (let index = 0; index < uids.length; index += 200) {
@@ -129,11 +131,11 @@ export function documentPlainTextForCopy(
 }
 
 // Copies use the reader's login, never the author's browser authentication reference.
-function readerAssetURL(pageID: string, source: string) {
+export function readerAssetURL(pageID: string, source: string) {
   return readerURL(fileURL(pageID, assetFilePath(source)))
 }
 
-function readerURL(path: string) {
+export function readerURL(path: string) {
   const url = new URL(path, podPublicOrigin())
   url.searchParams.delete('authentication_ref')
   return url.href
@@ -143,7 +145,7 @@ function withCustomIcon(markdown: string, source?: string) {
   return source ? `![](<${source}>)\n\n${markdown}` : markdown
 }
 
-function assetFilePath(source: string) {
+export function assetFilePath(source: string) {
   return `assets/${source.slice('ankole:asset/'.length)}`
 }
 

@@ -169,11 +169,7 @@ defmodule Ankole.Brain.Calibration do
           []
 
         slug ->
-          Claim
-          |> Ash.Query.filter(
-            current_external_fact? and subject_page_id == ^slug and
-              source_node_id == ^take.source_node_id
-          )
+          calibration_evidence_query(slug, take)
           |> Ash.Query.sort(valid_from: :desc, id: :desc)
           |> Ash.Query.limit(10)
           |> Ash.Query.deselect(:embedding)
@@ -217,6 +213,44 @@ defmodule Ankole.Brain.Calibration do
       |> NativeKernel.xxh3_128_hex()
 
     %{prompt: prompt, domains: domains, hash: hash}
+  end
+
+  defp calibration_evidence_query(slug, take) do
+    base = Ash.Query.filter(Claim, current_external_fact? and subject_page_id == ^slug)
+    world_id = Ankole.Brain.Scope.world()
+
+    case Ankole.Pod.Pages.fetch(take.source_node_id) do
+      {:ok, %{private_owner_uid: owner_uid}}
+      when is_binary(owner_uid) and owner_uid == take.holder ->
+        case Ankole.Brain.Access.for_querier(owner_uid) do
+          {:ok, access} ->
+            Ankole.Brain.Access.filter_claims(base, access)
+
+          _ ->
+            Ash.Query.filter(base, source_node_id in ^[take.source_node_id, world_id])
+        end
+
+      {:ok, %{acl_anchor_id: anchor_id}} when is_binary(anchor_id) ->
+        public_anchor_id =
+          case Ankole.Pod.Pages.Tree.public_root() do
+            {:ok, root} -> root.acl_anchor_id
+            _ -> nil
+          end
+
+        allowed_anchors = Enum.reject([anchor_id, public_anchor_id], &is_nil/1) |> Enum.uniq()
+
+        Ash.Query.filter(
+          base,
+          source_node_id in ^[take.source_node_id, world_id] or
+            exists(
+              source_node,
+              is_nil(deleted_at) and not is_acl_anchor and acl_anchor_id in ^allowed_anchors
+            )
+        )
+
+      _ ->
+        Ash.Query.filter(base, source_node_id in ^[take.source_node_id, world_id])
+    end
   end
 
   @doc false

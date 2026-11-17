@@ -5,15 +5,25 @@ describe('PermissionGrantEditorModel', () => {
   test('keeps edits during refetch and resets when the route selects another grant', () => {
     const model = new PermissionGrantEditorModel()
 
-    model.initialize('grant:1', { resourcePattern: 'workspace:**', action: 'read', condition: 'true', description: '' })
+    model.initialize('tenant-1:grant:1', {
+      resourcePattern: 'workspace:**',
+      action: 'read',
+      condition: 'true',
+      description: ''
+    })
     expect(model.dirty.value).toBe(false)
     model.action.value = 'update'
     expect(model.dirty.value).toBe(true)
-    model.initialize('grant:1', { resourcePattern: 'workspace:**', action: 'read', condition: 'true', description: '' })
+    model.initialize('tenant-1:grant:1', {
+      resourcePattern: 'workspace:**',
+      action: 'read',
+      condition: 'true',
+      description: ''
+    })
 
     expect(model.action.value).toBe('update')
 
-    model.initialize('grant:2', {
+    model.initialize('tenant-1:grant:2', {
       resourcePattern: 'chat:channel:*',
       action: 'read',
       condition: "principal.type == 'human'",
@@ -69,6 +79,33 @@ describe('PermissionGrantEditorModel', () => {
       condition: 'true',
       description: null
     })
+    model[Symbol.dispose]()
+  })
+
+  test('captureSave preserves concurrent edits and rejects confirmations after resetSource', () => {
+    const model = new PermissionGrantEditorModel()
+    model.initialize('tenant-1:grant:1', {
+      resourcePattern: 'workspace:**',
+      action: 'read',
+      condition: 'true',
+      description: 'sent'
+    })
+    const confirm = model.captureSave()
+    model.description.value = 'edited-while-saving'
+    expect(confirm()).toBe(true)
+    expect(model.description.value).toBe('edited-while-saving')
+    expect(model.dirty.value).toBe(true)
+
+    const staleConfirm = model.captureSave()
+    model.resetSource()
+    model.initialize('tenant-2:grant:1', {
+      resourcePattern: 'site_console:**',
+      action: 'read',
+      condition: 'true',
+      description: 'other-tenant'
+    })
+    expect(staleConfirm()).toBe(false)
+    expect(model.resourcePattern.value).toBe('site_console:**')
     model[Symbol.dispose]()
   })
 })

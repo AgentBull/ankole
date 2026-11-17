@@ -182,11 +182,12 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   def load_default_confidentiality_policy_template, do: @default_confidentiality_policy_template
 
   @doc false
-  @spec read_skill_source(String.t(), String.t(), String.t()) ::
+  @spec read_skill_source(String.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def read_skill_source(parent_root, root_label, relative_path)
-      when is_binary(parent_root) and is_binary(root_label) and is_binary(relative_path) do
-    do_read_skill_source(Path.expand(parent_root), root_label, relative_path)
+  def read_skill_source(parent_root, root_label, relative_path, opts \\ [])
+      when is_binary(parent_root) and is_binary(root_label) and is_binary(relative_path) and
+             is_list(opts) do
+    do_read_skill_source(Path.expand(parent_root), root_label, relative_path, opts)
   end
 
   @doc """
@@ -244,7 +245,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
             prefix -> Path.join(prefix, entry)
           end
 
-        do_read_skill_source(root, label, relative_path)
+        do_read_skill_source(root, label, relative_path, [])
       end)
       |> Ankole.Attrs.collect_results()
       |> case do
@@ -312,14 +313,14 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
-  defp do_read_skill_source(parent_root, root_label, relative_path) do
+  defp do_read_skill_source(parent_root, root_label, relative_path, opts) do
     root = Path.join(parent_root, relative_path)
     skill_path = Path.join(root, @skill_file)
 
     with {:ok, normalized_relative_path} <- normalize_virtual_path(relative_path),
          true <- File.dir?(root) || {:error, {:missing_skill_dir, relative_path}},
          {:ok, raw_skill} <- File.read(skill_path) do
-      with {:ok, source} <- skill_source(raw_skill, root_label, normalized_relative_path),
+      with {:ok, source} <- skill_source(raw_skill, root_label, normalized_relative_path, opts),
            {:ok, files} <- read_bundle_files(root, "") do
         {:ok,
          %{
@@ -379,10 +380,10 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
-  defp skill_source(raw_skill, root_label, normalized_relative_path) do
+  defp skill_source(raw_skill, root_label, normalized_relative_path, opts) do
     with true <- String.valid?(raw_skill) || {:error, :invalid_skill_content},
          {:ok, metadata} <-
-           parse_skill_metadata(raw_skill, Path.basename(normalized_relative_path)) do
+           parse_skill_metadata(raw_skill, Path.basename(normalized_relative_path), opts) do
       skill_hash = hash(raw_skill)
       files = [%{path: @skill_file, content: raw_skill, content_hash: skill_hash}]
 
@@ -412,14 +413,17 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
-  defp parse_skill_metadata(raw_skill, directory_name) do
+  defp parse_skill_metadata(raw_skill, directory_name, opts) do
+    default_enabled_fallback = Keyword.get(opts, :default_enabled, true)
+
     with {:ok, frontmatter} <- skill_frontmatter(raw_skill),
          {:ok, name} <- normalize_skill_name(Map.get(frontmatter, "name", directory_name)),
          true <-
            name == directory_name ||
              {:error, {:skill_name_directory_mismatch, name, directory_name}},
          {:ok, description} <- skill_description(frontmatter),
-         {:ok, default_enabled} <- yaml_boolean(frontmatter, "default_enabled", true),
+         {:ok, default_enabled} <-
+           yaml_boolean(frontmatter, "default_enabled", default_enabled_fallback),
          {:ok, ankole_runtime} <-
            normalize_ankole_runtime(Map.get(frontmatter, "ankole-runtime")) do
       {:ok,

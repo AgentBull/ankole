@@ -1,9 +1,17 @@
 import { uuidV4 } from '@agentbull/active-support'
 import { batch, computed, createModel, effect, signal, type ReadonlySignal } from '@preact/signals-react'
+import { waitFor } from 'xstate'
 import { createClientConfig, InternalAPIError } from '../../common/internal-api-client'
 import { requestErrorCode } from '../../common/request-errors'
+import { createActorSignal } from '../../common/xstate-signals'
 import { podOffice } from '../api/generated/sdk.gen'
 import { fileURL } from '../content-api'
+import {
+  COLLAB_SEND_DELAY_MS,
+  createCollaborationMachine,
+  type CollaborationLoadOutcome,
+  type CollaborationPushOutcome
+} from '../state/collaboration-machine'
 import { memberColor } from '../state/spreadsheet-grid'
 import type { OfficeFormat } from './office-files'
 
@@ -136,12 +144,10 @@ type PresenceMeta = {
 
 const transport = createClientConfig({}).fetch!
 const BOOTSTRAP_ATTEMPTS = 3
-const SEND_DELAY_MS = 30
 const BUSY_DELAY_MS = 200
 const BUSY_RETRIES = 5
 const RETRY_BASE_DELAY_MS = 500
 const RETRY_MAX_DELAY_MS = 8000
-const PRESENCE_INTERVAL_MS = 250
 export const DEFAULT_IDLE_COMMIT_MS = 2000
 
 const RELOAD_REASONS = new Set([
@@ -217,9 +223,9 @@ export function inertOfficeChannel(): OfficeChannel {
 
 /**
  * Shared collaborative session model for ChangeSet-driven Office Pages (Word and Presentation).
- * Serializes Worker tasks, tracks uncommitted drafts and IME composition, schedules unit-boundary
- * and idle commits, rebases pending edits against server broadcasts, and publishes soft unit locks
- * over `office:presence`.
+ * Bridges an XState v5 parallel session machine (`createCollaborationMachine`) with Preact Signals,
+ * serializing Worker tasks, tracking uncommitted drafts and IME composition, scheduling unit-boundary
+ * and idle commits, rebasing pending edits against server broadcasts, and publishing soft unit locks.
  */
 export const OfficeCollaborationModel = createModel(
   <TSnapshot extends OfficeSnapshotBase>(options: OfficeCollaborationOptions<TSnapshot>) => {
@@ -251,23 +257,34 @@ export const OfficeCollaborationModel = createModel(
     let sequence = 0
     let applyCount = 0
     let retryAttempts = 0
-    let pushing = false
+    let lastAnnouncedEditing = false
+    let externalComposition = false
+    let saveAttempt: PromiseWithResolvers<boolean> | undefined
+    let syncWaiter: PromiseWithResolvers<boolean> | undefined
+    let pendingResetLoad: Promise<CollaborationLoadOutcome> | undefined
+
+    const loadDocumentBody = async (): Promise<CollaborationLoadOutcome> => {
+      if (disposed || revoked.peek()) return { kind: 'aborted' }
+      const source = await options.load()
+      if (disposed || revoked.peek()) return { kind: 'aborted' }
+      if (source.kind === 'too_large') return { kind: 'too_large' }
+      engine ??= options.createEngine()
+      const initial = await engine.open(source.bytes, source.ops, source.checkpoint ?? null)
+      if (disposed || revoked.peek()) return { kind: 'aborted' }
+      batch(() => {
+        revision.value = source.revision
+        metadata.value = source.metadata
+        error.value = undefined
+      })
+      applySnapshotState(initial, true)
+      return { kind: 'loaded', editable: options.canEdit }
+    }
 
     const nextRetryDelay = () => {
       const base = Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2 ** retryAttempts)
       retryAttempts = Math.min(retryAttempts + 1, 10)
       return Math.round(base * (0.8 + Math.random() * 0.4))
     }
-    let sendTimer: ReturnType<typeof setTimeout> | undefined
-    let idleTimer: ReturnType<typeof setTimeout> | undefined
-    let presenceTimer: ReturnType<typeof setTimeout> | undefined
-    let presenceSentAt = Number.NEGATIVE_INFINITY
-    let presenceNext: Record<string, unknown> | null = null
-    let lastAnnouncedEditing = false
-    let externalComposition = false
-    let saveAttempt: PromiseWithResolvers<boolean> | undefined
-    let syncTask: Promise<boolean> | undefined
-    let syncAgain = false
 
     const serial = <T>(task: () => Promise<T>): Promise<T> => {
       const run = tail.then(task)
@@ -294,71 +311,6 @@ export const OfficeCollaborationModel = createModel(
       if (count === 0 && !composing.peek()) finishSave(true)
     }
 
-    const clearIdleTimer = () => {
-      if (idleTimer !== undefined) {
-        clearTimeout(idleTimer)
-        idleTimer = undefined
-      }
-    }
-
-    const scheduleIdleCommit = () => {
-      clearIdleTimer()
-      if (disposed || status.peek() !== 'ready' || !hasDraft.peek() || composing.peek()) return
-      idleTimer = setTimeout(() => {
-        idleTimer = undefined
-        if (!disposed && status.peek() === 'ready' && hasDraft.peek() && !composing.peek()) {
-          void commitNow()
-        }
-      }, idleCommitMs)
-    }
-
-    const applySnapshotState = (next: TSnapshot, bumpVersion = true) => {
-      const nextEditing = Boolean(next.editing) && options.canEdit
-      const nextComposing = externalComposition || Boolean(next.composing)
-      batch(() => {
-        snapshot.value = next
-        hasDraft.value = nextEditing
-        composing.value = nextComposing
-        canUndo.value = next.canUndo
-        canRedo.value = next.canRedo
-        if (bumpVersion) version.value++
-      })
-      publishCounts()
-      if (nextEditing && !nextComposing) {
-        scheduleIdleCommit()
-      } else {
-        clearIdleTimer()
-      }
-      if (loaded()) {
-        const payload = next.presenceSelection
-          ? {
-              ...next.presenceSelection,
-              ...(nextEditing ? { editing: true } : {})
-            }
-          : null
-        announcePresence(payload, nextEditing !== lastAnnouncedEditing)
-        lastAnnouncedEditing = nextEditing
-      }
-    }
-
-    const sendPresence = () => {
-      presenceTimer = undefined
-      presenceSentAt = Date.now()
-      void channel?.push('office:presence', { selection: presenceNext }).catch(() => undefined)
-    }
-
-    const announcePresence = (next: Record<string, unknown> | null, immediate = false) => {
-      presenceNext = next
-      if (next === null || immediate) {
-        clearTimeout(presenceTimer)
-        presenceTimer = undefined
-        sendPresence()
-        return
-      }
-      if (presenceTimer) return
-      presenceTimer = setTimeout(sendPresence, Math.max(0, presenceSentAt + PRESENCE_INTERVAL_MS - Date.now()))
-    }
-
     const publishMembers = () => {
       const listed = (channel?.presence() ?? []).map(({ id: uid, metas }) => {
         const entries = metas as PresenceMeta[]
@@ -383,11 +335,6 @@ export const OfficeCollaborationModel = createModel(
       members.value = listed.filter(member => member.uid !== options.selfUID())
     }
 
-    const scheduleFlush = (delay = SEND_DELAY_MS) => {
-      clearTimeout(sendTimer)
-      sendTimer = setTimeout(() => void flush(), delay)
-    }
-
     const reconcilePendingQueue = (entries: QueueEntry[], results: OfficePendingResult[] | undefined) => {
       if (!results) return
       results.forEach((result, index) => {
@@ -402,38 +349,42 @@ export const OfficeCollaborationModel = createModel(
       })
     }
 
-    const load = async () => {
-      status.value = 'loading'
-      clearIdleTimer()
-      try {
-        const source = await options.load()
-        if (disposed) return
-        if (source.kind === 'too_large') {
-          status.value = 'too_large'
-          return
-        }
-        engine ??= options.createEngine()
-        const initial = await engine.open(source.bytes, source.ops, source.checkpoint ?? null)
-        if (disposed) return
-        batch(() => {
-          revision.value = source.revision
-          metadata.value = source.metadata
-          error.value = undefined
-          status.value = options.canEdit ? 'ready' : 'read_only'
-        })
-        applySnapshotState(initial, true)
-        void sync()
-      } catch (failure) {
-        if (disposed) return
-        batch(() => {
-          error.value = failure
-          status.value = 'error'
-        })
+    const announceSnapshotPresence = (next: TSnapshot, forceImmediate = false) => {
+      const nextEditing = Boolean(next.editing) && options.canEdit
+      const payload = next.presenceSelection
+        ? {
+            ...next.presenceSelection,
+            ...(nextEditing ? { editing: true } : {})
+          }
+        : null
+      session.send({
+        type: 'PRESENCE_UPDATE',
+        selection: payload,
+        immediate: forceImmediate || nextEditing !== lastAnnouncedEditing
+      })
+      lastAnnouncedEditing = nextEditing
+    }
+
+    const applySnapshotState = (next: TSnapshot, bumpVersion = true) => {
+      const nextEditing = Boolean(next.editing) && options.canEdit
+      const nextComposing = externalComposition || Boolean(next.composing)
+      batch(() => {
+        snapshot.value = next
+        hasDraft.value = nextEditing
+        composing.value = nextComposing
+        canUndo.value = next.canUndo
+        canRedo.value = next.canRedo
+        if (bumpVersion) version.value++
+      })
+      publishCounts()
+      session.send({ type: 'DRAFT_STATE', hasDraft: nextEditing, composing: nextComposing })
+      if (loaded()) {
+        announceSnapshotPresence(next)
       }
     }
 
-    const reset = async () => {
-      clearIdleTimer()
+    const resetInSerial = async () => {
+      if (disposed || revoked.peek()) return
       const discarded = localEdits.size + (hasDraft.peek() ? 1 : 0) + (inFlight ? 1 : 0) + queue.length
       finishSave(false)
       localEdits.clear()
@@ -442,23 +393,32 @@ export const OfficeCollaborationModel = createModel(
       inFlight = undefined
       queue = []
       retryAttempts = 0
-      clearTimeout(sendTimer)
+      status.value = 'loading'
       publishCounts()
       if (discarded) notify({ kind: 'discarded', count: discarded })
-      await load()
+      const reload = loadDocumentBody()
+      pendingResetLoad = reload
+      session.send({ type: 'RESET' })
+      await reload.catch(() => undefined)
     }
 
-    const receive = async (payload: OfficeChanges, sent?: QueueEntry) => {
-      if (disposed || !engine || !loaded()) return
-      if (payload.reset_required) return reset()
+    const receive = async (payload: OfficeChanges, sent?: QueueEntry): Promise<boolean> => {
+      if (disposed || revoked.peek() || !engine || !loaded()) return false
+      if (payload.reset_required) {
+        await resetInSerial()
+        return true
+      }
       const fresh = payload.changes
         .filter(entry => entry.revision > revision.peek())
         .sort((a, b) => a.revision - b.revision)
       if (fresh.some((entry, index) => entry.revision !== revision.peek() + index + 1)) {
-        void sync()
-        return
+        void requestSync(true)
+        return false
       }
-      if (fresh.some(entry => entry.kind === 'reset' || !entry.op)) return reset()
+      if (fresh.some(entry => entry.kind === 'reset' || !entry.op)) {
+        await resetInSerial()
+        return true
+      }
 
       try {
         const request = inFlight?.request
@@ -492,79 +452,16 @@ export const OfficeCollaborationModel = createModel(
         }
       } catch (failure) {
         notify({ kind: 'failed', error: failure })
-        return reset()
+        await resetInSerial()
+        return true
       }
 
-      if (payload.revision > revision.peek()) void sync()
+      if (payload.revision > revision.peek()) void requestSync(true)
+      return false
     }
 
-    const sync = (repeatIfRunning = true): Promise<boolean> => {
-      if (disposed || !channel) return Promise.resolve(false)
-      if (syncTask) {
-        if (repeatIfRunning) syncAgain = true
-        return syncTask
-      }
-      const run = (async () => {
-        try {
-          do {
-            syncAgain = false
-            await channel!.ready
-            if (disposed || !loaded()) return false
-            const reply = await channel!.push<OfficeChanges>('office:sync', { revision: revision.peek() })
-            await serial(() => receive(reply))
-          } while (syncAgain && !disposed)
-          return !disposed
-        } catch (failure) {
-          if (!disposed) {
-            error.value = failure
-            finishSave(false)
-          }
-          return false
-        } finally {
-          syncTask = undefined
-        }
-      })()
-      syncTask = run
-      return run
-    }
-
-    const take = async () => {
-      if (inFlight) return inFlight
-      const next = queue.shift()
-      if (!next) return undefined
-      next.request = {
-        base_revision: revision.peek(),
-        client_id: clientID,
-        client_seq: ++sequence,
-        op: next.op
-      }
-      inFlight = next
-      return next
-    }
-
-    const flush = async () => {
-      if (disposed || pushing || !channel || !loaded()) return
-      pushing = true
-      let delay: number | undefined = saveAttempt ? 0 : SEND_DELAY_MS
-      let sent: QueueEntry | undefined
-      try {
-        sent = await serial(take)
-        if (!sent) return
-        applyCount++
-        const reply = await channel.push<OfficeChanges>('office:apply', sent.request!)
-        retryAttempts = 0
-        await serial(() => receive(reply, sent))
-        error.value = undefined
-      } catch (failure) {
-        delay = sent ? await failed(sent, failure) : nextRetryDelay()
-      } finally {
-        pushing = false
-        if (!disposed && delay !== undefined && (inFlight || queue.length)) scheduleFlush(delay)
-      }
-    }
-
-    const drop = async (sent: QueueEntry, missed: OfficeEntry[], notice: OfficeNotice) => {
-      if (inFlight !== sent || !engine) return
+    const drop = async (sent: QueueEntry, missed: OfficeEntry[], notice: OfficeNotice): Promise<boolean> => {
+      if (disposed || revoked.peek() || inFlight !== sent || !engine) return false
       finishSave(false)
       const fresh = missed.filter(entry => entry.revision > revision.peek()).sort((a, b) => a.revision - b.revision)
       if (
@@ -572,7 +469,8 @@ export const OfficeCollaborationModel = createModel(
           (entry, index) => entry.kind === 'reset' || !entry.op || entry.revision !== revision.peek() + index + 1
         )
       ) {
-        return reset()
+        await resetInSerial()
+        return true
       }
       inFlight = undefined
       try {
@@ -594,50 +492,196 @@ export const OfficeCollaborationModel = createModel(
         applySnapshotState(nextSnap, true)
       } catch (failure) {
         notify({ kind: 'failed', error: failure })
-        return reset()
+        await resetInSerial()
+        return true
       }
       notify(notice)
+      return false
     }
 
-    const failed = async (sent: QueueEntry, failure: unknown): Promise<number | undefined> => {
+    const failed = async (sent: QueueEntry, failure: unknown): Promise<CollaborationPushOutcome> => {
+      if (disposed || revoked.peek()) return { kind: 'idle' }
       const reason = failureReason(failure)
       if (reason === 'office_busy') {
         sent.busy++
-        if (sent.busy <= BUSY_RETRIES) return BUSY_DELAY_MS
+        if (sent.busy <= BUSY_RETRIES) return { kind: 'backoff', delayMs: BUSY_DELAY_MS }
         error.value = failure
         if (inFlight === sent) finishSave(false)
-        return nextRetryDelay()
+        return { kind: 'backoff', delayMs: nextRetryDelay() }
       }
       if (reason === 'office_conflict') {
         const details = (failure as { payload?: { details?: { reason?: string; changes?: OfficeEntry[] } } }).payload
           ?.details
-        await serial(() =>
+        const wasReset = await serial(() =>
           drop(sent, details?.changes ?? [], {
             kind: 'conflict',
             reason: details?.reason ?? 'conflict'
           })
         )
-        return SEND_DELAY_MS
+        return wasReset ? { kind: 'reset' } : { kind: 'continue', delayMs: COLLAB_SEND_DELAY_MS }
       }
       if (reason === 'invalid_operation' || reason === 'invalid_request' || reason === 'office_full') {
-        await serial(() =>
+        const wasReset = await serial(() =>
           drop(sent, [], {
             kind: 'rejected',
             message: failureMessage(failure),
             reason
           })
         )
-        return SEND_DELAY_MS
+        return wasReset ? { kind: 'reset' } : { kind: 'continue', delayMs: COLLAB_SEND_DELAY_MS }
       }
       if (reason && RELOAD_REASONS.has(reason)) {
         if (reason !== 'client_sequence_conflict') notify({ kind: 'failed', error: failure })
-        await serial(reset)
-        return undefined
+        return { kind: 'reset' }
       }
       error.value = failure
       if (inFlight === sent) finishSave(false)
-      return nextRetryDelay()
+      return { kind: 'backoff', delayMs: nextRetryDelay() }
     }
+
+    const take = async () => {
+      if (inFlight) return inFlight
+      const next = queue.shift()
+      if (!next) return undefined
+      next.request = {
+        base_revision: revision.peek(),
+        client_id: clientID,
+        client_seq: ++sequence,
+        op: next.op
+      }
+      inFlight = next
+      return next
+    }
+
+    const requestSync = (repeatIfRunning = true): Promise<boolean> => {
+      if (disposed || !channel || !session.snapshot.peek().matches('active')) return Promise.resolve(false)
+      const hadWaiter = Boolean(syncWaiter)
+      syncWaiter ??= Promise.withResolvers<boolean>()
+      session.send({ type: 'SYNC_REQUEST', repeatIfRunning: repeatIfRunning || !hadWaiter })
+      return syncWaiter.promise
+    }
+
+    const revoke = () => {
+      if (revoked.peek()) return
+      finishSave(false)
+      localEdits.clear()
+      inFlight = undefined
+      queue = []
+      notify({ kind: 'revoked' })
+      batch(() => {
+        revoked.value = true
+        status.value = 'error'
+      })
+      publishCounts()
+      session.send({ type: 'REVOKE' })
+      channel?.close()
+      channel = undefined
+    }
+
+    const machine = createCollaborationMachine<Record<string, unknown>>({
+      idleCommitMs,
+      hasChannel: () => Boolean(channel),
+      hasQueuedWork: () => Boolean(inFlight || queue.length > 0),
+      hasSaveWaiter: () => Boolean(saveAttempt),
+      connect: async () => {
+        const connected = await options.connect()
+        if (disposed) {
+          connected.close()
+          return
+        }
+        channel = connected
+        connected.on('office:changes', payload => void serial(() => receive(payload as OfficeChanges)))
+        connected.on('presence', publishMembers)
+        connected.on('access_revoked', revoke)
+        connected.on('rejoined', () => {
+          void requestSync(true).then(synced => {
+            if (!synced || disposed) return
+            error.value = undefined
+            retryAttempts = 0
+            session.send({ type: 'FLUSH_NOW' })
+          })
+        })
+        void connected.ready.catch(failure => {
+          if (!disposed) error.value = failure
+        })
+      },
+      load: () => {
+        if (pendingResetLoad) {
+          const current = pendingResetLoad
+          pendingResetLoad = undefined
+          return current
+        }
+        return serial(loadDocumentBody)
+      },
+      syncOnce: async () => {
+        if (disposed || !channel) return
+        await channel.ready
+        if (disposed || !loaded()) return
+        const reply = await channel.push<OfficeChanges>('office:sync', { revision: revision.peek() })
+        await serial(() => receive(reply))
+      },
+      onSyncSettled: (succeeded, failure) => {
+        if (!succeeded && failure !== undefined && !disposed) {
+          error.value = failure
+          finishSave(false)
+        }
+        const waiter = syncWaiter
+        syncWaiter = undefined
+        waiter?.resolve(succeeded && !disposed)
+      },
+      pushOnce: async (): Promise<CollaborationPushOutcome> => {
+        if (disposed || revoked.peek() || !channel || !loaded()) return { kind: 'idle' }
+        let sent: QueueEntry | undefined
+        try {
+          sent = await serial(take)
+          if (!sent) return { kind: 'idle' }
+          applyCount++
+          const reply = await channel.push<OfficeChanges>('office:apply', sent.request!)
+          retryAttempts = 0
+          const wasReset = await serial(() => receive(reply, sent))
+          if (wasReset) return { kind: 'reset' }
+          if (disposed || revoked.peek()) return { kind: 'idle' }
+          error.value = undefined
+          return inFlight || queue.length > 0
+            ? { kind: 'continue', delayMs: saveAttempt ? 0 : COLLAB_SEND_DELAY_MS }
+            : { kind: 'idle' }
+        } catch (failure) {
+          return sent ? failed(sent, failure) : { kind: 'backoff', delayMs: nextRetryDelay() }
+        }
+      },
+      onResetFromPush: () => serial(resetInSerial),
+      onIdleCommit: () => {
+        if (!disposed && !revoked.peek() && status.peek() === 'ready' && hasDraft.peek() && !composing.peek()) {
+          void commitNow()
+        }
+      },
+      sendPresence: selection => {
+        void channel?.push('office:presence', { selection }).catch(() => undefined)
+      },
+      onError: failure => {
+        if (!disposed) error.value = failure
+      },
+      onStatusChange: nextStatus => {
+        if (disposed) return
+        if (revoked.peek() && nextStatus !== 'error') return
+        status.value = nextStatus
+        if (nextStatus === 'ready' || nextStatus === 'read_only') {
+          if (nextStatus === 'ready') {
+            session.send({ type: 'DRAFT_STATE', hasDraft: hasDraft.peek(), composing: composing.peek() })
+          }
+          const current = snapshot.peek()
+          if (current) {
+            announceSnapshotPresence(current, Boolean(current.presenceSelection))
+          }
+        }
+      }
+    })
+
+    const session = createActorSignal(machine, undefined, actor => {
+      disposed = true
+      finishSave(false)
+      actor.send({ type: 'DISPOSE' })
+    })
 
     const editSerial = <T>(task: (eng: OfficeSyncEngine<TSnapshot>) => Promise<T | undefined>) => {
       if (disposed) return Promise.resolve(undefined)
@@ -661,7 +705,7 @@ export const OfficeCollaborationModel = createModel(
       eng: OfficeSyncEngine<TSnapshot>
     ): Promise<{ op: OfficeChangeSet | null; snapshot: TSnapshot } | null> => {
       if (composing.peek()) return null
-      clearIdleTimer()
+      session.send({ type: 'CANCEL_IDLE_COMMIT' })
       let committed: { op: OfficeChangeSet | null; snapshot: TSnapshot }
       try {
         committed = await eng.commitLocalStep()
@@ -672,7 +716,7 @@ export const OfficeCollaborationModel = createModel(
       if (disposed) return null
       if (committed.op) {
         queue.push({ op: committed.op, busy: 0 })
-        scheduleFlush()
+        session.send({ type: 'SCHEDULE_FLUSH', delayMs: COLLAB_SEND_DELAY_MS })
       }
       applySnapshotState(committed.snapshot, Boolean(committed.op))
       return committed
@@ -699,8 +743,7 @@ export const OfficeCollaborationModel = createModel(
             finishSave(false)
             return
           }
-          clearTimeout(sendTimer)
-          void flush()
+          session.send({ type: 'FLUSH_NOW' })
         },
         () => {
           if (saveAttempt === attempt) finishSave(false)
@@ -709,55 +752,32 @@ export const OfficeCollaborationModel = createModel(
       return attempt.promise
     }
 
-    const revoke = () => {
-      if (revoked.peek()) return
-      clearIdleTimer()
-      notify({ kind: 'revoked' })
-      batch(() => {
-        revoked.value = true
-        status.value = 'error'
-      })
-      clearTimeout(sendTimer)
-      channel?.close()
-      channel = undefined
-    }
+    const waitForBootstrapSettled = () =>
+      waitFor(
+        session.actor,
+        snap => !snap.matches('unstarted') && !snap.matches('connecting') && !snap.matches('loading')
+      ).then(
+        () => undefined,
+        () => undefined
+      )
 
     const start = async () => {
-      try {
-        const connected = await options.connect()
-        if (disposed) {
-          connected.close()
-          return
-        }
-        channel = connected
-        connected.on('office:changes', payload => void serial(() => receive(payload as OfficeChanges)))
-        connected.on('presence', publishMembers)
-        connected.on('access_revoked', revoke)
-        void connected.ready.catch(failure => {
-          if (!disposed) error.value = failure
-        })
-      } catch (failure) {
-        batch(() => {
-          error.value = failure
-          status.value = 'error'
-        })
-        return
-      }
-      await serial(load)
+      session.send({ type: 'START' })
+      await waitForBootstrapSettled()
     }
 
     effect(() => () => {
       disposed = true
       finishSave(false)
-      clearIdleTimer()
+      const waiter = syncWaiter
+      syncWaiter = undefined
+      waiter?.resolve(false)
       localEdits.clear()
       hasDraft.value = false
       composing.value = false
       inFlight = undefined
       queue = []
       publishCounts()
-      clearTimeout(sendTimer)
-      clearTimeout(presenceTimer)
       if (channel) {
         void channel.push('office:presence', { selection: null }).catch(() => undefined)
         channel.close()
@@ -783,17 +803,16 @@ export const OfficeCollaborationModel = createModel(
       start,
       revoke,
       sync() {
-        if (loaded()) void sync()
+        if (loaded()) void requestSync(true)
       },
       retry() {
         if (status.peek() !== 'error' || revoked.peek()) return
-        if (channel) void serial(load)
-        else void start()
+        session.send({ type: 'RETRY' })
       },
       blur() {
         if (loaded()) {
           lastAnnouncedEditing = false
-          announcePresence(null, true)
+          session.send({ type: 'PRESENCE_UPDATE', selection: null, immediate: true })
         }
       },
       /** Runs a read-only or navigation query on the Worker in FIFO order. */
@@ -864,30 +883,30 @@ export const OfficeCollaborationModel = createModel(
         if (disposed) return false
         if (applyCount > beforeApplies || hadPending) return true
         if (hadDraft || !syncIfClean) return false
-        return sync(false)
+        return requestSync(false)
       },
       hasUnsavedChanges() {
         return pending.value > 0 || composing.value
       },
       setExternalComposition(active: boolean) {
         externalComposition = active
-        composing.value = active || Boolean(snapshot.peek()?.composing)
+        const nextComposing = active || Boolean(snapshot.peek()?.composing)
+        composing.value = nextComposing
         if (active) finishSave(false)
-        scheduleIdleCommit()
+        session.send({ type: 'DRAFT_STATE', hasDraft: hasDraft.peek(), composing: nextComposing })
       },
       flushOnPageHide() {
         if (disposed || status.peek() !== 'ready' || composing.peek()) return
-        clearIdleTimer()
+        session.send({ type: 'CANCEL_IDLE_COMMIT' })
         if (hasDraft.peek()) {
-          void commitNow().then(() => void flush())
-        } else if (queue.length && !pushing) {
-          clearTimeout(sendTimer)
-          void flush()
+          void commitNow().then(() => session.send({ type: 'FLUSH_NOW' }))
+        } else if (queue.length > 0 || inFlight) {
+          session.send({ type: 'FLUSH_NOW' })
         }
       },
       undo() {
         return editSerial(async eng => {
-          clearIdleTimer()
+          session.send({ type: 'CANCEL_IDLE_COMMIT' })
           let undone: { op: OfficeChangeSet | null; snapshot: TSnapshot }
           try {
             undone = await eng.undo()
@@ -898,7 +917,7 @@ export const OfficeCollaborationModel = createModel(
           if (disposed) return null
           if (undone.op) {
             queue.push({ op: undone.op, busy: 0 })
-            scheduleFlush()
+            session.send({ type: 'SCHEDULE_FLUSH', delayMs: COLLAB_SEND_DELAY_MS })
           }
           applySnapshotState(undone.snapshot, true)
           return undone.op
@@ -906,7 +925,7 @@ export const OfficeCollaborationModel = createModel(
       },
       redo() {
         return editSerial(async eng => {
-          clearIdleTimer()
+          session.send({ type: 'CANCEL_IDLE_COMMIT' })
           let redone: { op: OfficeChangeSet | null; snapshot: TSnapshot }
           try {
             redone = await eng.redo()
@@ -917,7 +936,7 @@ export const OfficeCollaborationModel = createModel(
           if (disposed) return null
           if (redone.op) {
             queue.push({ op: redone.op, busy: 0 })
-            scheduleFlush()
+            session.send({ type: 'SCHEDULE_FLUSH', delayMs: COLLAB_SEND_DELAY_MS })
           }
           applySnapshotState(redone.snapshot, true)
           return redone.op

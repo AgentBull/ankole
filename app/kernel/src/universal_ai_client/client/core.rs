@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use super::stream::{decode_raw_response_body, run_stream, send_aborted_once};
+use super::websocket_session::WebSocketSession;
 use crate::common::{
     KernelError, KernelResult, io_runtime, validate_ip_addresses, validate_web_url,
 };
@@ -107,6 +108,14 @@ impl Drop for StreamHandle {
 }
 
 pub fn start_stream(encoded_spec: &str, sink: EventSink) -> KernelResult<StreamHandle> {
+    start_stream_with_session(encoded_spec, None, sink)
+}
+
+pub fn start_stream_with_session(
+    encoded_spec: &str,
+    session: Option<Arc<WebSocketSession>>,
+    sink: EventSink,
+) -> KernelResult<StreamHandle> {
     let spec = StreamSpec::from_json(encoded_spec)?;
     let runtime = io_runtime::runtime()?;
     let (command_tx, command_rx) = mpsc::channel(COMMAND_QUEUE_CAPACITY);
@@ -115,7 +124,13 @@ pub fn start_stream(encoded_spec: &str, sink: EventSink) -> KernelResult<StreamH
 
     runtime.spawn(Abortable::new(
         report_stream_panic(
-            run_stream(spec, command_rx, sink.clone(), aborted_sent.clone()),
+            run_stream(
+                spec,
+                session,
+                command_rx,
+                sink.clone(),
+                aborted_sent.clone(),
+            ),
             sink.clone(),
         ),
         abort_registration,
@@ -238,8 +253,12 @@ pub(in crate::universal_ai_client) async fn run_model_request_once(
         .provider_body_excerpt(&response.body)
         .provider_headers(&response.headers));
     }
-    let mut resolver =
-        api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
+    let resolver_context = request_builder::context_with_header_anthropic_version(
+        &spec.api_resolver,
+        &spec.response_context,
+        &upstream,
+    );
+    let mut resolver = api_resolver::APIResolver::new(spec.api_resolver, resolver_context);
     let mut normalized_body =
         resolver.normalize_http_response(response.status, &response.headers, &response.body)?;
     // Only the Cloudflare image resolver writes `result_url`, and only Alibaba
@@ -263,12 +282,17 @@ pub(in crate::universal_ai_client) async fn run_model_request_once(
         .await?;
     }
 
-    Ok(json!({
+    let mut wrapper = json!({
         "status": response.status,
         "headers": transport::safe_response_headers(&response.headers),
         "body": normalized_body,
         "raw_body_bytes": response.body.len(),
-    }))
+        "request_bytes": upstream.payload_bytes().len(),
+    });
+    if let Some(metadata) = resolver.completion_metadata() {
+        wrapper["resolver_metadata"] = metadata;
+    }
+    Ok(wrapper)
 }
 
 /// A Cloudflare image model can answer with a link to the generated file in

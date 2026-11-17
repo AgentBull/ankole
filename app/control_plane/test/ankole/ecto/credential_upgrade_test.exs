@@ -15,8 +15,7 @@ defmodule Ankole.CredentialUpgradeTest do
           "CREATE TABLE principal_external_identities (tenant_id uuid, principal_uid text, provider text, external_id text)",
           "CREATE TABLE human_access_restrictions (tenant_id uuid, principal_uid text, source text, reason text, cleared_at timestamp)",
           "CREATE TABLE human_access_events (tenant_id uuid, principal_uid text, action text, inserted_at timestamp)",
-          "CREATE TABLE principal_site_credentials (tenant_id uuid, principal_uid text, provider text, identifier text)",
-          "CREATE TABLE saas_accounts (id uuid, email text)"
+          "CREATE TABLE principal_site_credentials (tenant_id uuid, principal_uid text, provider text, identifier text)"
         ],
         do: Repo.query!(sql)
 
@@ -109,8 +108,7 @@ defmodule Ankole.CredentialUpgradeTest do
     assert_raise RuntimeError, fn -> CredentialUpgrade.preflight!(Repo) end
   end
 
-  test "FOSS checks normalized collisions without any SaaS tables", %{upgrade_tenant: tenant} do
-    Repo.query!("DROP TABLE saas_accounts")
+  test "legacy local credentials reject normalized collisions", %{upgrade_tenant: tenant} do
     person(tenant, "first", "active")
     person(tenant, "second", "active")
     local(tenant, "first", " SAME@Example.com ")
@@ -124,10 +122,10 @@ defmodule Ankole.CredentialUpgradeTest do
              before
   end
 
-  test "FOSS rejects blank and missing login addresses before changing data", %{
-    upgrade_tenant: tenant
-  } do
-    Repo.query!("DROP TABLE saas_accounts")
+  test "legacy local credentials reject blank and missing login addresses before changing data",
+       %{
+         upgrade_tenant: tenant
+       } do
     person(tenant, "blank", "active")
     local(tenant, "blank", "   ")
     assert_raise RuntimeError, ~r/blank/, fn -> CredentialUpgrade.preflight!(Repo) end
@@ -212,7 +210,6 @@ defmodule Ankole.CredentialUpgradeTest do
     Repo.query!("DROP TABLE human_access_restrictions")
     Repo.query!("DROP TABLE human_access_events")
     Repo.query!("DROP TABLE principal_site_credentials")
-    Repo.query!("DROP TABLE saas_accounts")
 
     for table <-
           ~w(principals human_users human_user_local_credentials principal_external_identities),
@@ -304,18 +301,15 @@ defmodule Ankole.CredentialUpgradeTest do
   end
 
   defp site(tenant, uid, email) do
-    id = Ecto.UUID.generate()
-    Repo.query!("INSERT INTO saas_accounts VALUES ($1::text::uuid, $2)", [id, email])
-
     Repo.query!(
-      "INSERT INTO principal_external_identities VALUES ($1::text::uuid, $2, 'saas-account', $3)",
-      [tenant, uid, id]
+      "INSERT INTO principal_site_credentials VALUES ($1::text::uuid, $2, 'email_otp', $3)",
+      [tenant, uid, email]
     )
   end
 
   defp snapshot do
     for table <-
-          ~w(principals human_users human_user_local_credentials principal_external_identities human_access_restrictions human_access_events principal_site_credentials saas_accounts),
+          ~w(principals human_users human_user_local_credentials principal_external_identities human_access_restrictions human_access_events principal_site_credentials),
         into: %{} do
       {table, Repo.query!("SELECT to_jsonb(t) FROM #{table} t ORDER BY to_jsonb(t)::text").rows}
     end

@@ -15,8 +15,8 @@ defmodule Ankole.Brain.Merge do
   `Ankole.Brain.Schemas.MergeSuggestion` owns the transaction of each
   decision.
 
-  The duplicate scan is a read model over pairs of rows (M4), and the
-  repoint steps are set maintenance in the owning domain (M8). Both stay SQL
+  The duplicate scan is a read model over pairs of rows, and the repoint
+  steps are set maintenance in the owning domain. Both stay SQL
   and are registered in the persistence boundary.
   """
 

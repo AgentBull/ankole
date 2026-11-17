@@ -27,6 +27,7 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' }}
+      frontend_browser: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.frontend_browser == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,6 +49,15 @@ jobs:
               - '!**/CLAUDE.md'
               - '!**/CHANGELOG*.md'
               - '!LICENSE'
+            frontend_browser:
+              - 'libs/ankole-editor/**'
+              - 'libs/uikit/**'
+              - 'libs/applet-sdk/**'
+              - 'app/locales/**'
+              - 'app/webapps/**'
+              - 'app/kernel/spreadsheet*/**'
+              - 'app/kernel/word*/**'
+              - 'app/kernel/presentation*/**'
 
   bun-static:
     needs: changes
@@ -68,6 +78,10 @@ jobs:
       - run: bun run fmt:check:repo
       - run: bun run analyze
       - run: bun run type-check --filter='!@ankole/control-plane'
+      - run: bun run --filter @ankole/applet-sdk test
+      - run: bun run --filter @ankole/block-editor test
+      - run: bun run --filter @ankole/block-editor test:upstream
+      - run: bun run agent-computer:test
 
   kernel-lint:
     needs: changes
@@ -96,6 +110,7 @@ jobs:
           workspaces: app/kernel -> target/clippy
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: bun run --filter @ankole/kernel lint
+      - run: cargo test --manifest-path app/kernel/Cargo.toml --lib
 
   # Formatting, warnings, Credo, and compile-cycle checks read compiled modules
   # only. `ANKOLE_KERNEL_SKIP_NIF` compiles the kernel module without building
@@ -150,6 +165,19 @@ jobs:
       - run: mix local.hex --force && mix local.rebar --force && mix deps.get
         working-directory: app/control_plane
       - run: bun run --filter @ankole/control-plane lint
+      - run: mix i18n.check
+        working-directory: app/control_plane
+      - name: Install Helm
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/helm.tar.gz" https://get.helm.sh/helm-v3.17.3-linux-amd64.tar.gz
+          echo "ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f2cd  $RUNNER_TEMP/helm.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/helm"
+          tar -xzf "$RUNNER_TEMP/helm.tar.gz" -C "$RUNNER_TEMP/helm"
+          echo "$RUNNER_TEMP/helm/linux-amd64" >> "$GITHUB_PATH"
+      - name: Lint Helm chart
+        run: |
+          helm lint tools/deploy/helm/ankole-agent
+          helm template test-release tools/deploy/helm/ankole-agent >/dev/null
       - run: mix ankole.compile_cycles
         working-directory: app/control_plane
       - run: mix ankole.compile_cycles
@@ -249,6 +277,18 @@ jobs:
           bun run --filter @ankole/webapps openapi:generate
           git diff --exit-code -- app/webapps/openapi app/webapps/common/api/generated app/webapps/pod/api/generated app/webapps/console/api/v2/generated app/webapps/console/api/v2-site/generated
           test -z "$(git ls-files --others --exclude-standard -- app/webapps/common/api/generated app/webapps/pod/api/generated app/webapps/console/api/v2/generated app/webapps/console/api/v2-site/generated)"
+      - name: Run core high-ROI contract tests
+        working-directory: app/control_plane
+        run: |
+          mix test \
+            test/ankole/tenancy_guard_test.exs \
+            test/ankole_web/json_api/router_test.exs \
+            test/ankole_web/json_api/native_authorization_routes_test.exs \
+            test/ankole_web/json_api/meta_ankole_test.exs \
+            test/ankole/human_access_test.exs \
+            test/ankole/pod/read_concurrency_test.exs \
+            test/ankole/connectors/gateway_return_test.exs \
+            test/ankole/ai_gateway/responses_credential_retry_test.exs
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ github.ref == 'refs/heads/main' && steps.nif-cache.outputs.cache-hit != 'true' }}
         with:
@@ -262,12 +302,55 @@ jobs:
             app/control_plane/_build
           key: ${{ steps.mix-cache.outputs.cache-primary-key }}
 
+  frontend-browser-fast:
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend_browser == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ github.repository != job.workflow_repository && (job.workflow_sha || github.sha) || '' }}
+          persist-credentials: ${{ github.repository == job.workflow_repository }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: wasm-cache
+        with:
+          path: app/kernel/dist
+          key: frontend-browser-wasm-${{ runner.os }}-rust-1.99.1-${{ hashFiles('rust-toolchain.toml', 'app/kernel/Cargo.toml', 'app/kernel/Cargo.lock', 'app/kernel/spreadsheet*/**', 'app/kernel/word*/**', 'app/kernel/presentation*/**', 'app/kernel/vendor/**') }}
+      - if: ${{ steps.wasm-cache.outputs.cache-hit != 'true' }}
+        run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown && rustup default 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: ${{ steps.wasm-cache.outputs.cache-hit != 'true' }}
+        with:
+          workspaces: app/kernel -> target/wasm-build
+          cache-directories: app/kernel/target/wasm-tools
+          shared-key: frontend-browser-wasm
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - if: ${{ steps.wasm-cache.outputs.cache-hit != 'true' }}
+        run: bun run --filter @ankole/kernel build:wasm
+      - run: bun run --filter @ankole/webapps test
+      - run: bunx playwright install --with-deps chromium
+        working-directory: app/webapps
+      - run: bunx playwright test --project=chromium
+        working-directory: libs/ankole-editor
+      - run: bun run --filter @ankole/webapps test:browser
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ github.ref == 'refs/heads/main' && steps.wasm-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: app/kernel/dist
+          key: ${{ steps.wasm-cache.outputs.cache-primary-key }}
+
   # Require this job, not the individual checks, in branch protection. It
   # reports success when every check passed or a documentation-only change
   # skipped them.
   checks-passed:
     name: Repository checks passed
-    needs: [changes, bun-static, kernel-lint, control-plane-static, control-plane-contracts]
+    needs: [changes, bun-static, kernel-lint, control-plane-static, control-plane-contracts, frontend-browser-fast]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

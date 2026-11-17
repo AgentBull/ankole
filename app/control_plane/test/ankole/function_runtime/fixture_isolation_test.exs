@@ -27,8 +27,20 @@ defmodule Ankole.FunctionRuntime.FixtureIsolationTest do
       refute isolated.url == shared.url
 
       source = "export default {actions:{work:{handler:async()=>({deployment:'action'})}}}"
-      sha = :crypto.hash(:sha256, source <> "\n[]") |> Base.encode16(case: :lower)
-      package = %{tenant_id: Repo.tenant_id!(), source: source, env: %{}, sha256: sha}
+      bindings_digest = Ankole.Pod.Applets.Bindings.digest(%{})
+
+      sha =
+        :crypto.hash(:sha256, source <> "\n[]\n" <> bindings_digest)
+        |> Base.encode16(case: :lower)
+
+      package = %{
+        tenant_id: Repo.tenant_id!(),
+        source: source,
+        env: %{},
+        bindings: %{},
+        bindings_digest: bindings_digest,
+        sha256: sha
+      }
 
       context = %{
         "actionKey" => "work",

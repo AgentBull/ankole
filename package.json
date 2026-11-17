@@ -18,9 +18,9 @@
     "dev:saas": "ANKOLE_EDITION=saas bun tools/devkit/src/main.ts dev",
     "build": "turbo run build --ui=stream --log-order=stream",
     "test": "turbo run test --ui=stream --log-order=stream",
-    "lint": "oxlint && turbo run lint --ui=stream --log-order=stream",
-    "lint:fix": "oxlint --fix",
-    "lint:repo": "oxlint",
+    "lint": "bun --bun oxlint && turbo run lint --ui=stream --log-order=stream",
+    "lint:fix": "bun --bun oxlint --fix",
+    "lint:repo": "bun --bun oxlint",
     "type-check": "turbo run type-check --ui=stream --log-order=stream",
     "fmt": "turbo run fmt --ui=stream --log-order=stream",
     "fmt:check": "turbo run fmt:check --ui=stream --log-order=stream",
@@ -52,9 +52,10 @@
     "analyze:cycles": "bun run kit analyze cycles"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.93.0",
     "@types/bun": "1.4.4",
     "oxfmt": "^0.78.0",
-    "oxlint": "^1.93.0",
+    "oxlint": "1.93.0",
     "turbo": "^2.11.11",
     "typescript": "^7.0.2"
   },

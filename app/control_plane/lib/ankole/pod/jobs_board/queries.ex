@@ -430,6 +430,7 @@ defmodule Ankole.Pod.JobsBoard.Queries do
             wf,
             agent_names,
             scope.room_titles,
+            callable_agents,
             Map.get(metrics.workflows, wf.id),
             now
           )
@@ -570,6 +571,7 @@ defmodule Ankole.Pod.JobsBoard.Queries do
     room_id = run_room_id(job, room_titles)
     {column, attention?, attention_reason} = job_card_placement(job, now)
     can_act? = job_card_manageable?(job, uid, room_id, callable_agents)
+    display_status = if standalone_incomplete?(job), do: "incomplete", else: to_string(job.status)
 
     %{
       id: "job:#{job.id}",
@@ -577,7 +579,7 @@ defmodule Ankole.Pod.JobsBoard.Queries do
       kind: :background_agent_job,
       cardType: :one_off,
       column: column,
-      status: to_string(job.status),
+      status: display_status,
       attention: attention?,
       attentionReason: attention_reason,
       title: non_empty(job.title) || excerpt(job.task, 80) || "Job ##{job.id}",
@@ -601,7 +603,7 @@ defmodule Ankole.Pod.JobsBoard.Queries do
       timezone: nil,
       nextRunAt: nil,
       lastRunAt: job.completed_at || job.started_at,
-      lastRunStatus: to_string(job.status),
+      lastRunStatus: display_status,
       triggerSummary: nil,
       createdAt: job.inserted_at,
       updatedAt: job.updated_at
@@ -612,18 +614,36 @@ defmodule Ankole.Pod.JobsBoard.Queries do
     fresh_failed? =
       job.status == :failed and fresh_terminal?(job.completed_at || job.updated_at, now)
 
+    incomplete? = standalone_incomplete?(job)
+
+    fresh_incomplete? =
+      incomplete? and fresh_terminal?(job.completed_at || job.updated_at, now)
+
     column =
       cond do
-        job.status == :queued -> :scheduled
-        job.status in [:running, :waiting_on_user] or fresh_failed? -> :running
-        true -> :completed
+        job.status == :queued ->
+          :scheduled
+
+        job.status in [:running, :waiting_on_user] or fresh_failed? or fresh_incomplete? ->
+          :running
+
+        true ->
+          :completed
       end
 
     cond do
       job.status == :waiting_on_user -> {column, true, "waiting_on_user"}
       fresh_failed? -> {column, true, "failed"}
+      incomplete? -> {column, true, "incomplete"}
       true -> {column, false, nil}
     end
+  end
+
+  defp standalone_incomplete?(%AgentJob{} = job) do
+    job.status == :succeeded and
+      get_in(job.result || %{}, ["completion_state"]) == "incomplete" and
+      map_size(job.reply_route || %{}) == 0 and
+      match?({:pod_job, _}, Ankole.Sessions.Key.parse(job.owner_session_id))
   end
 
   defp job_card_manageable?(%AgentJob{} = job, uid, room_id, callable_agents) do
@@ -639,49 +659,45 @@ defmodule Ankole.Pod.JobsBoard.Queries do
          is_integer(job.workspace_owner_job_id))
   end
 
-  defp project_workflow_card(%WorkflowRun{} = wf, agent_names, room_titles, counts, now) do
+  defp project_workflow_card(
+         %WorkflowRun{} = wf,
+         agent_names,
+         room_titles,
+         callable_agents,
+         counts,
+         now
+       ) do
     room_id = run_room_id(wf, room_titles)
+    can_manage? = wf.status == :running and MapSet.member?(callable_agents, wf.agent_uid)
 
     fresh_failed? =
       wf.status == :failed and fresh_terminal?(wf.completed_at || wf.updated_at, now)
 
-    column =
-      cond do
-        wf.status == :running or fresh_failed? -> :running
-        true -> :completed
-      end
-
-    summary =
-      cond do
-        wf.status == :completed -> excerpt(wf.result_text, 200)
-        wf.status == :failed -> workflow_error_excerpt(wf.error)
-        counts && counts.running > 0 -> "#{counts.completed}/#{counts.total}"
-        true -> nil
-      end
+    plan_total = counts && counts.total
 
     %{
       id: "workflow:#{wf.id}",
       rawID: to_string(wf.id),
       kind: :workflow,
       cardType: :one_off,
-      column: column,
+      column: workflow_card_column(wf.status, fresh_failed?),
       status: to_string(wf.status),
       attention: fresh_failed?,
       attentionReason: if(fresh_failed?, do: "failed"),
       title: non_empty(wf.title) || "Workflow ##{wf.id}",
-      summary: summary,
+      summary: workflow_card_summary(wf, counts),
       agentUID: wf.agent_uid,
       agentName: agent_names[wf.agent_uid] || wf.agent_uid,
       conversationID: room_id,
       conversationTitle: room_id && room_titles[room_id],
       pageID: nil,
       pageTitle: nil,
-      manageable: wf.status == :running,
-      stoppable: wf.status == :running,
+      manageable: can_manage?,
+      stoppable: can_manage?,
       canMessage: false,
-      stepCount: if(counts, do: counts.total, else: 0),
+      stepCount: plan_total || 0,
       planCompleted: counts && counts.completed,
-      planTotal: counts && counts.total,
+      planTotal: plan_total,
       chainLength: 1,
       activeExecutionKind: :workflow,
       activeExecutionID: to_string(wf.id),
@@ -695,6 +711,22 @@ defmodule Ankole.Pod.JobsBoard.Queries do
       updatedAt: wf.updated_at
     }
   end
+
+  defp workflow_card_column(:running, _fresh_failed?), do: :running
+  defp workflow_card_column(_status, true), do: :running
+  defp workflow_card_column(_status, false), do: :completed
+
+  defp workflow_card_summary(%WorkflowRun{status: :completed, result_text: result_text}, _counts),
+    do: excerpt(result_text, 200)
+
+  defp workflow_card_summary(%WorkflowRun{status: :failed, error: error}, _counts),
+    do: workflow_error_excerpt(error)
+
+  defp workflow_card_summary(_wf, %{running: running, completed: completed, total: total})
+       when running > 0,
+       do: "#{completed}/#{total}"
+
+  defp workflow_card_summary(_wf, _counts), do: nil
 
   defp project_cron_cards(
          [],

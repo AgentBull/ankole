@@ -13,6 +13,12 @@
     "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobResponse"
   },
   {
+    "method": "background_agent_job.retained_workspaces",
+    "scope": "worker_agent",
+    "request_type": "ankole.runtime_fabric.v1.BackgroundAgentJobRetainedWorkspacesRequest",
+    "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobRetainedWorkspacesResponse"
+  },
+  {
     "method": "background_agent_job.status.update",
     "scope": "turn",
     "effect": "complete",

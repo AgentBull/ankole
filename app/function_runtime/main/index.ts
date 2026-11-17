@@ -1,18 +1,14 @@
 import { parse } from 'acorn'
 import { InvocationMCP, bridgeAppletSockets } from './mcp.ts'
 import { buildAppletWorkerBootstrap } from './applet-bootstrap.ts'
-import { CodeCache, type AppletCode } from './code-cache.ts'
+import { CodeCache, appletCodeDigest, type AppletCode } from './code-cache.ts'
 import { InvocationCapacity } from './capacity.ts'
 import { buildPtcRunnerModule, type ProgramRequest } from './ptc-bootstrap.ts'
 
 const token = Deno.env.get('ANKOLE_FUNCTION_RUNTIME_TOKEN')
 if (!token) throw new Error('ANKOLE_FUNCTION_RUNTIME_TOKEN is required')
-const appletCapacity = new InvocationCapacity(
-  24,
-  6,
-  1536,
-  Number(Deno.env.get('ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY')) || 32
-)
+const maxConcurrent = Number(Deno.env.get('ANKOLE_FUNCTION_RUNTIME_MAX_CONCURRENCY')) || 32
+const appletCapacity = new InvocationCapacity(maxConcurrent, 6, 1536, maxConcurrent)
 const codeCache = new CodeCache()
 const invocations = new Map<
   string,
@@ -21,6 +17,8 @@ const invocations = new Map<
     poolKey: string
     release: (aborted?: boolean) => Promise<void>
     started: boolean
+    settled: boolean
+    bridged: boolean
     deadline: number
     worker?: ReturnType<typeof worker>
     createdAt?: number
@@ -72,7 +70,7 @@ function takeWarmWorker(key: string, memory: number, timeout: number) {
   return entry
 }
 setInterval(() => {
-  void evictWarmWorkers()
+  void evictWarmWorkers().catch(error => console.error('Warm worker eviction failed', error))
 }, 5000)
 let draining = false
 addEventListener('drain', () => {
@@ -101,27 +99,38 @@ async function body(req: Request): Promise<Record<string, any>> {
   return value as Record<string, any>
 }
 
-async function codeDigest(code: AppletCode) {
-  const entries = Object.entries(code.env).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-  const digest = await crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(`${code.source}\n${JSON.stringify(entries)}`)
-  )
-  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function codePayload(value: Record<string, any>): AppletCode {
   if (
     typeof value.source !== 'string' ||
     !value.env ||
-    typeof value.env !== 'object' ||
-    Array.isArray(value.env) ||
+    !isPlainObject(value.env) ||
     Object.values(value.env).some(entry => typeof entry !== 'string') ||
     new TextEncoder().encode(JSON.stringify(value.env)).length > 64 * 1024
   ) {
     throw new TypeError('Expected source and a flat string environment of at most 64 KiB')
   }
-  return { source: value.source, env: value.env }
+  const bindings = value.bindings ?? {}
+  if (
+    !isPlainObject(bindings) ||
+    Object.values(bindings).some(
+      binding =>
+        !isPlainObject(binding) ||
+        (binding.tableId !== null && typeof binding.tableId !== 'string') ||
+        !isPlainObject(binding.fields) ||
+        Object.values(binding.fields).some(field => field !== null && typeof field !== 'string')
+    )
+  ) {
+    throw new TypeError('Expected resolved Applet bindings')
+  }
+  return {
+    source: value.source,
+    env: value.env as Record<string, string>,
+    bindings: bindings as AppletCode['bindings']
+  }
 }
 
 async function worker(service: string, runId: string, module: string, options: Record<string, unknown>) {
@@ -207,7 +216,7 @@ Deno.serve(async (req: Request) => {
     const cacheMatch = /^\/v1\/applet\/code\/([a-f0-9]{64})$/.exec(url.pathname)
     if (req.method === 'PUT' && cacheMatch) {
       const code = codePayload(await body(req))
-      if ((await codeDigest(code)) !== cacheMatch[1]) return json(422, 'applet_code_digest_mismatch')
+      if ((await appletCodeDigest(code)) !== cacheMatch[1]) return json(422, 'applet_code_digest_mismatch')
       codeCache.put(cacheMatch[1], code)
       return new Response(null, { status: 204 })
     }
@@ -221,22 +230,31 @@ Deno.serve(async (req: Request) => {
     if (req.method === 'POST' && url.pathname === '/v1/applet/inspect') {
       const payload = await body(req)
       if (typeof payload.source !== 'string') return json(400, 'invalid_request')
-      const env = codePayload({ source: payload.source, env: payload.env || {} }).env
+      const { env, bindings } = codePayload({
+        source: payload.source,
+        env: payload.env || {},
+        bindings: payload.bindings
+      })
       const releaseCapacity = appletCapacity.acquire('route', payload.memory_mb || 64)
       if (!releaseCapacity) return json(503, 'runtime_busy')
-      await evictWarmWorkers()
       let instance: Awaited<ReturnType<typeof worker>> | undefined
       try {
-        instance = await worker('inspect', crypto.randomUUID(), buildAppletWorkerBootstrap(payload.source, true), {
-          forceCreate: true,
-          context: { supervisor: { requestAbsentTimeoutMs: 0 } },
-          envVars: Object.entries(env),
-          permissions: { ...noPermissions, allow_read: ['/tmp'], allow_write: ['/tmp'], allow_env: [] },
-          memoryLimitMb: payload.memory_mb || 64,
-          workerTimeoutMs: payload.timeout_ms || 5000,
-          cpuTimeSoftLimitMs: payload.timeout_ms || 5000,
-          cpuTimeHardLimitMs: payload.timeout_ms || 5000
-        })
+        await evictWarmWorkers()
+        instance = await worker(
+          'inspect',
+          crypto.randomUUID(),
+          buildAppletWorkerBootstrap(payload.source, true, bindings),
+          {
+            forceCreate: true,
+            context: { supervisor: { requestAbsentTimeoutMs: 0 } },
+            envVars: Object.entries(env),
+            permissions: { ...noPermissions, allow_read: ['/tmp'], allow_write: ['/tmp'], allow_env: [] },
+            memoryLimitMb: payload.memory_mb || 64,
+            workerTimeoutMs: payload.timeout_ms || 5000,
+            cpuTimeSoftLimitMs: payload.timeout_ms || 5000,
+            cpuTimeHardLimitMs: payload.timeout_ms || 5000
+          }
+        )
         return await fetchOneShot(instance, req, JSON.stringify({ contexts: payload.contexts ?? [] }))
       } catch (error: any) {
         return json(422, 'invalid_applet_routes', String(error?.message || error))
@@ -259,11 +277,11 @@ Deno.serve(async (req: Request) => {
       }
       const sourceFailure = validateProgramSource(payload)
       if (sourceFailure) return Response.json(sourceFailure)
-      const releaseCapacity = appletCapacity.acquire('route', 256)
+      const releaseCapacity = appletCapacity.acquire('ptc', 256)
       if (!releaseCapacity) return json(503, 'runtime_busy')
-      await evictWarmWorkers()
       let instance: Awaited<ReturnType<typeof worker>> | undefined
       try {
+        await evictWarmWorkers()
         const timeout = payload.timeout_ms ?? 30000
         instance = await worker('ptc', crypto.randomUUID(), buildPtcRunnerModule(payload), {
           forceCreate: true,
@@ -308,9 +326,11 @@ Deno.serve(async (req: Request) => {
       const timeout = Number(url.searchParams.get('timeout_ms')) || 60000
       const memory = Number(url.searchParams.get('memory_mb')) || (lane === 'action' ? 192 : 128)
       const sha = url.searchParams.get('sha256') || ''
-      let lease = invocations.get(runId)
-      if (!lease) {
-        const pagePrefix = `${lane}:${tenant}:${page}:`
+      const isUpgrade = req.headers.get('upgrade')?.toLowerCase() === 'websocket'
+
+      if (!isUpgrade) {
+        if (invocations.has(runId)) return json(409, 'invocation_already_started')
+        const pagePrefix = `${lane}:${revision.startsWith('draft:') ? 'draft' : 'live'}:${tenant}:${page}:`
         const poolKey = `${pagePrefix}${revision}:${sha}`
         await retireSupersededWarmWorkers(pagePrefix, poolKey)
         await evictWarmWorkers()
@@ -319,47 +339,81 @@ Deno.serve(async (req: Request) => {
         if (!code) return json(428, 'applet_code_missing')
         const releaseCapacity = appletCapacity.acquire(lane, memory)
         if (!releaseCapacity) return json(503, 'runtime_busy')
+        type InvocationLease = NonNullable<ReturnType<typeof invocations.get>>
         let settlement: Promise<void> | undefined
-        const release = (aborted = false) => {
+        const settle = (target: InvocationLease, timerId: ReturnType<typeof setTimeout>, aborted = false) => {
+          target.settled = true
           return (settlement ??= (async () => {
-            clearTimeout(timer)
+            clearTimeout(timerId)
             // Settlement also closes a bridge whose control-plane side never completed its upgrade.
-            lease?.inner?.close()
+            target.inner?.close()
             try {
-              if (lease?.worker) {
-                const instance = await lease.worker
-                if (aborted || draining) await instance.retire()
-                else {
-                  const entries = warmWorkers.get(poolKey) ?? []
-                  entries.push({ instance, memory, createdAt: lease.createdAt!, idleAt: Date.now() })
-                  warmWorkers.set(poolKey, entries)
-                  warmHeapMb += memory
+              if (target.worker) {
+                let resolved: EdgeRuntime.UserWorker | undefined
+                try {
+                  resolved = await target.worker
+                } catch {
+                  resolved = undefined
+                }
+                if (resolved) {
+                  if (aborted || draining || !target.bridged || Date.now() >= target.deadline) {
+                    await resolved.retire()
+                  } else {
+                    const entries = warmWorkers.get(poolKey) ?? []
+                    entries.push({
+                      instance: resolved,
+                      memory,
+                      createdAt: target.createdAt!,
+                      idleAt: Date.now()
+                    })
+                    warmWorkers.set(poolKey, entries)
+                    warmHeapMb += memory
+                  }
                 }
               }
             } finally {
               releaseCapacity()
-              await evictWarmWorkers()
+              try {
+                await evictWarmWorkers()
+              } catch (error) {
+                console.error('Warm worker eviction failed during release', error)
+              }
             }
           })().finally(() => invocations.delete(runId)))
         }
         const timer = setTimeout(() => {
-          void release(true).catch(error => console.error('Applet worker retirement failed', error))
+          void lease.release(true).catch(error => console.error('Applet worker retirement failed', error))
         }, timeout + 500)
-        lease = { code, poolKey, release, started: false, deadline: Date.now() + timeout }
+        const lease: InvocationLease = {
+          code,
+          poolKey,
+          release: (aborted = false) => settle(lease, timer, aborted),
+          started: false,
+          settled: false,
+          bridged: false,
+          deadline: Date.now() + timeout
+        }
         invocations.set(runId, lease)
+        return new Response(null, { status: 204 })
       }
-      if (req.headers.get('upgrade')?.toLowerCase() !== 'websocket') return new Response(null, { status: 204 })
+
+      const lease = invocations.get(runId)
+      if (!lease) return json(404, 'invocation_not_found')
+      if (lease.settled) return json(504, 'handler_timeout')
       if (lease.started) return json(409, 'invocation_already_started')
       lease.started = true
       const { code, poolKey, release } = lease
-      let instance: Awaited<ReturnType<typeof worker>> | undefined
       try {
-        const cached = takeWarmWorker(poolKey, memory, timeout)
         await evictWarmWorkers()
+        if (lease.settled) {
+          await release(true)
+          return json(504, 'handler_timeout')
+        }
+        const cached = takeWarmWorker(poolKey, memory, timeout)
         lease.createdAt = cached?.createdAt ?? Date.now()
         lease.worker = cached
           ? Promise.resolve(cached.instance)
-          : worker('applet', poolKey, buildAppletWorkerBootstrap(code.source), {
+          : worker('applet', poolKey, buildAppletWorkerBootstrap(code.source, false, code.bindings), {
               poolKey,
               forceCreate: true,
               envVars: Object.entries(code.env),
@@ -375,7 +429,11 @@ Deno.serve(async (req: Request) => {
                 allow_env: []
               }
             })
-        instance = await lease.worker
+        await lease.worker
+        if (lease.settled) {
+          await release(true)
+          return json(504, 'handler_timeout')
+        }
         const origin = req.headers.get('x-ankole-mcp-origin')
         const caller = req.headers.get('x-ankole-caller-mcp-token')
         const admin = req.headers.get('x-ankole-admin-mcp-token')
@@ -389,15 +447,17 @@ Deno.serve(async (req: Request) => {
         // Upgrading afterwards keeps Worker boot inside admission, so an expired call never starts.
         const inner = new WebSocket(`ws://127.0.0.1:9000/_internal/applet/bridge/${runId}?token=${lease.bridgeToken}`)
         lease.inner = inner
-        if (!(await bridgeReady(inner, lease.deadline))) {
+        if (!(await bridgeReady(inner, lease.deadline)) || lease.settled) {
           await release(true)
           return json(504, 'handler_timeout')
         }
         const { socket, response } = Deno.upgradeWebSocket(req)
-        socket.addEventListener('open', () => bridgeAppletSockets(socket, inner, mcp), { once: true })
+        lease.bridged = true
+        socket.addEventListener('open', () => bridgeAppletSockets(socket, inner, mcp), {
+          once: true
+        })
         return response
       } catch (error: any) {
-        if (!instance) lease.worker = undefined
         await release(true)
         return json(500, 'handler_error', String(error?.message || error))
       }

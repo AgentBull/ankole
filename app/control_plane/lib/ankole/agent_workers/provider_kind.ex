@@ -21,7 +21,7 @@ defmodule Ankole.AgentWorkers.ProviderKind do
 
   @type observation :: %{
           optional(:instance_present?) => boolean(),
-          optional(:sandbox_name) => String.t(),
+          optional(:provider_metadata) => map(),
           required(:tenant_id) => String.t() | nil,
           required(:agent_uid) => String.t() | nil,
           required(:generation) => String.t() | nil,
@@ -35,7 +35,11 @@ defmodule Ankole.AgentWorkers.ProviderKind do
   @callback validate_credentials(map(), map()) :: :ok | {:error, term()}
   @callback prepare_credentials(Provider.t(), map(), map()) :: {:ok, map()} | {:error, term()}
   @callback instance_lifetime(map()) :: pos_integer()
-  @optional_callbacks validate_credentials: 2, prepare_credentials: 3, instance_lifetime: 1
+  @optional_callbacks validate_credentials: 2,
+                      prepare_credentials: 3,
+                      instance_lifetime: 1,
+                      pause_instance: 2,
+                      resume_instance: 2
 
   @callback check(Runtime.t()) :: :ok | {:error, term()}
   @callback prepare_image(Runtime.t(), String.t()) :: :ok | {:pending, term()} | {:error, term()}
@@ -109,7 +113,7 @@ defmodule Ankole.AgentWorkers.ProviderKind do
       when is_binary(id) and is_atom(module) do
     with :ok <- validate_builtin_override(id),
          :ok <- validate_module(module) do
-      validate_definition(id, module.definition())
+      validate_definition(id, module, module.definition())
     end
   end
 
@@ -129,12 +133,20 @@ defmodule Ankole.AgentWorkers.ProviderKind do
     end
   end
 
-  defp validate_definition(id, %Definition{kind: id}), do: :ok
+  defp validate_definition(id, module, %Definition{kind: id, pause: pause}) do
+    if pause and
+         not (function_exported?(module, :pause_instance, 2) and
+                function_exported?(module, :resume_instance, 2)) do
+      {:error, {:worker_provider_missing_pause_callbacks, id, module}}
+    else
+      :ok
+    end
+  end
 
-  defp validate_definition(id, %Definition{kind: actual}),
+  defp validate_definition(id, _module, %Definition{kind: actual}),
     do: {:error, {:worker_provider_kind_mismatch, id, actual}}
 
-  defp validate_definition(id, definition),
+  defp validate_definition(id, _module, definition),
     do: {:error, {:invalid_worker_provider_definition, id, definition}}
 
   @doc "The lifetime of a generation, from its saved instance settings."

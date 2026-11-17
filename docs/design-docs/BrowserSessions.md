@@ -90,12 +90,11 @@ parameters (`tenant_id`, `return_to`, sealed `console_return`, `switch=1`,
 
 `AnkoleWeb.BrowserAuth.Targets` owns ceremony resolution. `AnkoleWeb.PodURL`
 uses the build-selected host policy to generate login destinations, enterprise
-SSO authorization URLs, and OAuth continuations. In SaaS, Pod login shells,
-including privileged-Pod Console sign-in, OAuth login, and account selection,
-run on `accounts`; enterprise SSO authorization and callbacks run on the target
-Pod host, and successful completion returns to the Pod host, the site Console
-origin (when the ceremony carries `console_return`), or the Pod's
-`/oauth/authorize/resume` endpoint.
+SSO authorization URLs, and OAuth continuations. The policy selects the login
+host; enterprise SSO authorization and callbacks run on the target Pod host.
+Successful completion returns to the Pod host, the site Console origin (when
+the ceremony carries `console_return`), or the Pod's `/oauth/authorize/resume`
+endpoint.
 
 Login ceremonies target either a specific tenant or the site:
 
@@ -221,7 +220,7 @@ Alongside browser cookie proofs, `AnkoleWeb.Plugs.RequirePodSession`,
 the native desktop client. On desktop requests, the Tauri custom-protocol
 gateway (`tauri://localhost` on macOS and Linux; `http://tauri.localhost` or
 `https://tauri.localhost` on Windows) strips cookies and injects
-`Authorization: Bearer <token>` on `/api/v2/pod/*`, `/api/v2/saas-pod/*`,
+`Authorization: Bearer <token>` on `/api/v2/pod/*`, extension-declared Pod API paths,
 `/api/v2/pod/bootstrap`, `GET /api/v2/browser/session`, and
 `/pod/applet-frame/oauth/:id/:revision/*path`, while `PodSocket` accepts the
 desktop WebView origin and verifies short-lived socket tokens bound to the live
@@ -231,7 +230,7 @@ expired tokens with `401 unauthorized` rather than falling back to ambient
 browser cookies—and `BrowserCSRF` skips cookie CSRF checks because cross-site
 browser navigation cannot attach `Authorization` headers. For standalone browser
 installations, `AnkoleWeb.SpaController` serves `GET /pod/manifest.webmanifest`
-and links that manifest on the `pod` and `saas-pod` shells.
+and links that manifest on the `pod` shell, including edition overrides.
 Conversation endpoints verify either
 participant membership or, for a Page-anchored thread, `node_view` permission on
 its anchor Page. Console API endpoints and native Console file transfers verify
@@ -423,19 +422,29 @@ is disabled; see [OIDC Server](OIDCServer.md).
 
 ## Expiration and cleanup
 
+When a top-level browser navigation to `/sessions/oidc/:provider_id/authorization`
+or `/sessions/oidc/:provider_id/callback` fails—such as an expired challenge, a
+disabled account, a suspended tenant, or a subject mismatch—`AuthController`
+renders the Auth SPA HTML shell carrying `<meta name="ankole-auth-error">`
+(while API callers requesting `Accept: application/json` continue to receive
+structured JSON), and the browser replaces `/sessions/oidc/*` in `history` to
+strip single-use `?code=&state=` parameters so refreshing or retrying starts a
+clean sign-in flow. Unmatched browser paths likewise render a themed `404`
+screen in the Auth and Pod SPAs.
+
 Hourly OIDC cleanup uses a single cutoff timestamp across all tenants: it first
 deletes expired inbound `AuthorizationRequest` rows per tenant, and then calls
 `BrowserSessions.cleanup_expired/1` once (even if a tenant sweep failed).
-`BrowserSessions` deletes expired `OidcState` rows and expired browser groups
-that have no retained RP associations, cascading via foreign keys to remove
-their authentications and Pod proofs. Deleting a tenant removes its Pod access
+`BrowserSessions` deletes expired `OidcState` rows, revoked or expired
+`BrowserAuthentication` rows older than 14 days inside surviving browser groups,
+and expired browser groups that have no retained RP associations, cascading via
+foreign keys to remove their authentications and Pod proofs. Deleting a tenant removes its Pod access
 proofs, outbound `OidcState` rows, inbound `AuthorizationRequest` rows, and
 native tenant authentications through the tenant-deletion owner.
 
 Finally, the `RequestHost` policy defines host classification, the shared cookie
 domain, tenant origins, canonical origins, and explicit per-host route
 allowlists; declaring a Phoenix route alone never exposes it on a Pod host.
-Hosts classified as `:static` (such as `cdn.<domain>` and an optional external
-SaaS CDN host) serve only `GET` and `HEAD` files matched by `Plug.Static` with
-anonymous CORS headers, returning `404` without session cookies for `/` and all
+Hosts classified as `:static` serve only `GET` and `HEAD` files matched by
+`Plug.Static` with anonymous CORS headers, returning `404` without session cookies for `/` and all
 dynamic routes or sockets.

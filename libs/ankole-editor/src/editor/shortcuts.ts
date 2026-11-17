@@ -9,7 +9,7 @@ import { KeyBinding, type Wordgard } from '../core/editor'
 import { GardSelection, GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { Embed, embedAttributes } from '../blocks/embed'
-import { MathBlock, openMathEditor } from '../blocks/math'
+import { InlineMath, MathBlock, insertInlineMath, openMathEditor } from '../blocks/math'
 import { isEditableResource, openResourceEditor } from '../blocks/resources'
 import { applyBlockType, blockTypeAt, duplicateBlocks, moveBlocks } from './block-actions'
 import { type CoreBlockType } from './block-catalog'
@@ -30,7 +30,7 @@ const formats: [key: string, format: FormatName][] = [
   ['Mod-Shift-h', 'mark']
 ]
 
-// Turn into, by digit, as in Notion: Command+Option on Apple platforms and Ctrl+Shift elsewhere.
+// Turn into, by digit: Command+Option on Apple platforms and Ctrl+Shift elsewhere.
 const turnInto: [digit: string, type: CoreBlockType][] = [
   ['0', 'paragraph'],
   ['1', 'h1'],
@@ -114,7 +114,7 @@ const modifyBlock: Command = wg => {
     openPage(attrs.ref)
     return true
   }
-  if (!state.readOnly && unit.node.type === MathBlock) {
+  if (!state.readOnly && (unit.node.type === MathBlock || unit.node.type === InlineMath)) {
     return { effects: openMathEditor.of(unit.before), scrollIntoView: true }
   }
   if (unit.node.isPlot && unit.node.tag.is(T.Heading)) {
@@ -135,6 +135,7 @@ const always =
 
 const keys: KeyBinding.Spec[] = [
   ...formats.map(([key, format]) => ({ key, run: (wg => toggleFormat(wg, format)) as Command })),
+  { key: 'Mod-Shift-e', run: wg => insertInlineMath(wg) },
   ...turnInto.map(([digit, type]) => ({
     mac: `Cmd-Alt-${digit}`,
     key: `Ctrl-Shift-${digit}`,

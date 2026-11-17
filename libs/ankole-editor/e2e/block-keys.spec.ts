@@ -10,8 +10,7 @@ import {
   test
 } from './helpers'
 
-// Backspace, Delete, Enter and Tab at block boundaries behave as in Notion (checked by hand on
-// 2026-10-08). The caret is in the text given by `at`. Playwright runs the browsers on this
+// The caret is in the text given by `at`. Playwright runs the browsers on this
 // machine, so the page and the browser use its platform keys.
 const mac = process.platform === 'darwin'
 const backspace = mac ? [['Backspace'], ['Alt+Backspace'], ['Control+H']] : [['Backspace'], ['Control+Backspace']]

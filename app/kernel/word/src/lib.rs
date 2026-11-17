@@ -34,6 +34,8 @@ mod convert;
 mod derive;
 /// Headless collaborative Word editor state for browser Web Workers.
 pub mod editor;
+/// Compiler from normalized Ankole `<page>` export trees into [`WordDoc`].
+pub mod from_page;
 mod markers;
 mod ops;
 mod rebase;
@@ -43,6 +45,7 @@ pub use agent::{
     render_page_png, render_page_png_meta, render_page_rgba,
 };
 pub use convert::{ConversionReport, ConvertedAsset, ConvertedDocument, to_document};
+pub use from_page::{ExportFontNeeds, from_page_tree, report_font_needs};
 pub use ops::{Applied, ChangeSet, DocField, Edit, EntryMap};
 
 /// Current canonical wire model version for Word change sets.

@@ -11,7 +11,7 @@ defmodule Ankole.Brain.Claims do
   Each top-level write owns its transaction through `Ankole.Repo.transact_top_level/2`.
   The `_in_tx` functions give the steps; another operation calls them in its own
   transaction. The semantic dedup query and the Ecto filters of the retrieval
-  queries stay Ecto queries (M9 retrieval).
+  queries stay Ecto queries.
   """
 
   import Ecto.Query, warn: false
@@ -26,12 +26,6 @@ defmodule Ankole.Brain.Claims do
   @fact_kinds ~w(event preference commitment belief fact)
   @notabilities ~w(high medium low)
   @resolution_qualities ~w(correct incorrect partial unresolvable)
-
-  # GBrain semantic dedup: top cosine at or above this merges.
-  @dedup_threshold 0.95
-  @dedup_candidate_limit 5
-  # Each retry follows one concurrent replacement of the dedup target.
-  @dedup_attempts 5
 
   # Server-side content gates: prompt contracts do the semantics, these stop
   # mechanical garbage.
@@ -103,8 +97,6 @@ defmodule Ankole.Brain.Claims do
   @spec list_for_principal_audit(String.t(), keyword()) :: [Claim.t()]
   def list_for_principal_audit(principal_uid, opts)
       when is_binary(principal_uid) and is_list(opts) do
-    limit = Keyword.fetch!(opts, :limit)
-
     page_ids =
       case Scope.canonical_page_id(principal_uid) do
         {:ok, id} -> [id]
@@ -117,20 +109,16 @@ defmodule Ankole.Brain.Claims do
         {:error, _} -> page_ids
       end
 
-    scope = Scope.principal(principal_uid)
-
-    scopes = if is_binary(scope), do: [scope], else: []
-
-    principal_ref =
-      Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: principal_uid})
+    scopes = List.wrap(Scope.principal(principal_uid))
+    ref = Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: principal_uid})
 
     Claim
     |> Ash.Query.filter(
-      holder in ^holders or subject_page_id in ^page_ids or author == ^principal_ref or
+      holder in ^holders or subject_page_id in ^page_ids or author == ^ref or
         source_node_id in ^scopes
     )
     |> Ash.Query.sort(created_at: :desc)
-    |> Ash.Query.limit(limit)
+    |> Ash.Query.limit(Keyword.fetch!(opts, :limit))
     |> Ankole.Ash.read!()
   end
 
@@ -194,8 +182,9 @@ defmodule Ankole.Brain.Claims do
   # current Fact.
   def record_fact_in_tx(attrs, writer, {embedding, signature}, opts) do
     dedup? = Keyword.get(opts, :dedup, true)
+    dedup_input = if(dedup?, do: {embedding, signature})
 
-    case current_dedup_action(attrs, if(dedup?, do: {embedding, signature})) do
+    case __MODULE__.Dedup.resolve_in_tx(attrs, dedup_input, &lock_claim/1) do
       {:duplicate, existing} ->
         {:ok, %{claim: existing, status: :duplicate}}
 
@@ -416,6 +405,8 @@ defmodule Ankole.Brain.Claims do
           {:ok, Claim.t()} | {:error, term()}
   def consolidate_facts_in_tx(take_attrs, fact_ids, embedding) do
     with :ok <- Repo.require_transaction(),
+         :ok <- lock_consolidation_pages(take_attrs),
+         :ok <- lock_consolidation_facts(take_attrs, fact_ids),
          {:ok, take} <-
            write_take(take_attrs, :system,
              embedding: embedding,
@@ -430,6 +421,48 @@ defmodule Ankole.Brain.Claims do
 
       {:ok, take}
     end
+  end
+
+  defp lock_consolidation_pages(attrs) do
+    page_ids =
+      [attrs[:subject_page_id], attrs[:source_node_id]]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    if page_ids != [] do
+      Ankole.Pod.Pages.Tree.lock_tree(shared: true)
+    end
+
+    Enum.reduce_while(page_ids, :ok, fn id, :ok ->
+      with {:ok, %{deleted_at: nil} = page} <- Ankole.Pod.Pages.Tree.lock(id, :share),
+           %{in_trash: false} <- Ankole.Ash.load!(page, :in_trash) do
+        {:cont, :ok}
+      else
+        _ -> {:halt, {:error, :stale_facts}}
+      end
+    end)
+  end
+
+  defp lock_consolidation_facts(attrs, fact_ids) do
+    ids = Enum.uniq(fact_ids)
+
+    facts =
+      Claim
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.Query.sort(id: :asc)
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read!()
+
+    if ids != [] and length(facts) == length(ids) and
+         Enum.all?(facts, fn fact ->
+           fact.claim_type == :fact and is_nil(fact.expired_at) and
+             is_nil(fact.superseded_by) and is_nil(fact.consolidated_at) and
+             fact.subject_page_id == attrs[:subject_page_id] and
+             fact.source_node_id == attrs[:source_node_id]
+         end),
+       do: :ok,
+       else: {:error, :stale_facts}
   end
 
   @doc false
@@ -532,11 +565,8 @@ defmodule Ankole.Brain.Claims do
   @spec prepare_embedding(term()) :: {Ash.Vector.t() | nil, String.t() | nil}
   def prepare_embedding(text) when is_binary(text) do
     case Embeddings.embed_texts([text]) do
-      {:ok, {[vector], signature}} ->
-        {vector, signature}
-
-      {:error, _reason} ->
-        {nil, nil}
+      {:ok, {[vector], signature}} -> {vector, signature}
+      {:error, _reason} -> {nil, nil}
     end
   end
 
@@ -600,66 +630,6 @@ defmodule Ankole.Brain.Claims do
     end
   end
 
-  # The dedup target is locked and read again before the write decision. A
-  # concurrent write can supersede or expire the target after the candidate
-  # query; the locked read waits for that write to commit, and the candidate
-  # query then runs again and finds the replacement row. A Fact therefore
-  # never supersedes a row that already left the current state.
-  defp current_dedup_action(attrs, embedding, attempts \\ @dedup_attempts)
-
-  defp current_dedup_action(_attrs, _embedding, 0), do: {:error, :dedup_target_contended}
-
-  defp current_dedup_action(attrs, embedding, attempts) do
-    case find_dedup_action(attrs, embedding) do
-      :insert ->
-        :insert
-
-      {action, candidate_id} ->
-        case lock_claim(candidate_id) do
-          {:ok, %Claim{claim_type: :fact, expired_at: nil, superseded_by: nil} = target} ->
-            {action, target}
-
-          _replaced_or_removed ->
-            current_dedup_action(attrs, embedding, attempts - 1)
-        end
-    end
-  end
-
-  defp find_dedup_action(_attrs, nil), do: :insert
-  defp find_dedup_action(_attrs, {nil, _signature}), do: :insert
-  defp find_dedup_action(_attrs, {_embedding, nil}), do: :insert
-
-  defp find_dedup_action(attrs, {embedding, signature}) do
-    candidates =
-      Claim
-      |> current_external_facts()
-      |> where([claim], claim.source_node_id == ^attrs[:source_node_id])
-      |> where([claim], not is_nil(claim.embedding))
-      |> where([claim], claim.embedding_signature == ^signature)
-      |> parent_filter(attrs)
-      |> order_by([claim], fragment("? <=> ?", claim.embedding, ^embedding))
-      |> limit(@dedup_candidate_limit)
-      |> select([claim], %{
-        id: claim.id,
-        claim: claim.claim,
-        kind: claim.kind,
-        similarity: fragment("1 - (? <=> ?)", claim.embedding, ^embedding)
-      })
-      |> Repo.all()
-
-    case candidates do
-      [%{similarity: similarity} = top | _rest] when similarity >= @dedup_threshold ->
-        cond do
-          normalized_text(top.claim) == normalized_text(attrs[:claim]) -> {:duplicate, top.id}
-          top.kind == attrs[:kind] -> {:supersede, top.id}
-          true -> {:duplicate, top.id}
-        end
-
-      _no_hit ->
-        :insert
-    end
-  end
-
   defp attach_current_embedding(
          %Claim{embedding_signature: signature, embedded_at: %DateTime{}},
          _embedding,
@@ -675,26 +645,31 @@ defmodule Ankole.Brain.Claims do
          now
        ) do
     attrs = %{
+      exclude_id: claim.id,
       subject_page_id: claim.subject_page_id,
       conversation_id: claim.conversation_id,
       claim: claim.claim,
       kind: claim.kind,
       holder: claim.holder,
-      source_node_id: claim.source_node_id
+      source_node_id: claim.source_node_id,
+      provenance: claim.provenance
     }
 
-    case current_dedup_action(attrs, {embedding, signature}) do
+    case __MODULE__.Dedup.resolve_in_tx(attrs, {embedding, signature}, &lock_claim/1) do
       :insert ->
         put_embedding(claim, embedding, signature, now, :embedded)
 
       {:error, _reason} = error ->
         error
 
+      {:duplicate, %{id: id}} when id == claim.id ->
+        put_embedding(claim, embedding, signature, now, :embedded)
+
       {:duplicate, existing} ->
-        with {:ok, _claim} <-
-               mark_superseded(claim, existing.id, :deduplicate) do
-          {:ok, :deduplicated}
-        end
+        deduplicate_into(claim, existing.id)
+
+      {:supersede, %{id: id}} when id == claim.id ->
+        put_embedding(claim, embedding, signature, now, :embedded)
 
       {:supersede, existing} ->
         if later_than?(claim, existing) do
@@ -703,10 +678,7 @@ defmodule Ankole.Brain.Claims do
             {:ok, :superseded}
           end
         else
-          with {:ok, _claim} <-
-                 mark_superseded(claim, existing.id, :deduplicate) do
-            {:ok, :deduplicated}
-          end
+          deduplicate_into(claim, existing.id)
         end
     end
   end
@@ -721,6 +693,15 @@ defmodule Ankole.Brain.Claims do
 
   defp attach_current_embedding(_claim, _embedding, _signature, _now),
     do: {:ok, :stale}
+
+  defp deduplicate_into(%Claim{id: id}, id) do
+    raise ArgumentError, "cannot deduplicate claim #{id} into itself"
+  end
+
+  defp deduplicate_into(claim, target_id) do
+    with {:ok, _claim} <- mark_superseded(claim, target_id, :deduplicate),
+         do: {:ok, :deduplicated}
+  end
 
   defp put_embedding(claim, embedding, signature, now, status \\ nil) do
     result =
@@ -741,23 +722,8 @@ defmodule Ankole.Brain.Claims do
   end
 
   defp later_than?(left, right) do
-    case DateTime.compare(left.created_at, right.created_at) do
-      :gt -> true
-      :lt -> false
-      :eq -> left.id > right.id
-    end
-  end
-
-  defp parent_filter(query, attrs) do
-    where(
-      query,
-      [claim],
-      fragment(
-        "? IS NOT DISTINCT FROM ?",
-        claim.subject_page_id,
-        type(^attrs[:subject_page_id], Ecto.UUID)
-      )
-    )
+    {DateTime.to_unix(left.created_at, :microsecond), left.id} >
+      {DateTime.to_unix(right.created_at, :microsecond), right.id}
   end
 
   defp maybe_console_object(query, slug) when is_binary(slug) and slug != "",
@@ -793,13 +759,6 @@ defmodule Ankole.Brain.Claims do
 
   defp maybe_console_search(query, _term), do: query
 
-  defp normalized_text(text) do
-    text
-    |> String.downcase()
-    |> String.replace(~r/\s+/u, " ")
-    |> String.trim()
-  end
-
   defp insert_fact(attrs, embedding, signature, writer, opts) do
     now = DateTime.utc_now(:microsecond)
 
@@ -829,8 +788,6 @@ defmodule Ankole.Brain.Claims do
   defp mark_superseded(%Claim{} = old, new_claim_id, action \\ :supersede) do
     Ankole.Ash.update(old, action, %{superseded_by: new_claim_id})
   end
-
-  defp validate_parent(%{subject_page_id: nil}), do: :ok
 
   defp validate_parent(attrs) do
     case attrs[:subject_page_id] do
@@ -913,20 +870,15 @@ defmodule Ankole.Brain.Claims do
   defp validate_scope(scope, writer_uid) when is_binary(writer_uid),
     do: Scope.validate_writable(scope, writer_uid)
 
-  defp validate_required_provenance(provenance)
-       when is_binary(provenance) and provenance != "" do
-    :ok
-  end
+  defp validate_required_provenance(provenance) when is_binary(provenance) and provenance != "",
+    do: :ok
 
   defp validate_required_provenance(_provenance), do: {:error, :missing_provenance}
 
   defp validate_valid_from(%DateTime{}), do: :ok
   defp validate_valid_from(_value), do: {:error, :missing_valid_from}
 
-  defp validate_resolution(resolution) do
-    quality = resolution[:resolved_quality]
-    outcome = resolution[:resolved_outcome]
-
+  defp validate_resolution(%{resolved_quality: quality, resolved_outcome: outcome}) do
     cond do
       quality not in @resolution_qualities ->
         {:error, {:invalid_resolution_quality, quality}}
@@ -942,17 +894,20 @@ defmodule Ankole.Brain.Claims do
     end
   end
 
-  defp validate_edit_eligibility(%Claim{} = claim, writer) do
-    case writer do
-      :system ->
-        :ok
+  defp validate_resolution(resolution),
+    do:
+      validate_resolution(%{
+        resolved_quality: resolution[:resolved_quality],
+        resolved_outcome: resolution[:resolved_outcome]
+      })
 
-      writer_uid when is_binary(writer_uid) ->
-        if Scope.satisfied_by?(claim.source_node_id, writer_uid) or
-             claim.author == Ankole.ActorRef.from_writer(writer_uid, Repo.tenant_id!(), []),
-           do: :ok,
-           else: {:error, :writer_not_in_claim_scope}
-    end
+  defp validate_edit_eligibility(%Claim{}, :system), do: :ok
+
+  defp validate_edit_eligibility(%Claim{} = claim, writer_uid) when is_binary(writer_uid) do
+    if Scope.satisfied_by?(claim.source_node_id, writer_uid) or
+         claim.author == Ankole.ActorRef.from_writer(writer_uid, Repo.tenant_id!(), []),
+       do: :ok,
+       else: {:error, :writer_not_in_claim_scope}
   end
 
   defp ensure_not_superseded(%Claim{superseded_by: nil}), do: :ok

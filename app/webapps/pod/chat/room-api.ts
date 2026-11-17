@@ -41,8 +41,7 @@ export function useRoomActions(id: string) {
   // A read position belongs to the viewer alone, so its confirmation updates the cached room and lists in place.
   const markRead = useMutation({
     mutationFn: (lastReadSeq: number) => updateConversation({ path: { id }, body: { data: { lastReadSeq } } }),
-    onSuccess: (data: ConversationDetail) => acceptReadPosition(client, data),
-    onError
+    onSuccess: (data: ConversationDetail) => acceptReadPosition(client, data)
   })
   const participants = useMutation({
     mutationFn: (data: ParticipantUpdate) => updateConversationParticipants({ path: { id }, body: { data } }),
@@ -65,7 +64,8 @@ export function useRoomActions(id: string) {
       resolveConversationActionCard({ path: { id, card_id: cardID }, body: { data: { decision } } }),
     onSuccess,
     onError: error => {
-      if (requestErrorCode(error) === 'action_card_not_pending') void refreshConversationQueries(client, id)
+      const code = requestErrorCode(error)
+      if (code === 'action_card_not_pending' || code === 'conflict') void refreshConversationQueries(client, id)
       else onError(error)
     }
   })

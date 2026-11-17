@@ -34,11 +34,11 @@ import { normalizedPageDocument } from './convert'
 import { BlockSelection } from './block-selection'
 import { withoutCommentSlice } from './comments'
 import { hostFacet } from './host-context'
-import { isKnowledge } from './knowledge'
+import { downgradeKnowledgeSlice, isKnowledge } from './knowledge'
 import { linkAt } from './links'
 import { inheritedMentionMarks } from './mention'
 import { Comment, Link, Mention, type MentionTarget } from './schema'
-import { wordListHTML } from './word-lists'
+import { mathHTML, wordListHTML } from './word-lists'
 
 // A same-editor cut is a one-use move. The operating-system clipboard contains only an opaque
 // token and portable content; another page, a second paste, or undo uses ordinary stripped content.
@@ -219,37 +219,6 @@ const hasMarkdown = (page: Element) =>
     block => block.type === 'element' && (block.name !== 'p' || block.children.some(node => node.type !== 'text'))
   )
 
-function downgradeKnowledgeTag(tag: Plot.Tag): Plot.Tag {
-  if (tag.type === MermaidBlock.type) {
-    return tag.marks.length ? MermaidBlock.withMarks([]) : tag
-  }
-  if (tag.type === InfographicBlock.type) {
-    return T.CodeBlock.withMarks([T.CodeBlockLanguage.of('infographic')])
-  }
-  return tag
-}
-
-function downgradeKnowledgeNode(node: Node): Node {
-  if (node.isLeaf) return node
-  const tag = downgradeKnowledgeTag(node.tag)
-  const content = node.content.map(downgradeKnowledgeNode)
-  return tag === node.tag && content.every((child, i) => child === node.content[i]) ? node : tag.create(content)
-}
-
-/**
- * Downgrade cross-page diagram nodes pasted into a knowledge editor so display-only Mermaid marks
- * are stripped and `<infographic>` blocks become `<pre lang="infographic">` preserving source text.
- */
-export function downgradeKnowledgeSlice(slice: Slice): Slice {
-  const content = slice.content.map((token): Token => {
-    if (isOpen(token)) return downgradeKnowledgeTag(token)
-    if (isClose(token)) return token
-    return downgradeKnowledgeNode(token as Node)
-  })
-  const context = slice.context.map(downgradeKnowledgeTag)
-  return Slice.of(content, context)
-}
-
 /**
  * Plain text that reads as Markdown beyond plain paragraphs pastes as page content. Plain
  * paragraphs, unknown elements and unreadable Markdown paste as plain text. Code, diagram and
@@ -401,6 +370,8 @@ const richHtmlAttrs = new Set([
   'data-href',
   'data-mention-page',
   'data-mention-principal',
+  'data-inline-math',
+  'data-math',
   'data-callout',
   'data-language',
   'data-align',
@@ -448,7 +419,7 @@ function classifyPlainHtmlWrapper(html: string): 'rich' | 'pre' | 'plain' {
     if (richHtmlTags.has(tag)) return 'rich'
     if (tag === 'a' && /\bhref\s*=/i.test(attrs)) return 'rich'
     if (
-      /\b(?:data-resource|data-href|data-mention-page|data-mention-principal|data-callout|data-language|data-align|align|aria-checked)\s*=/i.test(
+      /\b(?:data-resource|data-href|data-mention-page|data-mention-principal|data-inline-math|data-math|data-callout|data-language|data-align|align|aria-checked)\s*=/i.test(
         attrs
       )
     ) {
@@ -477,6 +448,10 @@ function readSmartClipboardData(data: DataTransfer, state: GardState, targetCont
       html.includes('wg-slice') ||
       html.includes('data-pm-slice') ||
       html.includes('data-mention-') ||
+      html.includes('data-inline-math') ||
+      html.includes('data-math') ||
+      html.includes('application/x-tex') ||
+      html.includes('data-equation') ||
       html.includes('data-resource'))
   ) {
     return null
@@ -951,7 +926,7 @@ export const clipboard: GardState.Extension = [
   Wordgard.clipboardTextSerializer.of(plainText),
   // Text sources (plain text, Markdown) already choose their edges: they close more plots than
   // they name in the context.
-  Wordgard.clipboardInputHTMLFilter.of(wordListHTML),
+  Wordgard.clipboardInputHTMLFilter.of(html => wordListHTML(mathHTML(html))),
   Wordgard.clipboardInputFilter.of((slice, state) => {
     const normalized =
       closedCount(slice.content) > slice.context.length ? slice : normalize(state.schema, slice.content, slice.context)

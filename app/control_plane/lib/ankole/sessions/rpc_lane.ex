@@ -107,6 +107,8 @@ defmodule Ankole.Sessions.RPCLane do
         {AIGatewayAPIKeyBroker, :handle_request},
       "session_turn.abort" => {JobAbort, :handle_abort},
       "background_agent_job.get" => {BackgroundAgentJobBroker, :handle_get},
+      "background_agent_job.retained_workspaces" =>
+        {BackgroundAgentJobBroker, :handle_retained_workspaces},
       "background_agent_job.turn.upsert" => {BackgroundAgentJobBroker, :handle_upsert_turn},
       "background_agent_job.status.update" => {BackgroundAgentJobBroker, :handle_update_status},
       "observability.spans.export" => {ObservabilityBroker, :handle_export},
@@ -285,6 +287,7 @@ defmodule Ankole.Sessions.RPCLane do
 
       request.method in [
         "ai_gateway.api_key_for.create_or_find_by_agent",
+        "background_agent_job.retained_workspaces",
         "observability.spans.export"
       ] ->
         :ok

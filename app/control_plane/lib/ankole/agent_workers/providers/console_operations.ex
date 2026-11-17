@@ -37,6 +37,11 @@ defmodule Ankole.AgentWorkers.Providers.ConsoleOperations do
               items: [
                 fields: [
                   kind: [type: :string, allow_nil?: false],
+                  support_tier: [
+                    type: :atom,
+                    allow_nil?: false,
+                    constraints: [one_of: [:core, :cloud_extension]]
+                  ],
                   example: [type: :string, allow_nil?: false],
                   credentials: [
                     type: Ankole.AgentWorkers.ProviderKind.CredentialFields,

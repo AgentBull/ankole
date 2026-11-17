@@ -194,8 +194,8 @@ export class TableMap {
     const { width, height, map } = this.data
     let indexTop = rect.startRow * width + rect.startCol,
       indexBefore = indexTop
-    let indexBottom = (rect.endRow - 1) * width + rect.endCol,
-      indexAfter = indexTop + (rect.endCol - rect.startCol - 1)
+    let indexBottom = (rect.endRow - 1) * width + rect.startCol
+    let indexAfter = indexTop + (rect.endCol - rect.startCol - 1)
     for (let i = rect.startRow; i < rect.endRow; i++) {
       if (
         (rect.startCol > 0 && sameCell(map[indexBefore]!, map[indexBefore - 1]!)) ||

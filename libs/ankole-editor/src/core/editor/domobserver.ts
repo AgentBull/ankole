@@ -1,7 +1,15 @@
 import { GardSelection, Transaction } from '../state'
 import browser from './browser'
 import type { Wordgard } from './editor'
-import { DOMNode, hasSelection, getSelection, DOMSelectionState, SelectionRange, isEquivalentPosition } from './dom'
+import {
+  DOMNode,
+  hasSelection,
+  getSelection,
+  DOMSelectionState,
+  SelectionRange,
+  isEquivalentPosition,
+  isElt
+} from './dom'
 import { Tile, WidgetTile } from './tile'
 import { readDOMSelection, selectionFromTouch } from './selection'
 import { addRange } from './changes'
@@ -40,7 +48,7 @@ export class DOMObserver {
   // to be re-checked because their DOM changed, if any are known.
   dirty: number[] | null = null
 
-  scrollTargets: HTMLElement[] = []
+  scrollTargets: Element[] = []
   resizeScroll: ResizeObserver | null = null
   darkThemeQuery: MediaQueryList | null = null
 
@@ -55,6 +63,7 @@ export class DOMObserver {
     this.onResize = this.onResize.bind(this)
     this.onScroll = this.onScroll.bind(this)
     this.onColorSchemeChange = this.onColorSchemeChange.bind(this)
+    this.onWindowFocus = this.onWindowFocus.bind(this)
 
     if (typeof ResizeObserver == 'function') {
       let lastFlushSeen = 0
@@ -71,14 +80,14 @@ export class DOMObserver {
   connect() {
     this.observer.observe(this.dom, observeOptions)
     this.resizeScroll?.observe(this.dom)
-    for (let dom = this.dom as any; dom;) {
-      if (dom.nodeType == 1) {
+    for (let dom: DOMNode | null = this.dom; dom;) {
+      if (isElt(dom)) {
         this.scrollTargets.push(dom)
         dom.addEventListener('scroll', this.onScroll)
         dom = dom.assignedSlot || dom.parentNode
       } else if (dom.nodeType == 11) {
         // Shadow root
-        dom = dom.host
+        dom = (dom as ShadowRoot).host
       } else {
         break
       }
@@ -86,6 +95,8 @@ export class DOMObserver {
     const win = (this.win = this.wg.win)
     win.addEventListener('resize', this.onResize)
     win.addEventListener('scroll', this.onScroll)
+    win.addEventListener('focus', this.onWindowFocus)
+    win.addEventListener('blur', this.onWindowFocus)
     win.document.addEventListener('selectionchange', this.onSelectionChange)
     if (typeof win.matchMedia == 'function') {
       this.darkThemeQuery = win.matchMedia('(prefers-color-scheme: dark)')
@@ -103,6 +114,8 @@ export class DOMObserver {
     if (this.win) {
       this.win.removeEventListener('scroll', this.onScroll)
       this.win.removeEventListener('resize', this.onResize)
+      this.win.removeEventListener('focus', this.onWindowFocus)
+      this.win.removeEventListener('blur', this.onWindowFocus)
       this.win.document.removeEventListener('selectionchange', this.onSelectionChange)
       this.win = null
     }
@@ -127,6 +140,10 @@ export class DOMObserver {
 
   onColorSchemeChange() {
     this.wg.configureColorScheme(this.darkThemeQuery!.matches ? 'dark' : 'light')
+  }
+
+  onWindowFocus() {
+    this.wg.inputState.scheduleFocusCheck()
   }
 
   onSelectionChange() {
@@ -173,7 +190,7 @@ export class DOMObserver {
     }
     if (!range || !range.focusNode || this.selectionRange.eq(range)) return false
     const context = range.anchorNode && wg.docTile.nearest(range.anchorNode)
-    if (context instanceof WidgetTile) return false
+    if (context instanceof WidgetTile || !context) return false
 
     this.selectionRange.setRange(range)
     return (this.selectionChanged = true)

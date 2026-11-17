@@ -19,7 +19,7 @@ Always back up PostgreSQL (both the control-plane database and every physical Ba
 
 Container images and `/var/cache/ankole` are rebuildable caches, whereas Agent Home holds irreplaceable workspace state. Because local Docker Home volumes depend on a single host disk, replicate their backups off-host. On Cloudflare Workers, make sure the PostgreSQL backup captures the `storage_ref` corresponding to the completed R2 backup—forcing a Cloudflare stop can lose writes made after the last completed backup.
 
-When `BASE_DB_URLS` is unset, production FOSS uses `DATABASE_URL` for Base tables, development and test use four separate Base databases, and production SaaS uses eight. Inspect the effective shard topology before selecting backup databases; an unset variable alone does not mean a single database. See [Architecture](../architecture/#durability-boundaries).
+When `BASE_DB_URLS` is unset, production FOSS uses `DATABASE_URL` for Base tables, while development and test use four separate Base databases. Inspect the effective shard topology before selecting backup databases; an unset variable alone does not mean a single database. See [Architecture](../architecture/#durability-boundaries).
 
 ## Take a consistent backup
 

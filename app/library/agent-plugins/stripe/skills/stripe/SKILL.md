@@ -1,6 +1,7 @@
 ---
 name: stripe
 description: "Find and use stripe operations through Ankole connections."
+default_enabled: false
 ---
 
 # stripe

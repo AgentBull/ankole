@@ -20,6 +20,11 @@ export interface PodAppSlots {
 export const PodSlotsContext = createContext<PodAppSlots>({})
 export const usePodSlots = () => useContext(PodSlotsContext)
 export const podSettingsSections = ['general', 'members', 'agents', 'invitations', 'providers', 'environment'] as const
+export type PodSettingsSection = (typeof podSettingsSections)[number]
+
+export function isPodSettingsSection(value: string): value is PodSettingsSection {
+  return (podSettingsSections as readonly string[]).includes(value)
+}
 
 export function mergePodSlots(...sources: readonly (PodAppSlots | undefined)[]): PodAppSlots {
   const accountNavigations: PodAccountNavigationSlot[] = []

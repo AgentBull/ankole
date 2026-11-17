@@ -55,21 +55,14 @@ enum Bracketed {
 }
 
 function charType(ch: number) {
-  return ch <= 0xf7
-    ? LowTypes[ch]
-    : 0x590 <= ch && ch <= 0x5f4
-      ? T.R
-      : 0x600 <= ch && ch <= 0x6f9
-        ? ArabicTypes[ch - 0x600]
-        : 0x6ee <= ch && ch <= 0x8ac
-          ? T.AL
-          : 0x2000 <= ch && ch <= 0x200c
-            ? T.NI
-            : 0xfb50 <= ch && ch <= 0xfdff
-              ? T.AL
-              : ch == 0xfffc
-                ? T.NI
-                : T.L
+  if (ch <= 0xf7) return LowTypes[ch]
+  if (0x590 <= ch && ch <= 0x5f4) return T.R
+  if (0x600 <= ch && ch <= 0x6f9) return ArabicTypes[ch - 0x600]
+  if (0x6ee <= ch && ch <= 0x8ac) return T.AL
+  if (0x2000 <= ch && ch <= 0x200c) return T.NI
+  if (0xfb50 <= ch && ch <= 0xfdff) return T.AL
+  if (ch == 0xfffc) return T.NI
+  return T.L
 }
 
 const BidiRE = /[\u0590-\u05f4\u0600-\u06ff\u0700-\u08ac\ufb50-\ufdff]/

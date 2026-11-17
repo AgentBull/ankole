@@ -122,6 +122,8 @@ export function LinkViewDropdown({
   )
 }
 
+export type LinkEditError = 'invalid_url' | 'empty_text' | 'changed' | null
+
 export function LinkEditForm({
   canEditText,
   hasExistingLink,
@@ -138,7 +140,7 @@ export function LinkEditForm({
   hasExistingLink: boolean
   linkText: string
   url: string
-  error: boolean
+  error: LinkEditError
   onChangeText: (value: string) => void
   onChangeUrl: (value: string) => void
   onSubmit: () => void
@@ -147,6 +149,7 @@ export function LinkEditForm({
 }) {
   const label = useEditorLabel()
   const errorId = useId()
+  const changed = error === 'changed'
   return (
     <form
       className="link-form"
@@ -161,6 +164,8 @@ export function LinkEditForm({
             aria-label={label('link_text')}
             value={linkText}
             placeholder={label('link_text')}
+            aria-invalid={error === 'empty_text'}
+            aria-describedby={error === 'empty_text' ? errorId : undefined}
             onChange={event => onChangeText(event.target.value)}
             onKeyDown={event => {
               if (event.key === 'Enter' && composingKey(event.nativeEvent)) event.preventDefault()
@@ -178,14 +183,14 @@ export function LinkEditForm({
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          aria-invalid={error}
-          aria-describedby={error ? errorId : undefined}
+          aria-invalid={error === 'invalid_url'}
+          aria-describedby={error === 'invalid_url' ? errorId : undefined}
           onChange={event => onChangeUrl(event.target.value)}
           onKeyDown={event => {
             if (event.key === 'Enter' && composingKey(event.nativeEvent)) event.preventDefault()
           }}
         />
-        <Button type="submit" size="xs">
+        <Button type="submit" size="xs" disabled={changed}>
           {label('apply_link')}
         </Button>
         <Button type="button" variant="ghost" size="icon-xs" aria-label={label('cancel_link')} onClick={onCancel}>
@@ -194,11 +199,11 @@ export function LinkEditForm({
       </div>
       {error && (
         <p id={errorId} role="alert">
-          {label('invalid_link')}
+          {label(changed ? 'link_changed' : error === 'empty_text' ? 'empty_link_text' : 'invalid_link')}
         </p>
       )}
       {hasExistingLink && (
-        <Button type="button" variant="ghost" size="xs" onClick={onRemove}>
+        <Button type="button" variant="ghost" size="xs" disabled={changed} onClick={onRemove}>
           {label('remove_link')}
         </Button>
       )}

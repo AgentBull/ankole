@@ -1,9 +1,10 @@
 import { editorPhrases, type EditorLabels } from '../../editor/phrases'
+import { parseEmbedProps } from '../../document/embed-props'
 import { Elt, Leaf, Mark, Node, Plot, Schema, type ChangeSet } from '../../core/doc'
 import { Decoration } from '../../core/editor'
 import { element } from '../../document/tree'
 import { vocabulary } from '../../document/vocabulary'
-import { Attrs, extraAttrs, extraOf, markSet, markValue } from '../../editor/attributes'
+import { Attrs, extraAttrs, extraOf, markChange, markSet, markValue } from '../../editor/attributes'
 import type { BlockDefinition } from '../../editor/block'
 import { openResourceEditor, resourceWidget } from '../resources'
 import { insertBlock } from '../../editor/block-insert'
@@ -76,7 +77,16 @@ export const EmbedHeight = Mark.Type.define<string>('EmbedHeight', {
   shape: { attribute: 'data-height', value: 0 }
 })
 
-const names = ['ref', 'table', 'view', 'href', 'title', 'description', 'image', 'height'] as const
+export const EmbedProps = Mark.Type.define<string>('EmbedProps', {
+  target: Embed,
+  validate: value => {
+    if (typeof value !== 'string') throw new TypeError('Embed props must be a JSON object string')
+    parseEmbedProps(value)
+  },
+  shape: { attribute: 'data-props', value: 0 }
+})
+
+const names = ['ref', 'table', 'view', 'href', 'title', 'description', 'image', 'height', 'props'] as const
 const types = {
   ref: EmbedRef,
   table: EmbedTable,
@@ -85,7 +95,8 @@ const types = {
   title: EmbedTitle,
   description: EmbedDescription,
   image: EmbedImage,
-  height: EmbedHeight
+  height: EmbedHeight,
+  props: EmbedProps
 } as const
 
 export type EmbedPatch = Partial<Record<(typeof names)[number], string | undefined>>
@@ -104,9 +115,9 @@ export function embedChanges(node: Node, from: number, patch: EmbedPatch): Chang
   return names.flatMap(name => {
     if (!Object.hasOwn(patch, name)) return []
     const value = patch[name]
-    const previous = markValue(node, types[name])
-    if (previous === value) return []
-    return [value === undefined ? { from, remove: types[name].of(previous!) } : { from, add: types[name].of(value) }]
+    if (name === 'props' && value !== undefined) parseEmbedProps(value)
+    const change = markChange(node, from, types[name], value ?? null)
+    return change ? [change] : []
   })
 }
 
@@ -134,6 +145,7 @@ export const embed: BlockDefinition = {
     EmbedDescription,
     EmbedImage,
     EmbedHeight,
+    EmbedProps,
     Schema.Override.markTarget(Attrs, target => [target, Embed])
   ],
   extension: [

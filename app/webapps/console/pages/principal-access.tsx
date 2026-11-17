@@ -1,36 +1,22 @@
 import { useMutation, useQuery } from '../tenant-context'
 import { uuidV4 } from '@agentbull/active-support'
 import { ActorLabel } from '../actor-label'
-import {
-  Badge,
-  Button,
-  Checkbox,
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Textarea,
-  toast
-} from '@ankole/uikit'
+import { Badge, Button, Textarea, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  disableHumanAccessMutation,
   getHumanAccessOptions,
-  restoreHumanAccessMutation,
-  retryHumanWorkCleanupMutation
+  recoverHumanPodAdminMutation,
+  restoreHumanAccessMutation
 } from '../api/v2/generated/@tanstack/react-query.gen'
 import type { GetHumanAccessResponse } from '../api/v2/generated/types.gen'
 import { ErrorBlock } from '../../common/error-block'
 import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
 import { requestErrorMessage } from '../../common/request-errors'
-import { DiscardConfirmDialog, LabeledField, useDialogDiscardGuard } from '../console-form'
+import { LabeledField } from '../console-form'
 import { AgentLink } from '../console-list-page'
 import { formatConsoleDate } from '../console-primitives'
 import { LIST_REFRESH_MS } from '../refresh-intervals'
@@ -42,24 +28,12 @@ export function HumanAccessSection({ uid }: { uid: string }) {
   useSignals()
   const { t } = useTranslation()
   const restoreModel = useModel(AccessReviewModel)
-  const [disableDisposition, setDisableDisposition] = useState<'suspended' | 'offboarded' | null>(null)
-  const [disableReason, setDisableReason] = useState('')
-  const [disableConfirmed, setDisableConfirmed] = useState(false)
+  const [adminRecoveryReason, setAdminRecoveryReason] = useState('')
 
   const access = useQuery({ ...getHumanAccessOptions({ path: { uid } }), refetchInterval: LIST_REFRESH_MS })
   const state = access.data
 
   const onError = (error: unknown) => toast.error(requestErrorMessage(error))
-  const disable = useMutation({
-    ...disableHumanAccessMutation(),
-    onSuccess: () => {
-      setDisableDisposition(null)
-      setDisableReason('')
-      setDisableConfirmed(false)
-      toast.success(t('console.human_access.saved'))
-    },
-    onError
-  })
   const restore = useMutation({
     ...restoreHumanAccessMutation(),
     onSuccess: () => {
@@ -68,37 +42,17 @@ export function HumanAccessSection({ uid }: { uid: string }) {
     },
     onError
   })
-  const retry = useMutation({
-    ...retryHumanWorkCleanupMutation(),
-    onSuccess: () => toast.success(t('console.human_access.saved')),
+  const recoverAdmin = useMutation({
+    ...recoverHumanPodAdminMutation(),
+    onSuccess: () => {
+      setAdminRecoveryReason('')
+      toast.success(t('console.human_access.saved'))
+    },
     onError
   })
 
-  const openDisableDialog = (disposition: 'suspended' | 'offboarded') => {
-    setDisableReason('')
-    setDisableConfirmed(false)
-    setDisableDisposition(disposition)
-  }
-
-  const disableDialogDirty = Boolean(disableReason.trim()) || disableConfirmed
-  const disableGuard = useDialogDiscardGuard({
-    dirty: disableDialogDirty,
-    onOpenChange: open => {
-      if (!open) {
-        setDisableDisposition(null)
-        setDisableReason('')
-        setDisableConfirmed(false)
-      }
-    },
-    pending: disable.isPending
-  })
-
-  const pending = disable.isPending || restore.isPending || retry.isPending
+  const pending = restore.isPending || recoverAdmin.isPending
   const activeRestrictions = state?.restrictions.filter(item => !item.cleared_at) ?? []
-  const isOffboarded =
-    state?.status === 'offboarded' || activeRestrictions.some(item => item.disposition === 'offboarded')
-  const canSuspend = state?.status === 'active'
-  const canOffboard = Boolean(state && !isOffboarded)
 
   return (
     <section className="grid gap-5 border-b border-border-subtle pb-6">
@@ -110,57 +64,17 @@ export function HumanAccessSection({ uid }: { uid: string }) {
           </Badge>
         ) : null}
       </div>
-      <p className="text-sm text-fg-secondary">{t('console.human_access.disable_hint')}</p>
+      <p className="text-sm text-fg-secondary">{t('console.human_access.break_glass_hint')}</p>
       <ErrorBlock error={access.error} />
       {access.isLoading ? <p role="status">{t('common.loading')}</p> : null}
       {state ? (
         <>
-          {canSuspend || canOffboard ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {canSuspend ? (
-                <div className="grid content-between gap-3 border border-border-subtle bg-page p-4">
-                  <div className="grid gap-1">
-                    <h4 className="text-sm font-medium">{t('pod.settings.suspend')}</h4>
-                    <p className="text-xs leading-5 text-fg-secondary">{t('pod.settings.suspended_description')}</p>
-                  </div>
-                  <Button
-                    className="justify-self-start"
-                    disabled={pending}
-                    type="button"
-                    variant="destructive"
-                    onClick={() => openDisableDialog('suspended')}>
-                    {t('pod.settings.suspend')}
-                  </Button>
-                </div>
-              ) : null}
-              {canOffboard ? (
-                <div className="grid content-between gap-3 border border-border-subtle bg-page p-4">
-                  <div className="grid gap-1">
-                    <h4 className="text-sm font-medium">{t('pod.settings.offboard')}</h4>
-                    <p className="text-xs leading-5 text-fg-secondary">{t('pod.settings.offboarded_description')}</p>
-                  </div>
-                  <Button
-                    className="justify-self-start"
-                    disabled={pending}
-                    type="button"
-                    variant="destructive"
-                    onClick={() => openDisableDialog('offboarded')}>
-                    {t('pod.settings.offboard')}
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
           {state.status !== 'active' ? (
             <div className="grid gap-4">
               <p className="text-sm text-fg-secondary">{t('console.human_access.restore_hint')}</p>
               {activeRestrictions.map(item => (
                 <RestrictionCard key={item.id} restriction={item} />
               ))}
-              {activeRestrictions.some(item => item.source !== 'manual') ? (
-                <p className="text-sm text-fg-secondary">{t('console.human_access.provider_check')}</p>
-              ) : null}
 
               <form
                 aria-label={t('console.human_access.restore')}
@@ -183,12 +97,45 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                     }}
                   />
                 </LabeledField>
-                <Button className="justify-self-start" disabled={pending} type="submit">
+                <Button
+                  className="justify-self-start"
+                  disabled={pending || !restoreModel.reason.value.trim()}
+                  type="submit">
                   {t('console.human_access.restore')}
                 </Button>
               </form>
             </div>
-          ) : null}
+          ) : (
+            <form
+              aria-label={t('console.human_access.recover_pod_admin')}
+              className="grid gap-4 border border-border-subtle bg-page p-4"
+              onSubmit={event => {
+                event.preventDefault()
+                recoverAdmin.mutate({
+                  path: { uid },
+                  body: { data: { reason: adminRecoveryReason.trim(), operation_id: uuidV4() } }
+                })
+              }}>
+              <div className="grid gap-1">
+                <h4 className="text-sm font-medium">{t('console.human_access.recover_pod_admin')}</h4>
+                <p className="text-xs leading-5 text-fg-secondary">
+                  {t('console.human_access.recover_pod_admin_hint')}
+                </p>
+              </div>
+              <LabeledField label={t('console.human_access.reason')} required>
+                <Textarea
+                  required
+                  maxLength={2000}
+                  rows={2}
+                  value={adminRecoveryReason}
+                  onChange={event => setAdminRecoveryReason(event.target.value)}
+                />
+              </LabeledField>
+              <Button className="justify-self-start" disabled={pending || !adminRecoveryReason.trim()} type="submit">
+                {t('console.human_access.recover_pod_admin')}
+              </Button>
+            </form>
+          )}
 
           <details className="border-t border-border-subtle pt-4">
             <summary className="cursor-pointer text-sm font-medium">{t('console.human_access.work')}</summary>
@@ -204,16 +151,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                 </p>
               ))}
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="my-3"
-              disabled={pending}
-              onClick={() => retry.mutate({ path: { uid } })}>
-              {t('console.human_access.retry_cleanup')}
-            </Button>
-            <div className="grid gap-2">
+            <div className="mt-3 grid gap-2">
               {state.work.map(work => (
                 <div key={`${work.kind}:${work.id}`} className="grid gap-1 border-b border-border-subtle py-2 text-sm">
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -260,64 +198,6 @@ export function HumanAccessSection({ uid }: { uid: string }) {
           </details>
         </>
       ) : null}
-
-      <Dialog open={disableDisposition !== null} onOpenChange={disableGuard.requestOpenChange}>
-        <DialogContent closeLabel={t('common.close')} showCloseButton={!disable.isPending}>
-          <DialogHeader>
-            <DialogTitle>
-              {disableDisposition === 'offboarded' ? t('pod.settings.offboard') : t('pod.settings.suspend')}
-            </DialogTitle>
-            <DialogDescription>
-              {disableDisposition === 'offboarded'
-                ? t('pod.settings.offboarded_description')
-                : t('pod.settings.suspended_description')}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4">
-            <LabeledField label={t('console.human_access.reason')} required>
-              <Textarea
-                maxLength={2000}
-                rows={3}
-                value={disableReason}
-                onChange={event => setDisableReason(event.target.value)}
-              />
-            </LabeledField>
-            <label className="flex items-start gap-3 text-sm">
-              <Checkbox checked={disableConfirmed} onCheckedChange={checked => setDisableConfirmed(checked === true)} />
-              <span>{t('console.human_access.disable_confirm')}</span>
-            </label>
-          </div>
-          <DialogFooter>
-            <DialogClose render={<Button disabled={disable.isPending} variant="outline" />}>
-              {t('common.cancel')}
-            </DialogClose>
-            <Button
-              disabled={disable.isPending || !disableReason.trim() || !disableConfirmed || !disableDisposition}
-              type="button"
-              variant="destructive"
-              onClick={() =>
-                disableDisposition &&
-                disable.mutate({
-                  path: { uid },
-                  body: {
-                    data: {
-                      reason: disableReason.trim(),
-                      operation_id: uuidV4(),
-                      disposition: disableDisposition
-                    }
-                  }
-                })
-              }>
-              {disableDisposition === 'offboarded' ? t('pod.settings.offboard') : t('pod.settings.suspend')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <DiscardConfirmDialog
-        open={disableGuard.confirming}
-        onDiscard={disableGuard.confirmDiscard}
-        onKeep={disableGuard.keepEditing}
-      />
     </section>
   )
 }

@@ -83,6 +83,13 @@ When a range edit starts in one column and ends in another, the editor joins the
 
 Consequently, when two collaborators concurrently delete adjacent ranges across the same column boundary, the converged page can contain an extra column holding a single empty paragraph; no text is lost, undoing either edit restores the prior layout, and deleting the empty column cleans it up. Ankole accepts this rare outcome because automatic cleanup cannot distinguish that column from an empty column inserted intentionally by a user.
 
+## Shared-Conversation Memory Disclosure vs. Agent Drive Grants
+
+Brain memory recall and Pod Drive document reads serve distinct collaboration workflows in shared rooms (see [Conversations](design-docs/Conversations.md) and [Pod Content Model](design-docs/PodContentModel.md)):
+
+- **Brain recall enforces group-audience disclosure.** In a group room or external IM channel, `Brain.Access` filters recalled claims and links against the room's disclosure mode (`strict` intersection across human participants, `relaxed` public/unrestricted scope, or workspace-public fallback when an external IM platform omits channel rosters) so ambient background memory never surfaces one participant's private notes to another.
+- **Pod Drive reads follow the Agent's own Principal grants.** When an AI colleague reads a non-Brain Pod page or file through `pod` CLI or Drive VFS, Ankole evaluates `Pod.Access` against the Agent's own Principal permissions (or the invoking Human's turn authority in personal-assistant sessions). This enables teams to grant a domain Agent read access to a reference folder or runbook Space so channel members can ask the Agent to summarize or answer questions from those documents without granting every channel member direct folder access. Administrators who grant an AI colleague access to a confidential Space and place that colleague into a broader room are responsible for what the colleague summarizes there.
+
 ## Database Connections Trust the Database Role
 
 Ankole authorizes an external database connection as a unit: any Principal granted query access on the connection can run every read-only statement permitted to that connection's database role (see [Database Connectors](design-docs/plugins/DatabaseConnectors.md)). Ankole does not layer row- or column-level filtering onto `query` results—sensitive-value withholding applies only to catalog samples and `probe_values`—so administrators must scope each audience to a least-privileged database role, view, or row-level security policy.

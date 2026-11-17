@@ -126,7 +126,26 @@ defmodule Ankole.Plugins.LarkAdapter do
             default: "feishu",
             options: @domain_options
           },
-          %{key: "identityProvider", label: "Employee identity provider", required: false}
+          %{key: "identityProvider", label: "Employee identity provider", required: false},
+          %{
+            key: "linkPreview",
+            label: %{
+              "default" => "Preview Pod page links in Feishu / Lark",
+              "zh-Hans-CN" => "启用飞书内页面链接预览",
+              "ja-JP" => "Feishu / Lark 内で Pod ページリンクをプレビュー",
+              "ko-KR" => "Feishu / Lark 내 Pod 페이지 링크 미리보기"
+            },
+            description: %{
+              "default" =>
+                "When enabled, sharing any live page link from this Pod in chat shows its title and summary to conversation members without per-reader permission checks.",
+              "zh-Hans-CN" => "开启后，在聊天中发送本 Pod 内任意存活页面的链接，都会向会话成员直接展示页面标题与摘要（不做飞书侧逐人权限校验）。",
+              "ja-JP" => "有効にすると、この Pod 内の有効なページリンクをチャットで共有した際、閲覧者ごとの権限確認を行わずにタイトルと要約を表示します。",
+              "ko-KR" => "활성화하면 이 Pod의 유효한 페이지 링크를 채팅에 공유할 때 열람자별 권한 확인 없이 제목과 요약을 바로 표시합니다."
+            },
+            type: "boolean",
+            default: false,
+            required: false
+          }
         ],
         event_streams: [
           %{

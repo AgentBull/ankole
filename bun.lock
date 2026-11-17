@@ -5,9 +5,10 @@
     "": {
       "name": "@agentbull/ankole",
       "devDependencies": {
+        "@oxlint/plugins": "1.93.0",
         "@types/bun": "1.4.4",
         "oxfmt": "^0.78.0",
-        "oxlint": "^1.93.0",
+        "oxlint": "1.93.0",
         "turbo": "^2.11.11",
         "typescript": "^7.0.2",
       },
@@ -19,6 +20,7 @@
         "@agentbull/active-support": "^1.6.0",
         "@ankole/browser": "workspace:*",
         "@ankole/uikit": "workspace:*",
+        "@babel/parser": "8.1.2",
         "@bufbuild/protobuf": "2.17.0",
         "@ff-labs/fff-bun": "0.11.0",
         "@opentelemetry/api": "^1.10.0",
@@ -28,6 +30,7 @@
         "pele": "1.13.0",
         "phoenix": "1.8.16",
         "pino": "^10.4.0",
+        "xstate": "5.33.4",
         "zod": "^4.6.7",
       },
       "devDependencies": {
@@ -117,13 +120,13 @@
         "shiki": "4.6.0",
         "use-stick-to-bottom": "1.1.6",
         "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+        "xstate": "5.33.4",
         "yaml": "2.9.1",
         "zod": "^4.6.7",
       },
       "devDependencies": {
         "@babel/core": "8.1.2",
         "@playwright/test": "1.65.0",
-        "@posthog/cli": "0.20.0",
         "@rolldown/plugin-babel": "0.3.1",
         "@tailwindcss/postcss": "4.3.5",
         "@tailwindcss/vite": "4.3.5",
@@ -299,6 +302,7 @@
         "@angular-devkit/schematics-cli": "^22.2.7",
         "@crustjs/core": "^0.6.0",
         "@crustjs/extensions": "^0.6.0",
+        "@oxlint/plugins": "1.93.0",
         "chalk": "^6.0.1",
         "jsonc": "^3.0.0",
         "pino-pretty": "^13.2.0",
@@ -1019,6 +1023,8 @@
 
     "@oxlint/binding-win32-x64-msvc": ["@oxlint/binding-win32-x64-msvc@1.93.0", "", { "os": "win32", "cpu": "x64" }, "sha512-ZzzIIVs/Qkm8trUWYKF0OYub5ALlv50/3gsEZbKAvWgz+yNJX6uRmQ8ySPXU2Q0/Y9m4JCOjhpmC8XUYbPHX5Q=="],
 
+    "@oxlint/plugins": ["@oxlint/plugins@1.93.0", "", {}, "sha512-bKWQI1g9jn8bWUZsvhbOLfgva576Fbp1KwoTNSUCMdT9tlTAvQS2JkifX1UrhPPdyN4GHvM20HhvIMqqU1yotQ=="],
+
     "@pinojs/redact": ["@pinojs/redact@0.4.0", "", {}, "sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg=="],
 
     "@playwright/test": ["@playwright/test@1.65.0", "", { "dependencies": { "playwright": "1.65.0" }, "bin": { "playwright": "cli.js" } }, "sha512-iGURLGuKDLakSEl7Pgfv8h7f+XLT+V861Wfhz0zlEl5nyFuKUopdkFBPKqTllTUp06aOwPuH8iuUEb3yp3MpbQ=="],
@@ -1028,8 +1034,6 @@
     "@poppinss/dumper": ["@poppinss/dumper@0.6.5", "", { "dependencies": { "@poppinss/colors": "^4.1.5", "@sindresorhus/is": "^7.0.2", "supports-color": "^10.0.0" } }, "sha512-NBdYIb90J7LfOI32dOewKI1r7wnkiH6m920puQ3qHUeZkxNkQiFnXVWoE6YtFSv6QOiPPf7ys6i+HWWecDz7sw=="],
 
     "@poppinss/exception": ["@poppinss/exception@1.2.3", "", {}, "sha512-dCED+QRChTVatE9ibtoaxc+WkdzOSjYTKi/+uacHWIsfodVfpsueo3+DKpgU5Px8qXjgmXkSvhXvSCz3fnP9lw=="],
-
-    "@posthog/cli": ["@posthog/cli@0.20.0", "", { "dependencies": { "detect-libc": "^2.1.2" }, "hasInstallScript": true, "bin": { "posthog-cli": "run-posthog-cli.js" } }, "sha512-HX4o9ddrCdFnDDGrNlqmg2kDLs/04u4fAzFTmTFuLDY54rRbWjyHURNqPQsSjQ2gYGdcfr2clxOV5Lm7LdvAvw=="],
 
     "@preact/signals-core": ["@preact/signals-core@1.14.5", "", {}, "sha512-vcRv7Ityz5JVmeiVqIluLFzT/PDS/AlhHUpw3/aUWqcVUs6bDGIPXE/6RSC4evBNWYvnniozg5Syfj33al3gkg=="],
 
@@ -2536,6 +2540,8 @@
     "xlsx": ["xlsx@https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz", { "bin": { "xlsx": "./bin/xlsx.njs" } }, "sha512-oLDq3jw7AcLqKWH2AhCpVTZl8mf6X2YReP+Neh0SJUzV/BdZYjth94tG5toiMB1PPrYtxOCfaoUCkvtuH+3AJA=="],
 
     "xmlchars": ["xmlchars@2.2.0", "", {}, "sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw=="],
+
+    "xstate": ["xstate@5.33.4", "", {}, "sha512-eGNMu3BNqU0Z85P+ouYG5OCZqIABU+QsW6vUieFt9p9gOGs3C+BL10Exg7XdRPSXPQKlP6XoYpYf93r9VmW8mQ=="],
 
     "xxhash-wasm": ["xxhash-wasm@1.1.0", "", {}, "sha512-147y/6YNh+tlp6nd/2pWq38i9h6mz/EuQ6njIrmW8D1BS5nCqs0P6DG+m6zTGnNz5I+uhZ0SHxBs9BsPrwcKDA=="],
 

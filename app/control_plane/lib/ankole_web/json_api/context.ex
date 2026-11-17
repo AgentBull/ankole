@@ -9,7 +9,7 @@ defmodule AnkoleWeb.JSONAPI.Context do
   def before_dispatch(conn, :not_found, _scope), do: conn
 
   def before_dispatch(conn, %{resource: resource, params: params}, scope) do
-    site? = scope in [:site, :saas_site]
+    site? = scope == :site
 
     with true <- site? or is_binary(Ankole.Repo.tenant_id()),
          {:ok, params} <- canonical_targets(resource, params) do

@@ -2,7 +2,14 @@ import { describe, expect, it, spyOn } from 'bun:test'
 import * as fsPromises from 'node:fs/promises'
 import { create } from '@bufbuild/protobuf'
 import { TOML } from 'bun'
-import { AgentPluginCatalogEntrySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import {
+  AIGatewayAPIKeyResponseSchema,
+  AgentConversationContextResponseSchema,
+  AgentPluginCatalogEntrySchema,
+  BackgroundAgentJobResponseSchema,
+  WorkerEnvResolveResponseSchema,
+  type AgentPluginCatalogEntry
+} from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,8 +17,16 @@ import {
   materializeAgentPluginPackages,
   prepareAgentPlugins
 } from '../src/core/codex-runner/runtime/agent-plugin-materializer'
-import { assertCodexJobProjectResumeState } from '../src/core/codex-runner/job/job-project'
-import { type AgentPluginCatalogEntry } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { checkCodexJobProjectResumeState } from '../src/core/codex-runner/job/job-project'
+import { prepareCodexJobExecution } from '../src/core/codex-runner/job/setup'
+import { resumeExistingCodexRootThread } from '../src/core/codex-runner/job/session-runtime-ops'
+import { initialCodexRecoveryState } from '../src/core/codex-runner/job/recovery-policy'
+import { jsonBytes } from '../src/fabric/envelope-proto'
+import type { RPCRequester } from '../src/lanes/rpc-lane'
+import type { TurnStart } from '../src/lanes/session-lane'
+import type { AgentCodexRuntimeSession } from '../src/core/codex-runner/runtime/agent-runtime-manager'
+import type { ThreadRecreateReason } from '../src/core/codex-runner/job/execution-logfile'
+import { FakeDrive } from './support/fake-drive'
 
 describe('@ankole/agent-computer Agent Plugin materializer', () => {
   it('keeps another Worker package, marketplace, and in-flight copy intact during rebuild', async () => {
@@ -233,10 +248,12 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
     }
   })
 
-  it('fails closed when the job workspace is missing for a persisted thread', () => {
+  it('rejects symlinks and non-directories while reporting missing workspaces for persisted threads', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-agent-plugin-retained-project-'))
     const libraryRoot = join(root, 'library')
     const projectRoot = join(root, 'project')
+    const realTarget = join(root, 'real-target')
+    mkdirSync(realTarget, { recursive: true })
     createPlugin(libraryRoot, 'alpha', {})
     try {
       prepareAgentPlugins({
@@ -246,12 +263,208 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
         libraryRoot,
         initializeProject: true
       })
+      expect(checkCodexJobProjectResumeState(projectRoot)).toEqual({ workspaceMissing: false })
+
       rmSync(projectRoot, { recursive: true, force: true })
-      expect(() => assertCodexJobProjectResumeState(projectRoot)).toThrow(
-        'workspace is missing for a persisted runtime thread'
-      )
+      expect(checkCodexJobProjectResumeState(projectRoot)).toEqual({ workspaceMissing: true })
       expect(existsSync(projectRoot)).toBe(false)
+
+      symlinkSync(realTarget, projectRoot)
+      expect(() => checkCodexJobProjectResumeState(projectRoot)).toThrow(
+        'workspace must be a real directory for a persisted runtime thread'
+      )
+
+      rmSync(projectRoot, { force: true })
+      symlinkSync(join(root, 'nonexistent-target'), projectRoot)
+      expect(() => checkCodexJobProjectResumeState(projectRoot)).toThrow(
+        'workspace must be a real directory for a persisted runtime thread'
+      )
+
+      rmSync(projectRoot, { force: true })
+      writeFileSync(projectRoot, 'not a directory')
+      expect(() => checkCodexJobProjectResumeState(projectRoot)).toThrow(
+        'workspace must be a real directory for a persisted runtime thread'
+      )
     } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('recreates an evicted job workspace on continuation, re-materializes the template, and replaces the thread with workspace_evicted', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-evicted-workspace-continuation-'))
+    const agentHome = join(root, 'workspace')
+    const builtinSkillsRoot = join(root, 'builtin-skills')
+    const pluginLibraryRoot = join(builtinSkillsRoot, 'agent-plugins')
+    mkdirSync(agentHome, { recursive: true })
+    createPlugin(pluginLibraryRoot, 'alpha', {
+      files: { 'playbook.md': 'template playbook\n' }
+    })
+
+    const ownerJobID = '1000'
+    const successorJobID = '1001'
+    const inheritedThreadID = 'thr_evicted_1000'
+    const workspaceRoot = join(agentHome, 'jobs', ownerJobID)
+    expect(existsSync(workspaceRoot)).toBe(false)
+
+    const modelRef = {
+      provider_id: 'openrouter',
+      provider_kind: 'openrouter',
+      model: 'openai/gpt-5.6-sol',
+      provider_options: { reasoningEffort: 'high' },
+      supports_parallel_tool_calls: true
+    }
+    const turnStart: TurnStart = {
+      mode: 'start',
+      agent_context: create(AgentConversationContextResponseSchema, {
+        agents: 'AGENTS',
+        design: '',
+        conversation: {},
+        skills: [],
+        skillsPrompt: '',
+        agentPlugins: agentPluginCatalog(pluginLibraryRoot, ['alpha'])
+      }),
+      fetch_runtime_config: { ssrfFilter: true },
+      turn: {
+        session: { session_id: `job:${successorJobID}` },
+        job_id: Number(successorJobID),
+        attempt: 1,
+        signal_id: '00000000-0000-0000-0000-000000001001'
+      },
+      signal: {
+        signal_id: '00000000-0000-0000-0000-000000001001',
+        type: 'background_agent_job.dispatch',
+        payload_json: { data: { job_id: Number(successorJobID), owner_session_id: 'parent-session', attempts: 1 } }
+      },
+      model_ref: modelRef,
+      request_context: {}
+    }
+    const job = create(BackgroundAgentJobResponseSchema, {
+      agentUid: 'agent-1',
+      status: 'queued',
+      task: 'Continue the research report with Q4 numbers.',
+      attempts: 1,
+      continuedFromJobId: ownerJobID,
+      workspaceOwnerJobId: ownerJobID,
+      workspaceTemplateId: 'alpha',
+      runtimeThreadId: inheritedThreadID,
+      metadataJson: jsonBytes({}),
+      runtimeProjectionJson: jsonBytes({
+        version: 1,
+        model_ref: modelRef,
+        runtime_policy: {},
+        skills: [],
+        agent_plugins: [{ id: 'alpha', skills: ['alpha-skill'] }],
+        native_mcp_servers: [],
+        worker_env: { names: [], plain_values: {} },
+        browser: { mode: 'persistent' }
+      })
+    })
+    const rpc = (async (method: unknown) => {
+      if (method === 'worker_env.resolve') {
+        return create(WorkerEnvResolveResponseSchema, { vars: {} })
+      }
+      throw new Error(`unexpected RPC method: ${String(method)}`)
+    }) as RPCRequester
+    const opts = {
+      agentHome,
+      drive: new FakeDrive(agentHome).drive(),
+      builtinSkillsRoot,
+      requestAIGatewayAPIKey: async () =>
+        create(AIGatewayAPIKeyResponseSchema, {
+          apiKey: 'unused',
+          tokenType: 'Bearer',
+          expiresAt: BigInt(Math.floor(Date.now() / 1000) + 3_600),
+          expiresIn: 3_600n,
+          scope: 'ai_gateway',
+          baseUrl: 'http://unused.test/v1'
+        }),
+      rpc
+    }
+
+    const previousSqliteHome = process.env.CODEX_SQLITE_HOME
+    const previousCodexBinary = process.env.ANKOLE_CODEX_BINARY
+    process.env.CODEX_SQLITE_HOME = join(root, 'codex-sqlite')
+    process.env.ANKOLE_CODEX_BINARY = '/bin/true'
+    let prepared: Awaited<ReturnType<typeof prepareCodexJobExecution>> | undefined
+    try {
+      prepared = await prepareCodexJobExecution({
+        turnStart,
+        opts,
+        jobID: successorJobID,
+        job
+      })
+
+      expect(prepared.workspaceRecreated).toBe(true)
+      expect(prepared.project.root).toBe(workspaceRoot)
+      expect(existsSync(join(workspaceRoot, 'temp'))).toBe(true)
+      expect(readFileSync(join(workspaceRoot, 'playbook.md'), 'utf8')).toBe('template playbook\n')
+
+      const clientRequests: string[] = []
+      const replacedCalls: Array<{ reason: ThreadRecreateReason; retireThreadID: string | undefined }> = []
+      const fakeClient = {
+        request: async (method: string) => {
+          clientRequests.push(method)
+          return {}
+        }
+      }
+      const fakeLease = {
+        runtime: {
+          resumeRoot: async () => {
+            clientRequests.push('runtime.resumeRoot')
+          }
+        }
+      }
+      const fakeSession: AgentCodexRuntimeSession = {
+        prepareForRuntimeCleanup: () => {},
+        handleRuntimeNotification: () => {},
+        handleRuntimeServerRequest: async () => {},
+        handleRuntimeLost: () => {}
+      }
+
+      const resumeOutcome = await resumeExistingCodexRootThread({
+        runtimeLease: fakeLease,
+        client: fakeClient,
+        session: fakeSession,
+        runtimeThreadID: inheritedThreadID,
+        jobID: successorJobID,
+        job,
+        jobTurn: turnStart.turn,
+        initialJobMetadata: undefined,
+        prepared,
+        model: modelRef.model,
+        recoveryState: initialCodexRecoveryState,
+        opts,
+        setRecoveryState: () => {},
+        publishCliContextId: () => {},
+        replaceLostThread: async (reason, retireThreadID) => {
+          replacedCalls.push({ reason, retireThreadID })
+          return {
+            outcome: 'recreated',
+            reason,
+            source: undefined,
+            logfile: {
+              reason,
+              hasTaskLineage: true,
+              hasExecutionHistory: true,
+              historyLineCount: 4,
+              historyTruncated: false
+            }
+          }
+        }
+      })
+
+      expect(clientRequests).toEqual([])
+      expect(replacedCalls).toEqual([{ reason: 'workspace_evicted', retireThreadID: inheritedThreadID }])
+      expect(resumeOutcome).toMatchObject({
+        outcome: 'recreated',
+        reason: 'workspace_evicted'
+      })
+    } finally {
+      await prepared?.cleanup()
+      if (previousSqliteHome === undefined) delete process.env.CODEX_SQLITE_HOME
+      else process.env.CODEX_SQLITE_HOME = previousSqliteHome
+      if (previousCodexBinary === undefined) delete process.env.ANKOLE_CODEX_BINARY
+      else process.env.ANKOLE_CODEX_BINARY = previousCodexBinary
       rmSync(root, { recursive: true, force: true })
     }
   })

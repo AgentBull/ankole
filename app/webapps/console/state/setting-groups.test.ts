@@ -30,6 +30,17 @@ describe('setting groups', () => {
     expect(settingGroup('unknown')).toBeUndefined()
   })
 
+  test('extension declarations connect grouped tasks and their owning pages', () => {
+    const groups = [{ id: 'fixture', prefix: 'extension.fixture.' }]
+    const owners = [{ key: 'extension.registration', route: '/extension/registration', label: 'fixture.manage' }]
+    expect(settingGroupID('extension.fixture.enabled')).toBeUndefined()
+    expect(settingGroupID('extension.fixture.enabled', groups)).toBe('fixture')
+    expect(settingGroup('fixture', groups)).toEqual(groups[0])
+    expect(settingRows([item('extension.fixture.enabled')], groups).groups[0]?.id).toBe('fixture')
+    expect(settingOwnerRoute('extension.registration')).toBeUndefined()
+    expect(settingOwnerRoute('extension.registration', 'global', owners)).toBe('/extension/registration')
+  })
+
   test('collects group members and leaves other keys as their own rows', () => {
     const rows = settingRows([
       item('observability.traces.enabled'),
@@ -47,16 +58,20 @@ describe('setting groups', () => {
     expect(rows.managed).toHaveLength(0)
   })
 
-  test('moves keys the installation owns out of the main list', () => {
+  test('moves keys the installation or Pod Settings owns out of the main list', () => {
     const rows = settingRows([
       item('observability.traces.enabled'),
       item('setup.completed', { editable: false }),
-      item('principals.identity_providers.active', { editable: false })
+      item('principals.identity_providers.active', { editable: false }),
+      item('pod.allow_external_guests', { editable: false }),
+      item('i18n.default_locale', { editable: false })
     ])
 
     expect(rows.managed.map(managed => managed.key)).toEqual([
       'setup.completed',
-      'principals.identity_providers.active'
+      'principals.identity_providers.active',
+      'pod.allow_external_guests',
+      'i18n.default_locale'
     ])
     expect(rows.groups[0]?.items.map(member => member.key)).toEqual(['observability.traces.enabled'])
   })

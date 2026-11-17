@@ -294,7 +294,11 @@ defmodule Ankole.Sessions.Admission do
 
     run = %{run | delivered_event: delivered, spec: spec}
 
-    if event.attempt_count - event.provider_capacity_attempt_count > 5 do
+    execution_attempts =
+      event.attempt_count - event.provider_capacity_attempt_count -
+        event.infrastructure_attempt_count
+
+    if execution_attempts > 5 do
       reason = %{
         "code" => "conversation_attempts_exhausted",
         "attempt_count" => event.attempt_count

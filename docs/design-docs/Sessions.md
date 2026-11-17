@@ -345,20 +345,17 @@ Azure OpenAI Chat Completions rejects a function schema that carries one at its
 root. The declaration keeps such a constraint for validation: `Tools.prepare/2`
 checks every control-plane tool call against the full declaration, and the tool
 description states the same rule for the model, as `reply_attachment` does for
-its exactly-one-selector requirement. When the run's tool catalog
-contains deferred declarations (`defer_loading: true` on low-frequency setup
-tools such as `list_background_job_devices` and `set_channel_standing_orders`),
-`Sessions.Model` appends `{"type": "tool_search", "execution": "server"}` so
-AIGateway loads their full schemas on demand without inflating the initial
-prompt prefix. Likewise, when the catalog exposes read-only tools with
-`allowed_callers: ["direct", "programmatic"]` (`pod_get_page`, `pod_list_pages`,
-`web_search`, `web_fetch`, `read_channel_history`, `recall_related_context`,
-`skill_view`, `list_background_jobs`, `show_background_job_details`,
-`show_workflow`, `list_workflows`, `read_file`, `find`, `grep`, and `ls`),
-`Sessions.Model` appends `{"type": "programmatic_tool_calling"}` so the model
-can batch, filter, and aggregate multi-step reads inside a single `program`
-call while keeping user interaction, approval cards, state mutations,
-delegation, scheduling, and outbound messaging on direct tool calls. Public caller metadata remains
+its exactly-one-selector requirement. Every call's parameter contract stays validated by `Tools.prepare/2`. When the
+run's tool catalog contains at least eight deferred declarations (`defer_loading: true`)
+or the model explicitly opts in (`supports_tool_search`, `toolSearch` option, or
+hosted `tool_search` declaration), `Sessions.Model` appends
+`{"type": "tool_search", "execution": "server"}` so AIGateway loads deferred
+schemas on demand. Otherwise `Sessions.Model` omits `tool_search` and strips
+`defer_loading` from wired tool schemas so small catalogs stay directly mounted
+without `StreamLoop` indirection. Likewise, `Sessions.Model` mounts
+`{"type": "programmatic_tool_calling"}` only when programmatic read tools exist
+and the model explicitly opts in (`supports_programmatic_tool_calling` or
+`programmaticToolCalling`); otherwise `allowed_callers` is stripped from the wired schemas. Public caller metadata remains
 opaque to the model platform, so a `signal_id` supplied on an OIDC request
 cannot borrow another execution's authorization or memory scope. Codex Jobs
 carry their runtime binding at the authenticated execution edge.
@@ -371,16 +368,19 @@ facts about the conversation itself, and Ankole places facts and guidance that
 belong to one turn in that turn's input. The input environment of a scheduled
 turn carries its `schedule_*` fields. When the ready Worker of a turn reports no
 Drive mount, the input environment carries `drive_mount: unavailable`; the
-instructions always describe the mounted Drive and its fallback, because a
-Worker that has not yet reported its capacity may still mount Drive. Ankole
-places a short note directly above a colleague's returned result, an event at
-the six-hop delegation limit, and a shared-room message that does not address
-the Agent. The channel of the conversation decides its reply rule: an Agent
-peer exchange receives the peer-exchange rule, any other channel receives the
-chat reply length of about 150 Chinese characters or 100 English words with
-longer content saved as a Pod Page and linked from the reply, and a Session
-without a channel receives neither. Ambient turns add their route block and
-authority-filtered tools, so they keep a prefix of their own.
+instructions always describe the mounted Drive and its fallback (including
+requiring `find` on `/drive` to scope to a specific subdirectory with
+`-maxdepth`), because a Worker that has not yet reported its capacity may still
+mount Drive. Ankole places a short note directly above a colleague's returned
+result, an event at the six-hop delegation limit, and a shared-room message
+that does not address the Agent. The channel of the conversation decides its
+reply and rendering rules at conversation creation so every turn shares an
+invariant prompt prefix: an Agent peer exchange receives the peer-exchange rule,
+a native Pod channel receives the concise chat reply rule together with
+`diagram_rendering` and `ui_blocks` hints, external IM channels (`im_dm` and
+`im_group`) hide those native Pod reply and block-rendering fragments, and a
+Session without a channel receives none of them. Ambient turns add their route
+block and authority-filtered tools, so they keep a prefix of their own.
 
 Prior to sending a request, the runtime snapshots a bounded window of unread
 public statements from the conversation, and the outgoing AIGateway request
@@ -505,10 +505,19 @@ retry policy. If a post-commit receipt notification fails, the committed receipt
 remains valid and its domain write is never repeated.
 
 Routers use `create_background_job` for long coding, research and batch work,
-then release the foreground turn. Peer sends and read-only recall run in the
-control plane without allocating a Worker. A Job receives the same peer tool
-declarations and uses the fenced RPC adapter; retries reuse its tool-call
-identity. Page editing and sharing use the existing Worker CLI and Pod owners.
+then release the foreground turn. Peer sends, read-only recall, and `pod_*`
+page operations run in the control plane without allocating a Worker;
+`Tools.Pod` supports creating, reading (with `doc` L2 Markdown export), and
+saving both `doc` and Brain `knowledge` pages with normalized parameter aliases. On
+Round 1 of a turn with Worker tools, `Sessions.Turn` selectively pre-warms Worker acquisition (guided by
+`WorkerAcquisition.prewarm?/1`) concurrently with `Model.open` only when the
+conversation already used a Worker tool, the turn carries file attachments, or
+the user text signals explicit `/drive/` or `/workspace/` paths, Office/archive
+files, script execution, or binary/document export work (avoiding speculative
+startup on pure conversational Q&A or prose), resumes requested acquisition if
+an earlier non-worker round left it pending, cancels unused acquisition cleanly
+if the model finishes with text only, and records `used_worker` only when a
+Worker tool executes. Page editing and sharing beyond direct Markdown writes use the existing Worker CLI and Pod owners.
 
 Background Agent Jobs and Workflow calls inherit their parent's source
 authorization, explicit reply route, and owner Session, and their dispatch,

@@ -13,15 +13,17 @@ for (const revision of ['v1', 'v2']) {
   await rm(directory, { recursive: true, force: true })
   await mkdir(directory, { recursive: true })
   await initializeApplet(directory)
-  const source = `import {defineApplet,usePod,useRecords,useChannel} from '@ankole/applet-sdk';
+  const source = `import {defineApplet,usePod,useRecords,useChannel,useTableRecords,useRoute,type BaseRecord} from '@ankole/applet-sdk';
 import {Button,Input,Dialog,DialogContent,DialogTitle,DialogTrigger} from '@ankole/uikit';
 import {lazy,Suspense,useState} from 'react';
 import logoURL from './logo.svg';
 import wasmURL from './add.wasm';
 const LazyDetails=lazy(()=>import('./lazy-details'));
 function App(){
-  const {theme,title,embedded}=usePod();
+  const {theme,title,embedded,embedProps}=usePod();
   const rows=useRecords(${JSON.stringify(tableID)});
+  const bound=useTableRecords('samples');
+  const route=useRoute('GET /bound');
   const room=useChannel('browser-room');
   const [count,setCount]=useState(0);
   const [draft,setDraft]=useState('');
@@ -31,6 +33,8 @@ function App(){
   const [viewport,setViewport]=useState(false);
   const [lazyLoaded,setLazyLoaded]=useState(false);
   const [failed,setFailed]=useState(false);
+  const [captured,setCaptured]=useState<{table:ReturnType<typeof useTableRecords>['table'];record:BaseRecord}|null>(null);
+  const [captureStatus,setCaptureStatus]=useState('');
   if(failed) throw new Error('Fixture rendering failed');
   if(viewport) return <section className="viewport-workspace" style={{height:'100vh',padding:16,boxSizing:'content-box'}}>
     <h2>Viewport dashboard</h2>
@@ -41,6 +45,14 @@ function App(){
   </section>;
   return <section className="applet-shell" data-applet-theme={theme}><h2 className="applet-heading">Tracker ${revision}</h2>
   <p className="applet-page-title" data-embedded={embedded}>{title}</p>
+  <output data-applet-props>{JSON.stringify(embedProps??{})}</output>
+  <output className="binding-record-count">{bound.data?.records.length??0} bound records</output>
+  <output className="binding-route-count">{route.data?.count??0} route records</output>
+  <div className="applet-actions">
+    <Button disabled={!bound.data?.records.length} onClick={()=>{const record=bound.data?.records[0];if(record){setCaptured({table:bound.table,record});setCaptureStatus('Captured bound record')}}}>Capture bound record</Button>
+    <Button disabled={!captured} onClick={async()=>{if(!captured)return;try{await captured.table.update(captured.record,{amount:909});setCaptureStatus('Saved captured edit')}catch(error){setCaptureStatus(String(error))}}}>Save captured edit</Button>
+    <output className="binding-capture-status">{captureStatus}</output>
+  </div>
   <p className="applet-record-count">{rows.data?.records.length??0} records</p>
   <img src={logoURL} alt="Applet logo" width="16" height="16"/>
   <p className="applet-presence">{room.presence.length} online</p>
@@ -98,8 +110,29 @@ postMessage(location.pathname+':'+(module.instance.exports.add as (a:number,b:nu
     path.join(directory, 'src/style.css'),
     `.ankole-applet .applet-shell{display:grid;gap:8px;padding:16px;border:1px solid var(--color-border-subtle)}.ankole-applet .applet-actions{display:flex;gap:12px}.ankole-applet .applet-heading{color:${revision === 'v1' ? 'teal' : 'purple'}}`
   )
+  await mkdir(path.join(directory, 'src/server'), { recursive: true })
+  await writeFile(
+    path.join(directory, 'src/server/main.ts'),
+    `export default {'GET /bound': async () => {const rows = await AnkoleRuntime.bindings.table('samples').query();return {count:rows.records.length}}}`
+  )
+  await writeFile(
+    path.join(directory, 'applet.bindings.json'),
+    JSON.stringify({
+      tables: {
+        samples: {
+          tableId: tableID,
+          required: true,
+          fields: {
+            amount: { fieldId: amountFieldID, type: 'number' },
+            status: { fieldId: statusFieldID, type: 'select' }
+          }
+        }
+      }
+    })
+  )
   const result = await buildApplet(directory)
   manifests[revision] = [
+    'applet.bindings.json',
     ...(await readdir(path.join(directory, 'src'), { recursive: true, withFileTypes: true }))
       .filter(entry => entry.isFile())
       .map(entry => path.relative(directory, path.join(entry.parentPath, entry.name))),

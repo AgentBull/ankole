@@ -346,17 +346,11 @@ defmodule Ankole.Pod.Pages.Search do
     (1.0
      + CASE WHEN pus.favorited_at IS NOT NULL THEN 0.25 ELSE 0.0 END
      + CASE
-         WHEN GREATEST(
-                CASE WHEN COALESCE(pus.hide_visits, false) THEN NULL ELSE pus.visited_at END,
-                pus.edited_at
-              ) IS NOT NULL
+         WHEN GREATEST(pus.visited_at, pus.edited_at) IS NOT NULL
            THEN 0.35 * exp(
              -GREATEST(
                EXTRACT(EPOCH FROM (
-                 CURRENT_TIMESTAMP - GREATEST(
-                   CASE WHEN COALESCE(pus.hide_visits, false) THEN NULL ELSE pus.visited_at END,
-                   pus.edited_at
-                 )
+                 CURRENT_TIMESTAMP - GREATEST(pus.visited_at, pus.edited_at)
                )) / 86400.0,
                0.0
              ) / 14.0

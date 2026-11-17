@@ -16,8 +16,8 @@ defmodule Ankole.SearchIndexes do
   alias Ankole.Brain.Config
   alias Ankole.Repo
 
-  # Index DDL and catalog reads act on the whole table of every tenant (M8
-  # set maintenance), not on the rows of one tenant.
+  # Index DDL and catalog reads act on the whole table of every tenant as
+  # site-level set maintenance, not on the rows of one tenant.
   Module.register_attribute(__MODULE__, :raw_sql_scope, persist: true)
   @raw_sql_scope :site
 

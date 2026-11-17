@@ -108,7 +108,7 @@ Function Runtime 与控制面共用 `ankole_functions` 网桥，可通过该网�
 
 每个 Worker 容器命名为 `ankole-ankole-<hash>-<generation>`，附带标签 `ankole.installation=ankole`、`ankole.provider=docker` 与 `ankole.agent-uid=<Agent UID>`。容器接入 `ankole_workers` 网络，可访问控制面及公网（用于无头浏览器、网页抓取与软件包安装），但无法触达仅挂在 `ankole_backend` 内部网络上的 PostgreSQL。在云主机上同样请将元数据跳数限制设为 `1` 或拦截容器访问 `169.254.169.254`，防止 Worker 读取宿主机的云实例凭据。这些容器不归 Compose 托管，而是由控制面直接创建和销毁，并在控制台的 Workers 页面展示实时状态。
 
-默认的提供商种子设置了 `idleReleaseAfter: 15m`。空闲达到该时长后，控制面会销毁 Worker 容器，同时保留 Agent Home 卷与缓存卷；当任务再次需要 Worker 时，新容器会重新挂回这两个卷。重建 Worker 仅删除缓存卷；删除 Agent 时，控制面会在其所有容器完全退出后删除这两个卷。
+默认的提供商种子设置了 `idleReleaseAfter: 24h`。空闲达到该时长后，控制面会销毁 Worker 容器，同时保留 Agent Home 卷与缓存卷；当任务再次需要 Worker 时，新容器会重新挂回这两个卷。重建 Worker 仅删除缓存卷；删除 Agent 时，控制面会在其所有容器完全退出后删除这两个卷。
 
 安装标识 `ANKOLE_WORKER_INSTALLATION`（默认 `ankole`）会拼入 Worker 容器名、Agent 卷名及容器标签中，长度须为 1–20 个字符，仅允许小写字母、数字和连字符，且首尾必须为字母或数字（例如 `e2e-1011b01`）。首次启动后切勿修改该值：一旦更改，控制面会新建空白的 Agent Home 卷，且无法识别仍在运行的旧容器，从而可能为同一个 Agent 重复启动第二个 Worker。
 
@@ -146,7 +146,14 @@ docker compose ps
 
 `docker compose stop --timeout 60` 会在执行迁移前停掉旧版控制面，同时保留 Docker 网络使在途 Worker 不断网。控制面最多有 60 秒用来排空请求、收尾后台任务，超时后 Docker 才会强制停止，因此这一步最长可能需要一分钟。之所以要显式指定超时，是因为运行中的容器沿用创建时的停止超时；用旧版 Compose 文件创建的容器，这个值是 Docker 默认的 10 秒。待两个迁移服务全部成功后，新版控制面才会启动。升级完成后，各 Agent 的 Worker 会自动重连，镜像变更的旧 Worker 则会在空闲后自动替换。单机升级期间会有短暂服务中断。回退旧版镜像不会反向撤销已执行的数据库迁移；若旧版应用依赖旧表结构，请使用升级前的数据库备份进行恢复。扩展与动态库版本核验方法详见[数据库镜像说明](../../devkit/postgres-for-ankole/README.md)。
 
-从早期共享池化 Worker 版本升级时，`migrate-agent-homes` 服务会等待数据库迁移成功，再停止所有挂载旧卷 `ankole_agents_data` 的容器。随后，它会将每个现存 Agent 的主目录复制到包含租户身份的独享卷，写入租户归属标签，将属主统一改为 `uid 1000`，并在旧卷内写入完成标记。已删除 Agent 遗留的目录会被跳过，旧卷本身予以保留。执行前请确保宿主机剩余磁盘空间不少于 `ankole_agents_data` 的已用容量。若任一目录复制失败，迁移服务会报错退出并阻止控制面启动；修复后再次运行 `docker compose up` 会仅重试未完成的目录，不会覆盖已迁移完成的数据。
+从 1.x 早期共享池化 Worker 版本升级时，请显式执行一次 1.x 升级命令与 `upgrade-1x` profile 下的 `migrate-agent-homes` 服务（`2.0` 日常升级直接运行 `docker compose up -d`，无需启动该 profile）：
+
+```sh
+docker compose run --rm migrate /app/bin/upgrade_from_1x
+docker compose --profile upgrade-1x run --rm migrate-agent-homes
+```
+
+`migrate-agent-homes` 会停止所有挂载旧卷 `ankole_agents_data` 的容器，将每个现存 Agent 的主目录复制到包含租户身份的独享卷，写入租户归属标签，将属主统一改为 `uid 1000`，并在旧卷内写入完成标记。已删除 Agent 遗留的目录会被跳过，旧卷本身予以保留。执行前请确保宿主机剩余磁盘空间不少于 `ankole_agents_data` 的已用容量；若任一目录复制失败，修复后重跑上述命令会仅重试未完成的目录，不会覆盖已迁移完成的数据。
 
 在每个 Worker 内部，`/agents/<agent_uid>` 是指向 `/workspace` 的符号链接，用户文件、会话文件与 Job 工作区均保留在 Agent Home 中；控制面的共享 Agent 云盘则存放在 `files_data` 卷中。若从尚未引入云盘的旧版本升级，请一次性运行以下命令，将已安装的 Skill 及待发送的旧版附件导入云盘：
 

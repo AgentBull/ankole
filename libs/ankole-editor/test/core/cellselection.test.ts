@@ -1,5 +1,6 @@
 import { describe, it } from 'bun:test'
 import { CellSelection } from '../../src/core/table'
+import { Rect, TableMap } from '../../src/core/table/tablemap'
 import { GardSelection } from '../../src/core/state'
 import { Plot, Leaf, Mark, Node, Schema } from '../../src/core/doc'
 import { Table, Cell } from './types'
@@ -189,5 +190,15 @@ describe('CellSelection', () => {
     it('keeps a cursor in an empty table', () => testNorm(pageDoc(p('x'), pageTable()), 4, 4, null))
 
     it('moves out of an empty table', () => testNorm(pageDoc(p('x'), pageTable()), 1, 4, '1-5'))
+  })
+
+  describe('cellsOverlapRectangle', () => {
+    it('detects a rowspan protruding across the bottom edge of a rectangle', () => {
+      const tableDoc = mkTable(2, 3, '2,1:1x2')
+      const tableNode = tableDoc.content[0] as Plot
+      const map = TableMap.get(tableNode, 1)
+      ist(map.cellsOverlapRectangle(new Rect(0, 0, 3, 1)), true)
+      ist(map.cellsOverlapRectangle(new Rect(0, 0, 3, 2)), false)
+    })
   })
 })

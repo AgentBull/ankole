@@ -502,9 +502,108 @@ defmodule Ankole.Sessions.ReceiptsTest do
     stale_call = %{save | "call_id" => "stale-update"}
     stale = Tools.execute(run, stale_call, save_tool, save_args)
     assert stale.is_error
+    assert stale.output =~ "Page revision conflict (current revision is #{updated.revision + 1})"
     assert {:error, :receipt_not_found} = Receipts.fetch("resp_pod-proposal", "stale-update")
     assert {:ok, %{content: content}} = Pages.get(actor, id)
     assert content.plain_text == "Human correction"
+
+    # Collaboration doc pages work end-to-end (create in Space & Private, L2 Markdown read, save,
+    # parameter aliases, and actionable permission errors).
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: human.uid,
+        resource_pattern: "tenant_console:**",
+        action: "update"
+      })
+
+    {:ok, _view_only} = Pages.space_agent(actor, run.agent_uid, "view")
+    {:ok, readonly_doc} = Pages.create(actor, %{title: "Readonly Note", type: "doc"})
+
+    forbidden_save = %{
+      "type" => "function_call",
+      "name" => "pod_save_page",
+      "call_id" => "forbidden-save-doc",
+      "arguments" =>
+        Ankole.JSON.encode!(%{
+          "id" => readonly_doc.id,
+          "base_revision" => readonly_doc.revision,
+          "markdown" => "Should fail"
+        })
+    }
+
+    assert {:ok, forbidden_tool, forbidden_args} = Tools.prepare(run, forbidden_save)
+    forbidden_res = Tools.execute(run, forbidden_save, forbidden_tool, forbidden_args)
+    assert forbidden_res.is_error
+    assert forbidden_res.output =~ "You do not have edit permission for this Page or destination."
+
+    {:ok, _space_agent} = Pages.space_agent(actor, run.agent_uid, "edit")
+
+    create_private_doc = %{
+      "type" => "function_call",
+      "name" => "pod_create_page",
+      "call_id" => "create-private-doc",
+      "arguments" =>
+        Ankole.JSON.encode!(%{
+          "title" => "Scratchpad",
+          "markdown" => "Private notes.",
+          "scope" => "private"
+        })
+    }
+
+    assert {:ok, priv_tool, priv_args} = Tools.prepare(run, create_private_doc)
+    priv_created = Tools.execute(run, create_private_doc, priv_tool, priv_args)
+    refute priv_created.is_error, priv_created.output
+    assert is_binary(priv_created.details["id"])
+
+    create_doc = %{
+      "type" => "function_call",
+      "name" => "pod_create_page",
+      "call_id" => "create-doc",
+      "arguments" =>
+        Ankole.JSON.encode!(%{
+          "title" => "Weekly Status",
+          "content" => "# Highlights\n\nShipped release.",
+          "page_type" => "document"
+        })
+    }
+
+    assert {:ok, doc_create_tool, doc_create_args} = Tools.prepare(run, create_doc)
+    doc_created = Tools.execute(run, create_doc, doc_create_tool, doc_create_args)
+    refute doc_created.is_error, doc_created.output
+    doc_id = doc_created.details["id"]
+    doc_rev = doc_created.details["revision"]
+
+    get_doc = %{
+      "type" => "function_call",
+      "name" => "pod_get_page",
+      "call_id" => "get-doc",
+      "arguments" => Ankole.JSON.encode!(%{"page_id" => doc_id, "level" => 2})
+    }
+
+    assert {:ok, get_tool, get_args} = Tools.prepare(run, get_doc)
+    doc_read = Tools.execute(run, get_doc, get_tool, get_args)
+    refute doc_read.is_error, doc_read.output
+    assert doc_read.details["body"] =~ "Shipped release."
+    refute doc_read.details["body"] =~ "<page>"
+
+    save_doc = %{
+      "type" => "function_call",
+      "name" => "pod_save_page",
+      "call_id" => "save-doc",
+      "arguments" =>
+        Ankole.JSON.encode!(%{
+          "page_id" => doc_id,
+          "base_revision" => Integer.to_string(doc_rev),
+          "body" => "# Highlights\n\nUpdated release notes."
+        })
+    }
+
+    assert {:ok, doc_save_tool, doc_save_args} = Tools.prepare(run, save_doc)
+    doc_saved = Tools.execute(run, save_doc, doc_save_tool, doc_save_args)
+    refute doc_saved.is_error, doc_saved.output
+    assert doc_saved.details["revision"] == doc_rev + 1
+    assert {:ok, %{content: updated_doc_content}} = Pages.get(actor, doc_id)
+    assert updated_doc_content.plain_text =~ "Updated release notes."
   end
 
   defp prepare_operation(operation) do

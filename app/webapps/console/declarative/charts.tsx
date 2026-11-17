@@ -96,7 +96,7 @@ export function DeclarativeSeriesChart({
   }))
 
   return (
-    <section className="grid gap-3 border border-border bg-card p-4">
+    <section className="grid gap-3 border border-border-subtle bg-page p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="title-section">{title}</h3>
         {seriesOptions.length > 1 ? (
@@ -118,7 +118,7 @@ export function DeclarativeSeriesChart({
       <AnkoleChart
         ariaLabel={title}
         emptyState={
-          <p className="text-sm text-muted-foreground">{t('console.empty.title', { defaultValue: 'No data' })}</p>
+          <p className="text-sm text-fg-secondary">{t('console.empty.title', { defaultValue: 'No data' })}</p>
         }
         spec={{
           type: 'line',

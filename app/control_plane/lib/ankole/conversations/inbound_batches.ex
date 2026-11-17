@@ -54,6 +54,8 @@ defmodule Ankole.Conversations.InboundBatches do
 
   @doc false
   def finalize_due_in_tx(batch_id, now) do
+    if batch_id_needs_tree_lock?(batch_id), do: :ok = Ankole.Pod.lock_tree_in_tx()
+
     case lock_inbound_batch_by_id(batch_id) do
       nil ->
         {:error, :inbound_batch_not_found}
@@ -67,6 +69,66 @@ defmodule Ankole.Conversations.InboundBatches do
         {:ok, %{status: :already_finalized, inbound_batch: batch}}
     end
   end
+
+  @doc false
+  def needs_tree_lock_for_entry?(fact) do
+    open_batch_has_unmirrored_attachments?(fact) or reference_has_unmirrored_attachments?(fact)
+  end
+
+  defp batch_id_needs_tree_lock?(batch_id) do
+    case InboundBatch |> Ash.Query.filter(id == ^batch_id) |> Ankole.Ash.read_one!() do
+      %InboundBatch{batch_state: :open} = batch ->
+        entries_have_unmirrored_attachments?(batch.entries) or
+          match?(
+            {:error, :not_found},
+            Ankole.Pod.Pages.Tree.conversation_root(batch.conversation_id)
+          )
+
+      _ ->
+        false
+    end
+  end
+
+  defp open_batch_has_unmirrored_attachments?(fact) do
+    case open_inbound_batch(fact) do
+      %InboundBatch{entries: entries} -> entries_have_unmirrored_attachments?(entries)
+      _ -> false
+    end
+  end
+
+  defp reference_has_unmirrored_attachments?(fact) do
+    case Map.get(fact, :reply_to_provider_message_id) do
+      provider_id when is_binary(provider_id) ->
+        case observed_entry_batch(
+               fact.agent_uid,
+               fact.binding_name,
+               fact.conversation_id,
+               provider_id
+             ) do
+          %InboundBatch{entries: entries} ->
+            case find_entry(entries, provider_id) do
+              %{} = entry -> entry_has_unmirrored_attachments?(entry)
+              _ -> false
+            end
+
+          _ ->
+            false
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp entries_have_unmirrored_attachments?(entries) when is_list(entries),
+    do: Enum.any?(entries, &entry_has_unmirrored_attachments?/1)
+
+  defp entries_have_unmirrored_attachments?(_entries), do: false
+
+  defp entry_has_unmirrored_attachments?(entry) when is_map(entry),
+    do: entry["mirrored"] in [nil, false] and (entry["attachments"] || []) != []
+
+  defp entry_has_unmirrored_attachments?(_entry), do: false
 
   @spec entry_snapshot(String.t(), String.t(), String.t(), String.t()) :: map() | nil
   def entry_snapshot(
@@ -796,8 +858,6 @@ defmodule Ankole.Conversations.InboundBatches do
   end
 
   defp append_batch_signal(batch, type, now) do
-    :ok = Ankole.Pod.lock_tree_in_tx()
-
     :ok =
       Ankole.Signals.lock_target_in_tx(%{
         agent_uid: batch.agent_uid,

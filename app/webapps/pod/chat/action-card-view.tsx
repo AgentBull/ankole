@@ -1,8 +1,9 @@
 import { recordValue } from '@agentbull/active-support'
 import type { Spec } from '@json-render/react'
-import { useMutationState } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
+import { useMutationState, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { podKeys } from '../api'
 import { InteractionSurface, interactionSpec } from './interaction-surface'
 import type { ActionCardDecision } from './room-api'
 import type { ActionCardState } from './types'
@@ -10,6 +11,7 @@ import type { ActionCardState } from './types'
 const DESTRUCTIVE_ACTION_KINDS = new Set(['pod.page.delete', 'pod.base.delete_table'])
 const DRAFT_DISCLOSURE_ACTION_KINDS = new Set(['pod.knowledge.save', 'brain.object.create', 'library.skill.save'])
 const KNOWLEDGE_ACTION_KINDS = new Set(['pod.knowledge.save', 'brain.object.create'])
+const EXECUTING_LEASE_REFRESH_MS = 15_000
 
 /**
  * Builds the Action Card as an interaction spec from the card that the control plane drafted. `enabled` says
@@ -22,11 +24,29 @@ function actionCardSpec(
 ): Spec {
   const { add, spec } = interactionSpec()
   const status = card.status ?? 'prepared'
+  const canRecover = status === 'executing' && card.can_recover === true
   const payload = card.payload ?? {}
   const details = formatPayloadDetails(card, t)
   const sharingExplainText =
     card.action_kind === 'pod.page.set_sharing' ? formatSharingExplainText(payload.explain_summaries, t) : undefined
   const resolvedBy = card.resolved_by_name || t('pod.chat_timeline.teammate')
+  const confirmedBy = t('pod.chat_action_card.confirmed_by', {
+    defaultValue: 'Confirmed by {$name}',
+    name: resolvedBy
+  })
+  const settledOutcome = (
+    id: string,
+    icon: 'check' | 'warning',
+    warning: boolean,
+    actorText: string,
+    fallbackNote?: string
+  ) =>
+    add(id, 'Outcome', {
+      icon,
+      warning,
+      fresh: view.fresh,
+      text: [actorText, card.resolution_note || fallbackNote].filter(Boolean).join(' · ')
+    })
   return spec(
     add(
       'card',
@@ -34,11 +54,11 @@ function actionCardSpec(
       {
         kind: 'approval',
         title: actionKindLabel(card.action_kind, t),
-        state: status === 'prepared' ? 'pending' : status,
+        state: status === 'prepared' || canRecover ? 'pending' : status,
         muted: status === 'cancelled' || status === 'stale',
         badge: {
           text: actionStatusLabel(status, t),
-          variant: status === 'executed' ? 'secondary' : status === 'stale' ? 'destructive' : 'outline'
+          variant: actionBadgeVariant(status)
         },
         testid: 'chat-action-card',
         actionKind: card.action_kind
@@ -80,6 +100,17 @@ function actionCardSpec(
               open: false
             })
           ]),
+        card.action_kind === 'connectors.tool.call' &&
+          typeof payload.arguments_preview === 'string' &&
+          add('connector-args', 'Group', { kind: 'drafts' }, [
+            add('arguments-preview', 'Disclosure', {
+              title: t('pod.chat_action_card.tool_arguments', {
+                defaultValue: 'Locked tool arguments'
+              }),
+              text: payload.arguments_preview,
+              open: true
+            })
+          ]),
         status === 'prepared' &&
           add('actions', 'Group', { kind: 'actions' }, [
             add(
@@ -87,7 +118,11 @@ function actionCardSpec(
               'ActionButton',
               {
                 label: t('pod.chat_action_card.confirm', { defaultValue: 'Confirm & Execute' }),
-                variant: DESTRUCTIVE_ACTION_KINDS.has(card.action_kind) ? 'destructive' : 'default',
+                variant:
+                  DESTRUCTIVE_ACTION_KINDS.has(card.action_kind) ||
+                  (card.action_kind === 'connectors.tool.call' && payload.destructive === true)
+                    ? 'destructive'
+                    : 'default',
                 size: 'sm',
                 icon: 'check',
                 disabled: !view.enabled,
@@ -111,20 +146,73 @@ function actionCardSpec(
               { press: { action: 'resolve', params: { decision: 'cancel' } } }
             )
           ]),
-        status === 'executed' &&
-          add('executed', 'Outcome', {
-            icon: 'check',
-            fresh: view.fresh,
-            text: [
-              t('pod.chat_action_card.executed_by', {
-                defaultValue: 'Confirmed and executed by {$name}',
-                name: resolvedBy
-              }),
-              card.resolution_note
-            ]
-              .filter(Boolean)
-              .join(' · ')
+        canRecover &&
+          !view.submitting &&
+          add('interrupted', 'Outcome', {
+            icon: 'warning',
+            warning: true,
+            text: t('pod.chat_action_card.execution_interrupted_notice', {
+              defaultValue:
+                'Previous execution attempt did not report completion. Settle its recorded receipt before retrying.'
+            })
           }),
+        canRecover &&
+          add('recover-actions', 'Group', { kind: 'actions' }, [
+            add(
+              'recover',
+              'ActionButton',
+              {
+                label: t('pod.chat_action_card.recover_execution', { defaultValue: 'Check & Settle Outcome' }),
+                variant: 'outline',
+                size: 'sm',
+                icon: 'check',
+                disabled: !view.enabled,
+                busy: view.submitting
+              },
+              [],
+              { press: { action: 'resolve', params: { decision: 'confirm' } } }
+            )
+          ]),
+        status === 'executing' &&
+          !canRecover &&
+          !view.submitting &&
+          add('executing', 'Outcome', {
+            text: t('pod.chat_action_card.executing_by', {
+              defaultValue: 'Confirmed by {$name} · Executing…',
+              name: resolvedBy
+            }),
+            live: true
+          }),
+        status === 'executed' &&
+          settledOutcome(
+            'executed',
+            'check',
+            false,
+            t('pod.chat_action_card.executed_by', {
+              defaultValue: 'Confirmed and executed by {$name}',
+              name: resolvedBy
+            })
+          ),
+        status === 'execution_uncertain' &&
+          settledOutcome(
+            'execution-uncertain',
+            'warning',
+            true,
+            confirmedBy,
+            t('pod.chat_action_card.uncertain_notice', {
+              defaultValue: 'The upstream call ended with an uncertain outcome. Inspect upstream state before retrying.'
+            })
+          ),
+        status === 'failed' &&
+          settledOutcome(
+            'failed',
+            'warning',
+            true,
+            confirmedBy,
+            t('pod.chat_action_card.failed_notice', {
+              defaultValue: 'Execution failed before mutating upstream state.'
+            })
+          ),
         status === 'cancelled' &&
           add('cancelled', 'Outcome', {
             icon: 'close',
@@ -159,6 +247,7 @@ export function ActionCardView({
   onResolve?: (cardID: string, decision: ActionCardDecision) => Promise<unknown>
 }) {
   const { t } = useTranslation()
+  const client = useQueryClient()
   const submitting = useRef(false)
   const mutationState = useMutationState({
     filters: {
@@ -169,9 +258,28 @@ export function ActionCardView({
   const pending = mutationState?.status === 'pending'
   const decision = (mutationState?.variables as { decision?: ActionCardDecision } | undefined)?.decision
   const redacted = card.payload?.redacted === true
-  const enabled = (card.status ?? 'prepared') === 'prepared' && !!onResolve && !pending && !redacted
+  const currentStatus = card.status ?? 'prepared'
+  const canRecover = currentStatus === 'executing' && card.can_recover === true
+  const actionable = currentStatus === 'prepared' || canRecover
+  const enabled = actionable && !!onResolve && !pending && !redacted
   // A card that was already decided when it was first shown renders its outcome still.
-  const [firstStatus] = useState(card.status ?? 'prepared')
+  const [firstStatus] = useState(currentStatus)
+
+  useEffect(() => {
+    if (currentStatus !== 'executing' || canRecover) return
+    // Re-check periodically while executing so an expired 120s server lease surfaces recovery without reload.
+    const timer = setInterval(() => {
+      void client.invalidateQueries({ queryKey: podKeys.actionCard(card.card_id), refetchType: 'active' })
+      void client.invalidateQueries({
+        predicate: query =>
+          Array.isArray(query.queryKey) &&
+          query.queryKey.at(-2) === 'conversation' &&
+          typeof query.queryKey.at(-1) === 'string',
+        refetchType: 'active'
+      })
+    }, EXECUTING_LEASE_REFRESH_MS)
+    return () => clearInterval(timer)
+  }, [client, card.card_id, currentStatus, canRecover])
 
   const decide = (decision: ActionCardDecision) => {
     if (!enabled || submitting.current) return
@@ -212,9 +320,17 @@ function actionKindLabel(kind: string, t: ReturnType<typeof useTranslation>['t']
       return t('pod.chat_action_card.kind_base_delete_table', { defaultValue: 'Delete Base table approval' })
     case 'conversation.add_participants':
       return t('pod.chat_action_card.kind_add_participants', { defaultValue: 'Add room participants approval' })
+    case 'connectors.tool.call':
+      return t('pod.chat_action_card.kind_connector_call', { defaultValue: 'External tool approval' })
     default:
       return t('pod.chat_action_card.kind_default', { defaultValue: 'Approval required' })
   }
+}
+
+function actionBadgeVariant(status: NonNullable<ActionCardState['status']>): 'secondary' | 'destructive' | 'outline' {
+  if (status === 'executed') return 'secondary'
+  if (status === 'stale' || status === 'failed' || status === 'execution_uncertain') return 'destructive'
+  return 'outline'
 }
 
 function actionStatusLabel(
@@ -224,8 +340,14 @@ function actionStatusLabel(
   switch (status) {
     case 'prepared':
       return t('pod.chat_action_card.status_prepared', { defaultValue: 'Awaiting approval' })
+    case 'executing':
+      return t('pod.chat_action_card.status_executing', { defaultValue: 'Executing' })
     case 'executed':
       return t('pod.chat_action_card.status_executed', { defaultValue: 'Executed' })
+    case 'execution_uncertain':
+      return t('pod.chat_action_card.status_execution_uncertain', { defaultValue: 'Outcome uncertain' })
+    case 'failed':
+      return t('pod.chat_action_card.status_failed', { defaultValue: 'Execution failed' })
     case 'stale':
       return t('pod.chat_action_card.status_stale', { defaultValue: 'Outdated' })
     case 'cancelled':
@@ -333,6 +455,21 @@ function formatPayloadDetails(card: ActionCardState, t: ReturnType<typeof useTra
       if (typeof uid !== 'string') continue
       const participant = participants.map(recordValue).find(item => item?.uid === uid)
       lines.push(typeof participant?.name === 'string' ? `${participant.name} (@${uid})` : `@${uid}`)
+    }
+  } else if (card.action_kind === 'connectors.tool.call') {
+    const connection =
+      (typeof payload.connection_name === 'string' && payload.connection_name) ||
+      (typeof payload.connection === 'string' && payload.connection) ||
+      (typeof payload.server === 'string' && payload.server) ||
+      undefined
+    const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : undefined
+    if (connection || toolName) {
+      lines.push(
+        t('pod.chat_action_card.connector_target', {
+          defaultValue: 'Tool: {$target}',
+          target: [connection, toolName].filter(Boolean).join(' · ')
+        })
+      )
     }
   }
   return lines

@@ -61,6 +61,8 @@ defmodule Ankole.Conversations.Observe do
          {:ok, attrs} <- FactNormalizer.entry(binding, input, now),
          {:ok, fact} <- Observation.entry(attrs),
          fact = fact |> resolve_existing_conversation() |> then(&Reference.enrich/1),
+         :ok <- reject_self_echo(fact),
+         :ok <- IdentityAdmission.check_external_bot_gate(binding, fact),
          :match <- BindingFilters.match?(binding.filters, fact) do
       case admit_entry(binding, fact, now) |> route_entry(binding) do
         {:ok, fact} ->
@@ -360,12 +362,30 @@ defmodule Ankole.Conversations.Observe do
   def publish_committed(_result), do: :ok
 
   defp admit_entry(binding, fact, now) do
-    if fact.channel_kind == :im_group and entry_policy(binding, fact) == {:ok, :ignore} do
-      {:ok, fact}
-    else
-      IdentityAdmission.admit_entry(binding, fact, now)
+    ignored_group_entry? =
+      fact.channel_kind == :im_group and entry_policy(binding, fact) == {:ok, :ignore}
+
+    cond do
+      IdentityAdmission.external_bot_author?(fact.author) ->
+        IdentityAdmission.prepare_external_bot_entry(binding, fact, not ignored_group_entry?)
+
+      ignored_group_entry? ->
+        {:ok, fact}
+
+      true ->
+        IdentityAdmission.admit_entry(binding, fact, now)
     end
   end
+
+  defp reject_self_echo(%{conversation_id: id, provider_message_id: msg_id})
+       when is_binary(id) and is_binary(msg_id) do
+    case External.get_message(id, msg_id) do
+      %{message: %{author_type: :agent}} -> {:ignored, :ignored_self_echo}
+      _ -> :ok
+    end
+  end
+
+  defp reject_self_echo(_fact), do: :ok
 
   # Whole acceptance runs in one transaction behind the per-entry advisory lock,
   # so concurrent receives for the same message serialize and the
@@ -374,7 +394,8 @@ defmodule Ankole.Conversations.Observe do
   # late receive before writing anything.
   @doc false
   def accept_entry_in_tx(binding, fact, now) do
-    with :ok <- Ankole.Pod.lock_tree_in_tx(),
+    with :ok <- maybe_lock_tree_for_entry_in_tx(fact),
+         :ok <- IdentityAdmission.ensure_external_bot_in_tx(fact),
          {:ok, fact} <- bind_conversation_in_tx(binding, fact, now),
          :ok <- lock_entry_consumers(binding, fact),
          :ok <- lock_entry(fact) do
@@ -391,6 +412,19 @@ defmodule Ankole.Conversations.Observe do
           end
       end
     end
+  end
+
+  defp maybe_lock_tree_for_entry_in_tx(fact) do
+    needs_tree_lock? =
+      (fact.attachments || []) != [] or
+        is_nil(fact.conversation_id) or
+        InboundBatches.needs_tree_lock_for_entry?(fact) or
+        match?(
+          {:error, :not_found},
+          Ankole.Pod.Pages.Tree.conversation_root(fact.conversation_id)
+        )
+
+    if needs_tree_lock?, do: Ankole.Pod.lock_tree_in_tx(), else: :ok
   end
 
   defp lock_entry_consumers(binding, fact) do

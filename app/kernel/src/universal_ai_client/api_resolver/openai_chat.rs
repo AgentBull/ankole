@@ -192,6 +192,8 @@ pub(super) struct ChatState {
     message_output_index: Option<usize>,
     content_started: bool,
     output_text: String,
+    refusal_started: bool,
+    refusal_text: String,
     reasoning: ChatReasoning,
     reasoning_item_id: Option<String>,
     reasoning_output_index: Option<usize>,
@@ -217,6 +219,8 @@ impl ChatState {
             message_output_index: None,
             content_started: false,
             output_text: String::new(),
+            refusal_started: false,
+            refusal_text: String::new(),
             reasoning: ChatReasoning::default(),
             reasoning_item_id: None,
             reasoning_output_index: None,
@@ -310,6 +314,12 @@ impl ChatState {
                 events.extend(self.text_delta(content));
             }
 
+            if let Some(refusal) = delta.get("refusal").and_then(Value::as_str)
+                && !refusal.is_empty()
+            {
+                events.extend(self.refusal_delta(refusal));
+            }
+
             if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
                 for tool_call in tool_calls {
                     events.extend(self.tool_call_delta(context, tool_call));
@@ -318,7 +328,8 @@ impl ChatState {
         }
 
         if let Some(finish_reason) = choice.get("finish_reason").and_then(Value::as_str) {
-            let (status, reason) = chat_terminal(finish_reason);
+            let (mut status, mut reason) = chat_terminal(finish_reason);
+            promote_refusal_terminal(self.refusal_started, &mut status, &mut reason);
             self.pending_status = Some(status.to_string());
             self.pending_incomplete_reason = reason.map(ToOwned::to_owned);
         }
@@ -416,6 +427,37 @@ impl ChatState {
                 "output_index": output_index,
                 "content_index": 0,
                 "delta": text
+            }),
+        ));
+        events
+    }
+
+    pub(super) fn refusal_delta(&mut self, refusal: &str) -> Vec<Value> {
+        let mut events = Vec::new();
+        let (item_id, output_index) = self.ensure_message_item(&mut events);
+        let content_index = usize::from(self.content_started);
+
+        if !self.refusal_started {
+            self.refusal_started = true;
+            events.push(self.event(
+                "response.content_part.added",
+                json!({
+                    "item_id": item_id,
+                    "output_index": output_index,
+                    "content_index": content_index,
+                    "part": {"type": "refusal", "refusal": ""}
+                }),
+            ));
+        }
+
+        self.refusal_text.push_str(refusal);
+        events.push(self.event(
+            "response.refusal.delta",
+            json!({
+                "item_id": item_id,
+                "output_index": output_index,
+                "content_index": content_index,
+                "delta": refusal
             }),
         ));
         events
@@ -547,6 +589,7 @@ impl ChatState {
             && completed
             && self.reasoning.is_empty()
             && !self.content_started
+            && !self.refusal_started
             && self.tool_calls.is_empty()
         {
             return Err(StreamError::new(
@@ -631,6 +674,33 @@ impl ChatState {
             ));
         }
 
+        if self.refusal_started {
+            let item_id = self
+                .message_item_id
+                .clone()
+                .unwrap_or_else(|| generated_id("msg"));
+            let output_index = self.message_output_index.unwrap_or(0);
+            let content_index = usize::from(self.content_started);
+            events.push(self.event(
+                "response.refusal.done",
+                json!({
+                    "item_id": item_id,
+                    "output_index": output_index,
+                    "content_index": content_index,
+                    "refusal": self.refusal_text
+                }),
+            ));
+            events.push(self.event(
+                "response.content_part.done",
+                json!({
+                    "item_id": item_id,
+                    "output_index": output_index,
+                    "content_index": content_index,
+                    "part": {"type": "refusal", "refusal": self.refusal_text}
+                }),
+            ));
+        }
+
         if completed {
             for call in self.tool_calls.values().cloned().collect::<Vec<_>>() {
                 if provider_custom_tool(context, &call.name) {
@@ -698,7 +768,7 @@ impl ChatState {
                 self.reasoning_item(context, item_status),
             ));
         }
-        if self.content_started {
+        if self.content_started || self.refusal_started {
             indexed_output.push((
                 self.message_output_index.unwrap_or(0),
                 self.message_item(item_status),
@@ -738,16 +808,26 @@ impl ChatState {
     }
 
     fn message_item(&self, status: &str) -> Value {
+        let mut content = Vec::new();
+        if self.content_started {
+            content.push(json!({
+                "type": "output_text",
+                "text": self.output_text,
+                "annotations": []
+            }));
+        }
+        if self.refusal_started {
+            content.push(json!({
+                "type": "refusal",
+                "refusal": self.refusal_text
+            }));
+        }
         json!({
             "id": self.message_item_id.clone().unwrap_or_else(|| generated_id("msg")),
             "type": "message",
             "status": status,
             "role": "assistant",
-            "content": [{
-                "type": "output_text",
-                "text": self.output_text,
-                "annotations": []
-            }]
+            "content": content
         })
     }
 
@@ -857,6 +937,7 @@ impl APIProtocol for ChatState {
 fn chat_terminal(finish_reason: &str) -> (&'static str, Option<&'static str>) {
     match finish_reason {
         "length" => ("incomplete", Some("max_output_tokens")),
+        "content_filter" => ("incomplete", Some("content_filter")),
         _reason => ("completed", None),
     }
 }
@@ -881,13 +962,13 @@ fn chat_completion_body_to_response(
         .and_then(Value::as_str)
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| context.model.clone());
-    let (status, incomplete_reason) = body
+    let (mut status, mut incomplete_reason) = body
         .pointer("/choices/0/finish_reason")
         .and_then(Value::as_str)
         .map(chat_terminal)
         .unwrap_or(("completed", None));
 
-    let output = chat_output_items(context, &message)?;
+    let output = chat_output_items(context, &message, &mut status, &mut incomplete_reason)?;
     Ok(complete_response_resource(
         context,
         json!({
@@ -905,21 +986,58 @@ fn chat_completion_body_to_response(
     ))
 }
 
-fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value, StreamError> {
+fn promote_refusal_terminal(
+    has_refusal: bool,
+    status: &mut &'static str,
+    incomplete_reason: &mut Option<&'static str>,
+) {
+    if has_refusal && *status == "completed" {
+        *status = "incomplete";
+        *incomplete_reason = Some("content_filter");
+    }
+}
+
+fn chat_output_items(
+    context: &ResponseContext,
+    message: &Value,
+    status: &mut &'static str,
+    incomplete_reason: &mut Option<&'static str>,
+) -> Result<Value, StreamError> {
     let content = message.get("content").unwrap_or(&Value::Null);
     let mut items = Vec::new();
-    let content_parts = chat_assistant_content_parts(content);
+    let mut content_parts = chat_assistant_content_parts(content);
+    if let Some(refusal) = message
+        .get("refusal")
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+    {
+        let already_present = content_parts.iter().any(|part| {
+            part.get("type").and_then(Value::as_str) == Some("refusal")
+                && part.get("refusal").and_then(Value::as_str) == Some(refusal)
+        });
+        if !already_present {
+            content_parts.push(json!({
+                "type": "refusal",
+                "refusal": refusal
+            }));
+        }
+    }
+    let has_refusal = content_parts
+        .iter()
+        .any(|part| part.get("type").and_then(Value::as_str) == Some("refusal"));
+    promote_refusal_terminal(has_refusal, status, incomplete_reason);
+    let item_status = response_item_status(status);
     let reasoning = ChatReasoning::from_message(message)?;
 
     if !reasoning.is_empty() {
-        items.push(chat_reasoning_item(context, &reasoning, "completed"));
+        items.push(chat_reasoning_item(context, &reasoning, item_status));
     }
 
     if !content_parts.is_empty() {
         items.push(json!({
             "id": generated_id("msg"),
             "type": "message",
-            "status": "completed",
+            "status": item_status,
             "role": "assistant",
             "content": content_parts
         }));
@@ -1011,7 +1129,7 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value
                 "call_id": call_id,
                 "name": name,
                 "arguments": arguments,
-                "status": "completed"
+                "status": item_status
             });
             restore_tool_namespace(context, &mut item);
             restore_custom_tool(context, &mut item);
@@ -1019,7 +1137,7 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value
         }
     }
 
-    if items.is_empty() {
+    if items.is_empty() && *status == "completed" {
         if context.policy() == ConversionPolicy::Strict {
             return Err(StreamError::new(
                 "empty_upstream_response",
@@ -1030,7 +1148,7 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value
         items.push(json!({
             "id": generated_id("msg"),
             "type": "message",
-            "status": "completed",
+            "status": item_status,
             "role": "assistant",
             "content": [{"type": "output_text", "text": "", "annotations": []}]
         }));
@@ -1139,7 +1257,8 @@ fn chat_assistant_content_part(part: &Value) -> Option<Value> {
                 .get("refusal")
                 .or_else(|| map.get("text"))
                 .map(value_to_text)
-                .and_then(|text| output_text_part(&text)),
+                .filter(|text| !text.trim().is_empty())
+                .map(|refusal| json!({"type": "refusal", "refusal": refusal})),
             _type => map
                 .get("text")
                 .map(value_to_text)
@@ -1239,6 +1358,17 @@ fn build_openai_chat_body(context: &ResponseContext) -> Result<Map<String, Value
                 body.insert(key.to_string(), value.clone());
                 consumed.insert(key);
             }
+        }
+    }
+    if let Some(value) = request.get("prompt_cache_key").filter(|v| !v.is_null()) {
+        if strict && !value.is_string() {
+            return Err(unexpressible_chat_field("prompt_cache_key"));
+        }
+        if value.as_str().is_some_and(|s| s.trim().is_empty()) {
+            consumed.insert("prompt_cache_key");
+        } else if useful_value(value) {
+            put_default_if_useful(&mut body, "prompt_cache_key", value.clone());
+            consumed.insert("prompt_cache_key");
         }
     }
     if let Some(reasoning) = request.get("reasoning").filter(|v| !v.is_null()) {

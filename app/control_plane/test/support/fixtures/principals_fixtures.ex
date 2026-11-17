@@ -39,7 +39,7 @@ defmodule Ankole.PrincipalsFixtures do
           )
 
         :agent ->
-          Principals.delete_agent(uid)
+          Principals.disable_agent(uid)
 
         _ ->
           Ankole.Repo.transact(fn ->

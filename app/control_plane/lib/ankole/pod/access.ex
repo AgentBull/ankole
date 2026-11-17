@@ -52,12 +52,13 @@ defmodule Ankole.Pod.Access do
             if Keyword.get(opts, :shared_tree, false), do: Pages.lock_tree(shared: true)
             roots = Keyword.get(opts, :root_ids, [])
             Pages.lock_roots(if is_function(roots, 0), do: roots.(), else: roots)
+            if before_turn = Keyword.get(opts, :before_turn), do: before_turn.()
 
             with :ok <-
                    AuthZ.authorize_turn_in_tx(authority, Keyword.take(opts, [:before_fence])),
                  do: fun.()
           end,
-          Keyword.drop(opts, [:root_ids, :shared_tree, :before_fence])
+          Keyword.drop(opts, [:root_ids, :shared_tree, :before_fence, :before_turn])
         )
       end)
     end
@@ -72,9 +73,10 @@ defmodule Ankole.Pod.Access do
             Pages.lock_tree()
             roots = Keyword.get(opts, :root_ids, [])
             Pages.lock_roots(if is_function(roots, 0), do: roots.(), else: roots)
+            if before_turn = Keyword.get(opts, :before_turn), do: before_turn.()
             with :ok <- AuthZ.authorize_turn_in_tx(authority), do: fun.()
           end,
-          Keyword.delete(opts, :root_ids)
+          Keyword.drop(opts, [:root_ids, :before_turn])
         )
       end)
     end
@@ -165,10 +167,15 @@ defmodule Ankole.Pod.Access do
           {:ok, page}
 
         :not_administrative ->
-          with {:ok, reachable} <- reachable_anchors(uid, page_options(page, opts)),
-               {:ok, _} <- authorize_bits(page, action, reachable),
-               :ok <- Ankole.Brain.Access.authorize_turn(uid, page, action, opts),
-               do: {:ok, page}
+          if applet_service_subtree?(uid, page) do
+            with :ok <- Ankole.Brain.Access.authorize_turn(uid, page, action, opts),
+                 do: {:ok, page}
+          else
+            with {:ok, reachable} <- reachable_anchors(uid, page_options(page, opts)),
+                 {:ok, _} <- authorize_bits(page, action, reachable),
+                 :ok <- Ankole.Brain.Access.authorize_turn(uid, page, action, opts),
+                 do: {:ok, page}
+          end
 
         error ->
           error
@@ -211,16 +218,40 @@ defmodule Ankole.Pod.Access do
   def authorize_with_permissions(uid, page, opts \\ []) do
     opts = authorization_options("node_view", opts)
 
-    with :ok <- visible_state(page, opts),
-         {:ok, reachable} <- reachable_for(uid, page_options(page, opts)),
-         bits = page_bits(page, reachable),
-         true <- band(bits, 1) != 0,
-         do: {:ok, Ankole.Pod.Access.Graph.project_permissions(page, bits)},
-         else: (
-           false -> {:error, :forbidden}
-           error -> error
-         )
+    with :ok <- visible_state(page, opts) do
+      if applet_service_subtree?(uid, page) do
+        {:ok, Ankole.Pod.Access.Graph.project_permissions(page, 31)}
+      else
+        with {:ok, reachable} <- reachable_for(uid, page_options(page, opts)),
+             bits = page_bits(page, reachable),
+             true <- band(bits, 1) != 0,
+             do: {:ok, Ankole.Pod.Access.Graph.project_permissions(page, bits)},
+             else: (
+               false -> {:error, :forbidden}
+               error -> error
+             )
+      end
+    end
   end
+
+  defp applet_service_subtree?(
+         %Actor{principal: %{type: :system, status: :active}} = actor,
+         page
+       ) do
+    with :ok <- Ankole.AuthZ.Checks.ActorGuardrail.check(actor, :drive),
+         {:ok, host_page_id} <- Ankole.Principals.ServiceAccounts.applet_page_id(Actor.uid(actor)),
+         {:ok, nodes} <- path(page),
+         index when is_integer(index) <- Enum.find_index(nodes, &(&1.id == host_page_id)) do
+      [host | descendants] = Enum.drop(nodes, index)
+
+      host.type == :applet and is_nil(host.deleted_at) and
+        Enum.all?(descendants, & &1.inherit_permissions)
+    else
+      _ -> false
+    end
+  end
+
+  defp applet_service_subtree?(_uid, _page), do: false
 
   defp visible_state(page, opts) do
     case Keyword.get(opts, :trash, false) do
@@ -296,15 +327,20 @@ defmodule Ankole.Pod.Access do
     parent_id = Map.get(attrs, :parent_id, old && old.parent_id)
     parent_anchor = if parent_id, do: (Pages.fetch(parent_id) |> elem(1)).acl_anchor_id
     id = Map.get(attrs, :id, old && old.id)
+    type = Map.get(attrs, :type, old && old.type)
 
     inherit =
       Map.get(attrs, :inherit_permissions, if(old, do: old.inherit_permissions, else: true))
 
-    local = Map.get(attrs, :has_local_acl, if(old, do: old.has_local_acl, else: false))
+    local =
+      type in [:applet, "applet"] or
+        Map.get(attrs, :has_local_acl, if(old, do: old.has_local_acl, else: false))
+
     deleted = Map.get(attrs, :deleted_at, old && old.deleted_at)
     anchor = is_nil(parent_id) or not inherit or local or not is_nil(deleted)
 
     Map.merge(attrs, %{
+      has_local_acl: local,
       acl_anchor_id: if(anchor, do: id, else: parent_anchor),
       parent_anchor_id: if(anchor, do: parent_anchor)
     })
@@ -330,7 +366,7 @@ defmodule Ankole.Pod.Access do
 
     case Pages.fetch(id) do
       {:ok, page} ->
-        local = grants(target_node_id: id) != []
+        local = page.type == :applet or grants(target_node_id: id) != []
         attrs = anchor_attributes(%{has_local_acl: local}, page)
 
         with {:ok, updated} <- Pages.update_in_tx(page, :anchor, attrs) do

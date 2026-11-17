@@ -232,6 +232,7 @@ test('a guest uses granted colleagues and comments without assistant entry point
   let dmID: string | undefined
   try {
     await page.goto('/')
+    await page.getByRole('tab', { name: '对话', exact: true }).click()
     await expect(page.locator(`a[href="/dm/${state.agent_uid}"]`).first()).toBeVisible()
     await expect(page.getByRole('link', { name: /^新对话/ })).toHaveCount(0)
     await page.keyboard.press('ControlOrMeta+k')

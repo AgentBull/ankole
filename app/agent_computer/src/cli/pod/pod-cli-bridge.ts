@@ -1,4 +1,5 @@
 import { nodeErrorCode } from '../../common/errors'
+import { isRecord } from '@agentbull/active-support'
 import { randomUUID } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
@@ -9,8 +10,67 @@ import { agentProcessArgv } from '../../core/execution/process-group'
 import { parseCLIRequest, startSocketLineBridge } from '../../core/socket-line-bridge'
 import { jsonBytes, jsonObjectFromBytes } from '../../fabric/envelope-proto'
 import { collectLocalFiles, sha256File, type Drive } from '../../drive/drive'
-import type { RPCRequester, TurnRPCFrame } from '../../lanes/rpc-lane'
+import { RPCRejectedError, type RPCRequester, type TurnRPCFrame } from '../../lanes/rpc-lane'
 import { preflightPageMarkdown, type ExistingPageSnapshot } from './diagram-preflight'
+
+const MAX_PATCH_CONFLICT_RETRIES = 3
+
+type ValidatedPatchEdit = {
+  old_text: string
+  new_text: string
+  replace_all: boolean
+}
+
+function validatePatchEdits(rawEdits: unknown): ValidatedPatchEdit[] {
+  if (!Array.isArray(rawEdits) || rawEdits.length === 0) throw new Error('pages.patch requires edits')
+  return rawEdits.map(value => {
+    const edit = value as { old_text?: unknown; new_text?: unknown; replace_all?: unknown }
+    if (typeof edit.old_text !== 'string' || !edit.old_text || typeof edit.new_text !== 'string') {
+      throw new Error('Each patch requires nonempty old_text and string new_text')
+    }
+    return {
+      old_text: edit.old_text,
+      new_text: edit.new_text,
+      replace_all: edit.replace_all === true
+    }
+  })
+}
+
+function applyPatchEdits(
+  initialMarkdown: string,
+  edits: ValidatedPatchEdit[],
+  requireUniqueMatch: boolean
+): { matched: true; markdown: string } | { matched: false } {
+  let markdown = initialMarkdown
+  for (const edit of edits) {
+    const matches = markdown.split(edit.old_text).length - 1
+    if (requireUniqueMatch) {
+      if (matches !== 1) return { matched: false }
+      markdown = markdown.replace(edit.old_text, () => edit.new_text)
+      continue
+    }
+    if (!matches) throw new Error('Patch old_text did not match')
+    if (matches > 1 && !edit.replace_all) throw new Error('Patch old_text matched more than once')
+    markdown = edit.replace_all
+      ? markdown.split(edit.old_text).join(edit.new_text)
+      : markdown.replace(edit.old_text, () => edit.new_text)
+  }
+  return { matched: true, markdown }
+}
+
+function isRevisionConflictError(error: unknown): boolean {
+  if (error instanceof RPCRejectedError) {
+    return error.rejection.code === 'revision_conflict'
+  }
+  if (isRecord(error)) {
+    if (error.code === 'revision_conflict' || error.status === 409) return true
+    if (isRecord(error.rejection) && error.rejection.code === 'revision_conflict') return true
+  }
+  if (error instanceof Error) {
+    return /\brevision[ _]conflict\b/i.test(error.message)
+  }
+  return false
+}
 
 const readOperations = [
   'pages.list',
@@ -38,7 +98,10 @@ const readOperations = [
   'jobs.actions',
   'jobs.runs',
   'jobs.get_run',
-  'bindings.list'
+  'bindings.list',
+  'applets.inspect_ticket',
+  'applets.revisions',
+  'applets.bindings.list'
 ] as const
 const readOperationNames = new Set<string>(readOperations)
 const writeOperations = [
@@ -59,6 +122,11 @@ const writeOperations = [
   'applets.pull',
   'files.upload',
   'applets.publish',
+  'applets.promote_draft',
+  'applets.discard_draft',
+  'applets.rollback',
+  'applets.bindings.put',
+  'applets.bindings.delete',
   'applets.call',
   'applets.transfer_owner',
   'jobs.schedules.put',
@@ -105,7 +173,7 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
     handleLine: async line => {
       const command = parseCLIRequest(line, Command, 'Pod CLI request must be a JSON object')
       const params = { ...command.params }
-      let operation: string = command.operation
+      const operation: string = command.operation
       const documentPath = ['pages.read', 'pages.write', 'pages.append', 'pages.patch'].includes(command.operation)
         ? join(opts.drive.agentHome, '.ankole', 'pod-content', `${randomUUID()}.md`)
         : undefined
@@ -116,11 +184,48 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
       try {
         const request = async (operation: string, params: Record<string, unknown>) => {
           const method = readOperationNames.has(operation) ? 'pod.read' : 'pod.write'
+          const retryOnDisconnect =
+            method === 'pod.read' ||
+            (operation === 'pages.append' &&
+              typeof params.idempotency_key === 'string' &&
+              params.idempotency_key.length > 0)
           const response = await opts.rpc(method, { operation, paramsJson: jsonBytes(params) }, opts.frame, {
-            retryOnDisconnect: method === 'pod.read'
+            retryOnDisconnect
           })
           const body = jsonObjectFromBytes(response.bodyJson, 'Pod response') ?? {}
           return (body.result ?? body) as Record<string, unknown>
+        }
+        const readPageSnapshot = async (pageId: unknown) => {
+          const scratchPath = join(opts.drive.agentHome, '.ankole', 'pod-content', `${randomUUID()}.md`)
+          try {
+            const relPath = await opts.drive.homeRelativePath(scratchPath, { create: true })
+            const current = await request('pages.read', {
+              id: pageId,
+              markdown_home_relative_path: relPath
+            })
+            const revision =
+              typeof (current.page as { revision?: unknown } | undefined)?.revision === 'number'
+                ? (current.page as { revision: number }).revision
+                : typeof current.revision === 'number'
+                  ? current.revision
+                  : undefined
+            const pageType =
+              typeof (current.page as { type?: unknown } | undefined)?.type === 'string'
+                ? (current.page as { type: string }).type
+                : typeof current.type === 'string'
+                  ? current.type
+                  : undefined
+            const contentObj = current.content as Record<string, unknown> | undefined
+            const markdown =
+              typeof contentObj?.markdown === 'string'
+                ? contentObj.markdown
+                : typeof current.markdown === 'string'
+                  ? current.markdown
+                  : await readFile(scratchPath, 'utf8')
+            return { revision, pageType, markdown }
+          } finally {
+            await rm(scratchPath, { force: true })
+          }
         }
         if (operation === 'applets.pull') {
           if (!command.pull_directory || typeof params.id !== 'string') throw new Error('applet pull requires page id')
@@ -139,7 +244,9 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
             const files = (manifest.files as { path: string; sha256: string }[]).filter(
               file =>
                 file.path.startsWith('src/') ||
-                ['package.json', 'bun.lock', 'tsconfig.json', 'applet.env.json'].includes(file.path)
+                ['package.json', 'bun.lock', 'tsconfig.json', 'applet.env.json', 'applet.bindings.json'].includes(
+                  file.path
+                )
             )
             if (!files.some(file => file.path.startsWith('src/'))) throw new Error('Applet source is not available')
             for (const file of files) {
@@ -177,83 +284,63 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
           })
         }
         if (operation === 'pages.patch') {
-          const current = await request('pages.read', {
-            id: params.id,
-            markdown_home_relative_path: params.markdown_home_relative_path
-          })
-          if ((current.page as { revision?: number } | undefined)?.revision !== params.base_revision) {
-            throw new Error('Page revision changed; read the document again')
-          }
-          let markdown =
-            typeof (current.content as Record<string, unknown> | undefined)?.markdown === 'string'
-              ? (current.content as { markdown: string }).markdown
-              : await readFile(documentPath!, 'utf8')
-          const originalMarkdown = markdown
-          const currentPageType =
-            typeof (current.page as { type?: unknown } | undefined)?.type === 'string'
-              ? (current.page as { type: string }).type
-              : typeof current.type === 'string'
-                ? current.type
-                : undefined
-          const patchSnapshot: ExistingPageSnapshot = { pageType: currentPageType, markdown: originalMarkdown }
-          if (!Array.isArray(params.edits) || params.edits.length === 0) throw new Error('pages.patch requires edits')
-          for (const value of params.edits) {
-            const edit = value as { old_text?: unknown; new_text?: unknown; replace_all?: unknown }
-            if (typeof edit.old_text !== 'string' || !edit.old_text || typeof edit.new_text !== 'string') {
-              throw new Error('Each patch requires nonempty old_text and string new_text')
+          const edits = validatePatchEdits(params.edits)
+          const requestedBaseRevision = params.base_revision
+          let lastConflictError: unknown
+
+          for (let attempt = 0; attempt <= MAX_PATCH_CONFLICT_RETRIES; attempt++) {
+            const snapshot = await readPageSnapshot(params.id)
+            const isRebase = attempt > 0 || snapshot.revision !== requestedBaseRevision
+            const applied = applyPatchEdits(snapshot.markdown, edits, isRebase)
+            if (!applied.matched) {
+              if (lastConflictError !== undefined) throw lastConflictError
+              throw new RPCRejectedError('pod.write', {
+                code: 'revision_conflict',
+                message: 'Page revision changed; read the document again',
+                ...(snapshot.revision !== undefined ? { details: { revision: snapshot.revision } } : {})
+              })
             }
-            const matches = markdown.split(edit.old_text).length - 1
-            if (!matches) throw new Error('Patch old_text did not match')
-            if (matches > 1 && edit.replace_all !== true) throw new Error('Patch old_text matched more than once')
-            markdown =
-              edit.replace_all === true
-                ? markdown.split(edit.old_text).join(edit.new_text)
-                : markdown.replace(edit.old_text, () => edit.new_text as string)
+            const patchSnapshot: ExistingPageSnapshot = { pageType: snapshot.pageType, markdown: snapshot.markdown }
+            await preflightPageMarkdown({
+              operation: 'pages.patch',
+              markdown: applied.markdown,
+              knownPageType: snapshot.pageType,
+              existingSnapshot: patchSnapshot
+            })
+            await writeFile(documentPath!, applied.markdown)
+            const writeParams: Record<string, unknown> = {
+              ...params,
+              base_revision: snapshot.revision ?? requestedBaseRevision
+            }
+            delete writeParams.edits
+            delete writeParams.markdown
+            try {
+              const body = await request('pages.write', writeParams)
+              return { ok: true, result: body }
+            } catch (error) {
+              if (!isRevisionConflictError(error) || attempt >= MAX_PATCH_CONFLICT_RETRIES) {
+                throw error
+              }
+              lastConflictError = error
+            }
           }
-          await preflightPageMarkdown({
-            operation: 'pages.patch',
-            markdown,
-            knownPageType: currentPageType,
-            existingSnapshot: patchSnapshot
-          })
-          params.markdown = markdown
-          delete params.edits
-          operation = 'pages.write'
         }
         if (operation === 'pages.write' || operation === 'pages.append') {
           if (typeof params.markdown !== 'string') throw new Error(`${operation} requires markdown and base_revision`)
+          if (operation === 'pages.append') {
+            params.idempotency_key =
+              typeof params.idempotency_key === 'string' && params.idempotency_key.trim().length > 0
+                ? params.idempotency_key.trim()
+                : randomUUID()
+          }
           if (command.operation === 'pages.write' || command.operation === 'pages.append') {
             await preflightPageMarkdown({
               operation: command.operation,
               markdown: params.markdown,
               loadExistingPage: async () => {
                 if (typeof params.id !== 'string') return undefined
-                const readScratchPath = join(opts.drive.agentHome, '.ankole', 'pod-content', `${randomUUID()}.md`)
-                try {
-                  const relPath = await opts.drive.homeRelativePath(readScratchPath, { create: true })
-                  const existing = await request('pages.read', {
-                    id: params.id,
-                    markdown_home_relative_path: relPath
-                  })
-                  const pageType =
-                    typeof (existing.page as { type?: unknown } | undefined)?.type === 'string'
-                      ? (existing.page as { type: string }).type
-                      : typeof existing.type === 'string'
-                        ? existing.type
-                        : undefined
-                  const contentObj = existing.content as Record<string, unknown> | undefined
-                  let existingMd: string | undefined
-                  if (typeof contentObj?.markdown === 'string') {
-                    existingMd = contentObj.markdown
-                  } else if (typeof existing.markdown === 'string') {
-                    existingMd = existing.markdown
-                  } else if (contentObj?.markdown_file === true) {
-                    existingMd = await readFile(readScratchPath, 'utf8')
-                  }
-                  return { pageType, markdown: existingMd }
-                } finally {
-                  await rm(readScratchPath, { force: true })
-                }
+                const existing = await readPageSnapshot(params.id)
+                return { pageType: existing.pageType, markdown: existing.markdown }
               }
             })
           }
@@ -297,7 +384,8 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
             'package.json',
             'bun.lock',
             'tsconfig.json',
-            'applet.env.json'
+            'applet.env.json',
+            'applet.bindings.json'
           ]) {
             const local = join(directory, name)
             let entries

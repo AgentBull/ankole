@@ -110,6 +110,17 @@ defmodule Ankole.AIAgent do
         route(:delete, "/:uid/model-profiles/:profile", :delete_system_model_profile,
           name: "delete_system_model_profile"
         )
+
+        route(:get, "/:uid/token-quota", :system_token_quota, name: "get_system_token_quota")
+        route(:put, "/:uid/token-quota", :put_system_token_quota, name: "put_system_token_quota")
+
+        route(:delete, "/:uid/token-quota", :delete_system_token_quota,
+          name: "delete_system_token_quota"
+        )
+
+        route(:post, "/:uid/token-quota/reset", :reset_system_token_quota,
+          name: "reset_system_token_quota"
+        )
       end
 
       base_route "/agents/:agent_uid", Ankole.AIAgent.Console do

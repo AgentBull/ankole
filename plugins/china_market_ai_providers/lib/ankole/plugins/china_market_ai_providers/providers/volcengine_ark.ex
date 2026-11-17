@@ -23,7 +23,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
       "top_provider" => %{"context_length" => 256_000, "max_completion_tokens" => 32_000},
       "supported_parameters" => ~w(
         temperature top_p max_tokens max_output_tokens response_format tools tool_choice
-        reasoningEffort
+        reasoningEffort parallel_tool_calls promptCacheKey
       )
     },
     %{
@@ -34,7 +34,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
       "top_provider" => %{"context_length" => 256_000, "max_completion_tokens" => 32_000},
       "supported_parameters" => ~w(
         temperature top_p max_tokens max_output_tokens response_format tools tool_choice
-        reasoningEffort
+        reasoningEffort parallel_tool_calls promptCacheKey
       )
     },
     %{
@@ -45,7 +45,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
       "top_provider" => %{"context_length" => 256_000, "max_completion_tokens" => 32_000},
       "supported_parameters" => ~w(
         temperature top_p max_tokens max_output_tokens response_format tools tool_choice
-        reasoningEffort
+        reasoningEffort parallel_tool_calls promptCacheKey
       )
     },
     %{
@@ -56,7 +56,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
       "top_provider" => %{"context_length" => 256_000, "max_completion_tokens" => 128_000},
       "supported_parameters" => ~w(
         temperature top_p max_tokens max_output_tokens response_format tools tool_choice
-        reasoningEffort
+        reasoningEffort parallel_tool_calls promptCacheKey
       )
     }
   ]
@@ -70,6 +70,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
     setting(:query_params, type: :map, advanced: true)
 
     setting(:user, scope: :request, advanced: true)
+    setting(:promptCacheKey, scope: :request, advanced: true)
 
     setting(:reasoningEffort,
       type: :select,
@@ -80,6 +81,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
     language_model do
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
+      supports_parallel_tool_calls()
     end
   end
 
@@ -91,6 +93,23 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
       target: :reasoning_effort,
       map: @reasoning_effort_map
     )
+    |> UniversalAIRequest.rename_provider_option("promptCacheKey", "prompt_cache_key")
+    |> put_prompt_cache_key(ctx)
+  end
+
+  defp put_prompt_cache_key({:error, _reason} = error, _ctx), do: error
+
+  defp put_prompt_cache_key(%UniversalAIRequest{} = request, ctx) do
+    case Map.get(ctx.request || %{}, "prompt_cache_key") do
+      key when is_binary(key) and key != "" ->
+        UniversalAIRequest.put_provider_options(
+          request,
+          Map.put_new(request.provider_options || %{}, "prompt_cache_key", key)
+        )
+
+      _missing ->
+        request
+    end
   end
 
   @impl true

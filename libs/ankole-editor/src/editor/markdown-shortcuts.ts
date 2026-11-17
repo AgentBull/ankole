@@ -11,7 +11,9 @@
 import type { PhrasingContent, Root } from 'mdast'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
+import { mathFromMarkdown } from 'mdast-util-math'
 import { gfm } from 'micromark-extension-gfm'
+import { math } from 'micromark-extension-math'
 import { mdxMd } from 'micromark-extension-mdx-md'
 import { Command, enter } from '../core/command'
 import { Leaf, Mark, Node, Token, type Pos } from '../core/doc'
@@ -20,16 +22,24 @@ import { history } from '../core/history'
 import { GardSelection, GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { InfographicBlock } from '../blocks/infographic'
+import { MathBlock, openMathEditor } from '../blocks/math'
 import { MermaidBlock } from '../blocks/mermaid'
+import { unwrapMathDelimiters } from '../document/math-delimiters'
 import { turnInto } from './block-actions'
-import { blockInsertion, compose, isContainer, isListItem, wrapTextblock } from './block-insert'
+import { blockInsertion, blockInsertionAt, compose, isContainer, isListItem, wrapTextblock } from './block-insert'
 import { isKnowledge } from './knowledge'
 import * as S from './schema'
 import { tableInsertion } from './tables'
 
 // The page syntax without tags: a typed `<` is text.
-const syntax = [gfm(), mdxMd(), { disable: { null: ['gfmFootnoteDefinition', 'gfmFootnoteCall'] } }]
-const parse = (text: string): Root => fromMarkdown(text, { extensions: syntax, mdastExtensions: [gfmFromMarkdown()] })
+const syntax = [
+  gfm(),
+  math({ singleDollarTextMath: false }),
+  mdxMd(),
+  { disable: { null: ['gfmFootnoteDefinition', 'gfmFootnoteCall'] } }
+]
+const parse = (text: string): Root =>
+  fromMarkdown(text, { extensions: syntax, mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()] })
 
 const shortcut = (spec: Transaction.Spec): Transaction.Spec => ({
   ...spec,
@@ -108,14 +118,21 @@ function blockShortcut(state: GardState, typed: string): Transaction.Spec | null
   return null
 }
 
-/** A paragraph that holds only a code fence becomes a code block when Enter is pressed at its end. */
+/** A paragraph that holds only a code fence or `$$` becomes a code or formula block when Enter is pressed at its end. */
 export function fenceShortcut(state: GardState): Transaction.Spec | null {
   if (!state.selection.isCursor || state.readOnly) return null
   const head = state.sel.head
   const block = head.parent
   if (!shortcutParagraph(block) || head.pos !== block.end) return null
   const text = leadingText(block, head.pos)
-  if (!text || !/^ {0,3}(`{3,}|~{3,})/.test(text)) return null
+  if (!text) return null
+  if (!isKnowledge(state) && /^ {0,3}\$\$[ \t]*$/.test(text)) {
+    return compose(state, { changes: { from: block.start, to: block.end } }, next => {
+      const { spec, at } = blockInsertionAt(next, MathBlock.of(''))
+      return { ...spec, effects: openMathEditor.of(at) }
+    })
+  }
+  if (!/^ {0,3}(`{3,}|~{3,})/.test(text)) return null
   const code = parse(text).children[0]
   if (code?.type !== 'code' || code.value) return null
   const diagramPlot =
@@ -133,11 +150,13 @@ export function fenceShortcut(state: GardState): Transaction.Spec | null {
   )
 }
 
-const triggers = new Set(['*', '_', '`', '~', ')'])
+const triggers = new Set(['*', '_', '`', '~', ')', '$'])
 
 /** Whether `text` can hold an inline format that `typed`, its last character, closes. */
 function mayClose(text: string, typed: string) {
-  return typed === ')' ? text.lastIndexOf('](') > 0 : text.lastIndexOf(typed, text.length - 2) !== -1
+  if (typed === ')') return text.lastIndexOf('](') > 0
+  if (typed === '$') return text.endsWith('$$') && text.lastIndexOf('$$', text.length - 4) !== -1
+  return text.lastIndexOf(typed, text.length - 2) !== -1
 }
 
 /** The inline format that ends at the end of `text`. */
@@ -147,7 +166,7 @@ function closedFormat(text: string): PhrasingContent | null {
   const node = last.children.at(-1)
   const start = node?.position?.start.offset
   if (!node || start === undefined || node.position?.end.offset !== text.length) return null
-  if (!['emphasis', 'strong', 'delete', 'inlineCode', 'link'].includes(node.type)) return null
+  if (!['emphasis', 'strong', 'delete', 'inlineCode', 'inlineMath', 'link'].includes(node.type)) return null
   // While `**bold*` is typed, `*bold*` closes. Wait for the longer marker.
   if (start > 0 && text[start - 1] === text[start] && triggers.has(text[start]!)) return null
   return node
@@ -157,11 +176,11 @@ const linkMark = (url: string, title: string | null | undefined) =>
   S.Link.of(title ? [['href', url] as const, ['title', title] as const] : [['href', url] as const])
 
 /** Leaves for formatted Markdown text. Null for content that has no leaves here, such as an image. */
-function leaves(node: PhrasingContent, marks: Mark.Set): Node[] | null {
+function leaves(node: PhrasingContent, marks: Mark.Set, knowledge: boolean): Node[] | null {
   const inner = (mark: Mark) => {
     const result: Node[] = []
     for (const child of (node as { children: PhrasingContent[] }).children) {
-      const part = leaves(child, mark.addToSet(marks))
+      const part = leaves(child, mark.addToSet(marks), knowledge)
       if (!part) return null
       result.push(...part)
     }
@@ -172,6 +191,16 @@ function leaves(node: PhrasingContent, marks: Mark.Set): Node[] | null {
       return node.value ? [Leaf.text(node.value, marks)] : []
     case 'inlineCode':
       return [Leaf.text(node.value, T.Code.addToSet(marks))]
+    case 'inlineMath': {
+      const cleaned = unwrapMathDelimiters(node.value)
+      if (knowledge || !cleaned.trim()) return null
+      return [
+        S.InlineMath.of(
+          cleaned,
+          marks.filter(mark => mark.type !== T.Code.type)
+        )
+      ]
+    }
     case 'emphasis':
       return inner(T.Emphasis)
     case 'strong':
@@ -198,7 +227,7 @@ function inlineShortcut(state: GardState, typed: string): Transaction.Spec | nul
   const text = (before as Leaf<string>).param
   if (!mayClose(text, typed)) return null
   const node = closedFormat(text)
-  const insert = node && leaves(node, before.marks)
+  const insert = node && leaves(node, before.marks, isKnowledge(state))
   if (!node || !insert) return null
   const from = head.pos - text.length + node.position!.start.offset!
   return {

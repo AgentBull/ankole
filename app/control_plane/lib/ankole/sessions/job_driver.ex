@@ -337,6 +337,9 @@ defmodule Ankole.Sessions.JobDriver do
         _ -> event.human_uid
       end
 
+    %{adapter: channel_adapter, kind: channel_kind} =
+      Observability.channel_info(event, attempt.spec, nil)
+
     :telemetry.execute(
       [:ankole, :sessions, :turn, :settled],
       %{duration_ms: duration_ms},
@@ -348,7 +351,9 @@ defmodule Ankole.Sessions.JobDriver do
         agent_uid: attempt.agent_uid,
         outcome: :job_finished,
         used_worker: true,
-        runtime: :codex_job
+        runtime: :codex_job,
+        channel_adapter: channel_adapter,
+        channel_kind: channel_kind
       }
     )
   end

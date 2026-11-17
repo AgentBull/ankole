@@ -172,9 +172,19 @@ defmodule Ankole.BrowserSessions.Revocation do
   end
 
   def cleanup_expired(now) do
+    stale_auth_cutoff = DateTime.add(now, -14 * 24 * 60 * 60)
+
     oidc_states =
       OidcState
       |> Ash.Query.filter(expires_at <= ^now or not is_nil(consumed_at))
+      |> expire_records()
+
+    authentications =
+      Authentication
+      |> Ash.Query.filter(
+        expires_at <= ^stale_auth_cutoff or
+          (not is_nil(revoked_at) and revoked_at <= ^stale_auth_cutoff)
+      )
       |> expire_records()
 
     browsers =
@@ -185,7 +195,11 @@ defmodule Ankole.BrowserSessions.Revocation do
       )
       |> expire_records()
 
-    %{oidc_states: oidc_states, browser_sessions: browsers}
+    %{
+      oidc_states: oidc_states,
+      browser_authentications: authentications,
+      browser_sessions: browsers
+    }
   end
 
   @doc false

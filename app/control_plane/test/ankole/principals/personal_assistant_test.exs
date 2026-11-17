@@ -290,7 +290,7 @@ defmodule Ankole.Principals.PersonalAssistantTest do
     assert {:ok, %{status: :active}} = Principals.enable_agent("ops_lead")
     assert Enum.map(Ankole.Conversations.agents(teammate_actor), & &1.uid) == ["ops_lead"]
 
-    assert {:ok, %{status: :disabled}} = Principals.delete_agent("ops_lead")
+    assert {:ok, %{status: :disabled}} = Principals.disable_agent("ops_lead")
     assert {:ok, %{status: :disabled}} = Principals.delete_agent("ops_lead")
 
     {:ok, group_grants} = Ankole.AuthZ.list_group_grants("all_humans")
@@ -300,7 +300,7 @@ defmodule Ankole.Principals.PersonalAssistantTest do
              &(&1.resource_pattern in ["agent:ops_colleague", "agent:ops_lead"])
            )
 
-    assert {:ok, %{status: :disabled}} = Principals.delete_agent(teammate_pa.uid)
+    assert {:ok, %{status: :disabled}} = Principals.disable_agent(teammate_pa.uid)
     assert {:ok, %{status: :disabled}} = Principals.delete_agent(teammate_pa.uid)
 
     assert {:error, {:forbidden, "chat"}} =

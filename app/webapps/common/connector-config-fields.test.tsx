@@ -67,3 +67,61 @@ test('complete shared credentials remain hidden while behavior fields remain edi
   expect(html).not.toContain('Bot token')
   expect(html).toContain('Directory sync')
 })
+
+test('switching away from the initial connection drops connection-owned secret placeholders while keeping other secrets', () => {
+  const connectionFields = [
+    { path: 'clientID', label: { default: 'OAuth client ID' }, type: 'string', required: true },
+    {
+      path: 'clientSecret',
+      label: { default: 'OAuth client secret' },
+      type: 'string',
+      encrypted: true,
+      required: true
+    },
+    { path: 'webhookSecret', label: { default: 'Webhook secret' }, type: 'string', encrypted: true }
+  ]
+  const html = renderToStaticMarkup(
+    <ConnectorConfigFields
+      pluginId="slack-adapter"
+      initialAuthConfigId="connection"
+      config={{ authConfigId: 'connection-2' }}
+      fields={connectionFields}
+      locale="en-US"
+      preservedSecretPaths={['clientSecret', 'webhookSecret']}
+      preservedSecretPlaceholder="Saved secret placeholder"
+      onChange={() => {}}
+      onConnectionChange={() => {}}
+      connections={[
+        {
+          id: 'connection-2',
+          plugin_id: 'slack',
+          slug: 'workspace-2',
+          display_name: 'Workspace 2',
+          auth_scheme: 'identity_app',
+          mode: 'local',
+          is_default: false,
+          status: 'active',
+          configured_credential_fields: [],
+          public_metadata: {},
+          inserted_at: '2026-11-04T00:00:00Z',
+          updated_at: '2026-11-04T00:00:00Z'
+        }
+      ]}
+      catalog={[
+        {
+          id: 'slack',
+          plugin_id: 'slack',
+          display_name: { default: 'Slack' },
+          toolkits: [],
+          auth_schemes: ['identity_app'],
+          personal_credentials: false,
+          credential_fields: [{ key: 'clientID' }, { key: 'clientSecret' }],
+          public_fields: []
+        }
+      ]}
+    />
+  )
+  expect(html).toContain('Saved secret placeholder')
+  const placeholderMatches = html.match(/Saved secret placeholder/g) ?? []
+  expect(placeholderMatches).toHaveLength(1)
+})

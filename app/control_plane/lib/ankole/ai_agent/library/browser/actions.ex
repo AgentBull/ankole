@@ -144,7 +144,12 @@ defmodule Ankole.AIAgent.Library.Browser.Actions do
       )
 
   defp skill(value, summary, permissions),
-    do: value |> Map.from_struct() |> Map.merge(summary) |> Map.merge(permissions)
+    do:
+      value
+      |> Map.from_struct()
+      |> Map.put(:has_upstream_update, Skills.has_upstream_update?(value))
+      |> Map.merge(summary)
+      |> Map.merge(permissions)
 
   defp permissions(value, actor) do
     can_edit = Management.skill(actor, value, "update") == :ok

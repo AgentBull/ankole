@@ -133,6 +133,18 @@ pub fn identity_changes(source: &str) -> Result<String> {
     Ok(serde_json::json!([doc.span()]).to_string())
 }
 
+pub fn document_map_range(
+    changes_json: &str,
+    from: usize,
+    to: usize,
+) -> Result<Option<(usize, usize)>> {
+    if changes_json.len() > tree::SOURCE_LIMIT * 4 {
+        return Err("ChangeSet exceeds the request limit".into());
+    }
+    let changes = decode_changes(changes_json)?;
+    changeset::map_range(&changes, from, to)
+}
+
 fn page(root: Element) -> Result<Page> {
     let xml = tree::print(&root);
     if xml.encode_utf16().count() > tree::SOURCE_LIMIT {

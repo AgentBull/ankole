@@ -69,6 +69,93 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
     )
   end
 
+  @doc "Force-settles a wedged Worker generation from the site Console after cleaning up any lingering platform instance."
+  def force_reset_generation(agent_uid) when is_binary(agent_uid) do
+    case validate_force_resettable(AgentWorkers.get_agent_worker!(agent_uid)) do
+      {:noop, worker} ->
+        {:ok, worker}
+
+      {:error, _} = error ->
+        error
+
+      {:resettable, snapshot} ->
+        _ = best_effort_platform_cleanup(snapshot)
+
+        Repo.transact_top_level(
+          fn -> settle_locked_worker_in_tx(agent_uid) end,
+          after_commit: fn result ->
+            AgentWorkers.notify_changed(agent_uid)
+            enqueue(result)
+          end
+        )
+    end
+  end
+
+  defp settle_locked_worker_in_tx(agent_uid) do
+    case validate_force_resettable(AgentWorkers.lock_in_tx(agent_uid)) do
+      {:noop, locked} ->
+        {:ok, locked}
+
+      {:error, _} = error ->
+        error
+
+      {:resettable, locked} ->
+        if is_binary(locked.transport_route) do
+          WorkerRoute.close_connection(agent_uid, locked.transport_route, :force_reset_generation)
+        end
+
+        Ankole.Ash.update(locked, :settle, %{
+          storage_ref: locked.storage_ref,
+          last_error: nil,
+          last_error_kind: nil
+        })
+    end
+  end
+
+  defp validate_force_resettable(nil),
+    do: {:error, Ankole.Errors.Invalid.NotFound.exception(resource: AgentWorker)}
+
+  defp validate_force_resettable(%AgentWorker{state: :absent} = worker), do: {:noop, worker}
+
+  defp validate_force_resettable(%AgentWorker{state: :deleting}),
+    do: {:error, Ankole.Errors.Invalid.Rejected.exception(reason: :agent_uid_pending_deletion)}
+
+  defp validate_force_resettable(%AgentWorker{} = worker) do
+    if active_healthy_worker?(worker) do
+      {:error, Ankole.Errors.Invalid.Rejected.exception(reason: :worker_generation_still_active)}
+    else
+      {:resettable, worker}
+    end
+  end
+
+  defp active_healthy_worker?(%AgentWorker{
+         state: :ready,
+         transport_route: route,
+         last_worker_heartbeat_at: %DateTime{} = hb
+       })
+       when is_binary(route) do
+    DateTime.diff(DateTime.utc_now(:microsecond), hb, :second) < 60
+  end
+
+  defp active_healthy_worker?(_worker), do: false
+
+  defp best_effort_platform_cleanup(%AgentWorker{provider_id: provider_id} = worker)
+       when is_binary(provider_id) do
+    with {:ok, provider} <- Providers.load(provider_id),
+         {:ok, kind} <- ProviderKind.fetch(provider.kind),
+         {:ok, objects} <- kind.list_instances(provider, worker.agent_uid) do
+      objects
+      |> Enum.filter(
+        &(ProviderKind.current_instance?(worker, &1) and ProviderKind.instance_present?(&1))
+      )
+      |> Enum.each(fn object -> _ = kind.delete_instance(provider, object, :now) end)
+    else
+      _ -> :ok
+    end
+  end
+
+  defp best_effort_platform_cleanup(_worker), do: :ok
+
   @max_steps 12
 
   def enqueue(agent, opts \\ [])
@@ -229,7 +316,16 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   defp run({:prepare, provider}, uid, steps, previous, _prepared) do
     {:ok, kind} = ProviderKind.fetch(provider.kind)
 
-    with :ok <- kind.prepare_image(provider, provider.runtime.image),
+    image_step =
+      if Providers.image_prepared_fresh?(provider) do
+        :ok
+      else
+        with :ok <- kind.prepare_image(provider, provider.runtime.image) do
+          Providers.record_prepared_image(provider)
+        end
+      end
+
+    with :ok <- image_step,
          :ok <- prepare_storage(kind, provider, uid) do
       loop(uid, steps - 1, previous, prepare_key(provider))
     else

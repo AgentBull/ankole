@@ -3,11 +3,11 @@ import { Slice } from '../src/core/doc'
 import { Wordgard } from '../src/core/editor'
 import * as T from '../src/core/types'
 import { InfographicBlock, InfographicTheme, InfographicView } from '../src/blocks/infographic'
+import { InlineMath, MathBlock } from '../src/blocks/math'
 import { MermaidBlock, MermaidTheme, MermaidView, setMermaidTheme, setMermaidView } from '../src/blocks/mermaid'
 import { parseMarkdown, printMarkdown, parseXml, printXml, validateKnowledge } from '../src/document'
 import { codeNodes, markSet } from '../src/editor/attributes'
-import { downgradeKnowledgeSlice } from '../src/editor/clipboard'
-import { knowledgeExtension } from '../src/editor/knowledge'
+import { downgradeKnowledgeSlice, knowledgeExtension } from '../src/editor/knowledge'
 import { PageSession } from '../src/editor/page-session'
 import { changeTable, editableTable } from '../src/editor/tables'
 import corpus from '../corpus/knowledge.json'
@@ -56,6 +56,8 @@ describe('knowledge vocabulary shared with the native codec', () => {
       '<page><table><tr><th background="#123456"><p>A</p></th></tr></table></page>',
       '<page><infographic>infographic compare-swot</infographic></page>',
       '<page><infographic view="diagram">infographic compare-swot</infographic></page>',
+      '<page><math>E = mc^2</math></page>',
+      '<page><p><inline-math>E = mc^2</inline-math></p></page>',
       '<page><mermaid view="code">flowchart LR</mermaid></page>',
       '<page><mermaid theme="dark">flowchart LR</mermaid></page>'
     ]) {
@@ -71,11 +73,14 @@ describe('knowledge vocabulary shared with the native codec', () => {
     const infographicNode = InfographicBlock.withMarks(
       markSet([InfographicView.of('diagram'), InfographicTheme.of('light')])
     ).create(codeNodes('infographic compare-swot\n  data'))
+    const mathBlockNode = MathBlock.of('E = mc^2')
+    const inlineMathPara = T.Paragraph.create([InlineMath.of('x^2 + y^2')])
 
-    const rawSlice = Slice.of([mermaidNode, infographicNode])
+    const rawSlice = Slice.of([mermaidNode, infographicNode, mathBlockNode, inlineMathPara])
     const downgraded = downgradeKnowledgeSlice(rawSlice)
     expect(downgraded.content[0]).toMatchObject({ type: MermaidBlock.type, marks: [] })
     expect(downgraded.content[1]).toMatchObject({ type: T.CodeBlock.type })
+    expect(downgraded.content[2]).toMatchObject({ type: T.CodeBlock.type })
 
     let filtered = rawSlice
     for (const filter of target.state.facet(Wordgard.clipboardInputFilter)) {
@@ -84,7 +89,7 @@ describe('knowledge vocabulary shared with the native codec', () => {
     const end = target.state.doc.length
     expect(() => target.dispatch({ changes: { from: end, to: end, insert: filtered } })).not.toThrow()
     expect(printXml(readTree(target))).toBe(
-      '<page><p>Intro</p><mermaid>flowchart TD\n  A --&gt; B</mermaid><pre lang="infographic">infographic compare-swot\n  data</pre></page>'
+      '<page><p>Intro</p><mermaid>flowchart TD\n  A --&gt; B</mermaid><pre lang="infographic">infographic compare-swot\n  data</pre><pre lang="math">E = mc^2</pre><p><code>x^2 + y^2</code></p></page>'
     )
 
     let parsedTextSlice: Slice | null = null

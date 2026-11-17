@@ -68,13 +68,14 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
 
   def put_provider_options({:error, _reason} = error, _endpoint, _raw_request), do: error
 
-  def put_provider_options(%UniversalAIRequest{} = request, :responses, _raw_request) do
+  def put_provider_options(%UniversalAIRequest{} = request, :responses, raw_request) do
     options =
       (request.provider_options || %{})
       |> put_nested_option("reasoningSummary", "reasoning", "summary")
       |> put_nested_option("textVerbosity", "text", "verbosity")
       |> rename_common_options()
       |> rename_option("contextManagement", "context_management")
+      |> maybe_put_request_prompt_cache_key(raw_request)
 
     UniversalAIRequest.put_provider_options(request, options)
   end
@@ -119,6 +120,7 @@ defmodule Ankole.AIGateway.OpenAIRequestOptions do
   # OpenAI endpoints accept these shared request fields under their snake_case names.
   defp rename_common_options(options) do
     options
+    |> Map.delete("supportsParallelToolCalls")
     |> put_service_tier()
     |> rename_option("promptCacheKey", "prompt_cache_key")
     |> rename_option("promptCacheOptions", "prompt_cache_options")

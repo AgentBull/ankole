@@ -153,6 +153,9 @@ In-progress AI Card updates never fall back to plain chat messages mid-turn. If
 would mutate an already sealed page, the durable terminal Delivery sends plain
 text instead, recording each delivered text chunk in the checkpoint so retries
 resume cleanly after the last confirmed chunk.
+When a plain-text send fails after it may have reached DingTalk, Ankole saves
+the confirmed chunks and returns `unknown` to the delivery owner. The owner
+does not automatically retry that non-idempotent send.
 
 ## Import People and Departments
 

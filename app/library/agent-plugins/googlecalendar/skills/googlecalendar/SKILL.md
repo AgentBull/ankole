@@ -1,6 +1,7 @@
 ---
 name: googlecalendar
 description: "Find and use googlecalendar operations through Ankole connections."
+default_enabled: false
 ---
 
 # googlecalendar

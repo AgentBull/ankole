@@ -5,6 +5,7 @@ defmodule Ankole.AIGateway.Providers.Claude do
 
   use Ankole.AIGateway.ProviderDSL
 
+  alias Ankole.AIGateway.ClaudeMessageThreads
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
@@ -32,6 +33,13 @@ defmodule Ankole.AIGateway.Providers.Claude do
     setting(:headers, type: :map, advanced: true)
     setting(:anthropic_beta, advanced: true)
     setting(:messages_path, default: "v1/messages", advanced: true)
+
+    setting(:message_threads,
+      type: :select,
+      default: "auto",
+      options: ~w(auto enabled disabled),
+      advanced: true
+    )
 
     setting(:reasoningEffort,
       type: :select,
@@ -86,7 +94,7 @@ defmodule Ankole.AIGateway.Providers.Claude do
       is_map(ctx.request) and Map.has_key?(ctx.request, "cache_control") ->
         request
 
-      count_block_cache_controls(ctx.request) >= 4 ->
+      ClaudeMessageThreads.count_cache_controls(ctx.request) >= 4 ->
         request
 
       true ->
@@ -96,23 +104,6 @@ defmodule Ankole.AIGateway.Providers.Claude do
         )
     end
   end
-
-  defp count_block_cache_controls(%{} = value) do
-    own = if Map.has_key?(value, "cache_control"), do: 1, else: 0
-
-    nested =
-      Enum.reduce(value, 0, fn
-        {"cache_control", _v}, acc -> acc
-        {_k, v}, acc -> acc + count_block_cache_controls(v)
-      end)
-
-    own + nested
-  end
-
-  defp count_block_cache_controls(values) when is_list(values),
-    do: Enum.reduce(values, 0, fn v, acc -> acc + count_block_cache_controls(v) end)
-
-  defp count_block_cache_controls(_value), do: 0
 
   # Anthropic-compatible gateways may accept OAuth-style bearer tokens, while
   # first-party Anthropic commonly uses `x-api-key`.

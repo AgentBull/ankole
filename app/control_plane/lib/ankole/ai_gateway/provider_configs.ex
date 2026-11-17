@@ -360,6 +360,56 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     end
   end
 
+  @doc """
+  Decrypts and refreshes one pinned provider credential by id without rotating
+  to other pool entries or checking soft pool cooldowns.
+  """
+  @spec resolve_pinned_credential(Provider.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def resolve_pinned_credential(%Provider{} = provider, credential_id)
+      when is_binary(credential_id) and credential_id != "" do
+    with %Provider{} = current <-
+           Provider |> Ash.Query.filter(id == ^provider.id) |> Ankole.Ash.read_one!(),
+         {:ok, entry} <- Credentials.fetch_credential_entry(current, credential_id),
+         :ok <- ensure_entry_usable_for_pinned(entry),
+         {:ok, credential} <- Credentials.decrypt_credential(current, entry) do
+      selected = %{
+        "id" => credential_id,
+        "label" => Map.get(entry, "label"),
+        "credential" => credential,
+        "entry" => entry,
+        "available_count" => 1
+      }
+
+      case ensure_fresh(current, selected) do
+        {:ok, selected} ->
+          {:ok, selected}
+
+        {:error, {:google_token_rejected, code}} = error ->
+          :ok =
+            CredentialPool.mark_exhausted(current.id, entry, 401, %{}, %{
+              "code" => code,
+              "reason" => "google_token_exchange_failed"
+            })
+
+          error
+
+        {:error, _reason} = error ->
+          error
+      end
+    else
+      nil -> {:error, :not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp ensure_entry_usable_for_pinned(entry) do
+    cond do
+      not is_nil(Map.get(entry, "disabled_at")) -> {:error, :credential_disabled}
+      Map.get(entry, "reauth_required") == true -> {:error, :credential_reauth_required}
+      true -> :ok
+    end
+  end
+
   # A Vertex AI credential is a service-account key. Requests carry the access
   # token that Google issues for it, which never enters the stored credential.
   # A caller inside a database transaction only checks that the row can serve

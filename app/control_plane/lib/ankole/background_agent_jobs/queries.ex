@@ -283,6 +283,40 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     |> Enum.map(& &1.id)
   end
 
+  @doc """
+  Filters `candidate_ids` down to Job workspace directory IDs that `agent_uid`
+  still needs for a live (`queued`, `running`, or `waiting_on_user`) Job or its
+  continuation chain.
+  """
+  @spec retained_workspace_job_ids(String.t(), [pos_integer()]) :: [pos_integer()]
+  def retained_workspace_job_ids(_agent_uid, []), do: []
+
+  def retained_workspace_job_ids(agent_uid, candidate_ids)
+      when is_binary(agent_uid) and is_list(candidate_ids) do
+    live_statuses = Job.live_statuses()
+
+    retained_set =
+      Job
+      |> Ash.Query.filter(
+        agent_uid == ^agent_uid and status in ^live_statuses and
+          (id in ^candidate_ids or workspace_owner_job_id in ^candidate_ids or
+             continued_from_job_id in ^candidate_ids)
+      )
+      |> Ash.Query.select([:id, :workspace_owner_job_id, :continued_from_job_id])
+      |> Ankole.Ash.read!()
+      |> Enum.reduce(MapSet.new(), fn job, acc ->
+        acc
+        |> MapSet.put(job.id)
+        |> MapSet.put(job.workspace_owner_job_id)
+        |> maybe_put_job_id(job.continued_from_job_id)
+      end)
+
+    Enum.filter(candidate_ids, &MapSet.member?(retained_set, &1))
+  end
+
+  defp maybe_put_job_id(set, id) when is_integer(id), do: MapSet.put(set, id)
+  defp maybe_put_job_id(set, _nil), do: set
+
   @spec get_for_agent(pos_integer() | nil, String.t()) :: Job.t() | nil
   def get_for_agent(nil, _agent_uid), do: nil
 

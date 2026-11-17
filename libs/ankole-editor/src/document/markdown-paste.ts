@@ -96,10 +96,6 @@ function offsetInsideRanges(ranges: readonly [number, number][], offset: number)
   return false
 }
 
-function escapeDoubleDollarRuns(value: string): string {
-  return value.replace(/\${2,}/g, match => '\\$'.repeat(match.length))
-}
-
 function preprocessMarkdown(source: string): string {
   const protectedRanges: [number, number][] = []
   const inlineMathRanges: { start: number; end: number; value: string }[] = []
@@ -148,35 +144,31 @@ function preprocessMarkdown(source: string): string {
     lineStart = lf + 1
   }
 
-  for (const item of inlineMathRanges) {
-    const raw = source.slice(item.start, item.end)
-    const lineStart = source.lastIndexOf('\n', item.start - 1) + 1
-    const lf = source.indexOf('\n', item.end)
-    const rawEnd = lf === -1 ? source.length : lf
-    const lineEnd = rawEnd > lineStart && source[rawEnd - 1] === '\r' ? rawEnd - 1 : rawEnd
-    const prefix = source.slice(lineStart, item.start)
-    const suffix = source.slice(item.end, lineEnd)
-    const trimmedValue = item.value.trim()
-    if (
-      !/[\r\n]/.test(raw) &&
-      raw.startsWith('$$') &&
-      !raw.startsWith('$$$') &&
-      !raw.slice(2, -2).includes('$') &&
-      trimmedValue &&
-      /^[ \t]{0,3}$/.test(prefix) &&
-      /^[ \t]*$/.test(suffix)
-    ) {
-      edits.push({
-        at: lineStart,
-        length: lineEnd - lineStart,
-        insert: `${prefix}$$\n${trimmedValue}\n${prefix}$$`
-      })
-    } else {
-      edits.push({
-        at: item.start,
-        length: item.end - item.start,
-        insert: escapeDoubleDollarRuns(raw)
-      })
+  if (/\r|\n/.test(source)) {
+    for (const item of inlineMathRanges) {
+      const raw = source.slice(item.start, item.end)
+      const lineStart = source.lastIndexOf('\n', item.start - 1) + 1
+      const lf = source.indexOf('\n', item.end)
+      const rawEnd = lf === -1 ? source.length : lf
+      const lineEnd = rawEnd > lineStart && source[rawEnd - 1] === '\r' ? rawEnd - 1 : rawEnd
+      const prefix = source.slice(lineStart, item.start)
+      const suffix = source.slice(item.end, lineEnd)
+      const trimmedValue = item.value.trim()
+      if (
+        !/[\r\n]/.test(raw) &&
+        raw.startsWith('$$') &&
+        !raw.startsWith('$$$') &&
+        !raw.slice(2, -2).includes('$') &&
+        trimmedValue &&
+        /^[ \t]{0,3}$/.test(prefix) &&
+        /^[ \t]*$/.test(suffix)
+      ) {
+        edits.push({
+          at: lineStart,
+          length: lineEnd - lineStart,
+          insert: `${prefix}$$\n${trimmedValue}\n${prefix}$$`
+        })
+      }
     }
   }
 
@@ -318,6 +310,10 @@ function cleanNode(node: Node, mode: MarkdownMode): Node[] {
       const content = textOf(node)
       return [element('pre', { lang: node.name }, content ? [text(content)] : [])]
     }
+    if (node.name === 'inline-math') {
+      const content = textOf(node)
+      return content ? [element('code', {}, [text(content)])] : []
+    }
     if (
       node.name === 'u' ||
       node.name === 'mark' ||
@@ -446,12 +442,20 @@ function cleanPastedPage(page: Element, mode: MarkdownMode): Element {
 }
 
 function isLimitDocumentError(error: unknown): boolean {
-  return error instanceof DocumentError && error.reason.includes('超过')
+  return error instanceof DocumentError && (error.code === 'source_too_large' || error.code === 'limit_exceeded')
 }
 
 function hasRichHeadingInline(node: Node): boolean {
   if (node.type === 'text') return false
-  if (node.name === 'a' || node.name === 'img' || node.name === 'media' || node.name === 'mention') return true
+  if (
+    node.name === 'a' ||
+    node.name === 'img' ||
+    node.name === 'media' ||
+    node.name === 'mention' ||
+    node.name === 'inline-math'
+  ) {
+    return true
+  }
   return node.children.some(hasRichHeadingInline)
 }
 
@@ -574,11 +578,11 @@ export function looksLikeMarkdown(source: string, options?: { fromPreWrapper?: b
   const tildeFences = trimmed.match(/^[ \t]{0,3}~{3,}/gm)
   if (tildeFences && tildeFences.length >= 2) signals += tildeFences.length * 2
 
-  // Display math blocks (`$$`)
+  // Display math blocks (`$$`) and inline formulas (`$$…$$`)
   const blockMath = trimmed.match(/^[ \t]{0,3}\$\$[ \t]*$/gm)
   if (blockMath && blockMath.length >= 2) signals += blockMath.length * 2
-  const singleLineBlockMath = trimmed.match(/^[ \t]{0,3}\$\$[^$\r\n]+\$\$[ \t]*$/gm)
-  if (singleLineBlockMath) signals += singleLineBlockMath.length * 2
+  const inlineMath = trimmed.match(/\$\$[^$\s][^$\r\n]*\$\$/g)
+  if (inlineMath) signals += inlineMath.length * 2
 
   // Markdown links & images (`[label](url)` / `![alt](url)`)
   const links = trimmed.match(/!?\[[^\]\r\n]+\]\((?:https?:\/\/|\/|mailto:|#)[^\s)]+\)/g)

@@ -28,9 +28,10 @@ describe('classifyLoginError', () => {
       classifyLoginError(
         new InternalAPIError(429, 'Too Many Requests', {
           errors: [{ code: 'rate_limited', meta: { details: { retryAfterSeconds: 42 } } }]
-        })
+        }),
+        1000
       )
-    ).toEqual({ kind: 'locked', remainingSeconds: 42 })
+    ).toEqual({ kind: 'locked', remainingSeconds: 42, until: 43000 })
   })
 
   test('leaves unrecognized failures to the generic error surface', () => {
@@ -46,11 +47,13 @@ describe('classifyLoginError', () => {
 })
 
 describe('tickLockout', () => {
-  test('counts a lockout down by seconds and recovers at zero', () => {
-    const locked = { kind: 'locked', remainingSeconds: 2 } as const
+  test('derives lockout time from the deadline after background timer suspension', () => {
+    const locked = { kind: 'locked', remainingSeconds: 42, until: 43000 } as const
 
-    expect(tickLockout(locked)).toEqual({ kind: 'locked', remainingSeconds: 1 })
-    expect(tickLockout({ kind: 'locked', remainingSeconds: 1 })).toBeUndefined()
+    expect(tickLockout(locked, 1100)).toBe(locked)
+    expect(tickLockout(locked, 41100)).toEqual({ kind: 'locked', remainingSeconds: 2, until: 43000 })
+    expect(tickLockout(locked, 43000)).toBeUndefined()
+    expect(tickLockout(locked, 99000)).toBeUndefined()
     expect(tickLockout({ kind: 'invalid_code' })).toEqual({ kind: 'invalid_code' })
     expect(tickLockout(undefined)).toBeUndefined()
   })
@@ -71,7 +74,7 @@ describe('LoginModel', () => {
       })
     )
     model.clearFormError()
-    expect(model.formError.value).toEqual({ kind: 'locked', remainingSeconds: 30 })
+    expect(model.formError.value).toMatchObject({ kind: 'locked', remainingSeconds: 30 })
     model[Symbol.dispose]()
   })
 

@@ -458,7 +458,10 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
              "test \"$(readlink /agents/#{uid})\" = /workspace; cat /workspace/sessions/unfinished/keep; cat /agents/#{uid}/sessions/unfinished/keep"
            ]) == "legacy-worklegacy-work"
 
-    migration = String.trim(Compose.compose!(deployment, ["ps", "-aq", "migrate-agent-homes"]))
+    migration =
+      String.trim(
+        Compose.compose!(deployment, ["--profile", "upgrade-1x", "ps", "-aq", "migrate-agent-homes"])
+      )
     control_plane = String.trim(Compose.compose!(deployment, ["ps", "-q", "control-plane"]))
     [migrated] = Compose.docker!(["inspect", migration]) |> Ankole.JSON.decode!()
     [started] = Compose.docker!(["inspect", control_plane]) |> Ankole.JSON.decode!()
@@ -493,6 +496,8 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     ])
 
     Compose.compose!(deployment, [
+      "--profile",
+      "upgrade-1x",
       "up",
       "--no-deps",
       "--force-recreate",

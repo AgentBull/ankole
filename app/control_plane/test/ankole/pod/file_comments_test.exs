@@ -64,6 +64,51 @@ defmodule Ankole.Pod.FileCommentsTest do
     }
   end
 
+  test "whole-page Applet and Base mentions wake the Agent through the native comment conversation",
+       ctx do
+    for type <- [:applet, :base] do
+      {:ok, page} =
+        Pages.create(ctx.owner, %{type: type, private_owner_uid: ctx.owner.principal.uid})
+
+      {:ok, _} =
+        Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.principal.uid, page.id, %{
+          grants: [
+            %{principal_uid: ctx.commenter.principal.uid, role: "contribute"},
+            %{principal_uid: ctx.agent.uid, role: "contribute"}
+          ]
+        })
+
+      assert {:ok, %{comment: thread}} =
+               Comments.create(ctx.commenter, page.id, %{
+                 body: "@#{ctx.agent.display_name} review this page",
+                 mentioned_agent_uids: [ctx.agent.uid]
+               })
+
+      assert [%Signal{agent_uid: agent_uid} = wakeup] =
+               Repo.all(
+                 from(s in Signal,
+                   where: s.type == "pod.page_comment.addressed" and s.subject == ^page.id
+                 )
+               )
+
+      assert agent_uid == ctx.agent.uid
+      assert wakeup.data["node_type"] == to_string(type)
+      assert wakeup.data["root_id"] == thread.id
+      assert wakeup.data["anchor"] == nil
+      assert {:ok, conversations} = Conversations.list_for_page(ctx.commenter, page.id)
+      assert Enum.any?(conversations, &(&1.conversation.id == wakeup.conversation_id))
+
+      assert {:ok, %{comment: response}} =
+               Comments.create(actor_fixture(ctx.agent), page.id, %{
+                 root_id: thread.id,
+                 body: "Here is the review"
+               })
+
+      assert response.root_id == thread.id
+      assert response.author.kind == :agent
+    end
+  end
+
   test "supports multimodal file anchors, object_id version pinning, outdated anchors on replacement, and PageUserState watermarks",
        ctx do
     # 1. CSV row anchor

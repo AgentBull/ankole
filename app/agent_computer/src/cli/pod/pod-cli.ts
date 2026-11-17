@@ -7,6 +7,7 @@ import { requestSocketLineBridge } from '../../core/socket-line-bridge'
 import { errorMessage } from '../../common/errors'
 import { emitFirstUseGuidance, installStdoutEpipeGuard, markHelpSeen } from '../cli-guidance'
 import { buildApplet, initializeApplet } from './pod-applet'
+import { inspectApplet, type AppletInspectOptions } from './pod-applet-inspect'
 import { POD_CLI_HELP, POD_FIRST_USE_GUIDANCE } from './pod-cli-help'
 
 export { buildApplet, initializeApplet, POD_CLI_HELP }
@@ -57,13 +58,13 @@ export async function commandFromArgs(args: string[], cwd = process.cwd()) {
   if (args[0] === 'page' && args[1] === 'set-sharing') {
     const id = args[2]
     if (!id) throw new Error('Use page set-sharing <page-id> <JSON body> or sharing flags')
-    let params: Record<string, unknown> = {}
+    const params: Record<string, unknown> = {}
     for (let index = 3; index < args.length; index++) {
       const argument = args[index]!
       if (argument === '--input') {
         const path = args[++index]
         if (!path) throw new Error('--input requires a JSON file')
-        params = { ...params, ...parseParams(await readFile(resolve(cwd, path), 'utf8')) }
+        Object.assign(params, parseParams(await readFile(resolve(cwd, path), 'utf8')))
       } else if (argument === '--sharing-version') {
         const version = args[++index]
         if (!version) throw new Error('--sharing-version requires a value')
@@ -79,12 +80,41 @@ export async function commandFromArgs(args: string[], cwd = process.cwd()) {
         if (!Array.isArray(grants)) throw new Error('--grants requires a JSON array')
         params.grants = grants
       } else if (argument.trimStart().startsWith('{')) {
-        params = { ...params, ...parseParams(argument) }
+        Object.assign(params, parseParams(argument))
       } else throw new Error(`Unknown sharing argument: ${argument}`)
     }
     return { operation: 'pages.set_sharing', params: { ...params, id }, cwd }
   }
   if (args[0] === 'applet') {
+    if (args[1] === 'inspect') {
+      if (!args[2]) {
+        throw new Error('Use applet inspect <page-id> [--draft-id <id>] [--props <JSON>] [--screenshot <path>]')
+      }
+      const params: Record<string, unknown> = { id: args[2] }
+      const inspectOptions: AppletInspectOptions = { waitMs: 1_000 }
+      for (let index = 3; index < args.length; index++) {
+        const flag = args[index]!
+        const value = args[++index]
+        if (!value) throw new Error(`${flag} requires a value`)
+        if (flag === '--draft-id') params.draft_id = value
+        else if (flag === '--props') params.embed_props = parseParams(value)
+        else if (flag === '--screenshot') inspectOptions.screenshot = resolve(cwd, value)
+        else if (flag === '--wait-ms') {
+          inspectOptions.waitMs = decimalNonNegativeInteger(value, flag)
+          if (inspectOptions.waitMs > 10_000) throw new Error('--wait-ms must be at most 10000')
+        } else throw new Error(`Unknown applet inspect argument: ${flag}`)
+      }
+      return { operation: 'applets.inspect_ticket', params, cwd, inspect_options: inspectOptions }
+    }
+    if (['promote', 'discard', 'rollback', 'revisions'].includes(args[1] ?? '')) {
+      const action = args[1]!
+      const id = args[2]
+      if (!id) throw new Error(`Use applet ${action} <page-id> [JSON parameters]`)
+      if (args.length > 4) throw new Error(`Too many applet ${action} arguments`)
+      const params = { ...(args[3] ? parseParams(args[3]) : {}), id }
+      const operation = action === 'promote' ? 'promote_draft' : action === 'discard' ? 'discard_draft' : action
+      return { operation: `applets.${operation}`, params, cwd }
+    }
     const [, action, directory, json] = args
     if (action === 'call') {
       if (!directory || args.length !== 3) throw new Error('Use applet call <JSON parameters>')
@@ -105,6 +135,9 @@ export async function commandFromArgs(args: string[], cwd = process.cwd()) {
   if (args[0] === 'pages.search') {
     return parsePagesSearchCommand(args.slice(1), cwd)
   }
+  if (args[0] === 'pages.append') {
+    return parsePagesAppendCommand(args.slice(1), cwd)
+  }
   if (args[0] === 'pages.tree' && args.length === 1) {
     return { operation: 'pages.tree', params: {}, cwd }
   }
@@ -114,6 +147,47 @@ export async function commandFromArgs(args: string[], cwd = process.cwd()) {
   }
   const json = input === '--input' ? await readFile(resolve(cwd, file ?? ''), 'utf8') : input
   return { operation, params: parseParams(json), cwd }
+}
+
+async function parsePagesAppendCommand(rest: string[], cwd: string) {
+  let jsonSource: string | undefined
+  let inputFile: string | undefined
+  let idempotencyKey: string | undefined
+
+  for (let index = 0; index < rest.length; index++) {
+    const arg = rest[index]!
+    if (arg === '--input') {
+      const path = rest[++index]
+      if (!path) throw new Error('--input requires a JSON file')
+      if (jsonSource !== undefined || inputFile !== undefined) {
+        throw new Error('Provide either <JSON parameters> or --input <JSON file>, not both')
+      }
+      inputFile = path
+    } else if (arg === '--idempotency-key') {
+      const key = rest[++index]?.trim()
+      if (!key) throw new Error('--idempotency-key requires a non-empty key')
+      idempotencyKey = key
+    } else if (arg.startsWith('--idempotency-key=')) {
+      const key = arg.slice('--idempotency-key='.length).trim()
+      if (!key) throw new Error('--idempotency-key requires a non-empty key')
+      idempotencyKey = key
+    } else if (!arg.startsWith('-') && jsonSource === undefined && inputFile === undefined) {
+      jsonSource = arg
+    } else {
+      throw new Error(`Unknown pages.append argument: ${arg}`)
+    }
+  }
+
+  if (jsonSource === undefined && inputFile === undefined) {
+    throw new Error('Use pages.append <JSON parameters> or --input <JSON file> [--idempotency-key <key>]')
+  }
+
+  const rawJson = inputFile !== undefined ? await readFile(resolve(cwd, inputFile), 'utf8') : jsonSource!
+  const params = parseParams(rawJson)
+  if (idempotencyKey !== undefined) {
+    params.idempotency_key = idempotencyKey
+  }
+  return { operation: 'pages.append', params, cwd }
 }
 
 async function parsePagesSearchCommand(rest: string[], cwd: string) {
@@ -327,19 +401,19 @@ function parseCommentsCommand(rest: string[], cwd: string) {
 }
 
 async function parseOfficeRenderOperation(rest: string[], cwd: string) {
-  let params: Record<string, unknown> = {}
+  const params: Record<string, unknown> = {}
   let destination: string | undefined
   for (let index = 0; index < rest.length; index++) {
     const arg = rest[index]!
     if (arg === '--input') {
       const path = rest[++index]
       if (!path) throw new Error('--input requires a JSON file')
-      params = { ...params, ...parseParams(await readFile(resolve(cwd, path), 'utf8')) }
+      Object.assign(params, parseParams(await readFile(resolve(cwd, path), 'utf8')))
     } else if (arg === '--to') {
       destination = rest[++index]
       if (!destination) throw new Error('--to requires a destination path')
     } else if (arg.trimStart().startsWith('{')) {
-      params = { ...params, ...parseParams(arg) }
+      Object.assign(params, parseParams(arg))
     } else {
       throw new Error(`Unknown office.render argument: ${arg}`)
     }
@@ -354,14 +428,14 @@ async function parseOfficeRenderOperation(rest: string[], cwd: string) {
 async function parseOfficeCommand(rest: string[], cwd: string) {
   const [subcommand, ...tail] = rest
   if (subcommand === 'inspect') {
-    let params: Record<string, unknown> = {}
+    const params: Record<string, unknown> = {}
     let positionalId: string | undefined
     for (let index = 0; index < tail.length; index++) {
       const arg = tail[index]!
       if (arg === '--input') {
         const path = tail[++index]
         if (!path) throw new Error('--input requires a JSON file')
-        params = { ...params, ...parseParams(await readFile(resolve(cwd, path), 'utf8')) }
+        Object.assign(params, parseParams(await readFile(resolve(cwd, path), 'utf8')))
       } else if (arg === '--id' || arg === '--page-id') {
         const value = tail[++index]
         if (!value) throw new Error(`${arg} requires a page id`)
@@ -391,7 +465,7 @@ async function parseOfficeCommand(rest: string[], cwd: string) {
       } else if (arg === '--slide-id') {
         params.slide_id = decimalPositiveInteger(tail[++index], '--slide-id')
       } else if (arg.trimStart().startsWith('{')) {
-        params = { ...params, ...parseParams(arg) }
+        Object.assign(params, parseParams(arg))
       } else if (!arg.startsWith('-') && !positionalId && params.id === undefined) {
         positionalId = arg
       } else {
@@ -405,7 +479,7 @@ async function parseOfficeCommand(rest: string[], cwd: string) {
     return { operation: 'office.inspect', params, cwd }
   }
   if (subcommand === 'render') {
-    let params: Record<string, unknown> = {}
+    const params: Record<string, unknown> = {}
     let positionalId: string | undefined
     let destination: string | undefined
     for (let index = 0; index < tail.length; index++) {
@@ -413,7 +487,7 @@ async function parseOfficeCommand(rest: string[], cwd: string) {
       if (arg === '--input') {
         const path = tail[++index]
         if (!path) throw new Error('--input requires a JSON file')
-        params = { ...params, ...parseParams(await readFile(resolve(cwd, path), 'utf8')) }
+        Object.assign(params, parseParams(await readFile(resolve(cwd, path), 'utf8')))
       } else if (arg === '--id' || arg === '--page-id') {
         const value = tail[++index]
         if (!value) throw new Error(`${arg} requires a page id`)
@@ -433,7 +507,7 @@ async function parseOfficeCommand(rest: string[], cwd: string) {
         destination = tail[++index]
         if (!destination) throw new Error('--to requires a destination path')
       } else if (arg.trimStart().startsWith('{')) {
-        params = { ...params, ...parseParams(arg) }
+        Object.assign(params, parseParams(arg))
       } else if (!arg.startsWith('-') && !positionalId && params.id === undefined) {
         positionalId = arg
       } else {
@@ -453,7 +527,7 @@ async function parseOfficeCommand(rest: string[], cwd: string) {
     return { operation: 'office.render', params: { ...params, local_path: localPath }, cwd }
   }
   if (subcommand === 'commands') {
-    let params: Record<string, unknown> = {}
+    const params: Record<string, unknown> = {}
     let positionalId: string | undefined
     let positionalQuery: string | undefined
     for (let index = 0; index < tail.length; index++) {
@@ -467,7 +541,7 @@ async function parseOfficeCommand(rest: string[], cwd: string) {
         if (value === undefined) throw new Error(`${arg} requires a value`)
         params.query = value
       } else if (arg.trimStart().startsWith('{')) {
-        params = { ...params, ...parseParams(arg) }
+        Object.assign(params, parseParams(arg))
       } else if (!arg.startsWith('-') && !positionalId && params.id === undefined) {
         positionalId = arg
       } else if (!arg.startsWith('-') && positionalQuery === undefined && params.query === undefined) {
@@ -484,14 +558,14 @@ async function parseOfficeCommand(rest: string[], cwd: string) {
     return { operation: 'office.commands', params, cwd }
   }
   if (subcommand === 'apply') {
-    let params: Record<string, unknown> = {}
+    const params: Record<string, unknown> = {}
     let positionalId: string | undefined
     for (let index = 0; index < tail.length; index++) {
       const arg = tail[index]!
       if (arg === '--input') {
         const path = tail[++index]
         if (!path) throw new Error('--input requires a JSON file')
-        params = { ...params, ...parseParams(await readFile(resolve(cwd, path), 'utf8')) }
+        Object.assign(params, parseParams(await readFile(resolve(cwd, path), 'utf8')))
       } else if (arg === '--id' || arg === '--page-id') {
         const value = tail[++index]
         if (!value) throw new Error(`${arg} requires a page id`)
@@ -499,7 +573,7 @@ async function parseOfficeCommand(rest: string[], cwd: string) {
       } else if (arg === '--expected-revision') {
         params.expected_revision = decimalNonNegativeInteger(tail[++index], '--expected-revision')
       } else if (arg.trimStart().startsWith('{')) {
-        params = { ...params, ...parseParams(arg) }
+        Object.assign(params, parseParams(arg))
       } else if (!arg.startsWith('-') && !positionalId && params.id === undefined) {
         positionalId = arg
       } else {
@@ -517,14 +591,14 @@ async function parseOfficeCommand(rest: string[], cwd: string) {
     return { operation: 'office.apply', params, cwd }
   }
   if (subcommand === 'to-document' || subcommand === 'to_document') {
-    let params: Record<string, unknown> = {}
+    const params: Record<string, unknown> = {}
     let positionalId: string | undefined
     for (let index = 0; index < tail.length; index++) {
       const arg = tail[index]!
       if (arg === '--input') {
         const path = tail[++index]
         if (!path) throw new Error('--input requires a JSON file')
-        params = { ...params, ...parseParams(await readFile(resolve(cwd, path), 'utf8')) }
+        Object.assign(params, parseParams(await readFile(resolve(cwd, path), 'utf8')))
       } else if (arg === '--id' || arg === '--page-id') {
         const value = tail[++index]
         if (!value) throw new Error(`${arg} requires a page id`)
@@ -534,7 +608,7 @@ async function parseOfficeCommand(rest: string[], cwd: string) {
         if (!value) throw new Error(`${arg} requires a parent page id`)
         params.parent_id = value
       } else if (arg.trimStart().startsWith('{')) {
-        params = { ...params, ...parseParams(arg) }
+        Object.assign(params, parseParams(arg))
       } else if (!arg.startsWith('-') && !positionalId && params.id === undefined) {
         positionalId = arg
       } else {
@@ -590,7 +664,11 @@ if (import.meta.main) {
         const socket = process.env[POD_CLI_SOCKET_ENV]
         if (!socket) throw new Error('ankole-pod requires an active Ankole turn')
         await emitFirstUseGuidance({ commandKey: 'ankole-pod', guidance: POD_FIRST_USE_GUIDANCE })
-        const result = await requestSocketLineBridge(socket, JSON.stringify(command), 'Invalid Pod bridge response')
+        const response = await requestSocketLineBridge(socket, JSON.stringify(command), 'Invalid Pod bridge response')
+        const result =
+          'inspect_options' in command && command.inspect_options
+            ? await inspectApplet(response, command.inspect_options)
+            : response
         process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
       }
     }

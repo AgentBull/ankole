@@ -151,8 +151,8 @@ export function shouldRecycleColdIdleThread(
 }
 
 export async function resumeAndInjectCodexRootThread(input: {
-  runtimeLease: AgentCodexRuntimeLease
-  client: CodexAppServerClient
+  runtimeLease: { runtime: Pick<AgentCodexRuntimeLease['runtime'], 'resumeRoot'> }
+  client: Pick<CodexAppServerClient, 'request'>
   session: AgentCodexRuntimeSession
   resumedThreadID: string
   savedJobThreadID: string
@@ -198,8 +198,8 @@ export type ResumeCodexThreadResult =
     }
 
 export async function resumeExistingCodexRootThread(input: {
-  runtimeLease: AgentCodexRuntimeLease | undefined
-  client: CodexAppServerClient | undefined
+  runtimeLease: { runtime: Pick<AgentCodexRuntimeLease['runtime'], 'resumeRoot'> } | undefined
+  client: Pick<CodexAppServerClient, 'request'> | undefined
   session: AgentCodexRuntimeSession
   runtimeThreadID: string | undefined
   jobID: string
@@ -233,6 +233,14 @@ export async function resumeExistingCodexRootThread(input: {
   if (!client || !runtimeLease) return { outcome: 'none' }
   if (!runtimeThreadID) {
     return job.continuedFromJobId ? input.replaceLostThread('continuation_without_thread') : { outcome: 'none' }
+  }
+  if (prepared.workspaceRecreated) {
+    opts.logger?.info(
+      'worker.codex_job_workspace_evicted',
+      'Starting a replacement Codex Job thread because the inherited Job workspace was recreated',
+      { job_id: jobID, thread_id: runtimeThreadID }
+    )
+    return input.replaceLostThread('workspace_evicted', runtimeThreadID)
   }
   if (job.continuedFromJobId) {
     const incompatible = await hasIncompatibleContinuationRuntime({
@@ -331,6 +339,50 @@ export async function prepareReplacementCodexRootThread(input: {
   }
   await input.startNewThread()
   return { outcome: 'recreated', reason: input.reason, source, logfile }
+}
+
+export async function replaceCodexThreadAndStartTurn(input: {
+  isStopping: () => boolean
+  flushTurnRecorder: () => Promise<void>
+  previousThreadID: string | undefined
+  replaceThreadAndPrepareHistory: (
+    reason: ThreadRecreateReason,
+    retireThreadID?: string
+  ) => Promise<Extract<ResumeCodexThreadResult, { outcome: 'recreated' }>>
+  currentThreadID: () => string | undefined
+  rpc: CodexJobOptions['rpc']
+  jobTurn: JobTurnRef
+  jobID: string
+  reason: ThreadRecreateReason
+  buildPrompt: (
+    source: Extract<ResumeCodexThreadResult, { outcome: 'recreated' }>['source'],
+    logfile: Extract<ResumeCodexThreadResult, { outcome: 'recreated' }>['logfile']
+  ) => string
+  startCodexTurn: (prompt: string) => Promise<void>
+  retireFailedReplacement: (threadID: string) => Promise<void>
+}): Promise<void> {
+  if (input.isStopping()) return
+  await input.flushTurnRecorder()
+  if (input.isStopping()) return
+  const { source, logfile } = await input.replaceThreadAndPrepareHistory(input.reason, input.previousThreadID)
+  if (input.isStopping()) return
+  const newThreadID = input.currentThreadID()
+  if (!newThreadID) throw new Error('codex thread is not available for persistence')
+  await persistRuntimeThreadAnchor({
+    rpc: input.rpc,
+    jobTurn: input.jobTurn,
+    jobID: input.jobID,
+    runtimeThreadID: newThreadID,
+    reason: input.reason,
+    recovery: 'new_thread_from_logfile'
+  })
+  if (input.isStopping()) return
+  try {
+    await input.startCodexTurn(input.buildPrompt(source, logfile))
+  } catch (error) {
+    await input.retireFailedReplacement(newThreadID)
+    throw error
+  }
 }
 
 export async function startNewCodexRootThread(input: {
@@ -456,7 +508,7 @@ export async function dispatchRuntimeServerRequest(input: {
           summary: 'Codex requested user input.'
         })
       } else {
-        await input.interruptTurn()
+        await input.interruptTurn().catch(() => undefined)
       }
       await appServer.respondError(message.id, -32002, 'Background agent Job is waiting for parent input')
       input.scheduleClaimedCommit('waiting_on_user', {
@@ -502,13 +554,12 @@ export async function dispatchRuntimeServerRequest(input: {
 
   await appServer.respondError(message.id, -32601, `Ankole does not implement Codex server request ${method}`)
   if (!isLeadRequest) return
+  if (!input.claimFinalization()) return
   await input.interruptTurn().catch(() => undefined)
-  if (input.claimFinalization()) {
-    input.scheduleClaimedCommit('failed', {
-      error: {
-        code: 'unsupported_server_request',
-        summary: `Unsupported Codex server request: ${method}`
-      }
-    })
-  }
+  input.scheduleClaimedCommit('failed', {
+    error: {
+      code: 'unsupported_server_request',
+      summary: `Unsupported Codex server request: ${method}`
+    }
+  })
 }

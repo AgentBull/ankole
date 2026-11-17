@@ -459,17 +459,23 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
   end
 
   @tag :internal_skill_path
-  @tag skip: System.get_env("ANKOLE_INTERNAL_SKILLS_ROOT") in [nil, ""]
   @tag timeout: 180_000
   test "an internal Skill directory reaches a reference on the real Worker" do
-    ctx = start_worker_e2e_stack!()
-    directory = "/repo/internals/skills/twitterapi-io"
-    reference = "references/write-operations.md"
+    root = Path.expand("../fixtures/internal-skills", __DIR__)
+    previous = System.get_env("ANKOLE_INTERNAL_SKILLS_ROOT")
+    System.put_env("ANKOLE_INTERNAL_SKILLS_ROOT", root)
 
-    expected =
-      File.read!(
-        Path.join(System.fetch_env!("ANKOLE_INTERNAL_SKILLS_ROOT"), "twitterapi-io/#{reference}")
-      )
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("ANKOLE_INTERNAL_SKILLS_ROOT", previous),
+        else: System.delete_env("ANKOLE_INTERNAL_SKILLS_ROOT")
+    end)
+
+    ctx = start_worker_e2e_stack!()
+    directory = "/repo/internals/skills/e2e-internal"
+    reference = "references/worker-reference.md"
+
+    expected = File.read!(Path.join(root, "e2e-internal/#{reference}"))
 
     assert exec!(ctx.container, ["cat", "#{directory}/#{reference}"]) == expected
 
@@ -480,7 +486,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
                chat_id: "oc_internal_skill_path",
                chat_type: "p2p",
                text:
-                 "@_user_1 Run CHAOS_INTERNAL_SKILL. Read twitterapi-io with skill_view, then its write-operations reference with read_file. Reply CHAOS_INTERNAL_SKILL_OK.",
+                 "@_user_1 Run CHAOS_INTERNAL_SKILL. Read e2e-internal with skill_view, then its worker-reference with read_file. Reply CHAOS_INTERNAL_SKILL_OK.",
                mentions: [lark_bot_mention()],
                create_time_ms: System.system_time(:millisecond)
              )
@@ -501,7 +507,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     messages = Ankole.E2E.WaitHelpers.ai_messages_for_signal(input.id)
     assert [%{"raw" => skill}] = successful_tool_results(messages, "skill_view")
     assert skill =~ "directory=\"#{directory}\""
-    assert skill =~ "references/write-operations.md"
+    assert skill =~ "references/worker-reference.md"
     assert [%{"raw" => read}] = successful_tool_results(messages, "read_file")
 
     read_lines =

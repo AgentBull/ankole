@@ -8,6 +8,8 @@ import { changeTable } from '../src/editor/tables'
 import { undo } from '../src/editor/commands'
 import { insertResource, resourceChanges } from '../src/blocks/resources'
 import { EmbedHeight, EmbedHref, EmbedTitle, embedChanges } from '../src/blocks/embed'
+import { parseEmbedProps } from '../src/document/embed-props'
+import { validateKnowledge } from '../src/document/knowledge'
 import {
   iframeURL,
   mediaKind,
@@ -31,9 +33,11 @@ import {
   fallbackLinkTitle,
   fetchLinkMetadata,
   inlineLinkView,
+  trackInlineLink,
+  trackTextRange,
   unfurlEmbed
 } from '../src/editor/link-views'
-import { linkAt, linkAtPos, singleLinkInRange, updateLinkAt } from '../src/editor/links'
+import { linkAt, linkAtPos, removeLinkAt, singleLinkInRange, updateLinkAt } from '../src/editor/links'
 import { EditorContext } from '../src/react/context'
 import { ExternalEmbedBlock, MediaResourceBlock } from '../src/react/resource-blocks'
 import { expectReopens, exportMarkdown, open, openWithHost, readTree, select, typeText } from './helpers'
@@ -221,6 +225,34 @@ test('resource and embed patches preserve unrelated remote metadata and remove o
   expect(exportMarkdown(editor)).not.toContain('description=')
   expect(exportMarkdown(editor)).toContain('view="card"')
   expectReopens(editor)
+})
+
+test('Applet embed parameters round-trip and update one mark without losing concurrent attributes', () => {
+  const editor = open(`<embed ref="report" props='{"region":"华东"}' view="remote" />`)
+  expectReopens(editor)
+  editor.dispatch({ changes: embedChanges(editor.state.doc.content[0]!, 0, { props: '{"region":"华南"}' }) })
+  const tree = readTree(editor)
+  expect((tree.children[0] as Element).attrs).toEqual({ ref: 'report', props: '{"region":"华南"}', view: 'remote' })
+  expectReopens(editor)
+  expect(() => validateKnowledge(tree)).toThrow('Knowledge pages do not support <embed>')
+  undo(editor)
+  expect((readTree(editor).children[0] as Element).attrs.props).toBe('{"region":"华东"}')
+})
+
+test('embed parameters reject invalid objects and enforce their UTF-8 byte limit in XML and marks', () => {
+  for (const props of ['null', '[]', '3', '"text"', '{bad}', JSON.stringify({ text: '中'.repeat(5500) })]) {
+    expect(() => parseEmbedProps(props)).toThrow()
+    expect(() => open(`<embed ref="report" props='${props}' />`)).toThrow()
+    const editor = open('<embed ref="report" />')
+    expect(() => embedChanges(editor.state.doc.content[0]!, 0, { props })).toThrow()
+    const json = editor.state.doc.toJSON()
+    json.content![0]!.marks!.EmbedProps = props
+    expect(() => editor.state.schema.nodeFromJSON(json)).toThrow()
+  }
+  const boundary = JSON.stringify({ x: 'a'.repeat(16 * 1024 - 8) })
+  expect(new TextEncoder().encode(boundary).length).toBe(16 * 1024)
+  expect(parseEmbedProps(boundary)).toEqual({ x: 'a'.repeat(16 * 1024 - 8) })
+  expect(parseEmbedProps(undefined)).toEqual({})
 })
 
 test('changing a media source discards the previous upload facts and infers its new content', () => {
@@ -484,6 +516,58 @@ test('unfurlEmbed populates missing external embed titles outside undo history, 
   // unfurlEmbed leaves manual titles untouched
   await unfurlEmbed(sized, 'https://example.com/frame', 0)
   expect(exportMarkdown(sized)).toBe('<embed height="620" href="https://example.com/frame" title="Board" />')
+})
+
+test('an open link edit follows preceding text changes before saving or removing its target', () => {
+  for (const remove of [false, true]) {
+    const editor = open('Before [Guide](https://example.com/guide) after')
+    const link = linkAtPos(editor.state, 9)!
+    const tracked = trackInlineLink(editor, link, link.href)
+    select(editor, 1)
+    typeText(editor, 'Inserted ')
+    expect(tracked.current()?.from).toBe(link.from + 'Inserted '.length)
+    const target = tracked.finish()!
+    expect(target.from).toBe(link.from + 'Inserted '.length)
+    if (remove) removeLinkAt(editor, target)
+    else updateLinkAt(editor, target, { href: 'https://example.com/new' })
+    expect(exportMarkdown(editor)).toBe(
+      remove ? 'Inserted Before Guide after' : 'Inserted Before [Guide](https://example.com/new) after'
+    )
+  }
+})
+
+test('an open new-link selection follows preceding changes and rejects modified text', () => {
+  const editor = open('Before target after')
+  const tracked = trackTextRange(editor, { from: 8, to: 14 })
+  select(editor, 1)
+  typeText(editor, 'Lead ')
+  expect(tracked.current()).toEqual({ from: 13, to: 19 })
+  expect(tracked.finish()).toEqual({ from: 13, to: 19 })
+
+  const stale = trackTextRange(editor, { from: 13, to: 19 })
+  select(editor, 13, 19)
+  typeText(editor, 'other')
+  expect(stale.current()).toBeNull()
+  expect(stale.finish()).toBeNull()
+})
+
+test('an open link edit rejects a target another editor removed or changed', () => {
+  for (const change of ['remove', 'address', 'text'] as const) {
+    const editor = open('Before [Guide](https://example.com/guide) after')
+    const link = linkAtPos(editor.state, 9)!
+    const tracked = trackInlineLink(editor, link, link.href)
+    if (change === 'remove') removeLinkAt(editor, link)
+    else {
+      updateLinkAt(
+        editor,
+        link,
+        change === 'address' ? { href: 'https://example.com/other' } : { href: link.href, text: 'Changed' }
+      )
+    }
+    const content = exportMarkdown(editor)
+    expect(tracked.finish()).toBeNull()
+    expect(exportMarkdown(editor)).toBe(content)
+  }
 })
 
 test('internal page mentions and page embeds toggle two-way with single-step undo, and page_embed appears in block catalog when supported', () => {

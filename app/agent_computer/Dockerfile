@@ -5,8 +5,7 @@ ARG CODEX_VERSION=0.166.0
 ARG MCPORTER_VERSION=0.17.0
 ARG OFFICECLI_VERSION=v1.0.159
 ARG TYPST_VERSION=v0.15.1
-ARG KUBECTL_VERSION=v1.37.1
-ARG AWS_CLI_VERSION=2.38.5
+ARG RUST_TOOLCHAIN=1.99.1
 
 FROM --platform=linux/amd64 cloudflare/sandbox:1.0.3 AS directory-backup
 
@@ -18,9 +17,19 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 
 FROM ${BASE_IMAGE} AS kernel-addon
 
+ARG RUST_TOOLCHAIN
 ARG TARGETARCH
 
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 WORKDIR /repo
+
+RUN if ! command -v cargo >/dev/null 2>&1; then \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}"; \
+  fi \
+  && rustc --version \
+  && cargo --version
 
 COPY app/kernel/Cargo.toml app/kernel/Cargo.lock app/kernel/build.rs ./app/kernel/
 COPY app/kernel/src ./app/kernel/src
@@ -171,51 +180,12 @@ RUN set -eux; \
   rm -rf /tmp/typst.tar.xz "/tmp/${typst_asset}"; \
   /usr/local/bin/typst --version | grep -qF "typst ${TYPST_VERSION#v}"
 
-FROM ${BASE_IMAGE} AS cli-kubectl
-
-ARG KUBECTL_VERSION
-ARG TARGETARCH
-
-RUN set -eux; \
-  case "${TARGETARCH:-$(uname -m)}" in \
-    amd64|x86_64) kubectl_arch=amd64 ;; \
-    arm64|aarch64) kubectl_arch=arm64 ;; \
-    *) echo "Unsupported kubectl architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
-  esac; \
-  kubectl_base_url="https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${kubectl_arch}"; \
-  curl -fsSL --retry 5 --retry-all-errors "${kubectl_base_url}/kubectl" -o /tmp/kubectl; \
-  install -m 0755 /tmp/kubectl /usr/local/bin/kubectl; \
-  test "$(/usr/local/bin/kubectl version --client -o json | jq -r '.clientVersion.gitVersion')" = "${KUBECTL_VERSION}"; \
-  rm -f /tmp/kubectl
-
-FROM ${BASE_IMAGE} AS cli-aws
-
-ARG AWS_CLI_VERSION
-ARG TARGETARCH
-
-RUN set -eux; \
-  case "${TARGETARCH:-$(uname -m)}" in \
-    amd64|x86_64) aws_arch=x86_64 ;; \
-    arm64|aarch64) aws_arch=aarch64 ;; \
-    *) echo "Unsupported AWS CLI architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
-  esac; \
-  aws_asset="awscli-exe-linux-${aws_arch}-${AWS_CLI_VERSION}.zip"; \
-  curl -fsSL --retry 5 --retry-all-errors "https://awscli.amazonaws.com/${aws_asset}" \
-    -o /tmp/awscliv2.zip; \
-  unzip -q /tmp/awscliv2.zip -d /tmp; \
-  mkdir -p /tmp/aws-bin; \
-  /tmp/aws/install --install-dir /usr/local/aws-cli --bin-dir /tmp/aws-bin; \
-  /tmp/aws-bin/aws --version | grep -qF "aws-cli/${AWS_CLI_VERSION} "; \
-  rm -rf /tmp/aws /tmp/awscliv2.zip
-
 FROM ${BASE_IMAGE}
 
 ARG CODEX_VERSION
 ARG MCPORTER_VERSION
 ARG OFFICECLI_VERSION
 ARG TYPST_VERSION
-ARG KUBECTL_VERSION
-ARG AWS_CLI_VERSION
 ARG TARGETARCH
 
 WORKDIR /repo
@@ -253,14 +223,12 @@ RUN --mount=from=build,source=/tmp/ankole-browser-runtime/node_modules/playwrigh
 RUN set -eux; \
   usermod -l agent -d /workspace -s /bin/bash bun; \
   groupmod -n agent bun; \
-  mkdir -p /agents /workspace /var/cache/ankole/codex /var/share /run/ankole-browser /usr/local/libexec; \
-  chown 1000:1000 /agents /workspace /var/cache/ankole /var/cache/ankole/codex /run/ankole-browser; \
+  mkdir -p /agents /workspace /var/cache/ankole/codex /var/cache/ankole/skills-cas /var/share /run/ankole-browser /usr/local/libexec; \
+  chown 1000:1000 /agents /workspace /var/cache/ankole /var/cache/ankole/codex /var/cache/ankole/skills-cas /run/ankole-browser; \
   chmod 0755 /agents /workspace /var/cache/ankole; \
   chmod 1777 /var/share; \
   printf '%s\n' 'ankole-agent-computer' > /etc/ankole-agent-computer-container; \
-  rm -rf /root/.bun/install/global; \
-  mv /root/.cargo /opt/ankole-cargo; \
-  mv /root/.rustup /opt/ankole-rustup; \
+  rm -rf /root/.bun/install/global /root/.cargo /root/.rustup /usr/local/bin/mysql /usr/bin/clickhouse*; \
   ! command -v sudo
 
 COPY --from=directory-backup /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
@@ -272,9 +240,6 @@ COPY --from=cli-codex /tmp/cli-codex-bin/ /usr/local/bin/
 COPY --from=cli-office /usr/local/libexec/officecli /usr/local/libexec/officecli
 COPY --from=cli-office /usr/local/bin/officecli /usr/local/bin/officecli
 COPY --from=cli-typst /usr/local/bin/typst /usr/local/bin/typst
-COPY --from=cli-kubectl /usr/local/bin/kubectl /usr/local/bin/kubectl
-COPY --from=cli-aws /usr/local/aws-cli /usr/local/aws-cli
-COPY --from=cli-aws /tmp/aws-bin/ /usr/local/bin/
 
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/app/agent_computer/node_modules ./app/agent_computer/node_modules
@@ -317,7 +282,7 @@ RUN set -eux; \
     > /etc/profile.d/ankole-agent-computer.sh; \
   chmod 0644 /etc/profile.d/ankole-agent-computer.sh; \
   mkdir -p /usr/local/libexec/ankole-cli-shims; \
-  for shim_tool in pytest vitest jest mix cargo tsc oxlint eslint npm pnpm yarn bun pip pip3 uv curl git cat; do \
+  for shim_tool in pytest vitest jest mix cargo tsc oxlint eslint npm pnpm yarn bun pip pip3 uv curl git; do \
     ln -s ../ankole-cli-shim "/usr/local/libexec/ankole-cli-shims/${shim_tool}"; \
   done; \
   printf '%s\n' \
@@ -329,7 +294,15 @@ RUN set -eux; \
   printf '%s\n' \
     '[ -r /etc/profile.d/ankole-agent-computer.sh ] && . /etc/profile.d/ankole-agent-computer.sh' \
     >> /root/.profile; \
-  rm -f /usr/local/bin/node /usr/local/bun-node-fallback-bin/node; \
+  rm -f /usr/local/bun-node-fallback-bin/node /usr/local/bin/node; \
+  printf '%s\n' \
+    '#!/bin/bash' \
+    'if [[ "$#" -eq 1 && ( "$1" == "--version" || "$1" == "-v" ) ]]; then' \
+    '  exec /usr/local/bin/bun -p process.version' \
+    'fi' \
+    'exec -a node /usr/local/bin/bun "$@"' \
+    > /usr/local/bin/node; \
+  chmod 0755 /usr/local/bin/node; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /opt/ankole-browser/dist/cli/main.js "$@"' > /usr/local/bin/ankole-browser; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /opt/ankole-browser/dist/daemon/main.js "$@"' > /usr/local/bin/ankole-browserd; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/webhooks/webhook-cli.ts create "$@"' > /usr/local/bin/create-webhook-cli; \
@@ -339,14 +312,12 @@ RUN set -eux; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/pod/pod-cli.ts "$@"' > /usr/local/bin/ankole-pod; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/viz/viz-cli.ts "$@"' > /usr/local/bin/ankole-viz; \
   chmod +x /usr/local/bin/ankole-browser /usr/local/bin/ankole-browserd /usr/local/bin/create-webhook-cli /usr/local/bin/list-webhooks-cli /usr/local/bin/cancel-webhook-cli /usr/local/bin/ankole-files /usr/local/bin/ankole-pod /usr/local/bin/ankole-viz; \
-  ! command -v node; \
+  test "$(node --version)" = "$(node -p process.version)" && test "$(node -v)" = "$(node -p process.version)"; \
   bun -e 'if (typeof Bun.TOML.stringify !== "function") throw new Error("Bun.TOML.stringify is required")'; \
   test "$(codex --version)" = "codex-cli ${CODEX_VERSION}"; \
   test "$(mcporter --version)" = "${MCPORTER_VERSION}"; \
   test "$(officecli --version)" = "${OFFICECLI_VERSION#v}"; \
   typst --version | grep -qF "typst ${TYPST_VERSION#v}"; \
-  test "$(kubectl version --client -o json | jq -r '.clientVersion.gitVersion')" = "${KUBECTL_VERSION}"; \
-  aws --version | grep -qF "aws-cli/${AWS_CLI_VERSION} "; \
   /opt/ankole-browser/browsers/chromium/chrome-headless-shell --version >/dev/null; \
   ankole-browser --help >/dev/null; \
   ankole-viz --help >/dev/null; \
@@ -370,8 +341,6 @@ ENV SHELL=/bin/bash
 ENV HOME=/workspace
 ENV CODEX_HOME=/workspace/.codex
 ENV CODEX_SQLITE_HOME=/var/cache/ankole/codex
-ENV RUSTUP_HOME=/opt/ankole-rustup
-ENV CARGO_HOME=/opt/ankole-cargo
 ENV ANKOLE_AGENT_COMPUTER_BUN_WORKDIR=/repo/app/agent_computer
 ENV ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library
 ENV ANKOLE_BROWSER_DAEMON_ENTRY=/opt/ankole-browser/dist/daemon/main.js
@@ -380,7 +349,7 @@ ENV ANKOLE_BROWSER_CHROMIUM_EXECUTABLE=/opt/ankole-browser/browsers/chromium/chr
 ENV ANKOLE_VIZ_HARNESS_JS=/opt/ankole-viz/dist/harness-entry.js
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ankole-browser/browsers
 ENV MATPLOTLIBRC=/etc/ankole/matplotlibrc
-ENV PATH="/opt/ankole-python/bin:/opt/ankole-cargo/bin:/usr/local/bin:/usr/bin:/bin"
+ENV PATH="/opt/ankole-python/bin:/usr/local/bin:/usr/bin:/bin"
 
 # A launcher can replace this environment, for example sudo on Function
 # Compute. The entrypoint exports this copy, which has the format of
@@ -405,8 +374,6 @@ RUN --mount=type=tmpfs,target=/workspace \
     -u MCPORTER_VERSION \
     -u OFFICECLI_VERSION \
     -u TYPST_VERSION \
-    -u KUBECTL_VERSION \
-    -u AWS_CLI_VERSION \
     > /etc/ankole/worker-environ
 
 ENTRYPOINT ["ankole-worker-entry"]

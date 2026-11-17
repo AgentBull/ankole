@@ -288,6 +288,14 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     }
   end
 
+  defp reason_fields({:service_token_quota_exceeded, _window}) do
+    %{
+      error_code: "service_token_quota_exceeded",
+      http_status: 429,
+      retryable: false
+    }
+  end
+
   defp reason_fields({tag, details}) when is_atom(tag) do
     details
     |> reason_fields()

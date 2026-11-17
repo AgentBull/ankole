@@ -8,6 +8,7 @@ defmodule Ankole.Observability do
   """
 
   use GenServer
+  require Ash.Query
 
   import Ankole.Observability.Trace,
     only: [
@@ -26,9 +27,11 @@ defmodule Ankole.Observability do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
+  alias Ankole.Conversations.Conversation
   alias Ankole.Logging
   alias Ankole.Observability.Provider
   alias Ankole.Observability.UserID
+  alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.TurnRuntimeEnv
   alias OpenTelemetry.Ctx
@@ -202,14 +205,20 @@ defmodule Ankole.Observability do
   @doc "Starts an execution's turn span and attaches its request trace context."
   @spec attach_turn(map()) :: map()
   def attach_turn(%{span: nil} = execution) do
+    %{adapter: channel_adapter, kind: channel_kind} =
+      channel_info(execution.event, execution.spec, Map.get(execution, :context))
+
     request_context =
-      Map.merge(execution.spec.request_context, %{
+      execution.spec.request_context
+      |> Map.merge(%{
         "signal_id" => execution.signal_id,
         "human_uid" =>
           Ankole.Principals.served_human_uid(execution.agent_uid, execution.event.human_uid),
         "session_epoch" => execution.epoch,
         "session_attempt" => execution.event.attempt_count
       })
+      |> Ankole.Attrs.maybe_put("channel_adapter", channel_adapter)
+      |> Ankole.Attrs.maybe_put("channel_kind", channel_kind)
 
     execution = %{execution | spec: Map.put(execution.spec, :request_context, request_context)}
     span = start_turn(execution.event, execution.spec)
@@ -454,11 +463,98 @@ defmodule Ankole.Observability do
     {:reply, status, state}
   end
 
+  @doc "Derives normalized `%{adapter, kind}` channel dimensions for traces and telemetry."
+  @spec channel_info(Signal.t() | nil, map() | nil, map() | nil) :: %{
+          adapter: String.t() | nil,
+          kind: String.t() | nil
+        }
+  def channel_info(signal, spec \\ nil, runtime_context \\ nil) do
+    request_context = map_value(spec || %{}, "request_context") || %{}
+    origin_channel = get_in(runtime_context || %{}, [:conversation, :origin_channel]) || %{}
+
+    signal_channel =
+      if is_map(signal && signal.data), do: Map.get(signal.data, "channel") || %{}, else: %{}
+
+    kind =
+      text(Map.get(origin_channel, :kind)) ||
+        text(Map.get(request_context, "channel_kind")) ||
+        text(Map.get(signal_channel, "kind"))
+
+    adapter =
+      text(Map.get(origin_channel, :adapter)) ||
+        text(Map.get(request_context, "channel_adapter")) ||
+        text(Map.get(signal_channel, "adapter"))
+
+    {adapter, kind} = maybe_resolve_conversation_channel(signal, adapter, kind)
+
+    adapter =
+      cond do
+        is_binary(adapter) and adapter != "" ->
+          adapter
+
+        kind == "native" ->
+          "pod_browser"
+
+        kind in ["im_dm", "im_group"] ->
+          adapter_prefix(text(signal && signal.reply_binding_name))
+
+        true ->
+          nil
+      end
+
+    %{adapter: adapter, kind: kind}
+  end
+
+  defp maybe_resolve_conversation_channel(
+         %Signal{conversation_id: conv_id} = signal,
+         adapter,
+         kind
+       )
+       when is_binary(conv_id) and (is_nil(adapter) or is_nil(kind)) do
+    case fetch_conversation(conv_id) do
+      %Conversation{kind: :native} ->
+        {adapter || "pod_browser", kind || "native"}
+
+      %Conversation{kind: :external, external_kind: ek, provider_conversation_id: pcid} ->
+        resolved_kind = kind || (ek && Atom.to_string(ek))
+        resolved_adapter = adapter || adapter_prefix(pcid) || text(signal.reply_binding_name)
+        {resolved_adapter, resolved_kind}
+
+      _missing ->
+        {adapter, kind}
+    end
+  end
+
+  defp maybe_resolve_conversation_channel(_signal, adapter, kind), do: {adapter, kind}
+
+  defp fetch_conversation(conv_id) do
+    with tenant_id when is_binary(tenant_id) <- Repo.tenant_id(),
+         {:ok, uuid} <- Ecto.UUID.cast(conv_id),
+         {:ok, conv} <-
+           Conversation
+           |> Ash.Query.filter(id == ^uuid)
+           |> Ankole.Ash.read_one() do
+      conv
+    else
+      _other -> nil
+    end
+  end
+
+  defp adapter_prefix(value) when is_binary(value) do
+    case String.split(value, ":", parts: 2) do
+      [adapter, _rest] when adapter != "" -> adapter
+      _unsegmented -> text(value)
+    end
+  end
+
+  defp adapter_prefix(_value), do: nil
+
   defp start_turn_span(%Signal{} = signal, turn_start_spec) do
     provider = provider()
     request_context = map_value(turn_start_spec, "request_context") || %{}
     user_id = turn_user_id(signal, turn_start_spec)
     {input, truncated?} = encode_content(Signal.envelope(signal))
+    %{adapter: channel_adapter, kind: channel_kind} = channel_info(signal, turn_start_spec, nil)
 
     context =
       %{
@@ -473,7 +569,9 @@ defmodule Ankole.Observability do
         caller: "sessions.turn",
         release: release(),
         job_id: positive_integer(map_value(request_context, "job_id")),
-        attempts: positive_integer(map_value(request_context, "attempts"))
+        attempts: positive_integer(map_value(request_context, "attempts")),
+        channel_adapter: channel_adapter,
+        channel_kind: channel_kind
       }
       |> Ankole.Observability.Trace.with_tenant()
 
@@ -616,15 +714,41 @@ defmodule Ankole.Observability do
                  redirect: false,
                  receive_timeout: @worker_export_timeout_ms
                ) do
-            {:ok, %Req.Response{status: status}} when status in 200..299 -> :ok
-            {:ok, %Req.Response{}} -> {:error, :otlp_export_failed}
-            {:error, _reason} -> {:error, :otlp_export_failed}
+            {:ok, %Req.Response{status: status}} when status in 200..299 ->
+              :ok
+
+            {:ok, %Req.Response{status: status}} ->
+              log_worker_export_failure(endpoint, {:http_status, status})
+              {:error, :otlp_export_failed}
+
+            {:error, reason} ->
+              log_worker_export_failure(endpoint, reason)
+              {:error, :otlp_export_failed}
           end
         end
 
       _disabled ->
         :ok
     end
+  end
+
+  @worker_export_warn_key {__MODULE__, :worker_export_last_warn_ms}
+
+  defp log_worker_export_failure(endpoint, reason) do
+    now = monotonic_ms()
+    last = :persistent_term.get(@worker_export_warn_key, nil)
+
+    if is_nil(last) or now - last >= 60_000 do
+      :persistent_term.put(@worker_export_warn_key, now)
+
+      Logging.warning(
+        "observability.traces.worker_export_failed",
+        "Worker OpenTelemetry span export failed",
+        %{otlp_host: endpoint_host(endpoint), reason: safe_reason(reason)}
+      )
+    end
+
+    :ok
   end
 
   defp enabled_definition do

@@ -107,9 +107,6 @@ defmodule Ankole.AppConfigure.ConsoleActions do
   defp describe(:incomplete_trace_configuration),
     do: {"Choose a trace provider and endpoint before enabling trace export", []}
 
-  defp describe(:incomplete_turnstile_configuration),
-    do: {"Save a site key and secret key before enabling Turnstile", []}
-
   defp describe(:invalid_test_recipient), do: {"Enter a valid test email recipient", []}
 
   defp describe(:mail_unavailable),

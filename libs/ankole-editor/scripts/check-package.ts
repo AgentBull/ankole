@@ -107,6 +107,7 @@ import {
   commitMention,
   insertEmbed,
   insertImage,
+  insertInlineMath,
   insertMention,
   insertResource,
   mentionField,
@@ -130,7 +131,7 @@ import {
   type ResourceAttributes,
   type ResourceKind
 } from '@ankole/block-editor/editor'
-import { importMarkdownDocument, parseMarkdown, printMarkdown, printXml, parseXml, resourceContent, resourceText } from '@ankole/block-editor/document'
+import { importMarkdownDocument, parseMarkdown, printMarkdown, printXml, parseXml, resourceContent, resourceText, unwrapMathDelimiters } from '@ankole/block-editor/document'
 
 const mentionTarget: MentionTarget = { page: '019a2b00-0000-7000-8000-000000000001' }
 const mentionCategory: MentionCategory = 'all'
@@ -158,6 +159,7 @@ if (
   !PageCollaboration ||
   !PageSession ||
   !insertImage ||
+  !insertInlineMath ||
   !insertEmbed ||
   !insertMention ||
   !commitMention ||
@@ -170,6 +172,7 @@ if (
   !pasteTextAtDocumentStart ||
   !splitPastedDocumentTitle ||
   !importMarkdownDocument ||
+  unwrapMathDelimiters('$x^2$') !== 'x^2' ||
   !remoteSelections ||
   !host.resolveAsset ||
   !mentionCategory ||

@@ -1,6 +1,7 @@
 ---
 name: lark-calendar
 description: "Manage Feishu or Lark personal and shared calendars, events, attendees, invitations, and free/busy queries."
+default_enabled: false
 ---
 
 # lark-calendar

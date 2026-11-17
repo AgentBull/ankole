@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test'
 import { caret, expectMarkdown, openDocument, selectText, test } from './helpers'
 
-// Shortcuts as in Notion. Command on macOS is Ctrl elsewhere; turn into is Command+Option or Ctrl+Shift.
+// Command on macOS is Ctrl elsewhere; turn into is Command+Option or Ctrl+Shift.
 const mac = process.platform === 'darwin'
 const turnInto = (digit: string) => (mac ? `Meta+Alt+${digit}` : `Control+Shift+${digit}`)
 

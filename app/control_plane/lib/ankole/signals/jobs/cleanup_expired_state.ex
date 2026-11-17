@@ -21,6 +21,14 @@ defmodule Ankole.Signals.Jobs.CleanupExpiredState do
     # Counts are intentionally discarded; the job is for the side effect, and
     # always reports :ok so Oban does not retry successful housekeeping.
     _counts = Ankole.Signals.StateCleanup.cleanup_expired_state()
+    now = DateTime.utc_now(:microsecond)
+
+    _ =
+      Ankole.Repo.transact_top_level(fn ->
+        _ = Ankole.Connectors.WriteReceipts.prune_expired_in_tx(now)
+        Ankole.Pod.Applets.Idempotency.prune_expired_in_tx(now)
+      end)
+
     :ok
   end
 end

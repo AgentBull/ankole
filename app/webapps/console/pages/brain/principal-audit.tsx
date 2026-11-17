@@ -72,55 +72,58 @@ export function BrainPrincipalAuditPage() {
         </p>
       ) : knowledge.isLoading ? (
         <Skeleton className="h-48 w-full" />
-      ) : knowledge.error ? null : rows.length === 0 ? (
-        <p className="border border-dashed border-border-subtle px-4 py-6 text-sm text-fg-secondary">
-          {t('console.brain.principal_audit_no_claims', { uid: selectedPrincipalLabel })}
-        </p>
       ) : (
-        <Table
-          containerClassName="border border-border-subtle bg-page"
-          containerLabel={t('console.brain.principal_audit_title')}>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('console.brain.claim')}</TableHead>
-              <TableHead>{t('console.brain.type')}</TableHead>
-              <TableHead>{t('console.brain.holder')}</TableHead>
-              <TableHead>{t('console.brain.author')}</TableHead>
-              <TableHead>{t('console.brain.object')}</TableHead>
-              <TableHead>{t('console.brain.scope')}</TableHead>
-              <TableHead>{t('console.brain.state')}</TableHead>
-              <TableHead>{t('console.brain.created')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map(claim => (
-              <TableRow key={claim.id}>
-                <TableCell className="min-w-72 max-w-[380px] whitespace-normal break-words text-sm leading-6">
-                  {claim.claim}
-                </TableCell>
-                <TableCell>
-                  <ClaimTypeBadge claim={claim} />
-                </TableCell>
-                <TableCell>
-                  <BrainHolderLabel holder={claim.holder} />
-                </TableCell>
-                <TableCell className="font-mono text-xs">
-                  <ActorLabel actor={claim.author} />
-                </TableCell>
-                <TableCell className="font-mono text-xs">
-                  {claim.subject_page_id ? <BrainPageLink pageID={claim.subject_page_id} /> : '—'}
-                </TableCell>
-                <TableCell>
-                  <BrainSourceLabel nodeID={claim.source_node_id} />
-                </TableCell>
-                <TableCell>
-                  <ClaimStateBadge claim={claim} />
-                </TableCell>
-                <TableCell className="text-xs text-fg-secondary">{formatConsoleDate(claim.created_at)}</TableCell>
+        !knowledge.error &&
+        (rows.length === 0 ? (
+          <p className="border border-dashed border-border-subtle px-4 py-6 text-sm text-fg-secondary">
+            {t('console.brain.principal_audit_no_claims', { uid: selectedPrincipalLabel })}
+          </p>
+        ) : (
+          <Table
+            containerClassName="border border-border-subtle bg-page"
+            containerLabel={t('console.brain.principal_audit_title')}>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('console.brain.claim')}</TableHead>
+                <TableHead>{t('console.brain.type')}</TableHead>
+                <TableHead>{t('console.brain.holder')}</TableHead>
+                <TableHead>{t('console.brain.author')}</TableHead>
+                <TableHead>{t('console.brain.object')}</TableHead>
+                <TableHead>{t('console.brain.scope')}</TableHead>
+                <TableHead>{t('console.brain.state')}</TableHead>
+                <TableHead>{t('console.brain.created')}</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {rows.map(claim => (
+                <TableRow key={claim.id}>
+                  <TableCell className="min-w-72 max-w-[380px] whitespace-normal break-words text-sm leading-6">
+                    {claim.claim}
+                  </TableCell>
+                  <TableCell>
+                    <ClaimTypeBadge claim={claim} />
+                  </TableCell>
+                  <TableCell>
+                    <BrainHolderLabel holder={claim.holder} />
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    <ActorLabel actor={claim.author} />
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {claim.subject_page_id ? <BrainPageLink pageID={claim.subject_page_id} /> : '—'}
+                  </TableCell>
+                  <TableCell>
+                    <BrainSourceLabel nodeID={claim.source_node_id} />
+                  </TableCell>
+                  <TableCell>
+                    <ClaimStateBadge claim={claim} />
+                  </TableCell>
+                  <TableCell className="text-xs text-fg-secondary">{formatConsoleDate(claim.created_at)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ))
       )}
     </PageStack>
   )

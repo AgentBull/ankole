@@ -2,10 +2,20 @@ defmodule Ankole.Files.Vfs.Invalidator do
   @moduledoc "Projects committed Drive changes onto the existing Worker control channel."
   alias Ankole.RuntimeFabric.V1, as: Proto
 
-  def subscribe do
+  def subscribe(worker_id \\ nil) do
     tenant = Ankole.Repo.tenant_id!()
     :ok = Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-content:" <> tenant)
     :ok = Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-vfs-access:" <> tenant)
+
+    if is_binary(worker_id) and worker_id != "" do
+      :ok =
+        Phoenix.PubSub.subscribe(
+          Ankole.PubSub,
+          "drive-content-principal:" <> tenant <> ":" <> worker_id
+        )
+    end
+
+    :ok
   end
 
   def notify_page_updated(id) when is_binary(id) do

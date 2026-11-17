@@ -15,7 +15,7 @@ order: 319
 |---|---|---|
 | `ANKOLE_MAX_CONCURRENT_SLOTS` | 12 | 单个 Agent 同时打开的环境工作区与运行中的 Codex 回合总数 |
 | `POOL_SIZE`（Compose/Helm 中为 `ANKOLE_DATABASE_POOL_SIZE`） | 10 | 每个控制面副本的 `Ankole.Repo` 数据库连接池大小 |
-| `BASE_DB_URLS`（`ankole_pool_size`） | FOSS 生产环境为 10、SaaS 生产环境为 5、dev/test 为 2 | 每个控制面副本上各 `Ankole.Pod.BaseRepo` Base 分片的连接池大小 |
+| `BASE_DB_URLS`（`ankole_pool_size`） | FOSS 生产环境为 10、dev/test 为 2 | 每个控制面副本上各 `Ankole.Pod.BaseRepo` Base 分片的连接池大小 |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | 300 | 内置 PostgreSQL 实例的 `max_connections` 上限 |
 | `background_agent_jobs.max_running_per_agent` | 3 | 单个 Agent 允许并发运行的 Background Agent Job 上限（租户级） |
 | `idleReleaseAfter` | 全部六种提供商默认均为 `15m`（设为 `never` 可禁用空闲停止） | Worker 空闲多久后自动停止并释放 CPU 与内存 |

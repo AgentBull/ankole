@@ -140,7 +140,12 @@ Personal Standalone Skill effective = agent_uid == agent.uid
 ```
 
 An official Skill's declared `default_enabled` initializes `enabled_for_all` on
-first synchronization. Custom Skills start disabled when created for the
+first synchronization. Built-in Agent Plugins declare package default enablement
+through their member Skills' `default_enabled` frontmatter (missing flags inside
+an Agent Plugin default to disabled), so external SaaS and database connector
+Plugins stay disabled until an administrator or Agent override enables them while
+core workflow and productivity Plugins (`brain`, `deep-research`, `methodology`,
+`office`) start enabled; enabling a connector Plugin activates its member Skills. Custom Skills start disabled when created for the
 workspace (`agent_uid == nil`), whereas Personal Skills (`agent_uid != nil`)
 must be custom packages (`source_kind == :custom`, `enabled_for_all == false`)
 owned by a `personal_assistant` Agent. Enabling the all-Agents switch on a
@@ -420,7 +425,7 @@ artifacts implement `Ankole.WebappExtension` (`use Ankole.WebappExtension, id:
 their generated TypeScript files, while `mix ankole.webapps.generate --check`
 verifies that committed artifacts match. `AnkoleWeb.JSONAPI.Router` also merges
 any Ash domains configured under `config :ankole, :json_api_domains` for its
-scope (`:console`, `:pod`, `:site`, `:saas`, `:saas_pod`, or `:saas_site`), and
+scope (`:console`, `:pod`, `:site`, or an extension-defined atom), and
 tracks that configuration key as a Mix compile-time dependency on the router.
 
 Declarative Console extensions declare pages, fields, and actions through
@@ -457,6 +462,25 @@ than 300 ms, the router shows the Console page skeleton inside the shell until
 the destination is ready, so the operator sees that a slow first load or
 navigation is in progress, while a quicker load swaps in directly.
 
+After a Console mutation succeeds, the Console invalidates every query without
+delaying the mutation's completion, so each page refetches whatever it shows. A
+mutation that changes nothing the Console displays opts out through its
+mutation metadata. When a failed write may have left server state different from
+the cached copy, the write's own error handler invalidates queries so the page
+rereads the server. Only the Console installs this behavior: every SPA
+entrypoint creates its own query client, and the setup and authentication apps
+keep theirs without it.
+
+Console editor pages seed their local drafts through one shared hook. The hook
+initializes a draft once for each source key, so a background refetch of the
+same source leaves an operator's in-progress edits intact. The source key is
+stable, opaque, and covers every dimension that selects the source, because a
+missing dimension would let the hook keep a draft that belongs to another
+selection. When the source key changes, the source disappears, or the page
+unmounts, the hook first calls the model's optional reset. A model that captures
+pending request payloads implements that reset, so that a late response for the
+previous selection cannot apply to the next one. Setup forms do not use the hook.
+
 Each dynamic module uses `export default defineWebappModule({ id, console, pod })`, and an
 override wrapper can also pass typed `slots` into the public root component.
 `resolveConsoleSlots` and `resolvePodSlots` merge all discovered module
@@ -488,6 +512,12 @@ modules resolve to empty slots:
   component-level `SlotGate` and tenant-selection UI render, `tenantID` is
   `string | null` and any error thrown in `loader` enters the Console route
   error boundary. IDs and route paths cannot collide with core Console routes.
+  Extensions also declare `settingGroups` (a group ID, key prefix, optional
+  draft-dependent required fields, and a translated hint) and `settingOwners`
+  (a key, destination, and translated link label). The shared settings list and
+  drawer use these declarations while the owning control-plane subsystem
+  validates grouped writes. Edition-specific settings declarations and their
+  translations belong to the private webapp.
   TanStack Router stores each route's `scope: 'site' | 'tenant'` in its static
   metadata, and `validateConsoleSlots` builds a TanStack Router route matcher
   for registered extension routes (`tenantPage: 'collection' | 'record'` and
@@ -733,12 +763,23 @@ An extension router can also mount scoped JSON:API routes on both the site Host
 and Pod Hosts. Site extension routes enforce the site-administrator browser
 session, CSRF proof, tenant-free execution (`Ankole.Repo.without_tenant/1`), and
 the resource's Principal/AuthZ declaration via
-`AnkoleWeb.JSONAPI.Context.before_dispatch/3` with `:saas_site`, whereas Pod
+`AnkoleWeb.JSONAPI.Context.before_dispatch/3` with `:site`, whereas Pod
 extension routes enforce the Pod browser session, CSRF proof, tenant binding,
 and Principal/AuthZ declaration via `before_dispatch/3` with `:pod`. Each
 extension domain declares typed JSON:API actions backed by the native AuthZ
 authorizer and emits separate OpenAPI specs verified by `mix ankole.openapi.check`
-for client code generation.
+for client code generation. Extension routers declare their own OpenAPI `:title`
+and use `context_scope: :site` for tenant-free execution. The build-selected
+configuration registers `{absolute_spec_path, router_module}` pairs under
+`:openapi_specs`, and the private `webapps/openapi-ts.config.ts` declares their
+client outputs.
+
+A router accepting Pod bearer tokens declares its API prefixes through
+`BrowserCSRF.init(bearer_paths: [...])`. Edition configuration also declares
+trusted proxy headers under `:http_rewrite_on`; the Endpoint applies that same
+policy to HTTP and socket connections. Webapp `overrides` preserve the public
+entry identity, so a private Pod wrapper uses the `pod` shell's assets and
+manifest.
 
 ### Declare a Worker Provider Kind
 

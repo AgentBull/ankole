@@ -1,4 +1,5 @@
 import { lazy } from 'react'
+import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { useBooleanFlagValue } from '@openfeature/react-sdk'
 import { InMemoryProvider, OpenFeature } from '@openfeature/web-sdk'
 import { mountApp } from '../../common/mount'
@@ -60,4 +61,9 @@ function Conformance() {
   )
 }
 
-await mountApp(<Conformance />)
+const router = createRouter({
+  history: createMemoryHistory({ initialEntries: ['/'] }),
+  routeTree: createRootRoute({ component: Conformance })
+})
+
+await mountApp(<RouterProvider router={router} />)

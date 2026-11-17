@@ -10,7 +10,7 @@ defmodule Ankole.Brain.Recall do
   code: values follow GBrain balanced mode.
 
   The candidate, boost, and neighborhood queries are Ecto queries that select
-  only identifiers and values (M9 retrieval). The ranked rows load through Ash.
+  only identifiers and values. The ranked rows load through Ash.
   """
 
   import Ecto.Query, warn: false

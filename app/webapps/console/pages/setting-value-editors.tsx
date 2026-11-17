@@ -151,16 +151,16 @@ function DurationSettingEditor({ item, value, onChange }: SettingValueEditorProp
       <p className="text-xs text-fg-secondary">
         {t('console.settings.stored_duration', {
           value: value || '—',
-          unit:
-            policy.seconds === 0.001
-              ? t('console.settings.unit_milliseconds')
-              : policy.seconds === 60
-                ? t('console.settings.unit_minutes')
-                : policy.seconds === 3600
-                  ? t('console.settings.unit_hours')
-                  : policy.seconds === 86400
-                    ? t('console.settings.unit_days')
-                    : t('console.settings.unit_seconds')
+          unit: t(
+            (
+              {
+                0.001: 'console.settings.unit_milliseconds',
+                60: 'console.settings.unit_minutes',
+                3600: 'console.settings.unit_hours',
+                86400: 'console.settings.unit_days'
+              } as Record<number, string>
+            )[policy.seconds] ?? 'console.settings.unit_seconds'
+          )
         })}
       </p>
       {['drive.trash_retention_days', 'brain.soft_delete_retention_hours'].includes(item.key) &&

@@ -30,6 +30,12 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
       advanced: true
     )
 
+    setting(:upstream_websocket_continuation,
+      type: :boolean,
+      default: true,
+      advanced: true
+    )
+
     setting(:organization, advanced: true)
     setting(:project, advanced: true)
     setting(:headers, type: :map, advanced: true)

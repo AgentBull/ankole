@@ -1,14 +1,16 @@
-import { TableRow, useQuery, Link } from '../tenant-context'
+import { TableRow, useMutation, useQuery, Link } from '../tenant-context'
 import { SETTLED_WORKERS_REFRESH_MS, WAITING_REFRESH_MS } from '../refresh-intervals'
-import { TableCell } from '@ankole/uikit'
-import { ServerRegular } from '@ankole/uikit/icons'
+import { TableCell, toast } from '@ankole/uikit'
+import { ArrowCounterclockwiseRegular, ServerRegular } from '@ankole/uikit/icons'
 
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { requestErrorMessage } from '../../common/request-errors'
 import { type AgentWorkerItem, agentWorkerListOptions } from '../api/agent-workers'
 import { agentListOptions } from '../api/agents'
-import { StatusIndicator, type StatusTone } from '../console-form'
+import { forceResetAgentWorkerGenerationMutation } from '../api/v2/generated/@tanstack/react-query.gen'
+import { ConfirmDeleteButton, StatusIndicator, type StatusTone } from '../console-form'
 import { AgentCell, ResourceListPage, ResourceSearch } from '../console-list-page'
 import { formatConsoleDate } from '../console-primitives'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
@@ -30,6 +32,12 @@ export function WorkersListPage() {
         : SETTLED_WORKERS_REFRESH_MS
   })
   const agents = useQuery(agentListOptions())
+  const forceReset = useMutation({
+    ...forceResetAgentWorkerGenerationMutation(),
+    onSuccess: (_data, variables) =>
+      toast.success(t('console.workers.force_reset_done', { id: variables.path.agent_uid })),
+    onError: error => toast.error(requestErrorMessage(error))
+  })
   const agentByUID = new Map((agents.data ?? []).map(agent => [agent.uid, agent]))
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
@@ -43,7 +51,7 @@ export function WorkersListPage() {
       agent?.uid ?? '',
       worker.provider_id ?? '',
       worker.state,
-      reason(worker)
+      workerReason(worker)
     )
   })
 
@@ -76,47 +84,67 @@ export function WorkersListPage() {
           onChange={setQuery}
         />
       }>
-      {rows.map(worker => (
-        <TableRow key={worker.agent_uid}>
-          <AgentCell uid={worker.agent_uid} />
-          <TableCell className="font-mono text-xs">
-            {worker.provider_id ? (
-              <Link className="link" to={`/worker-providers/${encodeURIComponent(worker.provider_id)}`}>
-                {worker.provider_id}
-              </Link>
-            ) : (
-              '–'
-            )}
-          </TableCell>
-          <TableCell>
-            <StatusIndicator tone={stateTone(worker)}>{t(`console.status.${worker.state}`)}</StatusIndicator>
-          </TableCell>
-          <TableCell>{formatLoad(worker)}</TableCell>
-          <TableCell className="text-xs text-fg-secondary">
-            {formatConsoleDate(worker.last_worker_heartbeat_at)}
-          </TableCell>
-          <TableCell className="max-w-md truncate font-mono text-xs text-fg-secondary" title={reason(worker)}>
-            {reason(worker) || '–'}
-          </TableCell>
-        </TableRow>
-      ))}
+      {rows.map(worker => {
+        const canForceReset =
+          worker.state !== 'absent' &&
+          worker.state !== 'deleting' &&
+          (worker.state !== 'ready' || Boolean(worker.last_error))
+        return (
+          <TableRow key={worker.agent_uid}>
+            <AgentCell uid={worker.agent_uid} />
+            <TableCell className="font-mono text-xs">
+              {worker.provider_id ? (
+                <Link className="link" to={`/worker-providers/${encodeURIComponent(worker.provider_id)}`}>
+                  {worker.provider_id}
+                </Link>
+              ) : (
+                '–'
+              )}
+            </TableCell>
+            <TableCell>
+              <StatusIndicator tone={workerStateTone(worker)}>{t(`console.status.${worker.state}`)}</StatusIndicator>
+            </TableCell>
+            <TableCell>{formatLoad(worker)}</TableCell>
+            <TableCell className="text-xs text-fg-secondary">
+              {formatConsoleDate(worker.last_worker_heartbeat_at)}
+            </TableCell>
+            <TableCell className="max-w-md truncate font-mono text-xs text-fg-secondary" title={workerReason(worker)}>
+              {workerReason(worker) || '–'}
+            </TableCell>
+            <TableCell className="w-12 text-right">
+              {canForceReset ? (
+                <ConfirmDeleteButton
+                  icon={<ArrowCounterclockwiseRegular aria-hidden />}
+                  pending={forceReset.isPending}
+                  confirm={{
+                    title: t('console.workers.force_reset_title'),
+                    description: t('console.workers.force_reset_description', { id: worker.agent_uid }),
+                    confirmLabel: t('console.workers.force_reset')
+                  }}
+                  onConfirm={() => forceReset.mutate({ path: { agent_uid: worker.agent_uid } })}
+                />
+              ) : null}
+            </TableCell>
+          </TableRow>
+        )
+      })}
     </ResourceListPage>
   )
 }
 
 /** A Worker that is not ready and has a backend reason needs the operator. */
-export function workerNeedsAttention(worker: AgentWorkerItem): boolean {
+export function workerNeedsAttention(worker: { state: string; last_error?: string | null }): boolean {
   return (worker.state === 'starting' || worker.state === 'stale') && Boolean(worker.last_error)
 }
 
-function stateTone(worker: AgentWorkerItem): StatusTone {
+export function workerStateTone(worker: { state: string; last_error?: string | null }): StatusTone {
   if (workerNeedsAttention(worker)) return 'danger'
   if (worker.state === 'ready') return 'positive'
   if (worker.state === 'stale') return 'warning'
   return 'info'
 }
 
-function reason(worker: AgentWorkerItem): string {
+export function workerReason(worker: { last_error?: string | null; drain_reason?: string | null }): string {
   return worker.last_error ?? worker.drain_reason ?? ''
 }
 

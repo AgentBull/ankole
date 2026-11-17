@@ -115,8 +115,9 @@ The external application identity is stable for the lifetime of a connection;
 administrators create a separate connection for a different application.
 Changes to credentials, authentication metadata, or application status increment
 the application's secret version and invalidate OAuth refresh leases. Connection
-names, slugs, and default selection preserve in-flight refreshes, as do saves
-that submit the same credentials and metadata. Identity-provider and IM
+names, slugs, default selection, and non-identity behavior metadata (`approval`,
+`approval_tools`, `access_mode`, and `linkPreview`) preserve in-flight refreshes,
+as do saves that submit the same credentials and metadata. Identity-provider and IM
 configuration saves use the same version and lease rules. The plugin connection reconcilers receive a
 change notification and rebuild affected connections from the current credential.
 Disabling an application immediately rejects new gateway credential resolution and changes
@@ -445,8 +446,9 @@ Inbound routes include the tenant ID:
 `/webhooks/connectors/:tenant_id/triggers/:trigger_id`. The control plane selects
 the tenant before loading verification material. Verified events enter
 `Signals.Dispatch`; acknowledgement follows the durable receipt and destination
-Run or Signal transaction. Application-level Lark events share the same upstream
-connection as identity sync and IM consumers. Lark card callbacks use their
+Run or Signal transaction. Application-level Lark events and optional Pod page link previews
+(`public_metadata.linkPreview` answering `url.preview.get` over WebSocket) share
+the same upstream connection as identity sync and IM consumers. Lark card callbacks use their
 protocol's verifier: legacy flat callbacks use the card signature, while current
 events use the event envelope. Both carry the operator, message context, and
 action into the same durable business event. A card without a chat ID can still
@@ -511,7 +513,16 @@ reach Workers or Applets. [Database Connectors](plugins/DatabaseConnectors.md)
 specifies the engines, execution guards, and tools.
 
 Connection-level authorization uses the AuthZ resource
-`connector_connection:<auth_config_id>` and the action `query`. When an
+`connector_connection:<auth_config_id>`: both database and shared application
+connections check the `query` action alongside the cached `access_mode`
+(`members`, admitting active Human members, AI colleagues, and `:applet`
+service accounts while excluding Guests and `:external_bot` accounts, or
+`restricted`, checking explicit `query` grants on
+`connector_connection:<auth_config_id>`). Mutating gateway tool calls inside a
+live turn also record short-lived receipts in `connector_write_receipts` keyed
+by `(tenant_id, authority_scope, toolkit, tool_name, args_sha256)` so a mid-turn
+transport reconnect replays the committed result rather than repeating an
+external side effect. When an
 administrator saves a database connection, the connection form chooses who may
 query it. "All members and AI colleagues" grants `query` to the built-in
 `all_humans` and `all_agents` groups; "selected groups and Agents" grants it to
@@ -532,7 +543,11 @@ all of the connection's rows. Saving a database connection queues
 on demand through `POST /api/v2/pod/connectors/auth-configs/:id/refresh-catalog`
 (the connection card's **Refresh catalog** action). The adapter reads the
 external catalog outside any transaction; Connectors then replaces the cached
-rows in one transaction under a per-connection advisory lock. Table rows record
+rows in one transaction under a per-connection advisory lock. It locks and
+rechecks the connection's credential version, status, slug, and public settings
+before replacing rows. A deleted or inactive connection, or a configuration
+change during the scan, causes Connectors to discard that snapshot without
+changing samples or reporting missing Brain fields. Table rows record
 the kind, comment, row estimate, primary key, query-history count, and fetch
 time. Column rows record the type, nullability, comment, primary-key, unique,
 and foreign-key properties, the sensitivity flag, and a sampled profile.
@@ -575,6 +590,54 @@ and `type`), `rows`, `row_count`, `truncated`, `elapsed_ms`, the executed
 `query` tool returns the same envelope.
 
 Tenant teardown deletes catalog columns and tables before connection roots.
+
+## Write approval policy and single-use execution receipts
+
+Non-database connections and Skill MCP declarations evaluate a three-value
+`approval` policy stored in `connector_auth_configs.public_metadata["approval"]`
+(defaulting to `"annotations"`):
+
+- `"annotations"`: intercepts tools marked `destructiveHint: true` (when
+  `readOnlyHint` is not `true`) plus any tool names listed in the optional
+  `approval_tools` array, while letting ordinary non-destructive writes execute
+  directly.
+- `"all"`: intercepts every tool whose `readOnlyHint` is not `true`.
+- `"none"`: executes tools directly without pausing for interactive confirmation,
+  supporting unattended automations and scheduled jobs.
+
+When `Ankole.Connectors.Approvals` intercepts a call inside an interactive
+conversation turn, it verifies that canonicalized JSON arguments do not exceed
+16 KiB (`approval_arguments_too_large` otherwise), computes a SHA-256 digest over
+the target tool, connection ID, account ID, and canonical arguments, records a `:prepared` `ActionCard`
+(`action_kind: "connectors.tool.call"`) with redacted argument previews, and
+returns `approval_required` (`request_sent: false, retryable: false`). Calls
+outside an interactive conversation return `approval_unavailable`. When an
+authorized human confirms the card, `Connectors.Gateway.execute_approved_card/2`
+verifies the SHA-256 integrity digest, records a `WriteReceipts` execution scope
+(`action_card:<card_id>`), invokes the upstream tool with the locked arguments
+outside database locks, records an audited outcome summary on
+the card, and wakes the Agent session with the result and a single-use guard
+instruction.
+
+Confirmation resolves the connection by its stored ID, so changing its display
+slug does not redirect or invalidate the approved call. Before invoking the
+upstream tool, `ActionCards` transitions the card to `executing` with a
+120-second `execution_claim_id` lease (`execution_claim_expires_at` and
+`execution_attempts`). Explicit cancellation and source-message removal cannot
+cancel a card in `executing` or one that already holds a `WriteReceipts` row.
+Settlement clears the lease and transitions the card to `executed` on upstream
+success, `execution_uncertain` on ambiguous transport or 5xx failures, `failed`
+when rejected before mutating upstream state, or `stale` when the locked
+connection or account changed. When a human confirms again after an `executing`
+lease expires, Connectors settles any orphan in-flight receipt as
+`outcome_unknown` (`execution_uncertain`) or replays a recorded `succeeded`
+receipt (`executed`) without invoking the upstream tool again.
+
+For non-idempotent writes within a turn, Connectors returns an in-flight receipt
+with `retryable: false` and `request_sent: true`, asking the Agent to inspect
+upstream state with a read-only tool. A client process exit settles the receipt
+as `outcome_unknown`. If recording or releasing a receipt fails locally,
+Connectors emits a structured warning and preserves the known upstream result.
 
 ## Persistence and lock order
 

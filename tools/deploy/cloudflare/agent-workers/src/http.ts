@@ -184,7 +184,13 @@ function backupRecord(value: unknown): DirectoryBackupRecord | null {
       typeof record.size === 'number' &&
       typeof record.sha256 === 'string'
     ) {
-      return record as unknown as DirectoryBackupRecord
+      return {
+        format: record.format,
+        id: record.id,
+        dir: record.dir,
+        size: record.size,
+        sha256: record.sha256
+      }
     }
   }
   throw new BadRequest('storage_ref must be a DirectoryBackupRecord or null')

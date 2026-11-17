@@ -1,6 +1,7 @@
 ---
 name: github
 description: "Manage GitHub repositories, branches, files, issues, pull requests, reviews, checks, Actions, and releases."
+default_enabled: false
 ---
 
 # github

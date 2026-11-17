@@ -69,12 +69,19 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
   end
 
   test "volcengine ark builds an OpenAI-compatible chat request" do
+    assert {:ok, ark_definition} = Providers.fetch("volcengine_ark")
+
+    assert {:ok, capability} =
+             Ankole.AIGateway.ProviderDefinition.capability(ark_definition, :language_model)
+
+    assert capability.supports_parallel_tool_calls?
+
     assert {:ok, spec} =
              prepared_spec(VolcengineArk,
                model: "doubao-seed-1-6",
                credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "ark-key"}]},
                provider_options: %{"reasoningEffort" => "medium"},
-               request: %{"input" => "hello"},
+               request: %{"input" => "hello", "prompt_cache_key" => "conv_ark"},
                stream?: true
              )
 
@@ -84,7 +91,23 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     assert headers(spec)["authorization"] == "Bearer ark-key"
     assert spec.response_context.model == "doubao-seed-1-6"
     assert spec.response_context.stream == true
-    assert spec.response_context.provider_options == %{"reasoning_effort" => "medium"}
+
+    assert spec.response_context.provider_options == %{
+             "reasoning_effort" => "medium",
+             "prompt_cache_key" => "conv_ark"
+           }
+
+    assert {:ok, override_spec} =
+             prepared_spec(VolcengineArk,
+               model: "doubao-seed-1-6",
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "ark-key"}]},
+               provider_options: %{"promptCacheKey" => "explicit-ark"},
+               request: %{"input" => "hello", "prompt_cache_key" => "conv_ark"}
+             )
+
+    assert override_spec.response_context.provider_options == %{
+             "prompt_cache_key" => "explicit-ark"
+           }
   end
 
   test "alibaba cn preserves DashScope request options for the OpenAI chat resolver" do

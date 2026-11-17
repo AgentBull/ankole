@@ -9,15 +9,21 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   """
 
   alias Ankole.AIGateway.ChatGPTAuth
+  alias Ankole.AIGateway.ClaudeMessageThreads
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.FailureDiagnostics
-  alias Ankole.AIGateway.ProviderFailure
   alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.ProviderFailure
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.UniversalAIRequest
 
   @private_key :credential_attempt
-  @native_private_keys [:credential_attempt, :hosted_credential_attempt, :tool_loop]
+  @native_private_keys [
+    :credential_attempt,
+    :hosted_credential_attempt,
+    :tool_loop,
+    :claude_thread_attempt
+  ]
   @default_base_delay_ms 250
   @maximum_delay_ms 4_000
   @type context :: %{
@@ -42,6 +48,10 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       runtime: runtime,
       build: build,
       request: request,
+      claude_thread_attempt: ClaudeMessageThreads.get_attempt(spec),
+      claude_thread_retried_modes: MapSet.new(),
+      claude_thread_fallback_reason: nil,
+      claude_thread_unthreaded?: false,
       attempt_number: 0,
       attempted_ids: MapSet.new(),
       route_retry_used?: false,
@@ -86,6 +96,10 @@ defmodule Ankole.AIGateway.CredentialAttempts do
 
   @doc """
   Executes a non-streaming request with pool retry.
+
+  Set `route_retry: false` for operations that cannot safely repeat after an
+  ambiguous transport or endpoint failure. Credential recovery on explicit
+  HTTP `401` and `429` rejections still applies.
   """
   @spec request(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def request(spec, opts \\ []) when is_map(spec) do
@@ -110,7 +124,15 @@ defmodule Ankole.AIGateway.CredentialAttempts do
               aggregate_includes_tool_usage?: aggregate_includes_tool_usage?
             )
 
-            {:ok, response}
+            ClaudeMessageThreads.record_completion(
+              Map.get(context, :claude_thread_attempt),
+              Map.get(response, :resolver_metadata)
+            )
+
+            {:ok,
+             response
+             |> put_continuation_telemetry(context)
+             |> Map.put(:runtime, context.runtime)}
 
           {:error, reason, _context} ->
             {:error, reason}
@@ -147,6 +169,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       when is_function(build, 2) and is_map(request) do
     with {:ok, spec} <- build.(runtime, request) do
       {_nested, clean_spec} = pop(spec)
+      claude_attempt = ClaudeMessageThreads.get_attempt(clean_spec)
 
       {:ok, native_spec(clean_spec),
        %{
@@ -157,6 +180,10 @@ defmodule Ankole.AIGateway.CredentialAttempts do
            route_retry_used?: false,
            refresh_used?: false
        }
+       |> Map.put(:claude_thread_attempt, claude_attempt)
+       |> Map.put(:claude_thread_retried_modes, MapSet.new())
+       |> Map.put(:claude_thread_fallback_reason, nil)
+       |> Map.put(:claude_thread_unthreaded?, false)
        |> Map.put(:rate_limit_retry_used?, false)}
     end
   end
@@ -178,6 +205,23 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   @spec runtime(context() | nil) :: map() | nil
   def runtime(%{runtime: runtime}), do: runtime
   def runtime(_context), do: nil
+
+  @doc """
+  Returns the active Claude Message Threads attempt metadata, or `nil`.
+  """
+  @spec claude_thread_attempt(context() | nil) :: map() | nil
+  def claude_thread_attempt(%{claude_thread_attempt: %{} = attempt}), do: attempt
+  def claude_thread_attempt(_context), do: nil
+
+  @doc """
+  Returns the pre-first-event Claude Message Threads fallback reason, if any.
+  """
+  @spec claude_thread_fallback_reason(context() | nil) :: String.t() | nil
+  def claude_thread_fallback_reason(%{claude_thread_fallback_reason: reason})
+      when is_binary(reason),
+      do: reason
+
+  def claude_thread_fallback_reason(_context), do: nil
 
   @doc """
   Attributes one terminal usage snapshot to the credential that produced it.
@@ -278,6 +322,30 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   def credential_id(%{runtime: runtime}), do: Map.get(runtime, "credential_id")
   def credential_id(_context), do: nil
 
+  @doc """
+  Recovers pre-first-event continuation state (such as Claude Message Threads)
+  in memory without recording a credential-pool failure or retry delay.
+  """
+  @spec recover_continuation(context() | nil, map(), term()) ::
+          {:retry, context(), map()} | :no_recovery
+  def recover_continuation(%{} = context, spec, reason) when is_map(spec) do
+    case ClaudeMessageThreads.recover_pre_first_event(
+           Map.get(context, :claude_thread_attempt),
+           context,
+           spec,
+           reason
+         ) do
+      {:retry, next_context, next_spec} ->
+        {next_context, next_spec} = sync_claude_thread_attempt(next_context, next_spec)
+        {:retry, next_context, native_spec(next_spec)}
+
+      :no_recovery ->
+        :no_recovery
+    end
+  end
+
+  def recover_continuation(_context, _spec, _reason), do: :no_recovery
+
   defp run(context, spec, operation, opts) do
     spec = native_spec(spec)
 
@@ -286,15 +354,25 @@ defmodule Ankole.AIGateway.CredentialAttempts do
         {:ok, result, context, spec}
 
       {:error, reason} ->
-        case recover(context, spec, reason, opts) do
-          {:retry, context, candidate, delay_ms} ->
-            notify_retry(opts, reason, delay_ms)
-            sleep_retry(delay_ms, opts)
-            run(context, candidate, operation, opts)
+        case recover_continuation(context, spec, reason) do
+          {:retry, next_context, candidate} ->
+            run(next_context, candidate, operation, opts)
 
-          {:stop, final_reason, context} ->
-            {:error, final_reason, context}
+          :no_recovery ->
+            run_credential_recovery(context, spec, reason, operation, opts)
         end
+    end
+  end
+
+  defp run_credential_recovery(context, spec, reason, operation, opts) do
+    case recover(context, spec, reason, opts) do
+      {:retry, context, candidate, delay_ms} ->
+        notify_retry(opts, reason, delay_ms)
+        sleep_retry(delay_ms, opts)
+        run(context, candidate, operation, opts)
+
+      {:stop, final_reason, context} ->
+        {:error, final_reason, context}
     end
   end
 
@@ -358,7 +436,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       failure.status == 429 ->
         recover_rate_limit(context, spec, reason, failure, opts)
 
-      failure.route_retryable? ->
+      failure.route_retryable? and Keyword.get(opts, :route_retry, true) ->
         recover_route_failure(context, spec, reason, opts)
 
       true ->
@@ -416,8 +494,11 @@ defmodule Ankole.AIGateway.CredentialAttempts do
         {:ok, refreshed} ->
           with {:ok, runtime} <- runtime_with_refreshed_credential(runtime, refreshed),
                {:ok, candidate} <- rebuild(context, runtime, context.request) do
-            {:retry, %{context | runtime: runtime, refresh_used?: true} |> increment_attempt(),
-             candidate, retry_delay_ms(context, opts)}
+            {next_context, candidate} =
+              %{context | runtime: runtime, refresh_used?: true}
+              |> sync_claude_thread_attempt(candidate)
+
+            {:retry, increment_attempt(next_context), candidate, retry_delay_ms(context, opts)}
           else
             {:error, build_reason} -> {:stop, build_reason, context}
           end
@@ -459,11 +540,14 @@ defmodule Ankole.AIGateway.CredentialAttempts do
 
   defp rotate(context, original_reason, failure, opts, mark: mark) do
     case mark_attributed(context, failure, mark) do
-      :ok ->
-        select_next(context, original_reason, failure, opts)
-
-      :unattributed ->
-        recover_unattributed(context, original_reason, opts)
+      status when status in [:ok, :unattributed] ->
+        if pinned_credential?(context.runtime) do
+          {:stop, original_reason, context}
+        else
+          if status == :ok,
+            do: select_next(context, original_reason, failure, opts),
+            else: recover_unattributed(context, original_reason, opts)
+        end
 
       {:error, reason} ->
         {:stop, reason, context}
@@ -471,6 +555,12 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   end
 
   defp select_next(context, original_reason, failure, opts) do
+    if pinned_credential?(context.runtime),
+      do: {:stop, original_reason, context},
+      else: do_select_next(context, original_reason, failure, opts)
+  end
+
+  defp do_select_next(context, original_reason, failure, opts) do
     runtime = context.runtime
     credential_id = Map.get(runtime, "credential_id")
     attempted_ids = MapSet.put(context.attempted_ids, credential_id)
@@ -478,12 +568,14 @@ defmodule Ankole.AIGateway.CredentialAttempts do
     case Resolver.reselect_credential(runtime, exclude: MapSet.to_list(attempted_ids)) do
       {:ok, next_runtime} ->
         with {:ok, candidate} <- rebuild(context, next_runtime, context.request) do
-          {:retry,
-           context
-           |> Map.put(:runtime, next_runtime)
-           |> Map.put(:attempted_ids, attempted_ids)
-           |> Map.put(:refresh_used?, false)
-           |> increment_attempt(), candidate, retry_delay_ms(context, opts)}
+          {next_context, candidate} =
+            context
+            |> Map.put(:runtime, next_runtime)
+            |> Map.put(:attempted_ids, attempted_ids)
+            |> Map.put(:refresh_used?, false)
+            |> sync_claude_thread_attempt(candidate)
+
+          {:retry, increment_attempt(next_context), candidate, retry_delay_ms(context, opts)}
         else
           {:error, reason} -> {:stop, reason, context}
         end
@@ -562,11 +654,13 @@ defmodule Ankole.AIGateway.CredentialAttempts do
             context.attempted_ids
         end
 
-      {:retry,
-       context
-       |> Map.put(:runtime, runtime)
-       |> Map.put(:attempted_ids, attempted_ids)
-       |> increment_attempt(), candidate, retry_delay_ms(context, opts)}
+      {next_context, candidate} =
+        context
+        |> Map.put(:runtime, runtime)
+        |> Map.put(:attempted_ids, attempted_ids)
+        |> sync_claude_thread_attempt(candidate)
+
+      {:retry, increment_attempt(next_context), candidate, retry_delay_ms(context, opts)}
     else
       {:error, {:credential_pool_exhausted, _details}} ->
         {:stop, original_reason, context}
@@ -585,6 +679,30 @@ defmodule Ankole.AIGateway.CredentialAttempts do
     error -> {:error, {:credential_attempt_build_failed, error.__struct__}}
   catch
     :exit, reason -> {:error, {:credential_attempt_build_exit, reason}}
+  end
+
+  defp sync_claude_thread_attempt(context, spec) do
+    spec =
+      if Map.get(context, :claude_thread_unthreaded?) == true,
+        do:
+          ClaudeMessageThreads.strip_thread_from_spec(
+            spec,
+            Map.get(context, :claude_thread_fallback_reason)
+          ),
+        else: spec
+
+    {Map.put(context, :claude_thread_attempt, ClaudeMessageThreads.get_attempt(spec)), spec}
+  end
+
+  defp put_continuation_telemetry(response, context) when is_map(response) do
+    telemetry =
+      ClaudeMessageThreads.telemetry_attrs(
+        Map.get(context, :claude_thread_attempt),
+        Map.get(context, :claude_thread_fallback_reason),
+        Map.get(response, :resolver_metadata)
+      )
+
+    Map.put(response, :continuation_telemetry, telemetry)
   end
 
   defp runtime_with_refreshed_credential(runtime, refreshed) do
@@ -654,6 +772,11 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       route_retryable?: FailureDiagnostics.route_retryable?(reason)
     }
   end
+
+  defp pinned_credential?(runtime) when is_map(runtime),
+    do: Map.get(runtime, "pinned_credential") == true
+
+  defp pinned_credential?(_runtime), do: false
 
   defp chatgpt_oauth?(runtime) do
     runtime["provider_kind"] == "chatgpt_subscription" and
@@ -809,6 +932,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
 
   defp native_opts(opts) do
     Keyword.drop(opts, [
+      :route_retry,
       :credential_retry_base_ms,
       :credential_retry_max_ms,
       :credential_retry_jitter,

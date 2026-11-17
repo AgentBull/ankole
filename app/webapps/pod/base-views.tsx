@@ -14,36 +14,30 @@ import {
   cn,
   toast
 } from '@ankole/uikit'
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { expectedVersions, useAggregate, useRecords } from '@ankole/applet-sdk'
 import type {
   BaseField,
   BaseRecord,
   BaseTable,
-  FieldType,
   RecordData,
   RecordWrite,
-  Value,
   Versions,
   WriteResult
 } from '@ankole/applet-sdk/types'
-import { fileURL } from './content-api'
 import { baseGridRowEstimate } from './base-row-size'
-import { Choice, ContentError } from './content-primitives'
+import { ContentError } from './content-primitives'
 import {
   BaseCell,
   FieldEditorButton,
   FieldInput,
-  FieldValue,
   RecordTitle,
-  fieldOptions,
   resolveVisibleFields,
   writableField
 } from './base-fields'
-import { fieldValue } from './state/table-query'
+import { useRetainedDetailRecord } from './base-card-views'
 import { ReferenceLabelsProvider } from './base-field-value'
 import { RecordFormModel } from './state/record-form'
 import type { ConfiguredView, ViewConfig } from './state/view-config'
@@ -52,14 +46,10 @@ import { contentError } from './content-errors'
 import { AddRegular, ArrowMaximizeRegular, DeleteRegular } from '@ankole/uikit/icons'
 import { fieldIcons, fieldTypes } from './base-field-types'
 import { ChartView } from './base-chart-view'
+import { GalleryView } from './base-gallery-view'
+import { KanbanView } from './base-kanban-view'
 
-type RecordDrag = { record?: BaseRecord; from?: Value }
-const recordDragType = 'application/ankole-record'
-const readRecordDrag = (event: DragEvent): RecordDrag => JSON.parse(event.dataTransfer.getData(recordDragType))
-const commitRecordDrag = (update: ViewProps['update'], record: BaseRecord, data: RecordData) =>
-  update(record.id, data, expectedVersions(record, data))
-const writeRecordDrag = (event: DragEvent, record: BaseRecord, from?: Value) =>
-  event.dataTransfer.setData(recordDragType, JSON.stringify({ record, ...(from === undefined ? {} : { from }) }))
+export { GalleryView, KanbanView }
 
 export type ViewProps = {
   pageID: string
@@ -67,6 +57,12 @@ export type ViewProps = {
   tables: BaseTable[]
   fields: BaseField[]
   records: BaseRecord[]
+  totalCount?: number
+  hasNextPage?: boolean
+  isFetchingNextPage?: boolean
+  fetchNextError?: unknown
+  fetchNextPage?(): void
+  isFetchingRecords?: boolean
   view: ConfiguredView
   editable: boolean
   schemaEditable: boolean
@@ -83,11 +79,7 @@ export type ViewProps = {
 }
 
 export function BaseViewContent(props: ViewProps) {
-  return (
-    <ReferenceLabelsProvider fields={props.fields} records={props.records}>
-      <BaseView {...props} />
-    </ReferenceLabelsProvider>
-  )
+  return <BaseView {...props} />
 }
 function BaseView(props: ViewProps) {
   switch (props.view.type) {
@@ -98,12 +90,17 @@ function BaseView(props: ViewProps) {
         <KanbanView
           key={JSON.stringify([props.view.config.group_field_id, props.view.config.filter, props.view.config.sort])}
           {...props}
+          RecordDetailsDialog={RecordDetailsDialog}
         />
       )
     case 'gallery':
-      return <GalleryView {...props} />
+      return <GalleryView {...props} RecordDetailsDialog={RecordDetailsDialog} />
     case 'chart':
-      return <ChartView {...props} RecordDetailsDialog={RecordDetailsDialog} />
+      return (
+        <ReferenceLabelsProvider fields={props.fields} records={props.records}>
+          <ChartView {...props} RecordDetailsDialog={RecordDetailsDialog} />
+        </ReferenceLabelsProvider>
+      )
   }
 }
 
@@ -112,9 +109,10 @@ function GridView(props: ViewProps) {
   const visible = resolveVisibleFields(props.fields, props.view.config.visible_fields, 'grid')
   const scroll = useRef<HTMLDivElement>(null)
   const [retained, setRetained] = useState<string[]>([])
-  const [detailID, setDetailID] = useState<string>()
+  const detail = useRetainedDetailRecord(props.records, props.update, props.remove)
   const [addingRow, setAddingRow] = useState(false)
   const [pendingFocusID, setPendingFocusID] = useState<string>()
+  const [pendingNewRecord, setPendingNewRecord] = useState<BaseRecord>()
   useEffect(() => {
     const container = scroll.current!
     const sync = () => {
@@ -160,6 +158,16 @@ function GridView(props: ViewProps) {
     )
   })
   useEffect(() => {
+    if (!pendingNewRecord || props.pending || props.isFetchingRecords) return
+    const exists = props.records.some(record => record.id === pendingNewRecord.id)
+    if (exists) {
+      setPendingFocusID(pendingNewRecord.id)
+    } else {
+      detail.open(pendingNewRecord)
+    }
+    setPendingNewRecord(undefined)
+  }, [pendingNewRecord, props.pending, props.isFetchingRecords, props.records])
+  useEffect(() => {
     if (!pendingFocusID) return
     const index = props.records.findIndex(record => record.id === pendingFocusID)
     if (index < 0) return
@@ -175,16 +183,54 @@ function GridView(props: ViewProps) {
     return () => cancelAnimationFrame(frame)
   }, [pendingFocusID, props.records, virtual])
   const rows = virtual.getVirtualItems()
-  const detailRecord = detailID ? props.records.find(record => record.id === detailID) : undefined
+  const lastRowIndex = rows.at(-1)?.index
+  useEffect(() => {
+    if (
+      lastRowIndex !== undefined &&
+      lastRowIndex >= props.records.length - 12 &&
+      props.hasNextPage &&
+      !props.isFetchingNextPage &&
+      !props.fetchNextError &&
+      props.fetchNextPage
+    ) {
+      props.fetchNextPage()
+    }
+  }, [
+    lastRowIndex,
+    props.records.length,
+    props.hasNextPage,
+    props.isFetchingNextPage,
+    props.fetchNextError,
+    props.fetchNextPage
+  ])
+  const detailRecord = detail.record
+  const visibleRecords = useMemo(() => {
+    const list = rows.map(row => props.records[row.index]!).filter(Boolean)
+    if (detailRecord && !list.some(record => record.id === detailRecord.id)) list.push(detailRecord)
+    return list
+  }, [rows, props.records, detailRecord])
+  const triggerCreateRow = () => {
+    if (addingRow) return
+    setAddingRow(true)
+    void props
+      .create({})
+      .then(result => {
+        const created = result.records[0]
+        if (created) setPendingNewRecord(created)
+      })
+      .catch(error => toast.error(requestErrorMessage(contentError(error))))
+      .finally(() => setAddingRow(false))
+  }
+  const reportedTotal = Math.max(props.totalCount ?? props.records.length, props.records.length)
   return (
-    <>
+    <ReferenceLabelsProvider fields={props.fields} records={visibleRecords}>
       <div
         ref={scroll}
         className="pod-base-grid max-h-[70vh] overflow-auto"
         role="region"
         aria-label={t('pod.content.table_records')}
         tabIndex={0}>
-        <Table containerClassName="overflow-visible" aria-rowcount={props.records.length + 1}>
+        <Table containerClassName="overflow-visible" aria-rowcount={reportedTotal + 1}>
           <TableHeader className="sticky top-0 z-10 bg-page">
             <TableRow>
               {visible.map(field => {
@@ -252,7 +298,7 @@ function GridView(props: ViewProps) {
                               className="pod-base-delete shrink-0"
                               title={t('pod.content.record_details')}
                               aria-label={t('pod.content.record_details')}
-                              onClick={() => setDetailID(record.id)}>
+                              onClick={() => detail.open(record)}>
                               <ArrowMaximizeRegular aria-hidden="true" />
                             </Button>
                           </div>
@@ -280,7 +326,27 @@ function GridView(props: ViewProps) {
                 style={{ height: Math.max(0, virtual.getTotalSize() - (rows.at(-1)?.end ?? 0)), padding: 0, border: 0 }}
               />
             </tr>
-            {props.editable && (
+            {(props.isFetchingNextPage || Boolean(props.fetchNextError)) && (
+              <TableRow>
+                <TableCell colSpan={visible.length + 1} className="border-r-0 py-2 text-xs text-fg-tertiary">
+                  {props.fetchNextError ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-destructive">
+                        {requestErrorMessage(contentError(props.fetchNextError))}
+                      </span>
+                      {props.fetchNextPage && (
+                        <Button size="xs" variant="outline" onClick={props.fetchNextPage}>
+                          {t('common.retry')}
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <span>{t('pod.content.loading_records')}</span>
+                  )}
+                </TableCell>
+              </TableRow>
+            )}
+            {props.editable && !props.hasNextPage && (
               <TableRow className="pod-base-add-row">
                 <TableCell colSpan={visible.length + 1} className="border-r-0 p-1">
                   <Button
@@ -288,18 +354,7 @@ function GridView(props: ViewProps) {
                     variant="ghost"
                     className="w-full justify-start text-fg-tertiary hover:text-fg-primary"
                     disabled={addingRow || props.pending}
-                    onClick={() => {
-                      if (addingRow) return
-                      setAddingRow(true)
-                      void props
-                        .create({})
-                        .then(result => {
-                          const createdID = result.records[0]?.id
-                          if (createdID) setPendingFocusID(createdID)
-                        })
-                        .catch(error => toast.error(requestErrorMessage(contentError(error))))
-                        .finally(() => setAddingRow(false))
-                    }}>
+                    onClick={triggerCreateRow}>
                     <AddRegular aria-hidden="true" />
                     {t('pod.content.add_row', { defaultValue: 'New row' })}
                   </Button>
@@ -309,22 +364,35 @@ function GridView(props: ViewProps) {
           </TableBody>
         </Table>
       </div>
+      {props.editable && props.hasNextPage && (
+        <div className="pod-base-add-row border-t border-border-subtle/60 bg-page/95 px-1 py-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-full justify-start text-fg-tertiary hover:text-fg-primary"
+            disabled={addingRow || props.pending}
+            onClick={triggerCreateRow}>
+            <AddRegular aria-hidden="true" />
+            {t('pod.content.add_row', { defaultValue: 'New row' })}
+          </Button>
+        </div>
+      )}
       {detailRecord && (
         <RecordDetailsDialog
           open
           onOpenChange={next => {
-            if (!next) setDetailID(undefined)
+            if (!next) detail.close()
           }}
           record={detailRecord}
           fields={props.fields}
           pageID={props.pageID}
           editable={props.editable}
           pending={props.pending}
-          update={props.update}
-          remove={props.remove}
+          update={detail.update}
+          remove={detail.remove}
         />
       )}
-    </>
+    </ReferenceLabelsProvider>
   )
 }
 
@@ -337,75 +405,6 @@ function GridRow({ gap, columns, children }: { gap: number; columns: number; chi
         </tr>
       )}
       {children}
-    </>
-  )
-}
-
-function RecordCard(
-  props: ViewProps & {
-    record: BaseRecord
-    draggable?: boolean
-    dragFrom?: Value
-    coverImage?: { name: string; src: string }
-  }
-) {
-  const [open, setOpen] = useState(false)
-  const primary = props.fields.find(field => field.is_primary) ?? props.fields[0]
-  return (
-    <>
-      <article
-        draggable={props.draggable}
-        onDragStart={event => writeRecordDrag(event, props.record, props.dragFrom)}
-        onClick={event => {
-          const target = event.target as HTMLElement | null
-          if (target?.closest('a, button, input, select, textarea')) return
-          setOpen(true)
-        }}
-        className="cursor-pointer space-y-2 overflow-hidden rounded-control border border-border-subtle bg-page p-3 transition-colors hover:border-control-edge">
-        {props.coverImage && (
-          <img
-            className="-mx-3 -mt-3 mb-2 h-36 w-[calc(100%+1.5rem)] max-w-none object-cover"
-            alt={props.coverImage.name}
-            src={props.coverImage.src}
-          />
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          className="max-w-full justify-start px-0 font-semibold"
-          onClick={() => setOpen(true)}>
-          <span className="min-w-0 truncate">
-            <RecordTitle record={props.record} primary={primary} />
-          </span>
-        </Button>
-        {props.fields
-          .filter(
-            field =>
-              field !== primary &&
-              // A board column already names the group, so its cards leave the grouping field out.
-              field.id !== props.view.config.group_field_id &&
-              (!props.view.config.visible_fields || props.view.config.visible_fields.includes(field.id))
-          )
-          .map(field => (
-            <p key={field.id} className="text-xs text-fg-tertiary">
-              <span>{field.name}: </span>
-              <FieldValue field={field} value={fieldValue(props.record, field)} pageID={props.pageID} />
-            </p>
-          ))}
-      </article>
-      {open ? (
-        <RecordDetailsDialog
-          open
-          onOpenChange={setOpen}
-          record={props.record}
-          fields={props.fields}
-          pageID={props.pageID}
-          editable={props.editable}
-          pending={props.pending}
-          update={props.update}
-          remove={props.remove}
-        />
-      ) : null}
     </>
   )
 }
@@ -537,315 +536,6 @@ function RecordDeleteButton({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
-}
-
-const kanbanGroupTypes = new Set<FieldType>(['select', 'user', 'created_by', 'updated_by', 'checkbox', 'link', 'text'])
-const kanbanColumnPageSize = 20
-
-function GroupField({
-  props,
-  attribute,
-  label,
-  datetime = false
-}: {
-  props: ViewProps
-  attribute: string
-  label: string
-  datetime?: boolean
-}) {
-  const current = String(props.view.config[attribute] ?? '')
-  const fields = props.fields.filter(field =>
-    datetime ? field.type === 'datetime' : kanbanGroupTypes.has(field.type) || field.id === current
-  )
-  return (
-    <Choice
-      label={label}
-      value={current}
-      disabled={props.configuring}
-      onChange={value => {
-        const next: ViewConfig = { ...props.view.config }
-        if (value) next[attribute] = value
-        else delete next[attribute]
-        props.configure(next)
-      }}
-      options={{ '': label, ...Object.fromEntries(fields.map(field => [field.id, field.name])) }}
-    />
-  )
-}
-
-function KanbanView(props: ViewProps) {
-  const { t } = useTranslation()
-  const [offset, setOffset] = useState(0)
-  const field = props.fields.find(field => field.id === props.view.config.group_field_id)
-  const counts = useAggregate(props.tableID, {
-    filter: props.view.config.filter,
-    group_by: field ? [{ field_id: field.id }] : [],
-    metrics: [{ operation: 'count', alias: 'count' }]
-  })
-  const groups = new Map<string, { value: Value; valueJSON?: string | null; count: number }>()
-  if (field) {
-    for (const option of fieldOptions(field)) groups.set(JSON.stringify(option.id), { value: option.id, count: 0 })
-    groups.set('null', { value: null, count: 0 })
-    for (const group of counts.data?.groups ?? []) {
-      groups.set(group.value_json?.[0] ?? JSON.stringify(group.values[0]), {
-        value: group.values[0] ?? null,
-        valueJSON: group.value_json?.[0],
-        count: Number(group.metrics.count)
-      })
-    }
-  }
-  // Every option keeps its column, even when empty, so a card can be dragged into it; the Ungrouped column shows
-  // only while some records have no value.
-  const ungrouped = groups.get('null')
-  if (ungrouped && ungrouped.count <= 0) groups.delete('null')
-  const columns = [...groups.entries()]
-  const start = Math.min(offset, Math.max(0, columns.length - 1))
-  return (
-    <div className="space-y-4">
-      <GroupField props={props} attribute="group_field_id" label={t('pod.content.choose_a_grouping_field')} />
-      <ContentError error={counts.error} />
-      {!field ? (
-        <p className="text-sm text-fg-tertiary">{t('pod.content.choose_a_field_to_organize_the_board')}</p>
-      ) : columns.length === 0 ? (
-        <p className="text-sm text-fg-tertiary">{t('pod.content.this_view_has_no_records_adjust_the_filters')}</p>
-      ) : (
-        <>
-          <div className="flex min-h-64 gap-4 overflow-auto pb-4">
-            {columns.slice(start, start + kanbanColumnPageSize).map(([key, group]) => (
-              <KanbanColumn key={`${field.id}:${key}`} props={props} field={field} group={group} />
-            ))}
-          </div>
-          {columns.length > kanbanColumnPageSize && (
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!start}
-                onClick={() => setOffset(Math.max(0, start - kanbanColumnPageSize))}>
-                {t('pod.content.previous_group')}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={start + kanbanColumnPageSize >= columns.length}
-                onClick={() => setOffset(start + kanbanColumnPageSize)}>
-                {t('pod.content.next_group')}
-              </Button>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
-function KanbanColumn({
-  props,
-  field,
-  group
-}: {
-  props: ViewProps
-  field: BaseField
-  group: { value: Value; valueJSON?: string | null; count: number }
-}) {
-  const { t } = useTranslation()
-  const [token, setToken] = useState<string>()
-  const [history, setHistory] = useState<(string | undefined)[]>([])
-  const [error, setError] = useState<unknown>()
-  const [dragOver, setDragOver] = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [createdRecord, setCreatedRecord] = useState<BaseRecord>()
-  const rows = useRecords(props.tableID, {
-    filter: props.view.config.filter,
-    sort: props.view.config.sort,
-    group: {
-      field_id: field.id,
-      ...(group.valueJSON !== undefined ? { value_json: group.valueJSON } : { value: group.value })
-    },
-    page_size: 100,
-    page_token: token
-  })
-  const activeCreated = createdRecord
-    ? (rows.data?.records.find(record => record.id === createdRecord.id) ?? createdRecord)
-    : undefined
-  return (
-    <ReferenceLabelsProvider fields={props.fields} records={rows.data?.records ?? []}>
-      <section
-        className={`w-64 shrink-0 space-y-3 rounded-control bg-layer-03/40 p-3 transition-colors ${dragOver ? 'bg-layer-hover/60 ring-2 ring-primary/40' : ''}`}
-        onDragOver={event => {
-          if (props.editable && writableField(field)) {
-            event.preventDefault()
-            if (!dragOver) setDragOver(true)
-          }
-        }}
-        onDragLeave={event => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false)
-        }}
-        onDrop={event => {
-          event.preventDefault()
-          setDragOver(false)
-          try {
-            const dragged = readRecordDrag(event)
-            const record = dragged.record
-            if (!record || !props.editable || !writableField(field)) return
-            const previous = fieldValue(record, field)
-            const next =
-              Array.isArray(previous) || field.config.multiple
-                ? [
-                    ...(Array.isArray(previous) ? previous : []).filter(value => value !== dragged.from),
-                    ...(group.value === null ? [] : [group.value])
-                  ]
-                : group.value
-            const data = { [field.id]: next }
-            void commitRecordDrag(rows.update, record, data).catch(setError)
-          } catch (error) {
-            setError(error)
-          }
-        }}>
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="min-w-0 truncate text-sm font-semibold">
-            {group.value === null ? (
-              t('pod.content.ungrouped')
-            ) : (
-              <FieldValue field={field} value={group.value} pageID={props.pageID} />
-            )}{' '}
-            <span className="text-fg-tertiary">{group.count}</span>
-          </h3>
-          {props.editable && (
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              disabled={creating || rows.write.isPending}
-              title={t('pod.content.add_record_in_group', { defaultValue: 'Add record to group' })}
-              aria-label={t('pod.content.add_record_in_group', { defaultValue: 'Add record to group' })}
-              onClick={() => {
-                if (creating) return
-                setCreating(true)
-                setError(undefined)
-                const initialValue =
-                  ['user', 'link'].includes(field.type) || (field.type === 'select' && field.config.multiple)
-                    ? [group.value]
-                    : group.value
-                const initialData: RecordData =
-                  writableField(field) && group.value !== null ? { [field.id]: initialValue } : {}
-                void rows
-                  .create(initialData)
-                  .then(result => {
-                    const created = result.records[0]
-                    if (created) setCreatedRecord(created)
-                  })
-                  .catch(setError)
-                  .finally(() => setCreating(false))
-              }}>
-              <AddRegular aria-hidden="true" />
-            </Button>
-          )}
-        </div>
-        <ContentError error={rows.error || error} />
-        {rows.data?.records.map(record => (
-          <RecordCard
-            key={record.id}
-            {...props}
-            create={rows.create}
-            update={rows.update}
-            remove={rows.remove}
-            record={record}
-            draggable={props.editable && writableField(field)}
-            dragFrom={group.value}
-          />
-        ))}
-        {(history.length > 0 || rows.data?.page_token) && (
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!history.length}
-              onClick={() => {
-                setToken(history.at(-1))
-                setHistory(history.slice(0, -1))
-              }}>
-              {t('pod.content.previous_page')}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!rows.data?.page_token}
-              onClick={() => {
-                setHistory([...history, token])
-                setToken(rows.data?.page_token ?? undefined)
-              }}>
-              {t('pod.content.next_page')}
-            </Button>
-          </div>
-        )}
-        {activeCreated && (
-          <RecordDetailsDialog
-            open
-            onOpenChange={next => {
-              if (!next) setCreatedRecord(undefined)
-            }}
-            record={activeCreated}
-            fields={props.fields}
-            pageID={props.pageID}
-            editable={props.editable}
-            pending={rows.write.isPending}
-            update={rows.update}
-            remove={rows.remove}
-          />
-        )}
-      </section>
-    </ReferenceLabelsProvider>
-  )
-}
-
-function GalleryView(props: ViewProps) {
-  const { t } = useTranslation()
-  const attachmentFields = props.fields.filter(field => field.type === 'attachment')
-  const cover = attachmentFields.find(field => field.id === props.view.config.cover_field_id)
-  return (
-    <div className="space-y-4 pt-2">
-      {attachmentFields.length > 0 && (
-        <Choice
-          label={t('pod.content.gallery_cover')}
-          disabled={props.configuring}
-          value={String(props.view.config.cover_field_id ?? '')}
-          onChange={value => {
-            const next: ViewConfig = { ...props.view.config }
-            if (value) next.cover_field_id = value
-            else delete next.cover_field_id
-            props.configure(next)
-          }}
-          options={{
-            '': t('pod.content.no_cover'),
-            ...Object.fromEntries(attachmentFields.map(field => [field.id, field.name]))
-          }}
-        />
-      )}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
-        {props.records.map(record => {
-          const value = cover ? fieldValue(record, cover) : null
-          const image = Array.isArray(value)
-            ? (value as { mime: string; path: string; name: string }[]).find(file => file.mime.startsWith('image/'))
-            : undefined
-          return (
-            <RecordCard
-              key={record.id}
-              {...props}
-              record={record}
-              coverImage={
-                image
-                  ? {
-                      name: image.name,
-                      src: fileURL(props.pageID, image.path.replace(`pages/${props.pageID}/`, ''))
-                    }
-                  : undefined
-              }
-            />
-          )
-        })}
-      </div>
-    </div>
   )
 }
 

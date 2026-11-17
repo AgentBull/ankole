@@ -203,6 +203,34 @@ export function connectionAccess(value: unknown): ConnectionAccess {
   }
 }
 
+export type LarkDomain = 'feishu' | 'lark'
+
+export function larkPlatformName(domain: LarkDomain, locale: string): string {
+  if (domain === 'lark') return 'Lark'
+  return locale.startsWith('zh') ? '飞书' : 'Feishu'
+}
+
+export function larkLinkPreviewRules(
+  origin: string
+): { pagesRule: string; brainRule: string; unsupportedHost: boolean } | undefined {
+  try {
+    const url = new URL(origin)
+    if (!['http:', 'https:'].includes(url.protocol) || !url.host) return undefined
+    const hostname = url.hostname.toLowerCase()
+    const ipv4 = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)
+    const ipv6 = hostname.startsWith('[') || hostname.includes(':')
+    const unsupportedHost =
+      ipv4 || ipv6 || hostname === 'localhost' || hostname.endsWith('.localhost') || !hostname.includes('.')
+    return {
+      pagesRule: `${url.host}/pages/*`,
+      brainRule: `${url.host}/meta/brain/*`,
+      unsupportedHost
+    }
+  } catch {
+    return undefined
+  }
+}
+
 export const ConnectionEditorModel = createModel((connection: Connection | null) => ({
   access: signal(connectionAccess(connection?.access)),
   editing: signal(connection),
@@ -212,7 +240,12 @@ export const ConnectionEditorModel = createModel((connection: Connection | null)
   name: signal(connection?.display_name ?? ''),
   isDefault: signal(connection?.is_default ?? false),
   secret: signal<Record<string, unknown>>({}),
-  metadata: signal<Record<string, unknown>>({ ...connection?.public_metadata })
+  metadata: signal<Record<string, unknown>>({ ...connection?.public_metadata }),
+  approvalToolsText: signal(
+    Array.isArray(connection?.public_metadata?.approval_tools)
+      ? (connection.public_metadata.approval_tools as unknown[]).map(String).join(', ')
+      : ''
+  )
 }))
 
 export const CredentialBindingModel = createModel(() => ({

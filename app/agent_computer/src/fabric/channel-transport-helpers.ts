@@ -76,13 +76,13 @@ export function createPhoenixSocket(
   // subprotocol, never in the URL. `worker_id` is a query parameter and is
   // not a secret.
   return new Socket(endpoint, {
-    transport: WorkerWebSocket as unknown as new (endpoint: string) => object,
+    transport: WorkerWebSocket,
     authToken: options.workerAuthKey,
     params: { worker_id: options.workerID },
     binaryType: 'arraybuffer',
     heartbeatIntervalMs: 15_000,
     reconnectAfterMs: reconnectDelayMs
-  }) as unknown as ChannelSocketLike
+  })
 }
 
 export function reconnectDelayMs(tries: number): number {
@@ -219,6 +219,44 @@ export function streamReply(response: unknown): StreamReply {
 
 function optionalNumber(value: unknown): number | undefined {
   return isNumber(value, true) ? value : undefined
+}
+
+export const DEFAULT_INBOUND_MESSAGE_DEDUP_LIMIT = 2_048
+
+/**
+ * Bounded O(1) LRU set of processed inbound `message_id`s across reconnects.
+ * JavaScript `Set` iterates in insertion order, so deleting and re-adding moves
+ * a seen ID to the most-recently-used tail while `keys().next()` yields the oldest.
+ */
+export class InboundMessageDedup {
+  private readonly seen = new Set<string>()
+  private readonly maxEntries: number
+
+  constructor(maxEntries = DEFAULT_INBOUND_MESSAGE_DEDUP_LIMIT) {
+    this.maxEntries = Math.max(1, maxEntries)
+  }
+
+  get size(): number {
+    return this.seen.size
+  }
+
+  hasAndTouch(messageID: string): boolean {
+    if (!messageID || !this.seen.has(messageID)) return false
+    this.seen.delete(messageID)
+    this.seen.add(messageID)
+    return true
+  }
+
+  record(messageID: string): void {
+    if (!messageID) return
+    if (this.seen.has(messageID)) {
+      this.seen.delete(messageID)
+    } else if (this.seen.size >= this.maxEntries) {
+      const oldest = this.seen.keys().next().value
+      if (oldest !== undefined) this.seen.delete(oldest)
+    }
+    this.seen.add(messageID)
+  }
 }
 
 export function replyReason(response: unknown): string {

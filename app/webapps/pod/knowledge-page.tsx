@@ -1,6 +1,7 @@
 import { KnowledgeReader } from '@ankole/block-editor/reader'
 import type { EditorHost } from '@ankole/block-editor/editor'
-import { Button } from '@ankole/uikit'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, toast } from '@ankole/uikit'
+import { DocumentPdfRegular, DocumentWordRegular, MarkdownRegular } from '@ankole/uikit/icons'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -29,6 +30,7 @@ import { refreshDirectories } from './state/navigation-cache'
 import { DocumentSubpages } from './page-subpages'
 import { uploadPageFile } from './page-files'
 import { downloadKnowledge } from './state/document-export'
+import { downloadDocumentAsOffice } from './state/document-office-export'
 
 const KnowledgeEditor = lazy(() => import('./knowledge-editor'))
 const DocumentHistory = lazy(() => import('./document-history').then(module => ({ default: module.DocumentHistory })))
@@ -117,7 +119,29 @@ export function KnowledgePage({
     }
   })
   const download = useMutation({
-    mutationFn: () => downloadKnowledge(detail.page.id, detail.page.title)
+    mutationFn: async (format: 'markdown' | 'docx' | 'pdf') => {
+      const currentTitle = readTitle() || detail.page.title
+      if (format === 'markdown') {
+        await downloadKnowledge(detail.page.id, currentTitle)
+        return
+      }
+      const pending = toast.loading(t('pod.document.preparing_export'))
+      try {
+        await downloadDocumentAsOffice(
+          client,
+          {
+            pageID: detail.page.id,
+            xml: source,
+            title: currentTitle,
+            icon: detail.page.icon,
+            metadata
+          },
+          format
+        )
+      } finally {
+        toast.dismiss(pending)
+      }
+    }
   })
   const submitSave = async (): Promise<boolean> => {
     flushRef.current?.()
@@ -192,9 +216,25 @@ export function KnowledgePage({
   return (
     <div className="pod-document space-y-4" data-knowledge-page>
       <div className="flex items-center justify-end gap-2">
-        <Button variant="ghost" size="sm" disabled={editing || download.isPending} onClick={() => download.mutate()}>
-          {t('pod.document.export')}
-        </Button>
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="sm" disabled={editing || download.isPending} />}>
+            {t('pod.document.export')}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => download.mutate('markdown')}>
+              <MarkdownRegular aria-hidden />
+              Markdown
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => download.mutate('docx')}>
+              <DocumentWordRegular aria-hidden />
+              Word (.docx)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => download.mutate('pdf')}>
+              <DocumentPdfRegular aria-hidden />
+              PDF (.pdf)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         {canEdit && (
           <Button ref={historyTrigger} variant="ghost" size="sm" disabled={editing} onClick={() => setHistory(true)}>
             {t('pod.document.history')}

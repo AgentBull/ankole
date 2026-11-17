@@ -230,7 +230,7 @@ fn content(name: &str) -> Content {
             Content::Blocks
         }
         "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "a" | "span" | "comment" => Content::Inline,
-        "pre" | "math" => Content::Text,
+        "pre" | "math" | "inline-math" => Content::Text,
         tag if super::attributes::is_source_diagram_tag(tag) => Content::Text,
         "hr" | "embed" | "media" | "img" | "br" | "mention" => Content::Empty,
         "ul" | "ol" => Content::Items,
@@ -242,7 +242,10 @@ fn content(name: &str) -> Content {
     }
 }
 fn is_inline(name: &str) -> bool {
-    matches!(name, "a" | "span" | "img" | "br" | "comment" | "mention") || FORMATS.contains(&name)
+    matches!(
+        name,
+        "a" | "span" | "img" | "br" | "inline-math" | "comment" | "mention"
+    ) || FORMATS.contains(&name)
 }
 fn known(name: &str) -> bool {
     content(name) != Content::Unknown
@@ -524,8 +527,8 @@ fn flatten(
         if parent == "pre" && node.name != "comment" {
             return Err("pre can contain text only".into());
         }
-        if parent == "math" {
-            return Err("math can contain text only".into());
+        if parent == "math" || parent == "inline-math" {
+            return Err(format!("{parent} can contain text only"));
         }
         if super::attributes::is_source_diagram_tag(parent) && node.name != "comment" {
             return Err(format!("{parent} can contain text only"));
@@ -758,7 +761,21 @@ fn normalize_inline(
         depth + 1,
         size,
     )?;
-    if parent != "pre" && parent != "math" && !super::attributes::is_source_diagram_tag(parent) {
+    if parent == "inline-math" {
+        for atom in &mut atoms {
+            if atom
+                .value
+                .as_deref()
+                .is_some_and(|v| v.contains(['\r', '\n']))
+                && let Some(value) = atom.value.take()
+            {
+                atom.value = Some(replace_code_line_breaks(&value));
+            }
+        }
+    } else if parent != "pre"
+        && parent != "math"
+        && !super::attributes::is_source_diagram_tag(parent)
+    {
         convert_line_breaks(&mut atoms);
     }
     let mut split = Vec::new();

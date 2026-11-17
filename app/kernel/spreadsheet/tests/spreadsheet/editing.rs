@@ -237,15 +237,96 @@ fn floating_pictures_are_inserted_moved_saved_and_deleted() -> Result<(), Error>
         ankole_spreadsheet::open(&ankole_spreadsheet::export_xlsx(&shifted)?.xlsx, "[]")?;
     let saved = ankole_spreadsheet::images(&reopened, SheetId(1))?;
     assert_eq!(saved.len(), 2, "the file keeps both pictures");
+    assert_eq!(
+        saved.iter().map(|img| img.image_id).collect::<Vec<_>>(),
+        vec![ImageId(7001), ImageId(7002)],
+        "compaction .xlsx export + reload preserves client floating image_id values"
+    );
     assert_eq!(saved[0].cell, "C7");
     assert_eq!(saved[0].digest, images[0].digest);
 
+    // Subsequent auto-assigned and client-assigned inserts on the reopened workbook never collide.
+    let added_after_reload = apply(
+        &reopened,
+        json!({"type": "image.insert", "sheet_id": 1, "anchor": anchor("F2"), "picture": picture()}),
+    );
+    assert_eq!(op_json(&added_after_reload.op)["image_id"], 7003);
+    let collision = ankole_spreadsheet::apply(
+        &added_after_reload.doc,
+        &json!({"type": "image.insert", "sheet_id": 1, "image_id": 7001, "anchor": anchor("G2"), "picture": picture()})
+            .to_string(),
+        "[]",
+    )
+    .unwrap_err();
+    assert!(matches!(
+        collision,
+        ankole_spreadsheet::ApplyError::Error(ref err) if err.to_string().contains("in use")
+    ));
+
     let deleted = apply(
-        &shifted,
+        &reopened,
         json!({"type": "image.delete", "sheet_id": 1, "image_id": 7002}),
     )
     .doc;
-    assert_eq!(ankole_spreadsheet::images(&deleted, SheetId(1))?.len(), 1);
+    assert_eq!(
+        ankole_spreadsheet::images(&deleted, SheetId(1))?
+            .iter()
+            .map(|img| img.image_id)
+            .collect::<Vec<_>>(),
+        vec![ImageId(7001)]
+    );
+    Ok(())
+}
+
+#[test]
+fn multi_sheet_pictures_preserve_object_ids_across_xlsx_round_trip_with_tables() -> Result<(), Error>
+{
+    let doc = apply_all(
+        &blank(),
+        &[
+            set("A1", "Metric"),
+            set("B1", "Value"),
+            set("A2", "Orders"),
+            set("B2", "42"),
+            json!({"type": "image.insert", "sheet_id": 1, "image_id": 7001, "anchor": anchor("D2"), "picture": picture()}),
+            json!({"type": "sheet.insert", "name": "Sheet2"}),
+            json!({"type": "image.insert", "sheet_id": 2, "image_id": 7002, "anchor": anchor("B3"), "picture": picture()}),
+            json!({"type": "image.insert", "sheet_id": 2, "image_id": 1, "anchor": anchor("F3"), "picture": picture()}),
+            json!({"type": "table.toggle", "sheet_id": 1, "range": "A1:B2", "enabled": true}),
+        ],
+    );
+
+    let reopened = ankole_spreadsheet::open(&ankole_spreadsheet::export_xlsx(&doc)?.xlsx, "[]")?;
+    assert_eq!(
+        ankole_spreadsheet::images(&reopened, SheetId(1))?
+            .iter()
+            .map(|img| img.image_id)
+            .collect::<Vec<_>>(),
+        vec![ImageId(7001)],
+        "sheet 1 picture keeps image_id 7001 alongside its table"
+    );
+    assert_eq!(
+        ankole_spreadsheet::images(&reopened, SheetId(2))?
+            .iter()
+            .map(|img| img.image_id)
+            .collect::<Vec<_>>(),
+        vec![ImageId(7002), ImageId(1)],
+        "sheet 2 pictures keep image_id 7002 and image_id 1 without table ID theft"
+    );
+    assert_eq!(
+        workbook_sheet(&reopened, 1).tables.len(),
+        1,
+        "sheet 1 keeps its table across compaction"
+    );
+
+    let after_deletes = apply_all(
+        &reopened,
+        &[
+            json!({"type": "image.delete", "sheet_id": 2, "image_id": 7002}),
+            json!({"type": "image.delete", "sheet_id": 2, "image_id": 1}),
+        ],
+    );
+    assert!(ankole_spreadsheet::images(&after_deletes, SheetId(2))?.is_empty());
     Ok(())
 }
 

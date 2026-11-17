@@ -840,15 +840,15 @@ export function PodCommandSurface({
                   />
                 }>
                 <span>
-                  {sort === 'updated_desc'
-                    ? t('pod.command.sort_updated_desc')
-                    : sort === 'updated_asc'
-                      ? t('pod.command.sort_updated_asc')
-                      : sort === 'created_desc'
-                        ? t('pod.command.sort_created_desc')
-                        : sort === 'created_asc'
-                          ? t('pod.command.sort_created_asc')
-                          : t('pod.command.sort_best')}
+                  {t(
+                    {
+                      updated_desc: 'pod.command.sort_updated_desc',
+                      updated_asc: 'pod.command.sort_updated_asc',
+                      created_desc: 'pod.command.sort_created_desc',
+                      created_asc: 'pod.command.sort_created_asc',
+                      best: 'pod.command.sort_best'
+                    }[sort] ?? 'pod.command.sort_best'
+                  )}
                 </span>
                 <ChevronDownRegular aria-hidden className="size-3.5 text-fg-tertiary" />
               </DropdownMenuTrigger>

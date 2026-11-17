@@ -8,13 +8,9 @@ defmodule Ankole.Pod.Pages do
   """
   require Ash.Query
   alias Ankole.{ActorRef, AuthZ, Repo}
-  alias Ankole.Pod.Access
+  alias Ankole.Pod.{Access, Page, PageContent, PageUserState}
   alias Ankole.Pod.Pages.Tree, as: Nodes
-  alias Ankole.Pod.Page
-  alias Ankole.Pod.PageContent
-  alias Ankole.Pod.PageUserState
-  alias Ankole.Pod.Position
-  alias Ankole.Pod.Pages.{LinkPreview, Mentions, Queries, RecentSearches, Sharing}
+  alias Ankole.Pod.Pages.{LinkPreview, Mentions, Positioning, Queries, RecentSearches, Sharing}
   alias Ankole.Pod.Documents.History
 
   defdelegate list_children(actor, parent_id, opts \\ %{}), to: Queries
@@ -114,30 +110,23 @@ defmodule Ankole.Pod.Pages do
     |> Ankole.Ash.read_authorized(actor)
   end
 
-  def create(%Ankole.AuthZ.Actor{} = actor, attrs, authority \\ nil) when is_map(attrs) do
+  def create(%AuthZ.Actor{} = actor, attrs, authority \\ nil) when is_map(attrs) do
     authority = authority || actor.turn_authority
 
-    case Access.write_tree(authority, fn -> create_in_tx(actor, attrs) end,
-           root_ids: fn -> destination_root_ids(actor, attrs) end,
-           after_commit: &committed_tree/1
-         ) do
-      {:ok, page} = ok ->
-        :telemetry.execute(
-          [:ankole, :pod, :page, :created],
-          %{count: 1},
-          %{
-            tenant_id: page.tenant_id,
-            page_id: page.id,
-            page_type: page.type,
-            actor_type: Map.get(actor.principal, :type),
-            actor_uid: Ankole.AuthZ.Actor.uid(actor)
-          }
-        )
+    with {:ok, page} = ok <-
+           Access.write_tree(authority, fn -> create_in_tx(actor, attrs) end,
+             root_ids: fn -> destination_root_ids(actor, attrs) end,
+             after_commit: &committed_tree/1
+           ) do
+      :telemetry.execute([:ankole, :pod, :page, :created], %{count: 1}, %{
+        tenant_id: page.tenant_id,
+        page_id: page.id,
+        page_type: page.type,
+        actor_type: Map.get(actor.principal, :type),
+        actor_uid: AuthZ.Actor.uid(actor)
+      })
 
-        ok
-
-      other ->
-        other
+      ok
     end
   end
 
@@ -157,7 +146,7 @@ defmodule Ankole.Pod.Pages do
       title = Ankole.Attrs.get(attrs, :title, "") |> Ankole.Files.Path.strip_bidi_and_controls()
       kind = Ankole.Attrs.get(attrs, :type, "doc")
 
-      with {:ok, position} <- initial_position(parent.id, attrs),
+      with {:ok, position} <- Positioning.initial_in_tx(parent.id, attrs),
            {:ok, content, projection} <-
              prepare_initial_content(kind, Ankole.Attrs.get(attrs, :xml), metadata),
            {:ok, page} <-
@@ -184,6 +173,7 @@ defmodule Ankole.Pod.Pages do
                uid,
                Ankole.Attrs.get(attrs, :skip_default_table, false)
              ),
+           :ok <- maybe_ensure_applet_service_account_in_tx(page),
            :ok <-
              Ankole.Brain.Knowledge.page_changed_in_tx(page, nil,
                actor: actor,
@@ -201,16 +191,13 @@ defmodule Ankole.Pod.Pages do
       parent ->
         Nodes.root_ids([parent])
 
-      owner == Ankole.Principals.authority_uid(Ankole.AuthZ.Actor.uid(actor)) ->
-        case Nodes.private_root(owner) do
-          {:ok, root} ->
-            [root.id]
-
-          {:error, :not_found} ->
-            case Nodes.ensure_private_root_in_tx(owner) do
-              {:ok, root} -> [root.id]
-              _ -> []
-            end
+      owner == Ankole.Principals.authority_uid(AuthZ.Actor.uid(actor)) ->
+        with {:error, :not_found} <- Nodes.private_root(owner),
+             {:ok, root} <- Nodes.ensure_private_root_in_tx(owner) do
+          [root.id]
+        else
+          {:ok, root} -> [root.id]
+          _ -> []
         end
 
       true ->
@@ -270,13 +257,28 @@ defmodule Ankole.Pod.Pages do
 
     Access.write_tree(authority, fn -> update_in_tx(actor, id, attrs) end,
       root_ids: fn -> Nodes.root_ids([id]) end,
+      before_turn: fn -> lock_applet_rename_in_tx(id, attrs) end,
       after_commit: &committed_page/1
     )
   end
 
   @doc false
+  def lock_applet_rename_in_tx(id, attrs) do
+    if Ankole.Attrs.get(attrs, :title, :missing) != :missing,
+      do: lock_applet_service_account_in_tx(id),
+      else: :ok
+  end
+
+  defp lock_applet_service_account_in_tx(id) do
+    with {:ok, %{type: :applet, id: page_id}} <- fetch(id),
+         do: Ankole.Principals.ServiceAccounts.lock_applet_in_tx(page_id),
+         else: (_ -> :ok)
+  end
+
+  @doc false
   def update_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
     lock_tree()
+    lock_applet_rename_in_tx(id, attrs)
 
     with {:ok, page} <- lock(id),
          {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "node_edit"),
@@ -318,6 +320,8 @@ defmodule Ankole.Pod.Pages do
           )
 
         with {:ok, updated} <- result do
+          :ok = maybe_sync_applet_title_in_tx(updated)
+
           if Map.has_key?(learning_changes, :metadata) and updated.metadata["extract_facts"] do
             :ok = Ankole.Brain.Knowledge.page_learning_enabled_in_tx(updated.id)
           end
@@ -350,12 +354,21 @@ defmodule Ankole.Pod.Pages do
   end
 
   def rename_from_drive_in_tx(actor, id, name) do
-    with {:ok, page} <- fetch(id),
+    lock_applet_service_account_in_tx(id)
+
+    with {:ok, page} <- lock(id),
          now = DateTime.utc_now(:microsecond),
          :ok <- record_document_edit(page, %{title: name}, actor, now),
-         {:ok, _} <- update_properties_in_tx(page, :edit, %{title: name, updated_at: now}),
-         do: :ok
+         {:ok, updated} <- update_properties_in_tx(page, :edit, %{title: name, updated_at: now}) do
+      maybe_sync_applet_title_in_tx(updated)
+    end
   end
+
+  defp maybe_sync_applet_title_in_tx(%{type: :applet} = page) do
+    Ankole.Principals.ServiceAccounts.sync_applet_title_in_tx(page.id, page.title, page.name)
+  end
+
+  defp maybe_sync_applet_title_in_tx(_page), do: :ok
 
   defp rename_from_title_in_tx(
          %{type: :knowledge, metadata: %{"subtype" => "internal", "entity_type" => type}},
@@ -396,17 +409,14 @@ defmodule Ankole.Pod.Pages do
   # that writes back the Page it read is not rejected for an icon it did not choose.
   defp caller_icon(attrs, current) do
     case Ankole.Attrs.get(attrs, :icon, :missing) do
-      :missing ->
-        {:ok, current}
-
-      ^current ->
+      icon when icon in [:missing, current] ->
         {:ok, current}
 
       icon when icon in [nil, ""] ->
         {:ok, nil}
 
       icon when is_binary(icon) ->
-        if Ankole.Pod.Metadata.custom_emoji_path?(icon) or emoji?(icon),
+        if Ankole.Pod.Metadata.custom_emoji_path?(icon) or emoji_icon?(icon),
           do: {:ok, icon},
           else: {:error, :invalid_icon}
 
@@ -415,7 +425,11 @@ defmodule Ankole.Pod.Pages do
     end
   end
 
-  defp emoji?(icon), do: match?([_], String.graphemes(icon)) and Regex.match?(@emoji, icon)
+  @doc false
+  def emoji_icon?(icon) when is_binary(icon),
+    do: match?([_], String.graphemes(icon)) and Regex.match?(@emoji, icon)
+
+  def emoji_icon?(_icon), do: false
 
   defp check_title_base(page, attrs) do
     if Ankole.Attrs.get(attrs, :title, :missing) == :missing or
@@ -499,157 +513,31 @@ defmodule Ankole.Pod.Pages do
 
     with {:ok, page} <- lock(id),
          {:ok, parent} <- destination_root_in_tx(actor, attrs),
-         undo = previous_location(page),
+         undo = Positioning.previous_location(page),
          old_anchor = page.acl_anchor_id,
-         :ok <- materialize_positions(parent.id),
-         {:ok, position} <- move_position(page, parent.id, nil, attrs),
+         :ok <- Positioning.materialize_in_tx(parent.id),
+         {:ok, position} <- Positioning.move_in_tx(page, parent.id, nil, attrs),
          {:ok, moved} <- Nodes.move_in_tx(actor, id, %{parent_id: parent.id}),
          {:ok, page} <- update_properties_in_tx(page, :position, %{position: position}) do
       {:ok, %{page: page, undo: undo, access_changed: moved.acl_anchor_id != old_anchor}}
     end
   end
 
-  defp initial_position(parent_id, attrs) do
-    case Ankole.Attrs.get(attrs, :position) do
-      nil ->
-        if is_nil(Ankole.Attrs.get(attrs, :after_id)) and
-             is_nil(Ankole.Attrs.get(attrs, :before_id)) do
-          {:ok, nil}
-        else
-          with :ok <- materialize_positions(parent_id),
-               do: move_position(%{id: nil}, parent_id, nil, attrs)
-        end
-
-      position ->
-        {:ok, position}
-    end
-  end
-
-  defp materialize_positions(parent_id) do
-    siblings = siblings(parent_id, nil, nil)
-
-    if Enum.any?(siblings, &is_nil(&1.position)) do
-      Enum.zip(siblings, Position.sequence(length(siblings)))
-      |> Enum.reduce_while(:ok, fn {sibling, position}, :ok ->
-        case update_properties_in_tx(sibling, :position, %{position: position}) do
-          {:ok, _} -> {:cont, :ok}
-          error -> {:halt, error}
-        end
-      end)
-    else
-      :ok
-    end
-  end
-
-  defp previous_location(page) do
-    location = Map.take(page, [:parent_id, :private_owner_uid])
-
-    siblings = siblings(page.parent_id, page.private_owner_uid, nil)
-    index = Enum.find_index(siblings, &(&1.id == page.id))
-    next = index && Enum.at(siblings, index + 1)
-    previous = if index && index > 0, do: Enum.at(siblings, index - 1)
-
-    cond do
-      next -> Map.put(location, :before_id, next.id)
-      previous -> Map.put(location, :after_id, previous.id)
-      true -> location
-    end
-  end
-
-  # One anchor names the sibling next to the moved page. Without an anchor the
-  # page goes last. An anchor outside the destination is a stale view.
-  defp move_position(page, parent, owner, attrs) do
-    after_id = Ankole.Attrs.get(attrs, :after_id)
-    before_id = Ankole.Attrs.get(attrs, :before_id)
-
-    if is_nil(after_id) and is_nil(before_id) do
-      {:ok, next_position(parent, owner)}
-    else
-      siblings = siblings(parent, owner, page.id)
-      anchor = Enum.find_index(siblings, &(&1.id in [after_id, before_id]))
-
-      cond do
-        after_id && before_id -> {:error, :invalid_position}
-        is_nil(anchor) -> {:error, :position_conflict}
-        after_id -> place(siblings, anchor + 1)
-        true -> place(siblings, anchor)
-      end
-    end
-  end
-
-  defp next_position(parent, owner) do
-    last = Page |> in_destination(parent, owner) |> Ankole.Ash.max!(:position)
-
-    case Position.between(last, nil) do
-      {:ok, position} -> position
-      :error -> last <> "V"
-    end
-  end
-
-  defp place(siblings, index) do
-    lower = if index > 0, do: Enum.at(siblings, index - 1).position
-    upper = if upper = Enum.at(siblings, index), do: upper.position
-
-    case Position.between(lower, upper) do
-      {:ok, position} -> {:ok, position}
-      :error -> renumber(siblings, index)
-    end
-  end
-
-  # Equal or foreign keys have no key between them. Renumber the destination,
-  # which is already serialized by the tree lock.
-  defp renumber(siblings, index) do
-    {before, rest} = Enum.split(siblings, index)
-    keys = Position.sequence(length(siblings) + 1)
-
-    (before ++ [:moved] ++ rest)
-    |> Enum.zip(keys)
-    |> Enum.reduce({:ok, nil}, fn
-      {:moved, key}, {:ok, _} ->
-        {:ok, key}
-
-      {sibling, key}, result ->
-        {:ok, _} = update_properties_in_tx(sibling, :position, %{position: key})
-        result
-    end)
-  end
-
-  defp siblings(parent, owner, moving_id) do
-    query = Ash.Query.filter(Page, is_nil(deleted_at))
-    query = if moving_id, do: Ash.Query.filter(query, id != ^moving_id), else: query
-
-    query
-    |> in_destination(parent, owner)
-    |> Ash.Query.sort(position: :asc_nils_last, name: :asc, id: :asc)
-    |> Ankole.Ash.read!()
-  end
-
-  defp in_destination(query, parent, owner) do
-    query =
-      if parent,
-        do: Ash.Query.filter(query, parent_id == ^parent),
-        else: Ash.Query.filter(query, is_nil(parent_id))
-
-    if owner,
-      do: Ash.Query.filter(query, private_owner_uid == ^owner),
-      else: Ash.Query.filter(query, is_nil(private_owner_uid))
-  end
-
-  def delete(%Ankole.AuthZ.Actor{} = actor, id, authority \\ nil) do
+  def delete(%Ankole.AuthZ.Actor{} = actor, id, authority \\ nil, opts \\ []) do
     authority = authority || actor.turn_authority
 
-    Access.write_tree(authority, fn -> delete_in_tx(actor, id) end,
+    Access.write_tree(authority, fn -> delete_in_tx(actor, id, opts) end,
       root_ids: fn -> Nodes.root_ids([id]) end,
       after_commit: &committed_access_tree/1
     )
   end
 
   @doc false
-  def delete_in_tx(actor, id) do
-    with {:ok, node} <- Nodes.trash_in_tx(actor, id), do: fetch(node.id)
+  def delete_in_tx(actor, id, opts \\ []) do
+    with {:ok, node} <- Nodes.trash_in_tx(actor, id, opts), do: fetch(node.id)
   end
 
-  def delete_embeds(%Ankole.AuthZ.Actor{} = actor, parent_id, child_ids, authority \\ nil) do
+  def delete_embeds(%AuthZ.Actor{} = actor, parent_id, child_ids, authority \\ nil) do
     authority = authority || actor.turn_authority
 
     with {:ok, _} <-
@@ -657,12 +545,9 @@ defmodule Ankole.Pod.Pages do
              authority,
              fn -> delete_embeds_in_tx(actor, parent_id, child_ids) end,
              root_ids: fn -> Nodes.root_ids([parent_id]) end,
-             after_commit: fn pages ->
-               Enum.each(pages, &committed_access_tree/1)
-             end
-           ) do
-      {:ok, nil}
-    end
+             after_commit: &Enum.each(&1, fn page -> committed_access_tree(page) end)
+           ),
+         do: {:ok, nil}
   end
 
   @doc false
@@ -728,29 +613,52 @@ defmodule Ankole.Pod.Pages do
   end
 
   def get(%Ankole.AuthZ.Actor{} = actor, id) do
-    with {:ok, detail} <- Repo.transact_top_level(fn -> get_in_tx(actor, id) end) do
-      {:ok, Map.put(detail, :source_conversation, source_status(actor, detail.page))}
+    with {:ok, {detail, bindings_snapshot}} <-
+           Repo.transact_top_level(fn -> get_snapshot_in_tx(actor, id) end),
+         {:ok, applet_bindings} <-
+           Ankole.Pod.Applets.Bindings.detail_from_snapshot(detail.page, bindings_snapshot) do
+      {:ok,
+       detail
+       |> Map.merge(applet_bindings)
+       |> Map.put(:source_conversation, source_status(actor, detail.page))}
     end
   end
 
   @doc false
   def get_in_tx(%Ankole.AuthZ.Actor{} = actor, id) do
+    with {:ok, {detail, bindings_snapshot}} <- get_snapshot_in_tx(actor, id),
+         {:ok, applet_bindings} <-
+           Ankole.Pod.Applets.Bindings.detail_from_snapshot(detail.page, bindings_snapshot) do
+      {:ok, Map.merge(detail, applet_bindings)}
+    end
+  end
+
+  @doc false
+  def get_snapshot_in_tx(%Ankole.AuthZ.Actor{} = actor, id) do
     with {:ok, page} <- lock(id, :share),
          {:ok, reachable} <- Access.reachable_anchors(actor, trash_page_id: page.id),
          {:ok, page} <- Access.authorize_with_permissions(actor, page, reachable: reachable),
          {:ok, content} <-
            PageContent |> Ash.Query.filter(page_id == ^page.id) |> Ankole.Ash.read_one(),
          {:ok, ancestors} <- Queries.readable_ancestors_in_tx(actor, page, reachable) do
+      editable? =
+        is_nil(page.deleted_at) and
+          ("node_edit" in page.actions or :node_edit in page.actions)
+
+      bindings_snapshot = Ankole.Pod.Applets.Bindings.snapshot_in_tx(page)
+
       {:ok,
-       %{
-         page: page,
-         ancestors: ancestors,
-         content: content,
-         role: page.role,
-         actions: page.actions,
-         fact_learning: Ankole.Brain.Knowledge.page_learning(page),
-         child_count: Queries.visible_child_count_in_tx(actor, page, reachable)
-       }}
+       {%{
+          page: page,
+          ancestors: ancestors,
+          content: content,
+          role: page.role,
+          actions: page.actions,
+          fact_learning: Ankole.Brain.Knowledge.page_learning(page),
+          child_count: Queries.visible_child_count_in_tx(actor, page, reachable),
+          applet_owner: Ankole.Pod.Applets.owner_status(actor, page),
+          applet_draft: Ankole.Pod.Applets.Revisions.detail(page, editable?)
+        }, bindings_snapshot}}
     end
   end
 
@@ -767,12 +675,6 @@ defmodule Ankole.Pod.Pages do
             false -> Map.put(acc, field, nil)
           end
         end)
-
-      changes =
-        case Ankole.Attrs.get(attrs, :hide_visits, :missing) do
-          :missing -> changes
-          hidden -> Map.put(changes, :hide_visits, hidden)
-        end
 
       if changes == %{} do
         Repo.transact_repeatable_read_only(fn ->
@@ -809,8 +711,7 @@ defmodule Ankole.Pod.Pages do
              upsert_fields: Map.keys(changes)
            ) do
       if is_nil(updated.favorited_at) and is_nil(updated.visited_at) and
-           is_nil(updated.comments_read_at) and is_nil(updated.edited_at) and
-           not updated.hide_visits do
+           is_nil(updated.comments_read_at) and is_nil(updated.edited_at) do
         {:ok, _} = Ankole.Ash.destroy(updated, :remove_empty)
       end
 
@@ -820,7 +721,7 @@ defmodule Ankole.Pod.Pages do
 
   defp state_flags(attrs) when is_map(attrs) do
     if Enum.all?(
-         [:favorite, :visited, :hide_visits],
+         [:favorite, :visited],
          &(Ankole.Attrs.get(attrs, &1, :missing) in [:missing, true, false])
        ),
        do: :ok,
@@ -835,6 +736,7 @@ defmodule Ankole.Pod.Pages do
   defdelegate lock_tree(), to: Nodes
 
   defdelegate broadcast(id), to: Nodes
+  defdelegate broadcast(id, delta), to: Nodes
 
   def broadcast_comments(id) do
     Phoenix.PubSub.broadcast(Ankole.PubSub, "pod-page:" <> id, {:comments_committed, id})
@@ -890,10 +792,7 @@ defmodule Ankole.Pod.Pages do
     do: Phoenix.PubSub.broadcast(Ankole.PubSub, "drive-content:" <> Repo.tenant_id!(), event)
 
   @doc "Publishes a committed change of one page."
-  def committed_page(%Page{id: id}) do
-    Nodes.content_committed(%{id: id})
-  end
-
+  def committed_page(%Page{id: id}), do: Nodes.content_committed(%{id: id})
   def committed_page(_result), do: :ok
 
   defp destination(actor, nil, nil) do
@@ -905,12 +804,10 @@ defmodule Ankole.Pod.Pages do
 
   defp prepare_initial_content(kind, xml, metadata)
        when kind in [:doc, "doc", :knowledge, "knowledge"] do
-    kind = if kind in [:doc, "doc"], do: :doc, else: :knowledge
-
-    validate =
-      if kind == :doc,
-        do: &Ankole.Kernel.page_validate/1,
-        else: &Ankole.Kernel.knowledge_validate/1
+    {kind, validate} =
+      if kind in [:doc, "doc"],
+        do: {:doc, &Ankole.Kernel.page_validate/1},
+        else: {:knowledge, &Ankole.Kernel.knowledge_validate/1}
 
     with {:ok, parsed} <- validate.(xml || "<page />"),
          {:ok, projection} <- Ankole.Kernel.vfs_projection(kind, parsed.xml, metadata),
@@ -933,6 +830,14 @@ defmodule Ankole.Pod.Pages do
 
   defp initial_content(_page, _uid, _skip), do: :ok
 
+  defp maybe_ensure_applet_service_account_in_tx(%{type: :applet} = page) do
+    with {:ok, _} <-
+           Ankole.Principals.ServiceAccounts.ensure_applet_in_tx(page.id, page.title, page.name),
+         do: :ok
+  end
+
+  defp maybe_ensure_applet_service_account_in_tx(_page), do: :ok
+
   defp validate_initial_comments(%{type: :doc} = page, content) do
     with {:ok, info} <- Ankole.Kernel.page_comment_info(content.content),
          do: Ankole.Pod.Comments.validate_marks_in_tx(page.id, info.ids)
@@ -942,7 +847,7 @@ defmodule Ankole.Pod.Pages do
 
   defp source_message(_uid, nil), do: {:ok, nil}
 
-  defp source_message(%Ankole.AuthZ.Actor{} = actor, id) do
+  defp source_message(%AuthZ.Actor{} = actor, id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
          {:ok, %Ankole.Conversations.Message{} = message} <-
            Ankole.Conversations.get_message(id),
@@ -953,23 +858,21 @@ defmodule Ankole.Pod.Pages do
 
   defp source_status(_uid, %{saved_from_message_id: nil}), do: nil
 
-  defp source_status(%Ankole.AuthZ.Actor{} = actor, page) do
+  defp source_status(%AuthZ.Actor{} = actor, page) do
     case Ankole.Conversations.get_message!(page.saved_from_message_id) do
       nil ->
         %{deleted: true}
 
       message ->
-        case source_conversation(actor, message.conversation_id) do
-          {:ok, conversation} ->
-            %{
-              id: conversation.id,
-              title: conversation.title,
-              message_id: message.id,
-              deleted: false
-            }
-
-          _ ->
-            nil
+        with {:ok, conversation} <- source_conversation(actor, message.conversation_id) do
+          %{
+            id: conversation.id,
+            title: conversation.title,
+            message_id: message.id,
+            deleted: false
+          }
+        else
+          _ -> nil
         end
     end
   end

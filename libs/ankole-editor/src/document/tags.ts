@@ -1,7 +1,9 @@
 import type { Nodes } from 'mdast'
 import { fromMarkdown } from 'mdast-util-from-markdown'
+import { mathFromMarkdown } from 'mdast-util-math'
+import { math } from 'micromark-extension-math'
 import { mdxMd } from 'micromark-extension-mdx-md'
-import { DocumentError } from './tree'
+import { DocumentError, type DocumentErrorCode } from './tree'
 
 export type PreparedSource = {
   source: string
@@ -22,7 +24,7 @@ export type ScannedTag = {
 type Scan =
   | { kind: 'text' }
   | { kind: 'tag'; end: number; edits: SourceEdit[] }
-  | { kind: 'error'; end: number; reason: string; fix: string }
+  | { kind: 'error'; end: number; reason: string; fix: string; code: DocumentErrorCode }
 
 const voidElements = new Set([
   'area',
@@ -70,7 +72,7 @@ export function prepareTags(source: string): PreparedSource {
     }
     const result = scan(source, index)
     if (result.kind === 'error') {
-      throw new DocumentError('markdown', result.reason, index, result.end, result.fix, source)
+      throw new DocumentError('markdown', result.reason, index, result.end, result.fix, source, result.code)
     }
     if (result.kind === 'text') {
       edits.push({ at: index, length: 1, insert: '&lt;' })
@@ -110,13 +112,21 @@ export function applySourceEdits(source: string, edits: readonly SourceEdit[]): 
 export function codeRanges(source: string): [number, number][] {
   const ranges: [number, number][] = []
   function visit(node: Nodes) {
-    if ((node.type === 'code' || node.type === 'inlineCode') && node.position) {
+    if (
+      (node.type === 'code' || node.type === 'inlineCode' || node.type === 'math' || node.type === 'inlineMath') &&
+      node.position
+    ) {
       ranges.push([node.position.start.offset!, node.position.end.offset!])
     }
     if ('children' in node) for (const child of node.children) visit(child)
   }
   // GFM is left out: a bare URL inside a tag attribute could swallow the backtick of a code span.
-  visit(fromMarkdown(source, { extensions: [mdxMd()] }))
+  visit(
+    fromMarkdown(source, {
+      extensions: [math({ singleDollarTextMath: false }), mdxMd()],
+      mdastExtensions: [mathFromMarkdown()]
+    })
+  )
   return ranges.sort((a, b) => a[0] - b[0])
 }
 
@@ -134,19 +144,30 @@ function scan(source: string, index: number): Scan {
   const rest = source.slice(index, index + 4096)
   const error = (reason: string, terminator: string, fix: string): Scan => {
     const end = source.indexOf(terminator, index)
-    return { kind: 'error', end: end === -1 ? source.length : end + terminator.length, reason, fix }
+    return {
+      kind: 'error',
+      end: end === -1 ? source.length : end + terminator.length,
+      reason,
+      fix,
+      code: 'unsupported_syntax'
+    }
   }
-  if (rest.startsWith('<!--')) return error('页面没有注释节点', '-->', '请删除这段注释。')
-  if (rest.startsWith('<![CDATA[')) return error('页面不支持 CDATA', ']]>', '请直接写文字。')
-  if (rest.startsWith('<?')) return error('页面不支持处理指令', '?>', '请删除这段指令。')
-  if (rest.startsWith('<!')) return error('页面不支持 <!…> 声明', '>', '请删除这段声明。')
+  if (rest.startsWith('<!--')) return error('Pages do not have comment nodes', '-->', 'Remove this comment.')
+  if (rest.startsWith('<![CDATA[')) {
+    return error('Pages do not allow CDATA sections', ']]>', 'Write plain text instead.')
+  }
+  if (rest.startsWith('<?')) {
+    return error('Pages do not allow processing instructions', '?>', 'Remove this processing instruction.')
+  }
+  if (rest.startsWith('<!')) return error('Pages do not allow <!…> declarations', '>', 'Remove this declaration.')
   const link = autolink.exec(rest)
   if (link) {
     return {
       kind: 'error',
       end: index + link[0].length,
-      reason: '页面不支持尖括号自动链接',
-      fix: '请改用 [文字](网址)，或直接写网址。'
+      reason: 'Pages do not allow angle-bracket autolinks',
+      fix: 'Use [text](url) or write the bare URL instead.',
+      code: 'unsupported_syntax'
     }
   }
   const matched = scanTag(source, index)

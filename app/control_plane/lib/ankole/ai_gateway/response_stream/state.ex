@@ -716,6 +716,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
         {state, item} = register_local_item_identity(state, item)
         sequence = next_public_sequence(state)
 
+        publish_loop_item_activity(state, item, sequence)
+
         event =
           %{
             "type" => "response.output_item.done",
@@ -738,6 +740,29 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
     {state, Enum.reverse(events)}
   end
+
+  defp publish_loop_item_activity(state, item, seq) do
+    cond do
+      tool_activity_item?(item) ->
+        publish(state, :tool_call_started, tool_activity_payload(item, seq))
+
+      loop_tool_output?(item) ->
+        payload =
+          item
+          |> Map.put_new("call_id", item["call_id"] || item["id"])
+          |> tool_activity_payload(seq)
+
+        publish(state, :tool_call_completed, payload)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp loop_tool_output?(%{"type" => type}),
+    do: type in ["tool_search_output", "program_output", "brain_output"]
+
+  defp loop_tool_output?(_item), do: false
 
   # Some providers put complete items only in the terminal response. Admit
   # those provider facts before local search or program outputs so the public
@@ -902,9 +927,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
          %{"type" => "response.output_item.done", "item" => %{} = item} = event,
          seq
        ) do
-    if tool_activity_item?(item) do
-      publish(state, :tool_call_started, tool_activity_payload(item, seq))
-    end
+    publish_loop_item_activity(state, item, seq)
 
     next_output_index =
       if is_integer(event["output_index"]),
@@ -1027,7 +1050,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
           "retryable" => transient_incomplete_reason?(reason)
         }
 
-      output_limit_incomplete_response?(response) ->
+      non_error_incomplete_response?(response) ->
         nil
 
       true ->
@@ -1098,8 +1121,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
   defp response_has_incomplete_tool_call?(_response), do: false
 
-  defp output_limit_incomplete_response?(response),
-    do: incomplete_response_reason(response) == "max_output_tokens"
+  defp non_error_incomplete_response?(response),
+    do: incomplete_response_reason(response) in ["max_output_tokens", "content_filter"]
 
   defp incomplete_response_reason(%{"incomplete_details" => %{"reason" => reason}})
        when is_binary(reason),
@@ -1742,15 +1765,36 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp tool_activity_payload(item, seq) do
     item
     |> Map.take(["type", "id", "call_id", "namespace", "name", "status", "output", "action"])
+    |> maybe_put_new_payload("name", activity_tool_name(item))
     |> maybe_put_payload("seq", seq)
   end
 
+  defp activity_tool_name(%{"name" => name}) when is_binary(name) and name != "", do: name
+
+  defp activity_tool_name(%{"type" => type}) when type in ["brain_call", "brain_output"],
+    do: "brain"
+
+  defp activity_tool_name(%{"type" => type})
+       when type in ["tool_search_call", "tool_search_output"],
+       do: "tool_search"
+
+  defp activity_tool_name(%{"type" => type}) when type in ["program", "program_output"],
+    do: "program"
+
+  defp activity_tool_name(%{"type" => type}) when is_binary(type),
+    do: String.replace_suffix(type, "_call", "")
+
+  defp activity_tool_name(_item), do: nil
+
   defp tool_activity_item?(%{"type" => type} = item) when is_binary(type) do
-    ResponseItems.call_item?(item) or type == "mcp_list_tools" or
+    ResponseItems.call_item?(item) or type in ["mcp_list_tools", "program", "brain_call"] or
       String.ends_with?(type, "_call")
   end
 
   defp tool_activity_item?(_item), do: false
+
+  defp maybe_put_new_payload(payload, _key, nil), do: payload
+  defp maybe_put_new_payload(payload, key, value), do: Map.put_new(payload, key, value)
 
   defp maybe_put_payload(payload, _key, nil), do: payload
   defp maybe_put_payload(payload, key, value), do: Map.put(payload, key, value)

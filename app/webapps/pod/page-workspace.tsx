@@ -1,3 +1,4 @@
+import { revealAppletElement } from './applet-elements'
 import { agentsQuery } from './api'
 import { pageDomain, canCreateChild, canRenamePage, canTrashPage } from './state/page-location'
 import { pageHrefFor, useCanonicalPageUrl, usePageMetadata } from './use-page-metadata'
@@ -13,6 +14,7 @@ import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-
 import { PageContent, PageLearningButton } from './page-content'
 import { KnowledgePage } from './knowledge-page'
 import { DocumentInsights } from './document-insights'
+import { DocumentOutline } from './document-outline'
 import { DocumentPage } from './document-editor'
 import { downloadDraft } from './document-recovery'
 import { pageCreated, updatePageMetadata } from './state/navigation-cache'
@@ -72,10 +74,12 @@ import {
   ErrorCircleRegular,
   FolderArrowRightRegular,
   FullScreenMaximizeRegular,
+  HistoryRegular,
   LinkRegular,
   MoreHorizontalRegular,
   StarFilled,
-  StarRegular
+  StarRegular,
+  TargetRegular
 } from '@ankole/uikit/icons'
 import { useMenuFinalFocus } from '@ankole/uikit/hooks/use-menu-final-focus'
 import { createModel, effect, useModel } from '@preact/signals-react'
@@ -324,6 +328,7 @@ function PageWorkspace({
   )
   const documentContent = useRef<HTMLDivElement>(null)
   const pageColumn = useRef<HTMLDivElement>(null)
+  const pageScroller = useRef<HTMLDivElement>(null)
   const pageContent = useRef<HTMLDivElement>(null)
   const [presenceContainer, setPresenceContainer] = useState<HTMLDivElement | null>(null)
   const [insights, setInsights] = useState(false)
@@ -404,13 +409,18 @@ function PageWorkspace({
   const captureFileCommentSelection = (selection: FileCommentSelection) => {
     commentDrafts.capture({
       quote: selection.quote,
-      fileAnchor: selection.anchor
+      elementAnchor: selection.anchor
     })
     openComments(selectionReturnThread.current)
     selectionReturnThread.current = null
   }
   const selectCommentAnchor = (threadID?: string) => {
     selectionReturnThread.current = threadID ?? focusedComment
+    if (page.type === 'applet') {
+      if (isMobile) setComments(false)
+      appletSession.current?.startPick()
+      return
+    }
     if (page.type === 'file' && !isOfficeFile) {
       const selection = filePreviewRef.current?.currentSelection()
       if (!selection) {
@@ -506,7 +516,8 @@ function PageWorkspace({
   }, [drafts])
   const trashed = Boolean(page.deleted_at)
   const toolsAvailable = page.type === 'doc' && !accessDenied && !trashed
-  const commentsAvailable = ['doc', 'knowledge', 'file'].includes(page.type) && !accessDenied && !trashed
+  const commentsAvailable =
+    ['doc', 'knowledge', 'file', 'applet', 'base'].includes(page.type) && !accessDenied && !trashed
   const commentSummary = useQuery({ ...pageCommentSummaryQuery(page.id), enabled: commentsAvailable })
   useEffect(() => {
     if (!toolsAvailable || !documentTools) return
@@ -564,10 +575,30 @@ function PageWorkspace({
     if (!trimmed) return
     void navigate({ to: podLocation(pageHrefFor(client, trimmed)).pathname })
   })
+  const commentOnAppletElement = useEffectEvent((selection: import('./applet-elements').AppletElementSelection) => {
+    commentDrafts.capture({ quote: selection.quote, elementAnchor: selection.anchor })
+    openComments(selectionReturnThread.current)
+    selectionReturnThread.current = null
+  })
+  const appletSession = useRef<import('./content-context').AppletWorkspaceSession | null>(null)
+  const [activeAppletSession, setActiveAppletSession] = useState<
+    import('./content-context').AppletWorkspaceSession | null
+  >(null)
   const pageHost = useMemo<PageHostActions>(
     () => ({
       navigateToPage: targetPageID => navigateWorkspacePage(targetPageID),
       openChat: options => openWorkspaceChat(options),
+      commentOnElement: selection => commentOnAppletElement(selection),
+      registerAppletSession: session => {
+        appletSession.current = session
+        setActiveAppletSession(session)
+        return () => {
+          if (appletSession.current === session) {
+            appletSession.current = null
+            setActiveAppletSession(prev => (prev === session ? null : prev))
+          }
+        }
+      },
       registerOfficeSession: session => {
         officeSession.current = session
         setActiveOfficeSession(session)
@@ -750,11 +781,13 @@ function PageWorkspace({
         key="comments"
         detail={detail}
         content={
-          page.type === 'file' && !isOfficeFile
-            ? { kind: 'file' }
-            : page.type === 'doc' && model
-              ? { kind: 'document', editor: editorHandle, revision: model.revision, ready: model.bodyReady }
-              : { kind: 'page' }
+          page.type === 'applet'
+            ? { kind: 'applet' }
+            : page.type === 'file' && !isOfficeFile
+              ? { kind: 'file' }
+              : page.type === 'doc' && model
+                ? { kind: 'document', editor: editorHandle, revision: model.revision, ready: model.bodyReady }
+                : { kind: 'page' }
         }
         model={commentDrafts}
         mobile={isMobile}
@@ -767,6 +800,12 @@ function PageWorkspace({
         selectAnchor={selectCommentAnchor}
         reveal={(id, fileAnchor) => {
           focusComment(id)
+          if (fileAnchor?.kind === 'applet_element') {
+            const frame = pageContent.current?.querySelector('iframe')
+            if (frame?.dataset.appletRevision !== String(page.revision)) return null
+            const doc = frame.contentDocument
+            return doc ? revealAppletElement(doc, fileAnchor, page.revision) : null
+          }
           if (page.type === 'file' && !isOfficeFile) {
             return fileAnchor ? (filePreviewRef.current?.revealAnchor(fileAnchor) ?? null) : null
           }
@@ -894,6 +933,34 @@ function PageWorkspace({
               </Toggle>
             )}
             {!accessDenied && !trashed && <PageLearningButton detail={contentDetail} />}
+            {!accessDenied &&
+              !trashed &&
+              page.type === 'applet' &&
+              Boolean(activeAppletSession) &&
+              (actions.includes('node_edit') || actions.includes('node_comment')) && (
+                <Toggle
+                  size="icon-lg"
+                  pressed={Boolean(activeAppletSession?.picking)}
+                  aria-label={t('pod.applet_settings.pick_element')}
+                  title={t('pod.applet_settings.pick_element')}
+                  onPressedChange={() => activeAppletSession?.togglePick()}>
+                  <TargetRegular aria-hidden />
+                </Toggle>
+              )}
+            {!accessDenied &&
+              !trashed &&
+              page.type === 'applet' &&
+              Boolean(activeAppletSession) &&
+              actions.includes('node_edit') && (
+                <Button
+                  size="icon-lg"
+                  variant="ghost"
+                  aria-label={t('pod.applet_settings.history')}
+                  title={t('pod.applet_settings.history')}
+                  onClick={() => activeAppletSession?.openHistory()}>
+                  <HistoryRegular aria-hidden />
+                </Button>
+              )}
             {!accessDenied && !trashed && page.type === 'applet' && (
               <Suspense fallback={null}>
                 <AppletSettingsControl key={page.id} detail={contentDetail} />
@@ -906,7 +973,12 @@ function PageWorkspace({
             )}
             {!accessDenied && !trashed ? (
               <ErrorBoundary variant="inline" resetKeys={[page.id]}>
-                <PageSharingButton pageID={page.id} page={page} />
+                <PageSharingButton
+                  pageID={page.id}
+                  page={page}
+                  title={titleDraft.value.value}
+                  bodyXML={model?.xml.value ?? detail.content?.content}
+                />
               </ErrorBoundary>
             ) : (
               <Button
@@ -1032,7 +1104,7 @@ function PageWorkspace({
             onClose={closeFindBar}
           />
         )}
-        <div className="pod-page-scroll min-h-0 flex-1 overflow-auto">
+        <div ref={pageScroller} className="pod-page-scroll min-h-0 flex-1 overflow-auto">
           <div
             ref={pageContent}
             className="pod-page-content"
@@ -1343,6 +1415,9 @@ function PageWorkspace({
             </ErrorBoundary>
           )}
         </div>
+        {(page.type === 'doc' || page.type === 'knowledge') && !accessDenied && !isMobile && (
+          <DocumentOutline scroller={pageScroller} content={pageContent} />
+        )}
       </div>
       {isMobile
         ? commentsPanel

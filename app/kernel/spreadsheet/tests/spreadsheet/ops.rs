@@ -539,6 +539,84 @@ fn filters_hide_failing_rows_and_removal_shows_them() {
 }
 
 #[test]
+fn row_visibility_recalculates_spilled_and_indirect_aggregates() {
+    let doc = apply_all(
+        &blank(),
+        &[
+            set(1, "A1", "Values"),
+            set(1, "A2", "=SEQUENCE(3)"),
+            set(1, "B1", "=SUBTOTAL(109,A2:A4)"),
+            set(1, "C1", "=AGGREGATE(9,5,A2:A4)"),
+            set(1, "D1", "=SUBTOTAL(9,OFFSET(A2,0,0,3,1))"),
+            set(1, "E1", "=SUBTOTAL(109,INDIRECT(\"A2:A4\"))"),
+            set(1, "F1", "=RAND()"),
+        ],
+    );
+    assert!(workbook_sheet(&doc, 1).cell(cell("A3")).is_none());
+    for at in ["B1", "C1", "D1", "E1"] {
+        assert_eq!(number(&doc, 1, at), 6.0);
+    }
+    let resize = |axis: &str, size: serde_json::Value| json!({"type": "line.resize", "sheet_id": 1, "axis": axis, "start": 2, "end": 2, "size_px": size});
+    let hidden = apply(&doc, resize("rows", json!("hidden"))).doc;
+    assert_ne!(number(&hidden, 1, "F1"), number(&doc, 1, "F1"));
+    for at in ["B1", "C1", "E1"] {
+        assert_eq!(number(&hidden, 1, at), 4.0);
+    }
+    assert_eq!(number(&hidden, 1, "D1"), 6.0);
+    for size in [json!("unhide"), json!(30)] {
+        let visible = apply(&hidden, resize("rows", size)).doc;
+        assert_eq!(number(&visible, 1, "B1"), 6.0);
+        assert_eq!(number(&visible, 1, "C1"), 6.0);
+        assert_ne!(number(&visible, 1, "F1"), number(&hidden, 1, "F1"));
+    }
+    for (axis, size) in [("rows", json!("hidden")), ("cols", json!(30))] {
+        let unchanged = apply(&hidden, resize(axis, size)).doc;
+        assert_eq!(number(&unchanged, 1, "F1"), number(&hidden, 1, "F1"));
+    }
+    let resized = apply(&doc, resize("rows", json!(30))).doc;
+    assert_eq!(number(&resized, 1, "F1"), number(&doc, 1, "F1"));
+
+    let filter = json!({"type": "filter.set", "sheet_id": 1, "range": "A1:A4", "columns": [{"col": "A", "values": ["1", "3"]}]});
+    let filtered = apply(&doc, filter.clone()).doc;
+    assert_ne!(number(&filtered, 1, "F1"), number(&doc, 1, "F1"));
+    for at in ["B1", "C1", "D1", "E1"] {
+        assert_eq!(number(&filtered, 1, at), 4.0);
+    }
+    let repeated = apply(&filtered, filter).doc;
+    assert_eq!(number(&repeated, 1, "F1"), number(&filtered, 1, "F1"));
+    let cleared = apply(
+        &filtered,
+        json!({"type": "filter.set", "sheet_id": 1, "range": null}),
+    )
+    .doc;
+    for at in ["B1", "C1", "D1", "E1"] {
+        assert_eq!(number(&cleared, 1, at), 6.0);
+    }
+
+    // Sorting a range with a hidden row moves the hidden flag across row indices and recalculates
+    // indirect SUBTOTAL aggregates that span a prefix of the sorted block.
+    let sort_doc = apply_all(
+        &blank(),
+        &[
+            set(1, "A1", "N"),
+            set(1, "A2", "30"),
+            set(1, "A3", "10"),
+            set(1, "A4", "20"),
+            set(1, "B1", "=SUBTOTAL(109,INDIRECT(\"A2:A3\"))"),
+            json!({"type": "line.resize", "sheet_id": 1, "axis": "rows", "start": 2, "end": 2, "size_px": "hidden"}),
+        ],
+    );
+    assert_eq!(number(&sort_doc, 1, "B1"), 30.0);
+    let sorted = apply(
+        &sort_doc,
+        json!({"type": "range.sort", "sheet_id": 1, "range": "A1:A4", "header": true, "keys": [{"col": "A", "descending": true}]}),
+    )
+    .doc;
+    // Descending order puts (30 visible, 20 visible, 10 hidden) in A2:A4, so INDIRECT("A2:A3") now sums 30 + 20 = 50.
+    assert_eq!(number(&sorted, 1, "B1"), 50.0);
+}
+
+#[test]
 fn validations_replace_the_rule_of_their_range() {
     let rule = json!({"kind": "list", "formula1": "是,否"});
     let doc = apply(

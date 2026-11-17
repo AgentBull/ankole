@@ -1,3 +1,4 @@
+import { AppletBindingsTab } from './applet-bindings'
 import {
   Badge,
   Button,
@@ -9,7 +10,8 @@ import {
   TabsList,
   TabsTrigger,
   toast,
-  useIsMobile
+  useIsMobile,
+  useScrollFadeRef
 } from '@ankole/uikit'
 import {
   CodeRegular,
@@ -155,10 +157,11 @@ export function AppletSettingsDialog({
 }) {
   const { t } = useTranslation()
   const isMobile = useIsMobile()
+  const navFadeRef = useScrollFadeRef<HTMLDivElement>('x', undefined, isMobile)
   const envBadgeDescId = useId()
   const canEdit = canEditAppletEnv(detail)
   const canCreateJob = !detail.page.deleted_at && detail.actions.includes('node_contribute')
-  const activeTab: AppletSettingsTab = tab === 'environment' && !canEdit ? 'automation' : tab
+  const activeTab: AppletSettingsTab = ['environment', 'bindings'].includes(tab) && !canEdit ? 'automation' : tab
 
   const [visitedState, setVisitedState] = useState<{
     open: boolean
@@ -212,6 +215,11 @@ export function AppletSettingsDialog({
   }> = [
     ...(canEdit
       ? [
+          {
+            value: 'bindings' as const,
+            label: t('pod.applet_settings.tab_bindings'),
+            icon: <LinkMultipleRegular aria-hidden className="size-4" />
+          },
           {
             value: 'environment' as const,
             label: t('pod.applet_settings.tab_environment'),
@@ -284,9 +292,10 @@ export function AppletSettingsDialog({
             className="flex min-h-0 flex-1 flex-col gap-0 md:flex-row">
             <aside className="shrink-0 border-b border-border-subtle bg-layer-03/20 px-3 py-2 md:w-52 md:border-r md:border-b-0 md:p-3">
               <TabsList
+                ref={navFadeRef}
                 variant="object"
                 aria-label={t('pod.applet_settings.navigation')}
-                className="w-full min-w-0 justify-start gap-1 overflow-x-auto group-data-horizontal/tabs:h-auto md:flex-col md:items-stretch md:overflow-visible">
+                className="w-full min-w-0 justify-start gap-1 max-md:overflow-x-auto max-md:scroll-fade-x max-md:scroll-bleed-y group-data-horizontal/tabs:h-auto md:flex-col md:items-stretch md:overflow-visible">
                 {navigationItems.map(item => (
                   <TabsTrigger
                     key={item.value}
@@ -315,6 +324,11 @@ export function AppletSettingsDialog({
                       <AppletEnvironmentTab key={detail.page.id} detail={detail} />
                     </ErrorBoundary>
                   ) : null}
+                </TabsContent>
+              )}
+              {canEdit && (
+                <TabsContent value="bindings" keepMounted className="outline-none [&[hidden]]:hidden">
+                  {visitedTabs.has('bindings') && <AppletBindingsTab detail={detail} />}
                 </TabsContent>
               )}
               <div hidden={!jobTabHeader} className="mb-5 grid gap-5 [&[hidden]]:hidden">

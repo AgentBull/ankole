@@ -10,7 +10,10 @@ defmodule AnkoleWeb.Session do
   @browser_key :browser_session
   @setup_ttl 24 * 60 * 60
   @state_ttl 10 * 60
-  def browser_reference(conn), do: get_session(conn, @browser_key)
+  def browser_reference(%{private: %{plug_session: _}} = conn),
+    do: get_session(conn, @browser_key)
+
+  def browser_reference(_conn), do: nil
 
   def ensure_browser(conn) do
     case BrowserSessions.get(browser_reference(conn)) do

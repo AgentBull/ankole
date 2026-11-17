@@ -1,4 +1,14 @@
-import { Card, CardContent, Tabs, TabsContent, TabsList, TabsTrigger, cn, useIsMobile } from '@ankole/uikit'
+import {
+  Card,
+  CardContent,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  cn,
+  useIsMobile,
+  useScrollFadeRef
+} from '@ankole/uikit'
 import type { ReactNode } from 'react'
 
 type SettingsNavigationItem = {
@@ -27,6 +37,7 @@ export function SettingsLayout({
   children: ReactNode
 }) {
   const isMobile = useIsMobile()
+  const navFadeRef = useScrollFadeRef<HTMLDivElement>('x', undefined, isMobile)
   return (
     <div className="h-full overflow-y-auto">
       <Tabs
@@ -38,21 +49,24 @@ export function SettingsLayout({
           <h1 className="title-page text-fg-primary">{title}</h1>
           <p className="max-w-2xl text-sm leading-6 text-fg-secondary">{description}</p>
         </header>
-        <TabsList
-          variant="object"
-          aria-label={navigationLabel}
-          className="w-full min-w-0 justify-start gap-1 overflow-x-auto border-b border-border-subtle pb-3 group-data-horizontal/tabs:h-auto md:w-auto md:border-0 md:pb-0">
-          {items.map(item => (
-            <TabsTrigger
-              key={item.value}
-              value={item.value}
-              className="min-h-9 shrink-0 justify-start gap-2.5 rounded-lg px-3 py-2 text-sm md:h-9 md:py-1.5">
-              {item.icon}
-              <span>{item.label}</span>
-            </TabsTrigger>
-          ))}
-          {navigationExtras}
-        </TabsList>
+        <div className="min-w-0 border-b border-border-subtle pb-3 md:border-0 md:pb-0">
+          <TabsList
+            ref={navFadeRef}
+            variant="object"
+            aria-label={navigationLabel}
+            className="w-full min-w-0 justify-start gap-1 max-md:overflow-x-auto max-md:scroll-fade-x max-md:scroll-bleed-y group-data-horizontal/tabs:h-auto md:w-auto md:overflow-visible">
+            {items.map(item => (
+              <TabsTrigger
+                key={item.value}
+                value={item.value}
+                className="min-h-9 shrink-0 justify-start gap-2.5 rounded-lg px-3 py-2 text-sm md:h-9 md:py-1.5">
+                {item.icon}
+                <span>{item.label}</span>
+              </TabsTrigger>
+            ))}
+            {navigationExtras}
+          </TabsList>
+        </div>
         <div className="grid min-w-0 content-start gap-6 pb-10">{children}</div>
       </Tabs>
     </div>

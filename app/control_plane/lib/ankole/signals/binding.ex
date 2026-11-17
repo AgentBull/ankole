@@ -49,6 +49,7 @@ defmodule Ankole.Signals.Binding do
       check_constraint(:filters, "signal_bindings_filters_object")
       check_constraint(:target, "signal_bindings_target_object")
       check_constraint(:coalesce, "signal_bindings_coalesce_object")
+      check_constraint(:external_bot_policy, "signal_bindings_external_bot_policy_check")
     end
   end
 
@@ -95,6 +96,13 @@ defmodule Ankole.Signals.Binding do
       public?: true
     )
 
+    attribute(:external_bot_policy, Ankole.Ash.Types.State,
+      constraints: [one_of: [:ignore, :record_only, :allow]],
+      default: :ignore,
+      allow_nil?: false,
+      public?: true
+    )
+
     attribute(:enabled, :boolean, default: true, allow_nil?: false, public?: true)
     attribute(:unavailable_reason, :string, public?: true)
     timestamps(type: :utc_datetime_usec)
@@ -127,6 +135,7 @@ defmodule Ankole.Signals.Binding do
       :coalesce,
       :unaddressed_group_message_policy,
       :unmatched_sender_policy,
+      :external_bot_policy,
       :enabled,
       :unavailable_reason
     ])
@@ -162,6 +171,7 @@ defmodule Ankole.Signals.Binding do
         :coalesce,
         :unaddressed_group_message_policy,
         :unmatched_sender_policy,
+        :external_bot_policy,
         :enabled,
         :unavailable_reason
       ])
@@ -182,6 +192,7 @@ defmodule Ankole.Signals.Binding do
         :coalesce,
         :unaddressed_group_message_policy,
         :unmatched_sender_policy,
+        :external_bot_policy,
         :enabled,
         :unavailable_reason
       ])

@@ -37,7 +37,11 @@ export function materializeCodexJobProjectConfig(input: {
   // The published Bun types drift around the documented stringify API, so the
   // local declaration stays authoritative: a string comes back or this throws.
   mkdirAgentSync(dirname(path))
-  writeFileAtomicSync(path, (TOML as unknown as { stringify(value: object): string }).stringify(config), 0o600)
+  writeFileAtomicSync(
+    path,
+    (TOML as typeof TOML & { stringify(value: Record<string, unknown>): string }).stringify(config),
+    0o600
+  )
 
   return { path }
 }

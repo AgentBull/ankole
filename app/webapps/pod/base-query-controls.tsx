@@ -147,20 +147,7 @@ export function QueryControls({
                           ? {
                               ...item,
                               operator: operator as Condition['operator'],
-                              value: operator.endsWith('empty')
-                                ? undefined
-                                : operator === 'in'
-                                  ? Array.isArray(item.value)
-                                    ? item.value
-                                    : item.value !== null && item.value !== undefined && item.value !== ''
-                                      ? [item.value]
-                                      : []
-                                  : item.operator.endsWith('empty') || item.operator === 'in'
-                                    ? effectiveFieldType(fields.find(field => field.id === item.field_id)!) ===
-                                      'boolean'
-                                      ? false
-                                      : null
-                                    : item.value
+                              value: coercedConditionValue(item, operator, fields)
                             }
                           : item
                       )
@@ -315,21 +302,31 @@ export function QueryControls({
   )
 }
 
+function coercedConditionValue(item: Condition, operator: string, fields: readonly BaseField[]): Condition['value'] {
+  if (operator.endsWith('empty')) return undefined
+  if (operator === 'in') {
+    if (Array.isArray(item.value)) return item.value
+    return item.value !== null && item.value !== undefined && item.value !== '' ? [item.value] : []
+  }
+  if (item.operator.endsWith('empty') || item.operator === 'in') {
+    return effectiveFieldType(fields.find(field => field.id === item.field_id)!) === 'boolean' ? false : null
+  }
+  return item.value
+}
+
+function operatorNamesFor(type: string, singleSelect: boolean): Condition['operator'][] {
+  if (type === 'array') return ['contains']
+  if (type === 'number' || type === 'datetime') return ['is', 'not_is', 'gt', 'gte', 'lt', 'lte']
+  if (singleSelect) return ['is', 'not_is', 'in']
+  if (type === 'text') return ['is', 'not_is', 'in', 'text_contains']
+  if (type === 'boolean') return ['is']
+  return ['is', 'not_is']
+}
+
 function operatorsFor(field?: BaseField) {
   const type = field ? effectiveFieldType(field) : 'missing'
   const singleSelect = field?.type === 'select' && !field.config.multiple
-  const names: Condition['operator'][] =
-    type === 'array'
-      ? ['contains']
-      : type === 'number' || type === 'datetime'
-        ? ['is', 'not_is', 'gt', 'gte', 'lt', 'lte']
-        : singleSelect
-          ? ['is', 'not_is', 'in']
-          : type === 'text'
-            ? ['is', 'not_is', 'in', 'text_contains']
-            : type === 'boolean'
-              ? ['is']
-              : ['is', 'not_is']
+  const names = operatorNamesFor(type, Boolean(singleSelect))
   return Object.fromEntries(
     [...names, 'is_empty', 'is_not_empty'].map(key => [key, operators[key as Condition['operator']]])
   )
@@ -405,24 +402,19 @@ function FilterValue({
       />
     )
   }
-  const person = effectiveFieldType(field) === 'person'
+  const effectiveType = effectiveFieldType(field)
+  const person = effectiveType === 'person'
+  const mappedFilterInputType = (): 'number' | 'checkbox' | 'datetime' | 'user' | 'text' => {
+    if (effectiveType === 'number') return 'number'
+    if (effectiveType === 'boolean') return 'checkbox'
+    if (effectiveType === 'datetime') return 'datetime'
+    return person ? 'user' : 'text'
+  }
   const effective =
     field.type === 'formula' ||
     field.type === 'auto_number' ||
     ['created_at', 'updated_at', 'created_by', 'updated_by'].includes(field.type)
-      ? {
-          ...field,
-          type:
-            effectiveFieldType(field) === 'number'
-              ? ('number' as const)
-              : effectiveFieldType(field) === 'boolean'
-                ? ('checkbox' as const)
-                : effectiveFieldType(field) === 'datetime'
-                  ? ('datetime' as const)
-                  : person
-                    ? ('user' as const)
-                    : ('text' as const)
-        }
+      ? { ...field, type: mappedFilterInputType() }
       : field
   const referenceContains = (['user', 'link'].includes(field.type) && condition.operator === 'contains') || person
   const selectedReference = person ? principalUID(condition.value) : condition.value ? String(condition.value) : null

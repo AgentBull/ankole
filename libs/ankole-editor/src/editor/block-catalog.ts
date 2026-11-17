@@ -30,7 +30,8 @@ export const coreBlockTypes = [
   'file',
   'page_embed',
   'chart',
-  'bookmark'
+  'bookmark',
+  'inline_math'
 ] as const
 export type CoreBlockType = (typeof coreBlockTypes)[number]
 export type BlockType = CoreBlockType | (typeof blocks)[number]['name']
@@ -44,6 +45,23 @@ export type BlockOption = {
 }
 
 /** Menu entries in SPEC §7.6 order: the core block types, then the installed blocks. */
+const companionBlockOptions: Partial<Record<BlockType, BlockOption>> = {
+  media: {
+    type: 'bookmark',
+    title: editorPhrases.ref('bookmark_title'),
+    detail: editorPhrases.ref('bookmark_detail'),
+    keywords: 'bookmark website webpage link url card 网页 网站 网址 链接 卡片 书签',
+    turnInto: false
+  },
+  math: {
+    type: 'inline_math',
+    title: editorPhrases.ref('inline_math_title'),
+    detail: editorPhrases.ref('inline_math_detail'),
+    keywords: 'inline math equation formula 行内公式 内联公式 公式 inlinemath inline-math gs eq',
+    turnInto: false
+  }
+}
+
 export const blockOptions: readonly BlockOption[] = [
   {
     type: 'paragraph',
@@ -187,17 +205,8 @@ export const blockOptions: readonly BlockOption[] = [
       keywords: block.insert.keywords,
       turnInto: block.insert.turnInto
     }
-    if (block.name !== 'media') return [entry]
-    return [
-      entry,
-      {
-        type: 'bookmark',
-        title: editorPhrases.ref('bookmark_title'),
-        detail: editorPhrases.ref('bookmark_detail'),
-        keywords: 'bookmark website webpage link url card 网页 网站 网址 链接 卡片 书签',
-        turnInto: false
-      }
-    ]
+    const companion = companionBlockOptions[block.name]
+    return companion ? [entry, companion] : [entry]
   })
 ]
 

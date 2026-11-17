@@ -282,7 +282,9 @@ export const MessageView = memo(function MessageView({
                 prompt?.state === 'pending' ||
                 connectorAuth?.state === 'pending' ||
                 accessBlocked?.state === 'pending' ||
-                (!!actionCard && (actionCard.status ?? 'prepared') === 'prepared')
+                (!!actionCard &&
+                  ((actionCard.status ?? 'prepared') === 'prepared' ||
+                    (actionCard.status === 'executing' && actionCard.can_recover === true)))
               }
             />
           )}

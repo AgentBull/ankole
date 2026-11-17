@@ -40,7 +40,7 @@ test.each(readdirSync(directory).filter(name => name.endsWith('.md')))('%s', nam
 })
 
 test('constructs outside the dialect are rejected with a repair', () => {
-  expect(() => parseMarkdown('<!-- BEGIN:rules -->')).toThrow('请删除这段注释')
-  expect(() => parseMarkdown('see <https://example.com>')).toThrow('请改用 [文字](网址)')
-  expect(() => parseMarkdown('report for <job_id>, see above')).toThrow('如果这里是文字，请把 < 写成 &lt;')
+  expect(() => parseMarkdown('<!-- BEGIN:rules -->')).toThrow('Remove this comment')
+  expect(() => parseMarkdown('see <https://example.com>')).toThrow('Use [text](url)')
+  expect(() => parseMarkdown('report for <job_id>, see above')).toThrow('write &lt; for a literal <')
 })

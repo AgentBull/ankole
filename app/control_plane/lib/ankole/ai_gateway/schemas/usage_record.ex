@@ -74,6 +74,7 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
     attribute(:cache_creation_input_tokens, :integer, constraints: [min: 0])
     attribute(:reasoning_tokens, :integer, constraints: [min: 0])
     attribute(:human_uid, Ankole.Ash.Types.PrincipalKey)
+    attribute(:service_uid, Ankole.Ash.Types.PrincipalKey)
     attribute(:session_id, :string, constraints: [trim?: false])
     attribute(:signal_id, :uuid)
     attribute(:job_id, :integer, constraints: [min: 1])
@@ -110,6 +111,7 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
         :cache_creation_input_tokens,
         :reasoning_tokens,
         :human_uid,
+        :service_uid,
         :session_id,
         :signal_id,
         :job_id,

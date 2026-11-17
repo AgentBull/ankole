@@ -26,6 +26,7 @@ defmodule Ankole.AgentWorkers.Kubernetes do
       schema: Schema.schema(),
       credentials: %{"kubeconfig" => %{required: false}},
       pause: false,
+      support_tier: :core,
       example: """
       # Location and storage cannot change after creation.
       namespace: ankole
@@ -268,11 +269,6 @@ defmodule Ankole.AgentWorkers.Kubernetes do
       if is_nil(pod), do: Client.delete(provider, "Secret", name), else: :ok
     end
   end
-
-  @impl true
-  def pause_instance(_provider, _instance), do: {:error, :pause_not_supported}
-  @impl true
-  def resume_instance(_provider, _instance), do: {:error, :pause_not_supported}
 
   @impl true
   def list_instances(provider, agent_uid_or_all) do

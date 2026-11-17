@@ -100,26 +100,17 @@ defmodule Ankole.Pod.DocumentInsightsTest do
              Ankole.Pod.Documents.Insights.read(ctx.owner, Ecto.UUID.generate())
   end
 
-  test "visits retain readers, hide names on request, and count sessions", ctx do
+  test "visits retain readers in recency order and count sessions", ctx do
     alias Ankole.Pod.Documents.Insights
 
     for actor <- [ctx.owner, ctx.editor, ctx.editor] do
       assert {:ok, _} = Pages.state(actor, ctx.page.id, %{visited: true})
     end
 
-    assert {:ok, %{daily: [%{views: 2}]}} = Insights.read(ctx.owner, ctx.page.id)
+    assert {:ok, %{daily: [%{views: 2}]} = insights} = Insights.read(ctx.owner, ctx.page.id)
+    refute Map.has_key?(insights, :hide_visits)
     assert {:ok, %{total: 2, viewers: [latest | _]}} = Insights.viewers(ctx.owner, ctx.page.id)
     assert latest.person.principal_uid == Ankole.AuthZ.Actor.uid(ctx.editor)
-
-    assert {:ok, %{hide_visits: true}} =
-             Pages.state(ctx.editor, ctx.page.id, %{hide_visits: true})
-
-    assert {:ok, %{total: 1}} = Insights.viewers(ctx.owner, ctx.page.id)
-
-    assert {:ok, %{daily: [%{views: 2}], hide_visits: true}} =
-             Insights.read(ctx.editor, ctx.page.id)
-
-    assert {:ok, _} = Pages.state(ctx.editor, ctx.page.id, %{hide_visits: false})
 
     assert {:ok, %{total: 2, viewers: [_], next_cursor: cursor}} =
              Insights.viewers(ctx.owner, ctx.page.id, %{limit: 1})
@@ -130,7 +121,7 @@ defmodule Ankole.Pod.DocumentInsightsTest do
              Insights.viewers(ctx.owner, ctx.page.id, %{limit: 1, cursor: cursor})
   end
 
-  test "readers control their own visibility but cannot list other readers", ctx do
+  test "readers can inspect insights and record visits while only editors list readers", ctx do
     alias Ankole.Pod.Documents.Insights
     reader = human_fixture().principal
 
@@ -140,13 +131,17 @@ defmodule Ankole.Pod.DocumentInsightsTest do
       })
 
     actor = actor_fixture(reader)
-    assert {:ok, _} = Pages.state(actor, ctx.page.id, %{visited: true, hide_visits: true})
+    assert {:ok, _} = Pages.state(actor, ctx.page.id, %{visited: true})
 
-    assert {:ok, %{can_view_readers: false, hide_visits: true}} =
-             Insights.read(actor, ctx.page.id)
+    assert {:ok, %{can_view_readers: false} = insights} = Insights.read(actor, ctx.page.id)
+    refute Map.has_key?(insights, :hide_visits)
 
     assert {:error, :forbidden} = Insights.viewers(actor, ctx.page.id)
-    assert {:ok, %{total: 0}} = Insights.viewers(ctx.owner, ctx.page.id)
+
+    assert {:ok, %{total: 1, viewers: [%{person: %{principal_uid: reader_uid}}]}} =
+             Insights.viewers(ctx.owner, ctx.page.id)
+
+    assert reader_uid == reader.uid
   end
 
   test "body and title edits share a session while new comments and replies count separately",

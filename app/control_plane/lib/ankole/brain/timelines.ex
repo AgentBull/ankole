@@ -19,6 +19,8 @@ defmodule Ankole.Brain.Timelines do
   Writes one timeline event in the caller's transaction.
 
   A subject is optional; the source node always determines visibility.
+  A batch writer can pass `reconcile: false` and reconcile the affected pages
+  once after the complete replacement.
   """
   @spec write_timeline_in_tx(map(), writer(), keyword()) ::
           {:ok, Timeline.t()} | {:error, term()}
@@ -42,11 +44,20 @@ defmodule Ankole.Brain.Timelines do
       }
 
       with {:ok, timeline} <- Ankole.Ash.create(Timeline, :record, row),
-           {:ok, _} <-
+           :ok <- reconcile(timeline, opts),
+           do: {:ok, timeline}
+    end
+  end
+
+  defp reconcile(timeline, opts) do
+    if Keyword.get(opts, :reconcile, true) do
+      with {:ok, _} <-
              Ankole.Brain.Chunks.reconcile_node_in_tx(
                timeline.subject_page_id || timeline.source_node_id
              ),
-           do: {:ok, timeline}
+           do: :ok
+    else
+      :ok
     end
   end
 

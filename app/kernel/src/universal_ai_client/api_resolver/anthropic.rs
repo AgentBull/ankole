@@ -7,6 +7,7 @@ const ANTHROPIC_REASONING_PREFIX: &str = "ankole-aigateway-anthropic-reasoning:"
 pub(super) struct AnthropicState {
     sequence: u64,
     response_id: Option<String>,
+    raw_message_id: Option<String>,
     model: Option<String>,
     message_item_id: Option<String>,
     message_output_index: Option<usize>,
@@ -22,6 +23,9 @@ pub(super) struct AnthropicState {
     usage: Value,
     stop_reason: Option<String>,
     terminal: bool,
+    terminal_status: Option<String>,
+    fallback_message_used: bool,
+    non_streaming_output: Option<Vec<Value>>,
     next_output_index: usize,
 }
 
@@ -30,6 +34,7 @@ impl AnthropicState {
         Self {
             sequence: 0,
             response_id: None,
+            raw_message_id: None,
             model: (!model.is_empty()).then_some(model),
             message_item_id: None,
             message_output_index: None,
@@ -45,6 +50,9 @@ impl AnthropicState {
             usage: Value::Null,
             stop_reason: None,
             terminal: false,
+            terminal_status: None,
+            fallback_message_used: false,
+            non_streaming_output: None,
             next_output_index: 0,
         }
     }
@@ -80,15 +88,23 @@ impl AnthropicState {
 
     fn message_start(&mut self, context: &ResponseContext, value: &Value) -> Vec<Value> {
         let message = value.get("message").unwrap_or(&Value::Null);
-        self.response_id = message
+        self.raw_message_id = message
             .get("id")
             .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(ToOwned::to_owned);
+        self.response_id = self
+            .raw_message_id
+            .clone()
             .or_else(|| Some(generated_id("resp")));
         if let Some(model) = message.get("model").and_then(Value::as_str) {
             self.model = Some(model.to_string());
         }
         if let Some(usage) = message.get("usage").filter(|value| value.is_object()) {
+            if has_anthropic_fallback_iteration(usage) {
+                self.fallback_message_used = true;
+            }
             self.usage = usage.clone();
         }
 
@@ -454,6 +470,9 @@ impl AnthropicState {
 
     fn message_delta(&mut self, value: &Value) {
         if let Some(usage) = value.get("usage").filter(|value| value.is_object()) {
+            if has_anthropic_fallback_iteration(usage) {
+                self.fallback_message_used = true;
+            }
             self.usage = merge_anthropic_usage(self.usage.clone(), usage);
         }
         if let Some(reason) = value
@@ -496,6 +515,7 @@ impl AnthropicState {
         }
 
         self.terminal = true;
+        self.terminal_status = Some(status.to_string());
         let mut events = Vec::new();
         if status == "completed" {
             if let (Some(item), Some(output_index)) = (
@@ -547,6 +567,7 @@ impl AnthropicState {
 
         let response = self.response_body(context, "failed", None, Some(error));
         self.terminal = true;
+        self.terminal_status = Some("failed".to_string());
         let failed = self.event("response.failed", json!({ "response": response }));
         vec![failed]
     }
@@ -675,22 +696,173 @@ impl APIProtocol for AnthropicState {
         status: u16,
         body: Value,
     ) -> Result<Value, StreamError> {
-        anthropic_body_to_response(
-            context,
-            provider_object_body(status, body, "Anthropic Messages")?,
-        )
+        let object_body = provider_object_body(status, body, "Anthropic Messages")?;
+        self.raw_message_id = object_body
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(ToOwned::to_owned);
+        if let Some(usage) = object_body.get("usage")
+            && has_anthropic_fallback_iteration(usage)
+        {
+            self.fallback_message_used = true;
+        }
+        let response = anthropic_body_to_response(context, object_body)?;
+        self.terminal = true;
+        self.terminal_status = response
+            .get("status")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        self.non_streaming_output = response.get("output").and_then(Value::as_array).cloned();
+        Ok(response)
     }
 
     fn is_terminal(&self) -> bool {
         self.terminal
     }
+
+    fn completion_metadata(
+        &self,
+        context: &ResponseContext,
+        provider_context: &ResponseContext,
+        lift_response: &dyn Fn(Value) -> Result<Value, StreamError>,
+    ) -> Option<Value> {
+        let has_thread_directive = context
+            .request
+            .get("__ankole_anthropic_thread")
+            .is_some_and(|v| !v.is_null());
+        if !has_thread_directive && !self.fallback_message_used {
+            return None;
+        }
+
+        let (effective_mode, prefix_mismatch_fallback) = if has_thread_directive {
+            match build_anthropic_body_with_thread_resolution(provider_context) {
+                Ok((_body, AnthropicThreadResolution::Continue)) => ("continue", false),
+                Ok((
+                    _body,
+                    AnthropicThreadResolution::Create {
+                        prefix_mismatch_fallback,
+                    },
+                )) => ("create", prefix_mismatch_fallback),
+                _ => ("unthreaded", false),
+            }
+        } else {
+            ("unthreaded", false)
+        };
+
+        let status = self.terminal_status.as_deref().unwrap_or("unknown");
+        let (next_prefix_count, next_prefix_digest) = if has_thread_directive
+            && status == "completed"
+            && !self.fallback_message_used
+            && self.raw_message_id.is_some()
+        {
+            self.compute_next_thread_prefix(context, lift_response)
+                .map(|(count, digest)| (json!(count), json!(digest)))
+                .unwrap_or((Value::Null, Value::Null))
+        } else {
+            (Value::Null, Value::Null)
+        };
+
+        Some(json!({
+            "anthropic_thread": {
+                "effective_mode": effective_mode,
+                "prefix_mismatch_fallback": prefix_mismatch_fallback,
+                "upstream_message_id": self.raw_message_id,
+                "status": status,
+                "fallback_message_used": self.fallback_message_used,
+                "next_prefix_count": next_prefix_count,
+                "next_prefix_digest": next_prefix_digest,
+            }
+        }))
+    }
+}
+
+impl AnthropicState {
+    fn compute_next_thread_prefix(
+        &self,
+        context: &ResponseContext,
+        lift_response: &dyn Fn(Value) -> Result<Value, StreamError>,
+    ) -> Option<(usize, String)> {
+        let raw_output = match &self.non_streaming_output {
+            Some(output) => output.clone(),
+            None => self
+                .response_body(context, "completed", None, None)
+                .get("output")
+                .and_then(Value::as_array)?
+                .clone(),
+        };
+        let lifted = lift_response(json!({ "output": raw_output })).ok()?;
+        let lifted_output = lifted.get("output").and_then(Value::as_array)?;
+        let mut combined_items = anthropic_replay_input_items(&context.request)?;
+        combined_items.extend(lifted_output.iter().cloned());
+
+        let mut next_request = context.request.as_object().cloned().unwrap_or_default();
+        next_request.remove("__ankole_anthropic_thread");
+        next_request.remove("messages");
+        next_request.insert("input".to_string(), Value::Array(combined_items));
+
+        let next_context = ResponseContext {
+            request: Value::Object(next_request),
+            ..context.clone()
+        };
+        let (_opaque, lowered_context) =
+            OpaqueToolFields::prepare(APIResolverKind::AnthropicMessages, &next_context).ok()?;
+        let body = build_anthropic_body(&lowered_context).ok()?;
+        let messages = body.get("messages").and_then(Value::as_array)?;
+        if messages.is_empty() {
+            return None;
+        }
+        Some((messages.len(), canonical_messages_digest(messages)))
+    }
+}
+
+fn anthropic_replay_input_items(request: &Value) -> Option<Vec<Value>> {
+    match request.get("input") {
+        Some(Value::Array(items)) => Some(items.clone()),
+        Some(Value::String(text)) => Some(vec![json!({
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": text}]
+        })]),
+        None | Some(Value::Null) => {
+            if request.get("messages").is_some() {
+                None
+            } else {
+                Some(Vec::new())
+            }
+        }
+        _other => None,
+    }
+}
+
+fn has_anthropic_fallback_iteration(usage: &Value) -> bool {
+    usage
+        .get("iterations")
+        .and_then(Value::as_array)
+        .is_some_and(|iterations| {
+            iterations.iter().any(|entry| {
+                entry.get("type").and_then(Value::as_str) == Some("fallback_message")
+                    || entry
+                        .get("fallback_message")
+                        .is_some_and(|value| !value.is_null() && value != false)
+            })
+        })
+}
+
+fn canonical_messages_digest(messages: &[Value]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    let _ = serde_json::to_writer(&mut hasher, messages);
+    hasher.finalize().to_hex().to_string()
 }
 
 // `model_context_window_exceeded` maps like `max_tokens`, matching
-// `bedrock_terminal` for the same Claude stop reason.
+// `bedrock_terminal` for the same Claude stop reason; `refusal` maps onto the
+// unified Responses safety/refusal incomplete reason `content_filter`.
 fn anthropic_terminal(stop_reason: &str) -> (&'static str, Option<&'static str>) {
     match stop_reason {
         "max_tokens" | "model_context_window_exceeded" => ("incomplete", Some("max_output_tokens")),
+        "refusal" => ("incomplete", Some("content_filter")),
         _reason => ("completed", None),
     }
 }
@@ -891,6 +1063,12 @@ fn thinking_blocks(content: &[Value]) -> Vec<Value> {
 }
 
 fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
+    build_anthropic_body_with_thread_resolution(context).map(|(body, _resolution)| body)
+}
+
+fn build_anthropic_body_with_thread_resolution(
+    context: &ResponseContext,
+) -> Result<(Map<String, Value>, AnthropicThreadResolution), StreamError> {
     let strict = context.policy() == ConversionPolicy::Strict;
     if strict
         && context
@@ -1054,7 +1232,79 @@ fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>,
     if strict {
         verify_strict_consumed(&request, &consumed, "Anthropic Messages")?;
     }
-    Ok(body)
+    let resolution = apply_anthropic_thread_directive(context, &mut body);
+    Ok((body, resolution))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnthropicThreadResolution {
+    Unthreaded,
+    Create { prefix_mismatch_fallback: bool },
+    Continue,
+}
+
+fn apply_anthropic_thread_directive(
+    context: &ResponseContext,
+    body: &mut Map<String, Value>,
+) -> AnthropicThreadResolution {
+    let Some(directive) = context
+        .request
+        .get("__ankole_anthropic_thread")
+        .and_then(Value::as_object)
+    else {
+        return AnthropicThreadResolution::Unthreaded;
+    };
+
+    match directive.get("mode").and_then(Value::as_str) {
+        Some("create") => {
+            body.insert("thread".to_string(), json!({ "type": "create" }));
+            AnthropicThreadResolution::Create {
+                prefix_mismatch_fallback: false,
+            }
+        }
+        Some("continue") => {
+            let previous_message_id = directive
+                .get("previous_message_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty());
+            let expected_count = directive
+                .get("expected_prefix_count")
+                .and_then(Value::as_u64)
+                .and_then(|count| usize::try_from(count).ok())
+                .filter(|&count| count > 0);
+            let expected_digest = directive
+                .get("expected_prefix_digest")
+                .and_then(Value::as_str)
+                .filter(|digest| !digest.is_empty());
+
+            if let (Some(previous_message_id), Some(expected_count), Some(expected_digest)) =
+                (previous_message_id, expected_count, expected_digest)
+                && let Some(messages) = body.get("messages").and_then(Value::as_array)
+                && messages.len() > expected_count
+                && canonical_messages_digest(&messages[..expected_count]) == expected_digest
+            {
+                let suffix = messages[expected_count..].to_vec();
+                body.insert("messages".to_string(), Value::Array(suffix));
+                body.remove("system");
+                body.remove("tools");
+                body.insert(
+                    "thread".to_string(),
+                    json!({
+                        "type": "continue",
+                        "previous_message_id": previous_message_id,
+                    }),
+                );
+                return AnthropicThreadResolution::Continue;
+            }
+
+            body.insert("thread".to_string(), json!({ "type": "create" }));
+            AnthropicThreadResolution::Create {
+                prefix_mismatch_fallback: true,
+            }
+        }
+        _other => AnthropicThreadResolution::Unthreaded,
+    }
 }
 
 pub(super) fn unexpressible_anthropic_field(field: impl std::fmt::Display) -> StreamError {

@@ -614,9 +614,16 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
         {"POST", "/sandboxes"} ->
           {body, conn} = body(conn)
           mount = Ankole.JSON.decode!(body["metadata"]["fc.sandbox.storage.oss"])
+          expected_path = "/ankole/" <> ProviderKind.storage_name("prod", @uid)
 
-          assert mount == fixture("oss_mount")
+          assert mount ==
+                   put_in(
+                     fixture("oss_mount"),
+                     ["mountPoints", Access.at(0), "bucketPath"],
+                     expected_path
+                   )
 
+          assert body["metadata"]["ankole.tenant"] == Repo.tenant_id!()
           assert body["metadata"]["ankole-task"] == "storage"
           refute Ankole.JSON.encode!(body) =~ "delete_storage"
           Process.put(:helper_metadata, body["metadata"])
@@ -672,6 +679,91 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
 
     assert {:pending, ^completed} = FunctionCompute.delete_storage(provider, @uid, completed)
     assert {:ok, nil} = FunctionCompute.delete_storage(provider, @uid, completed)
+  end
+
+  test "OSS workspaces and deletion helpers isolate identically named Agents across tenants and installations",
+       %{provider: provider} do
+    provider =
+      put_in(provider.settings["storage"], %{
+        "oss" => %{"bucket" => "test-bucket", "root" => "/ankole"}
+      })
+
+    other_tenant = Ankole.DataCase.create_tenant()
+    first_tenant_id = Repo.tenant_id!()
+
+    first_mount = FunctionCompute.Storage.mounts(provider, @uid)
+
+    first_bucket_path =
+      Ankole.JSON.decode!(first_mount.metadata["fc.sandbox.storage.oss"])["mountPoints"]
+      |> hd()
+      |> Map.fetch!("bucketPath")
+
+    assert first_bucket_path == "/ankole/" <> ProviderKind.storage_name("prod", @uid)
+
+    other_installation = put_in(provider.runtime.installation, "staging")
+    other_mount = FunctionCompute.Storage.mounts(other_installation, @uid)
+
+    other_bucket_path =
+      Ankole.JSON.decode!(other_mount.metadata["fc.sandbox.storage.oss"])["mountPoints"]
+      |> hd()
+      |> Map.fetch!("bucketPath")
+
+    assert other_bucket_path == "/ankole/" <> ProviderKind.storage_name("staging", @uid)
+    refute first_bucket_path == other_bucket_path
+
+    stub(fn conn ->
+      if conn.request_path == "/pop/2026-08-20/templates",
+        do:
+          Req.Test.json(conn, %{
+            "templates" => [
+              template(provider, provider.runtime.image),
+              template(other_installation, other_installation.runtime.image)
+            ]
+          }),
+        else: Req.Test.json(conn, %{})
+    end)
+
+    assert {:pending, %{"request" => first_delete_req}} =
+             FunctionCompute.delete_storage(provider, @uid, nil)
+
+    assert {:pending, %{"request" => other_delete_req}} =
+             FunctionCompute.delete_storage(other_installation, @uid, nil)
+
+    {second_bucket_path, second_delete_req} =
+      Repo.with_tenant(other_tenant.id, fn ->
+        second_mount = FunctionCompute.Storage.mounts(provider, @uid)
+
+        bucket_path =
+          Ankole.JSON.decode!(second_mount.metadata["fc.sandbox.storage.oss"])["mountPoints"]
+          |> hd()
+          |> Map.fetch!("bucketPath")
+
+        assert bucket_path == "/ankole/" <> ProviderKind.storage_name("prod", @uid)
+
+        assert {:pending, %{"request" => req}} =
+                 FunctionCompute.delete_storage(provider, @uid, nil)
+
+        {bucket_path, req}
+      end)
+
+    refute first_bucket_path == second_bucket_path
+    refute other_bucket_path == second_bucket_path
+    assert first_delete_req["metadata"]["ankole.tenant"] == first_tenant_id
+    assert other_delete_req["metadata"]["ankole.tenant"] == first_tenant_id
+    assert other_delete_req["metadata"]["ankole-installation"] == "staging"
+    assert second_delete_req["metadata"]["ankole.tenant"] == other_tenant.id
+
+    for {request, bucket_path} <- [
+          {first_delete_req, first_bucket_path},
+          {other_delete_req, other_bucket_path},
+          {second_delete_req, second_bucket_path}
+        ] do
+      mount = Ankole.JSON.decode!(request["metadata"]["fc.sandbox.storage.oss"])
+      assert hd(mount["mountPoints"])["bucketPath"] == bucket_path
+    end
+
+    refute first_delete_req["metadata"]["ankole-agent"] ==
+             second_delete_req["metadata"]["ankole-agent"]
   end
 
   test "file quota errors name their YAML path and VPC changes preserve storage", %{

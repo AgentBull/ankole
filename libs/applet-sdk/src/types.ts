@@ -266,6 +266,16 @@ export type RunsAPI = {
   subscribe(runID: number, callback: (event: { access_revoked?: boolean }) => void): () => void
 }
 export type AppletTheme = 'light' | 'dark'
+export type AppletRevision = number | `draft:${string}`
+export type TableBinding = {
+  tableId: string | null
+  fields: Record<string, string | null>
+  status: 'ready' | 'missing_table' | 'missing_fields'
+  missing: string[]
+  required?: boolean
+  description?: string | null
+}
+export type AppletBindings = Record<string, TableBinding>
 export type AppletRuntime = {
   pageID: string
   /** The Applet Page's current title; renaming the Page renders the Applet again with the new title. */
@@ -274,7 +284,10 @@ export type AppletRuntime = {
   embedded: boolean
   instanceID: string
   actions: readonly ('node_view' | 'node_comment' | 'node_contribute' | 'node_edit' | 'node_manage')[]
-  revision: number
+  revision: AppletRevision
+  bindings?: AppletBindings
+  bindingsDigest?: string
+  embedProps?: Record<string, unknown>
   routes: RoutesAPI
   runs: RunsAPI
   queryClient: QueryClient

@@ -106,7 +106,7 @@ defmodule Ankole.AgentWorkers.InboundDispatcher do
                safely(fn ->
                  request
                  |> RPCLane.handle_request(connection)
-                 |> send_rpc_response(connection)
+                 |> send_rpc_response(connection, reply_to)
                end)
 
              if match?({:error, _}, result), do: rpc_failed(reply_to, request.request_id)
@@ -146,15 +146,26 @@ defmodule Ankole.AgentWorkers.InboundDispatcher do
     :ok
   end
 
-  defp send_rpc_response({:ok, response}, connection) do
+  defp send_rpc_response({:ok, response}, connection, reply_to) do
     response
-    |> then(&WorkerRoute.push(connection, &1))
+    |> push_rpc_reply(connection, reply_to)
     |> log_result("rpc_response", connection.transport_route)
   end
 
-  defp send_rpc_response({:error, reason}, connection) do
+  defp send_rpc_response({:error, reason}, connection, _reply_to) do
     log_result({:error, reason}, "rpc_request", connection.transport_route)
   end
+
+  defp push_rpc_reply(response, connection, %{channel: channel}) when is_pid(channel) do
+    try do
+      GenServer.call(channel, {:push, response}, 15_000)
+    catch
+      :exit, _reason -> WorkerRoute.push(connection, response)
+    end
+  end
+
+  defp push_rpc_reply(response, connection, _reply_to),
+    do: WorkerRoute.push(connection, response)
 
   defp log_result({:ok, _result} = result, _type, _route), do: result
 

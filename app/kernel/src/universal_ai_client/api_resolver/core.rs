@@ -105,6 +105,15 @@ pub trait APIProtocol: std::fmt::Debug + Send + Sync {
     fn is_terminal(&self) -> bool {
         false
     }
+
+    fn completion_metadata(
+        &self,
+        _context: &ResponseContext,
+        _provider_context: &ResponseContext,
+        _lift_response: &dyn Fn(Value) -> Result<Value, StreamError>,
+    ) -> Option<Value> {
+        None
+    }
 }
 
 impl APIResolver {
@@ -148,7 +157,8 @@ impl APIResolver {
     pub fn ingest(&mut self, value: Value) -> Result<Vec<Value>, StreamError> {
         self.check_prepared()?;
         let events = self.protocol.on_provider_event(&self.context, value)?;
-        self.opaque_tool_fields.lift_events(events)
+        let lifted = self.opaque_tool_fields.lift_events(events)?;
+        Ok(self.attach_terminal_metadata(lifted))
     }
 
     pub fn on_done_sentinel(&mut self) -> Result<(), StreamError> {
@@ -160,7 +170,8 @@ impl APIResolver {
     pub fn finish(&mut self) -> Result<Vec<Value>, StreamError> {
         self.check_prepared()?;
         let events = self.protocol.on_upstream_close(&self.context)?;
-        self.opaque_tool_fields.lift_events(events)
+        let lifted = self.opaque_tool_fields.lift_events(events)?;
+        Ok(self.attach_terminal_metadata(lifted))
     }
 
     pub fn is_terminal(&self) -> bool {
@@ -213,6 +224,37 @@ impl APIResolver {
 
     pub(crate) fn provider_exception_status(&self, exception_type: &str) -> Option<u16> {
         self.protocol.provider_exception_status(exception_type)
+    }
+
+    pub fn completion_metadata(&self) -> Option<Value> {
+        let lift = |response: Value| self.opaque_tool_fields.lift_response(response);
+        self.protocol
+            .completion_metadata(&self.context, &self.provider_context, &lift)
+    }
+
+    fn attach_terminal_metadata(&self, mut events: Vec<Value>) -> Vec<Value> {
+        let has_terminal = events.iter().any(|event| {
+            matches!(
+                event.get("type").and_then(Value::as_str),
+                Some("response.completed" | "response.incomplete" | "response.failed")
+            )
+        });
+        if !has_terminal {
+            return events;
+        }
+        let Some(metadata) = self.completion_metadata() else {
+            return events;
+        };
+        for event in &mut events {
+            if matches!(
+                event.get("type").and_then(Value::as_str),
+                Some("response.completed" | "response.incomplete" | "response.failed")
+            ) && let Some(obj) = event.as_object_mut()
+            {
+                obj.insert("__ankole_resolver_metadata".to_string(), metadata.clone());
+            }
+        }
+        events
     }
 
     fn check_prepared(&self) -> Result<(), StreamError> {

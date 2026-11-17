@@ -1,4 +1,4 @@
-import { useMutation, Link } from '../tenant-context'
+import { useBoundTenantID, useMutation, Link } from '../tenant-context'
 import type { AIGatewayModelCatalogEntry } from '../state/provider-settings'
 import { recordValue } from '@agentbull/active-support'
 import { Skeleton, toast } from '@ankole/uikit'
@@ -97,17 +97,25 @@ function profileSourceBadge(t: TFunction, source: ReturnType<typeof profileSourc
   }
 }
 
-async function deleteProfileOverride(target: ModelProfileTarget, profile: ProfileName) {
+async function deleteProfileOverride(
+  target: ModelProfileTarget,
+  profile: ProfileName,
+  headers?: Record<string, string>
+) {
   if ('agentUID' in target) {
-    return (await deleteAgentModelProfile({ path: { agent_uid: target.agentUID, profile }, throwOnError: true })).data
+    return (
+      await deleteAgentModelProfile({ path: { agent_uid: target.agentUID, profile }, headers, throwOnError: true })
+    ).data
   }
   if ('systemUID' in target) {
-    return (await deleteSystemModelProfile({ path: { uid: target.systemUID, profile }, throwOnError: true })).data
+    return (await deleteSystemModelProfile({ path: { uid: target.systemUID, profile }, headers, throwOnError: true }))
+      .data
   }
   return (
     await deleteDefaultModelProfile({
       path: { profile },
       query: { defaults_scope: target.defaultsScope },
+      headers: target.defaultsScope === 'tenant' ? headers : undefined,
       throwOnError: true
     })
   ).data
@@ -135,21 +143,24 @@ export function RestoreAllInheritanceButton({
   const overrides = layerOverrides(configuration)
   const count = overrides.profiles.length + overrides.hosted.length
   const restore = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (options?: { headers?: Record<string, string> }) => {
+      const headers = options?.headers
       const submissions = overrides.profiles.map(profile => [profile, model.submission(profile)] as const)
       let latest: ListAgentModelProfilesResponse | undefined
-      for (const [profile] of submissions) latest = await deleteProfileOverride(target, profile)
+      for (const [profile] of submissions) latest = await deleteProfileOverride(target, profile, headers)
       if (overrides.hosted.length > 0) {
         const reset = Object.fromEntries(overrides.hosted.map(capability => [capability, null]))
         if ('agentUID' in target) {
           await putAgentProviderHosted({
             path: { agent_uid: target.agentUID },
             body: { data: reset },
+            headers,
             throwOnError: true
           })
         } else if ('defaultsScope' in target) {
           await putDefaultProviderHosted({
             body: { data: { defaults_scope: target.defaultsScope, ...reset } },
+            headers: target.defaultsScope === 'tenant' ? headers : undefined,
             throwOnError: true
           })
         }
@@ -344,17 +355,23 @@ export function ProfileEditor({
 }) {
   useSignals()
   const { t } = useTranslation()
+  const boundTenantID = useBoundTenantID()
   const signals = model.profiles[profile]
   const draft = signals.draft.value
   const hasOverride = Object.hasOwn(configuration.overrides, profile)
   const [existingScans, setExistingScans] = useState<{ unread: UnreadScans | undefined } | null>(null)
   const persist = useMutation({
-    mutationFn: async (input: ProfilePersistence) => {
-      if (input.action === 'cleared') return deleteProfileOverride(target, profile)
+    mutationFn: async (input: ProfilePersistence & { headers?: Record<string, string> }) => {
+      if (input.action === 'cleared') return deleteProfileOverride(target, profile, input.headers)
 
       if ('agentUID' in target) {
         const path = { agent_uid: target.agentUID, profile }
-        const response = await putAgentModelProfile({ path, body: { data: { attrs: input.body } }, throwOnError: true })
+        const response = await putAgentModelProfile({
+          path,
+          body: { data: { attrs: input.body } },
+          headers: input.headers,
+          throwOnError: true
+        })
         return response.data
       }
 
@@ -363,6 +380,7 @@ export function ProfileEditor({
         const response = await putSystemModelProfile({
           path,
           body: { data: { attrs: input.body } },
+          headers: input.headers,
           throwOnError: true
         })
         return response.data
@@ -371,6 +389,7 @@ export function ProfileEditor({
       const response = await putDefaultModelProfile({
         path: { profile },
         body: { data: { defaults_scope: target.defaultsScope, attrs: input.body } },
+        headers: target.defaultsScope === 'tenant' ? input.headers : undefined,
         throwOnError: true
       })
       return response.data
@@ -385,7 +404,7 @@ export function ProfileEditor({
     // OCR costs money for every page, so the scans uploaded before this model wait for an explicit answer.
     // Nothing is asked when reading them is already on, or when no scan is waiting and none is still being listed.
     if (profile === 'ocr' && input.action === 'saved' && 'defaultsScope' in target) {
-      void ocrExistingScansQuestion(target.defaultsScope).then(
+      void ocrExistingScansQuestion(target.defaultsScope, boundTenantID).then(
         question => {
           const waiting = !question.unread || question.unread.files > 0 || question.unread.counting
           if (!question.enabled && waiting) setExistingScans({ unread: question.unread })

@@ -95,7 +95,7 @@ test('a rejected oversized batch does not change the editor or its history', () 
   const editor = open('before')
   const state = editor.state
   const raw = state.update({ changes: { from: 1, insert: [Leaf.text('a'.repeat(limits.source))] } })
-  expect(() => preparePageUpdate(raw)).toThrow('源码超过')
+  expect(() => preparePageUpdate(raw)).toThrow('source_too_large')
   expect(editor.state).toBe(state)
   expect(undo(editor)).toBe(false)
 })

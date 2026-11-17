@@ -5,11 +5,15 @@ defmodule AnkoleWeb.Plugs.BrowserCSRF do
   alias AnkoleWeb.Session, as: WebSession
 
   @impl Plug
-  def init(opts), do: Plug.CSRFProtection.init(opts)
+  def init(opts) do
+    {bearer_paths, opts} = Keyword.pop(opts, :bearer_paths, [])
+
+    {Plug.CSRFProtection.init(opts), ["/api/v2/pod/", "/pod/applet-frame/" | bearer_paths]}
+  end
 
   @impl Plug
-  def call(conn, fallback) do
-    if bearer_pod_request?(conn) do
+  def call(conn, {fallback, bearer_paths}) do
+    if bearer_pod_request?(conn, bearer_paths) do
       conn
     else
       verify_browser_csrf(conn, fallback)
@@ -41,13 +45,10 @@ defmodule AnkoleWeb.Plugs.BrowserCSRF do
 
   # OIDC Bearer requests to Pod APIs do not read browser cookies and never fall
   # back to cookie authentication in RequirePodSession or BrowserAuth.
-  defp bearer_pod_request?(conn) do
+  defp bearer_pod_request?(conn, bearer_paths) do
     match?(["Bearer " <> token] when token != "", get_req_header(conn, "authorization")) and
-      (String.starts_with?(conn.request_path, [
-         "/api/v2/pod/",
-         "/api/v2/saas-pod/",
-         "/pod/applet-frame/"
-       ]) or (conn.method == "GET" and conn.request_path == "/api/v2/browser/session"))
+      (String.starts_with?(conn.request_path, bearer_paths) or
+         (conn.method == "GET" and conn.request_path == "/api/v2/browser/session"))
   end
 
   defp protected?(conn),

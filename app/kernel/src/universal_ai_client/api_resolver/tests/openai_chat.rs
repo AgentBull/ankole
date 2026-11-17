@@ -1638,7 +1638,7 @@ fn openai_chat_strict_rejects_unconsumed_responses_fields() {
     for unexpressible in [
         json!({"model": "gpt-4o", "input": "hi", "truncation": "auto"}),
         json!({"model": "gpt-4o", "input": "hi", "previous_response_id": "resp_123"}),
-        json!({"model": "gpt-4o", "input": "hi", "prompt_cache_key": "k"}),
+        json!({"model": "gpt-4o", "input": "hi", "prompt_cache_key": 123}),
         json!({"model": "gpt-4o", "input": "hi", "prompt_cache_retention": "24h"}),
         json!({"model": "gpt-4o", "input": "hi", "reasoning": {"summary": "auto"}}),
         json!({"model": "gpt-4o", "input": "hi", "response_format": "json_object"}),
@@ -1680,6 +1680,42 @@ fn openai_chat_strict_rejects_unconsumed_responses_fields() {
     );
     let body = Value::Object(valid_effort.build_body().unwrap());
     assert_eq!(body["reasoning_effort"], "high");
+
+    let forwarded_cache_key = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "gpt-4o".to_string(),
+            request: json!({
+                "model": "gpt-4o",
+                "input": "hi",
+                "prompt_cache_key": "conv_123"
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+            policy: ConversionPolicy::Strict,
+        },
+    );
+    let forwarded_body = Value::Object(forwarded_cache_key.build_body().unwrap());
+    assert_eq!(forwarded_body["prompt_cache_key"], "conv_123");
+
+    let overridden_cache_key = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "gpt-4o".to_string(),
+            request: json!({
+                "model": "gpt-4o",
+                "input": "hi",
+                "prompt_cache_key": "conv_123"
+            }),
+            provider_options: json!({"prompt_cache_key": "override_key"}),
+            stream: None,
+            include_model: true,
+            policy: ConversionPolicy::Strict,
+        },
+    );
+    let overridden_body = Value::Object(overridden_cache_key.build_body().unwrap());
+    assert_eq!(overridden_body["prompt_cache_key"], "override_key");
 }
 
 #[test]
@@ -1769,4 +1805,139 @@ fn chat_skips_null_token_limits_and_uses_the_next_useful_key() {
     let body = resolver.build_body().unwrap();
     assert_eq!(body["max_tokens"], 128);
     assert!(body.get("max_output_tokens").is_none());
+}
+
+#[test]
+fn openai_chat_maps_content_filter_and_refusal_to_incomplete_across_one_shot_and_streaming() {
+    // 1. One-shot `finish_reason: "content_filter"` with empty content under Strict policy.
+    let mut filter_resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            policy: ConversionPolicy::Strict,
+            ..ResponseContext::default()
+        },
+    );
+    let filtered = filter_resolver
+        .normalize_body(
+            200,
+            json!({
+                "id": "chatcmpl_filtered",
+                "created": 10,
+                "model": "gpt-test",
+                "choices": [{
+                    "message": {"role": "assistant", "content": null},
+                    "finish_reason": "content_filter"
+                }],
+                "usage": {"prompt_tokens": 4, "completion_tokens": 0, "total_tokens": 4}
+            }),
+        )
+        .unwrap();
+    assert_eq!(filtered["status"], "incomplete");
+    assert_eq!(filtered["incomplete_details"]["reason"], "content_filter");
+    assert!(filtered["completed_at"].is_null());
+    assert_eq!(filtered["output"], json!([]));
+
+    // 2. One-shot `message.refusal` with `finish_reason: "stop"` extracts refusal content part and incomplete status.
+    let mut refusal_resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            policy: ConversionPolicy::Strict,
+            ..ResponseContext::default()
+        },
+    );
+    let refused = refusal_resolver
+        .normalize_body(
+            200,
+            json!({
+                "id": "chatcmpl_refusal",
+                "created": 11,
+                "model": "gpt-test",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "refusal": "I cannot assist with that request."
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12}
+            }),
+        )
+        .unwrap();
+    assert_eq!(refused["status"], "incomplete");
+    assert_eq!(refused["incomplete_details"]["reason"], "content_filter");
+    assert!(refused["completed_at"].is_null());
+    assert_eq!(refused["output"][0]["status"], "incomplete");
+    assert_eq!(
+        refused["output"][0]["content"],
+        json!([{"type": "refusal", "refusal": "I cannot assist with that request."}])
+    );
+
+    // 3. Streaming `delta.refusal` + `finish_reason: "stop"` emits refusal deltas and `response.incomplete`.
+    let mut stream_refusal = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            policy: ConversionPolicy::Strict,
+            ..ResponseContext::default()
+        },
+    );
+    let mut events = Vec::new();
+    events.extend(
+        stream_refusal
+            .ingest(json!({
+                "id": "chatcmpl_stream_refusal",
+                "created": 12,
+                "model": "gpt-test",
+                "choices": [{"delta": {"refusal": "I cannot "}, "finish_reason": null}]
+            }))
+            .unwrap(),
+    );
+    events.extend(
+        stream_refusal
+            .ingest(json!({
+                "choices": [{"delta": {"refusal": "help with that."}, "finish_reason": "stop"}]
+            }))
+            .unwrap(),
+    );
+    stream_refusal.on_done_sentinel().unwrap();
+    events.extend(stream_refusal.finish().unwrap());
+
+    assert!(events.iter().any(|e| e["type"] == "response.refusal.delta"));
+    assert!(events.iter().any(|e| e["type"] == "response.refusal.done"));
+    let terminal = events.last().unwrap();
+    assert_eq!(terminal["type"], "response.incomplete");
+    assert_eq!(terminal["response"]["status"], "incomplete");
+    assert_eq!(
+        terminal["response"]["incomplete_details"]["reason"],
+        "content_filter"
+    );
+    assert_eq!(
+        terminal["response"]["output"][0]["content"],
+        json!([{"type": "refusal", "refusal": "I cannot help with that."}])
+    );
+
+    // 4. Streaming `finish_reason: "content_filter"` without any text under Strict policy.
+    let mut stream_filter = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            policy: ConversionPolicy::Strict,
+            ..ResponseContext::default()
+        },
+    );
+    stream_filter
+        .ingest(json!({
+            "id": "chatcmpl_stream_filter",
+            "created": 13,
+            "model": "gpt-test",
+            "choices": [{"delta": {}, "finish_reason": "content_filter"}]
+        }))
+        .unwrap();
+    stream_filter.on_done_sentinel().unwrap();
+    let filter_events = stream_filter.finish().unwrap();
+    let filter_terminal = filter_events.last().unwrap();
+    assert_eq!(filter_terminal["type"], "response.incomplete");
+    assert_eq!(
+        filter_terminal["response"]["incomplete_details"]["reason"],
+        "content_filter"
+    );
 }

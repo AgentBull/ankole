@@ -162,15 +162,24 @@ defmodule Ankole.Sessions.Prompt do
   def peer_exchange?(%{origin_channel: %{access_scope: :agent_peer}}), do: true
   def peer_exchange?(_conversation), do: false
 
-  # A Human reads the replies of any other channel as chat. A Session without
-  # a channel has no chat reader, so it gets neither rule.
+  # A Human reads the replies of native channels as chat. External IM channels
+  # (im_dm, im_group) omit @chat_reply_policy and @peer_exchange_policy so normal
+  # chat stays concise without prompting Pod Page creation on routine Q&A. A
+  # Session without a channel gets neither rule.
   defp reply_policy(conversation) do
     cond do
       peer_exchange?(conversation) -> @peer_exchange_policy
+      external_im_channel?(conversation) -> ""
       is_map(Map.get(conversation, :origin_channel)) -> @chat_reply_policy
       true -> ""
     end
   end
+
+  defp external_im_channel?(%{origin_channel: %{kind: kind}})
+       when kind in ["im_dm", "im_group"],
+       do: true
+
+  defp external_im_channel?(_conversation), do: false
 
   defp block(name, assigns \\ []),
     do: render_template(name, assigns)
@@ -240,10 +249,11 @@ defmodule Ankole.Sessions.Prompt do
   @doc "The filesystem contract shared by the main Agent and native Job runtimes."
   def mounted_drive_instructions do
     """
-    Your Drive is mounted at /drive. Use ordinary shell and file tools to read, search, edit, and create files there. Public and AgentDrive are shared across your conversations; MyDrive appears for the current asker, and ChatDrive for the current conversation. Only accessible partitions and entries are visible.
+    Your Drive is mounted at /drive. Use ordinary shell and file tools to read, search, edit, and create files there. Public and AgentDrive are shared across your conversations; MyDrive appears for the current asker, and ChatDrive for the current conversation. Only accessible partitions and entries are visible. Pages shared directly from another person's Private section ("Shared with me") are not mounted under /drive; inspect or download them via pod_list_pages(scope: "shared") or ankole-pod pages.list '{"scope":"shared"}', ankole-pod pages.read, and ankole-pod files.download.
     Save durable files under /drive/AgentDrive or /drive/ChatDrive. reply_attachment accepts an absolute Drive path, including a local symlink to Drive, and flushes that file before delivery. A Job can return the Drive path to its caller.
     Drive projects the Page tree. An empty page is a directory; a page with content has a ._awiki.md knowledge file or ._adoc.md document file and a same-name directory for its children. ._abase/ is a Base and ._aapp/ is a read-only applet manifest. Keep document anchor comments intact. Applet publishing uses ankole-pod applet.
     Within a Base table, read .info/schema.json, .export/{csv,tsv,json,jsonl}, or rec_<id>.json; append rows to .import/append.csv or append.jsonl. Import slots reset to empty after upload. Record edits compare only the fields you changed.
+    Do not run unbounded find /drive; target a partition or directory such as /drive/Public, /drive/MyDrive, /drive/AgentDrive, or /drive/ChatDrive and bound depth with -maxdepth.
     fsync saves local cache bytes; command and Turn completion flush normal writes. Large batches continue in the background. If a write is rejected or conflicts, inspect the reported /drive-recovery file and resolve or report it. Use the local workspace for dependency installs and build intermediates.
     """
     |> String.trim()

@@ -14,6 +14,7 @@ pub fn bundled() -> &'static [&'static [u8]] {
     BUNDLED
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(super) static BUNDLED: &[&[u8]] = &[
     include_bytes!("../../assets/fonts/SourceSans3-Regular.ttf"),
     include_bytes!("../../assets/fonts/SourceSans3-Semibold.ttf"),
@@ -29,6 +30,9 @@ pub(super) static BUNDLED: &[&[u8]] = &[
     include_bytes!("../../assets/fonts/Inter-SemiBold.ttf"),
     include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf"),
 ];
+
+#[cfg(target_arch = "wasm32")]
+pub(super) static BUNDLED: &[&[u8]] = &[];
 
 #[derive(Clone)]
 pub(super) enum FontBytes {

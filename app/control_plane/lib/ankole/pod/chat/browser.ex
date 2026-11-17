@@ -58,6 +58,7 @@ defmodule Ankole.Pod.Chat.Browser do
     ]
   ]
   @selection [profile: [type: :string], activeProfile: [type: :string], profiles: @profiles]
+  @action_card_statuses Ankole.Conversations.ActionCard.statuses()
   @standalone_action_card [
     card_id: [type: UUIDv7, allow_nil?: false],
     interaction_id: [type: :string, allow_nil?: false],
@@ -65,13 +66,18 @@ defmodule Ankole.Pod.Chat.Browser do
     summary: [type: :string, allow_nil?: false, constraints: [trim?: false]],
     target_node_id: [type: UUIDv7],
     payload: [type: :map, allow_nil?: false],
-    status: [type: :string, allow_nil?: false],
+    status: [type: :atom, allow_nil?: false, constraints: [one_of: @action_card_statuses]],
+    can_recover: [type: :boolean, allow_nil?: false],
     resolved_by_uid: [type: PrincipalKey],
     resolved_by_name: [type: :string, constraints: [trim?: false]],
     resolved_at: [type: :string],
     resolution_note: [type: :string, constraints: [trim?: false]],
     conversation_id: [type: UUIDv7, allow_nil?: false],
-    conversation_kind: [type: :string, allow_nil?: false],
+    conversation_kind: [
+      type: :atom,
+      allow_nil?: false,
+      constraints: [one_of: [:native, :external]]
+    ],
     agent_uid: [type: PrincipalKey, allow_nil?: false]
   ]
 
@@ -613,6 +619,7 @@ defmodule Ankole.Pod.Chat.Browser do
       argument(:participantUIDs, {:array, PrincipalKey})
       argument(:roomMode, :atom, constraints: [one_of: [:dm, :group]])
       argument(:accessScope, :atom, constraints: [one_of: [:participants, :anchor_page]])
+      argument(:title, :string, constraints: [trim?: false, allow_empty?: true])
       argument(:text, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
       argument(:pageID, UUIDv7)
       argument(:modelProfile, :string)
@@ -756,13 +763,14 @@ defmodule Ankole.Pod.Chat.Browser do
       summary: value["summary"],
       target_node_id: value["target_node_id"],
       payload: value["payload"] || %{},
-      status: value["status"],
+      status: String.to_existing_atom(value["status"]),
+      can_recover: value["can_recover"] == true,
       resolved_by_uid: value["resolved_by_uid"],
       resolved_by_name: value["resolved_by_name"],
       resolved_at: value["resolved_at"],
       resolution_note: value["resolution_note"],
       conversation_id: value["conversation_id"],
-      conversation_kind: value["conversation_kind"],
+      conversation_kind: String.to_existing_atom(value["conversation_kind"]),
       agent_uid: value["agent_uid"]
     }
 
@@ -786,6 +794,7 @@ defmodule Ankole.Pod.Chat.Browser do
         participant_uids: attrs[:participantUIDs],
         room_mode: attrs[:roomMode],
         access_scope: attrs[:accessScope],
+        title: attrs[:title],
         page_id: attrs[:pageID],
         model_profile: attrs[:modelProfile]
       })

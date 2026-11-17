@@ -168,6 +168,8 @@ export function BrainSourcesPage() {
             <TableCell>
               {source.archived_at ? (
                 <Badge variant="outline">{t('console.brain.archived')}</Badge>
+              ) : source.attention_reason === 'default_scope_purged' ? (
+                <Badge variant="warning">{t('console.brain.attention_default_scope_purged')}</Badge>
               ) : (
                 <Badge variant="success">{t('console.brain.active')}</Badge>
               )}

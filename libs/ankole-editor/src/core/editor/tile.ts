@@ -14,7 +14,7 @@ import {
   getDecoSet
 } from './decoration'
 import { eqArray } from './util'
-import { textRange, singleRect, DOMNode, rmDOM } from './dom'
+import { textRange, singleRect, DOMNode, rmDOM, isElt, isText } from './dom'
 import { separateChange, Changes, isEmpty } from './changes'
 import { type CompositionInfo } from './input'
 import { type Wordgard } from './editor'
@@ -320,8 +320,8 @@ export class CompositeTile extends Tile {
         if (child instanceof WidgetTile && !child.widget.type.inFlow) continue
         let rects
         const { dom } = child
-        if (dom.nodeType == 1) rects = (dom as Element).getClientRects()
-        else if (dom.nodeType == 3) rects = textRange(dom as Text, 0, dom.nodeValue!.length).getClientRects()
+        if (isElt(dom)) rects = dom.getClientRects()
+        else if (isText(dom)) rects = textRange(dom, 0, dom.nodeValue!.length).getClientRects()
         else continue
         for (let i = 0; i < rects.length; i++) if (add(rects[i]!, child)) return
       }
@@ -359,8 +359,8 @@ export class CompositeTile extends Tile {
   posAtCoordsCol(start: number, state: GardState, x: number, y: number, textblock: TextblockMap | null): CoordPos {
     const lastBot = -1
     for (const child of this.children) {
-      if (child.isPoint || child.dom.nodeType != 1) continue
-      const rect = (child.dom as Element).getBoundingClientRect()
+      if (child.isPoint || !isElt(child.dom)) continue
+      const rect = child.dom.getBoundingClientRect()
       if (rect.top > y) return CoordPos.create(this.posBeforeChild(child, start), y > (lastBot + rect.top) / 2 ? 1 : -1)
       if (rect.bottom >= y) {
         return child.posAtCoordsInner(
@@ -780,7 +780,7 @@ export class EltTile extends CompositeTile {
 }
 
 function setUneditable(dom: Element | Text) {
-  if (dom.nodeType != 1) {
+  if (!isElt(dom)) {
     const span = document.createElement('span')
     span.appendChild(dom)
     dom = span
@@ -853,10 +853,9 @@ export class WidgetTile extends Tile {
     orientation: Orientation
   ): CoordPos {
     if (!this.tag) return CoordPos.create(start, 1)
-    const rect =
-      this.dom.nodeType == 1
-        ? (this.dom as Element).getBoundingClientRect()
-        : textRange(this.dom as Text, 0, this.length).getBoundingClientRect()
+    const rect = isElt(this.dom)
+      ? this.dom.getBoundingClientRect()
+      : textRange(this.dom as Text, 0, this.length).getBoundingClientRect()
     const after =
       orientation == Orientation.Col
         ? y > (rect.top + rect.bottom) / 2
@@ -1507,15 +1506,13 @@ class ContentUpdate {
   copyEltStructure(tile: EltTile): EltTile {
     this.reused.set(tile, Reused.DOM)
     const copy = EltTile.of(tile.elt, tile.tag, tile.flags, tile.boundary * 2, tile.dom)
-    if (tile.isNode) {
-      for (const child of tile.children) {
-        if (child.isNodeInner) {
-          if (child.flags & TileFlag.HasContent) {
-            copy.addChild(this.copyEltStructure(child as EltTile))
-          } else {
-            this.reused.set(child, Reused.Full)
-            copy.addChild(child)
-          }
+    for (const child of tile.children) {
+      if (child.isNodeInner) {
+        if (child.flags & TileFlag.HasContent) {
+          copy.addChild(this.copyEltStructure(child as EltTile))
+        } else {
+          this.reused.set(child, Reused.Full)
+          copy.addChild(child)
         }
       }
     }

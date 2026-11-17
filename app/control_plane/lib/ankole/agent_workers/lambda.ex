@@ -24,6 +24,7 @@ defmodule Ankole.AgentWorkers.Lambda do
       credentials:
         Map.new(~w(accessKeyId secretAccessKey sessionToken), &{&1, %{required: false}}),
       pause: true,
+      support_tier: :cloud_extension,
       max_instance_lifetime: 28_800,
       schema:
         C.object(

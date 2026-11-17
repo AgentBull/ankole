@@ -545,6 +545,94 @@ defmodule Ankole.Pod.JobsBoardTest do
            )["code"] == "job_not_found"
   end
 
+  test "a room member losing Agent chat permission can read runs but cannot stop them", ctx do
+    room = create_room!(ctx.uid, ctx.agent.uid)
+    source = Repo.get_by!(Signal, message_id: hd(room.messages).id)
+    viewer = Ankole.PrincipalsFixtures.human_fixture().principal
+    grant = Ankole.ConversationsFixtures.grant_chat(viewer.uid, ctx.agent.uid)
+
+    assert {:ok, _} =
+             Ankole.Conversations.NativeRoom.manage(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               room.conversation.id,
+               %{add_uids: [viewer.uid]}
+             )
+
+    viewer_conn = pod_conn_for_uid(ctx.conn, viewer.uid)
+
+    attrs = %{
+      "source_signal_id" => source.id,
+      "agent_uid" => ctx.agent.uid,
+      "owner_session_id" => source.session_id,
+      "reply_route" => %{"conversation_id" => room.conversation.id}
+    }
+
+    assert {:ok, %{job: job}} =
+             Ankole.SessionsCase.create_job_with_stub_driver(
+               Map.merge(attrs, %{
+                 "source_tool_call_id" => "permissions-job",
+                 "title" => "Review invoices",
+                 "task" => "Check invoice totals."
+               })
+             )
+
+    assert {:ok, %{run: workflow}} =
+             Workflow.create_with_dispatch(
+               Map.merge(attrs, %{
+                 "source_tool_call_id" => "permissions-workflow",
+                 "title" => "Parallel invoice review",
+                 "script" => "return null;",
+                 "concurrency" => 2,
+                 "max_agent_calls" => 4
+               })
+             )
+
+    Ankole.SessionsCase.stub_workflow_drivers(workflow)
+
+    for can_act? <- [true, false] do
+      unless can_act? do
+        :ok = Ankole.ConversationsFixtures.revoke_default_chat(ctx.agent.uid)
+        {:ok, _} = Ankole.AuthZ.delete_permission_grant(grant.id)
+      end
+
+      board = api_response(api_get(viewer_conn, "/api/v2/pod/jobs"), 200)["items"]
+
+      detail =
+        api_response(
+          api_get(viewer_conn, "/api/v2/pod/conversations/#{room.conversation.id}"),
+          200
+        )
+
+      for {kind, prefix, run} <- [
+            {"background_agent_job", "job", job},
+            {"workflow", "workflow", workflow}
+          ] do
+        card = Enum.find(board, &(&1["id"] == "#{prefix}:#{run.id}"))
+        assert card["stoppable"] == can_act?
+        assert card["manageable"] == can_act?
+        linked = Enum.find(detail["linkedRuns"], &(&1["id"] == to_string(run.id)))
+        assert linked["stoppable"] == can_act?
+
+        for base <- [
+              "/api/v2/pod/jobs",
+              "/api/v2/pod/conversations/#{room.conversation.id}"
+            ] do
+          execution_url = "#{base}/executions/#{kind}/#{run.id}"
+          execution = api_response(api_get(viewer_conn, execution_url), 200)
+          assert execution["stoppable"] == can_act?
+
+          unless can_act? do
+            assert %{"errors" => [%{"code" => "forbidden"}]} =
+                     api_response(api_post(viewer_conn, execution_url <> "/stop", %{}), 403)
+          end
+        end
+      end
+    end
+
+    assert BackgroundAgentJobs.get_job(job.id).status == :queued
+    assert Workflow.get_run!(workflow.id).status == :running
+  end
+
   test "completed limit applies per member visibility after folding continuations and cron runs, without evicting fresh failures",
        ctx do
     t0 = DateTime.add(DateTime.utc_now(:microsecond), -600, :second)

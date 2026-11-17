@@ -81,7 +81,7 @@ defmodule AnkoleWeb.Assets do
   # React Router still owns route matching and execution. These hints let the
   # browser fetch the current screen before the shell initializes the router.
   defp initial_route_chunks(%Plug.Conn{path_info: path}, entry, chunk, manifest)
-       when entry in ["pod", "saas-pod"] do
+       when entry == "pod" do
     key =
       case path do
         ["pages", _id] -> "pod/page-workspace.tsx"
@@ -246,7 +246,8 @@ defmodule AnkoleWeb.Assets do
     {"react-dom", "react-dom"},
     {"react-dom/client", "react-dom-client"},
     {"@ankole/applet-sdk", "applet-sdk"},
-    {"@ankole/uikit", "uikit"}
+    {"@ankole/uikit", "uikit"},
+    {"@ankole/uikit/icons", "uikit-icons"}
   ]
 
   @doc "Returns the import map, shared styles, and module preloads for an Applet document."
@@ -274,7 +275,9 @@ defmodule AnkoleWeb.Assets do
 
         preloads =
           chunks
-          |> Enum.reject(fn {name, _chunk} -> name == "react/jsx-dev-runtime" end)
+          |> Enum.reject(fn {name, _chunk} ->
+            name in ["react/jsx-dev-runtime", "@ankole/uikit/icons"]
+          end)
           |> Enum.flat_map(fn {_name, %{"file" => file} = chunk} ->
             [asset_path(file, base) | manifest_imports(chunk, manifest, base)]
           end)
@@ -310,7 +313,7 @@ defmodule AnkoleWeb.Assets do
 
   @doc """
   Returns the configured protocol-relative or origin static URL prefix (for example,
-  `"//ankole-static-files.cdn.agentbull.net"`), or `""` when static files load from
+  `"//static.example.com"`), or `""` when static files load from
   the current page origin.
   """
   @spec static_base() :: String.t()

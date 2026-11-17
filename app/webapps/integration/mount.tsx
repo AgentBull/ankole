@@ -1,4 +1,4 @@
-import { IdentityProviderEditorPage } from '../console/pages/identity'
+import { IdentityProviderEditorPage, IdentityProvidersListPage } from '../console/pages/identity'
 import { PrincipalDetailPage } from '../console/pages/principals'
 import { OIDCClientEditorPage } from '../console/pages/oidc-clients'
 import '@ankole/uikit/styles.css'
@@ -56,115 +56,122 @@ Object.assign(window, {
       .getAll()
       .map(row => row.state.status)
 })
+function buildConsoleTestApp() {
+  applyDataTenantNavigation()
+  configureConsoleAPIClient()
+  const rootRoute = createRootRoute()
+  const regressionNavRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    id: 'regression-nav',
+    component: RegressionNavigation
+  })
+  const settingsRoute = createRoute({
+    getParentRoute: () => regressionNavRoute,
+    path: '/settings',
+    component: SettingsPage
+  })
+  const brainNavRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    id: 'brain-nav',
+    component: BrainTestNavigation
+  })
+  const brainObjectsRoute = createRoute({
+    getParentRoute: () => brainNavRoute,
+    path: '/brain/objects',
+    component: BrainObjectsPage
+  })
+  const routeTree = rootRoute.addChildren([
+    createRoute({ getParentRoute: () => rootRoute, path: '/model-profiles', component: ModelProfilesPage }),
+    createRoute({ getParentRoute: () => rootRoute, path: '/agent-library', component: AgentLibraryPage }),
+    createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/agent-library/agent-plugins/$pluginID',
+      component: AgentPluginDetailPage
+    }),
+    regressionNavRoute.addChildren([
+      settingsRoute.addChildren([
+        createRoute({ getParentRoute: () => settingsRoute, path: 'group/$group', component: SettingGroupDrawer }),
+        createRoute({ getParentRoute: () => settingsRoute, path: '$key', component: SettingEditorDrawer })
+      ]),
+      createRoute({ getParentRoute: () => regressionNavRoute, path: '/tenants/new', component: TenantEditorPage }),
+      createRoute({
+        getParentRoute: () => regressionNavRoute,
+        path: '/tenants/$tenantID',
+        component: TenantEditorPage
+      }),
+      createRoute({
+        getParentRoute: () => regressionNavRoute,
+        path: '/worker-providers/$providerID',
+        component: WorkerProviderEditorPage
+      }),
+      createRoute({ getParentRoute: () => regressionNavRoute, path: '/webhooks', component: WebhooksPage }),
+      createRoute({ getParentRoute: () => regressionNavRoute, path: '/drive', component: AgentFilesPage }),
+      createRoute({ getParentRoute: () => regressionNavRoute, path: '/schedules', component: SchedulesListPage }),
+      createRoute({
+        getParentRoute: () => regressionNavRoute,
+        path: '/schedules/new',
+        component: ScheduleCronEditorPage
+      }),
+      createRoute({
+        getParentRoute: () => regressionNavRoute,
+        path: '/schedules/$agent/$cronID',
+        component: ScheduleCronEditorPage
+      }),
+      createRoute({ getParentRoute: () => regressionNavRoute, path: '/library/$uid', component: LibraryTestPage }),
+      createRoute({
+        getParentRoute: () => regressionNavRoute,
+        path: '/worker-env',
+        component: () => <WorkerEnvAgentSection agentUID="agent-one" />
+      })
+    ]),
+    createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/identity',
+      component: IdentityProvidersListPage
+    }),
+    createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/identity/$providerID',
+      component: IdentityProviderEditorPage
+    }),
+    createRoute({ getParentRoute: () => rootRoute, path: '/access/principals/$uid', component: PrincipalDetailPage }),
+    createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/oidc-clients/$clientID',
+      component: OIDCClientEditorPage
+    }),
+    createRoute({ getParentRoute: () => rootRoute, path: '/console-home', component: HomePage }),
+    createRoute({ getParentRoute: () => rootRoute, path: '/providers', component: ProvidersListPage }),
+    createRoute({ getParentRoute: () => rootRoute, path: '/providers/new', component: ProviderEditorPage }),
+    createRoute({ getParentRoute: () => rootRoute, path: '/providers/$providerID', component: ProviderEditorPage }),
+    brainNavRoute.addChildren([
+      brainObjectsRoute.addChildren([
+        createRoute({ getParentRoute: () => brainObjectsRoute, path: '/', component: () => null }),
+        createRoute({ getParentRoute: () => brainObjectsRoute, path: '$', component: BrainObjectDrawer })
+      ])
+    ])
+  ])
+  return (
+    <RouterProvider
+      router={createRouter({
+        routeTree,
+        parseSearch: parseRouterSearch,
+        stringifySearch: stringifyRouterSearch
+      })}
+    />
+  )
+}
+
 const PodApp = consoleSurface || setupSurface || loginSurface ? undefined : (await import('../pod/app')).PodApp
 const app = setupSurface ? (
   <SetupApp />
 ) : loginSurface ? (
   <LoginTestPage />
 ) : consoleSurface ? (
-  (() => {
-    applyDataTenantNavigation()
-    configureConsoleAPIClient()
-    const rootRoute = createRootRoute()
-    const regressionNavRoute = createRoute({
-      getParentRoute: () => rootRoute,
-      id: 'regression-nav',
-      component: RegressionNavigation
-    })
-    const settingsRoute = createRoute({
-      getParentRoute: () => regressionNavRoute,
-      path: '/settings',
-      component: SettingsPage
-    })
-    const brainNavRoute = createRoute({
-      getParentRoute: () => rootRoute,
-      id: 'brain-nav',
-      component: BrainTestNavigation
-    })
-    const brainObjectsRoute = createRoute({
-      getParentRoute: () => brainNavRoute,
-      path: '/brain/objects',
-      component: BrainObjectsPage
-    })
-    const routeTree = rootRoute.addChildren([
-      createRoute({ getParentRoute: () => rootRoute, path: '/model-profiles', component: ModelProfilesPage }),
-      createRoute({ getParentRoute: () => rootRoute, path: '/agent-library', component: AgentLibraryPage }),
-      createRoute({
-        getParentRoute: () => rootRoute,
-        path: '/agent-library/agent-plugins/$pluginID',
-        component: AgentPluginDetailPage
-      }),
-      regressionNavRoute.addChildren([
-        settingsRoute.addChildren([
-          createRoute({ getParentRoute: () => settingsRoute, path: 'group/$group', component: SettingGroupDrawer }),
-          createRoute({ getParentRoute: () => settingsRoute, path: '$key', component: SettingEditorDrawer })
-        ]),
-        createRoute({ getParentRoute: () => regressionNavRoute, path: '/tenants/new', component: TenantEditorPage }),
-        createRoute({
-          getParentRoute: () => regressionNavRoute,
-          path: '/tenants/$tenantID',
-          component: TenantEditorPage
-        }),
-        createRoute({
-          getParentRoute: () => regressionNavRoute,
-          path: '/worker-providers/$providerID',
-          component: WorkerProviderEditorPage
-        }),
-        createRoute({ getParentRoute: () => regressionNavRoute, path: '/webhooks', component: WebhooksPage }),
-        createRoute({ getParentRoute: () => regressionNavRoute, path: '/drive', component: AgentFilesPage }),
-        createRoute({ getParentRoute: () => regressionNavRoute, path: '/schedules', component: SchedulesListPage }),
-        createRoute({
-          getParentRoute: () => regressionNavRoute,
-          path: '/schedules/new',
-          component: ScheduleCronEditorPage
-        }),
-        createRoute({
-          getParentRoute: () => regressionNavRoute,
-          path: '/schedules/$agent/$cronID',
-          component: ScheduleCronEditorPage
-        }),
-        createRoute({ getParentRoute: () => regressionNavRoute, path: '/library/$uid', component: LibraryTestPage }),
-        createRoute({
-          getParentRoute: () => regressionNavRoute,
-          path: '/worker-env',
-          component: () => <WorkerEnvAgentSection agentUID="agent-one" />
-        })
-      ]),
-      createRoute({
-        getParentRoute: () => rootRoute,
-        path: '/identity/$providerID',
-        component: IdentityProviderEditorPage
-      }),
-      createRoute({ getParentRoute: () => rootRoute, path: '/access/principals/$uid', component: PrincipalDetailPage }),
-      createRoute({
-        getParentRoute: () => rootRoute,
-        path: '/oidc-clients/$clientID',
-        component: OIDCClientEditorPage
-      }),
-      createRoute({ getParentRoute: () => rootRoute, path: '/console-home', component: HomePage }),
-      createRoute({ getParentRoute: () => rootRoute, path: '/providers', component: ProvidersListPage }),
-      createRoute({ getParentRoute: () => rootRoute, path: '/providers/new', component: ProviderEditorPage }),
-      createRoute({ getParentRoute: () => rootRoute, path: '/providers/$providerID', component: ProviderEditorPage }),
-      brainNavRoute.addChildren([
-        brainObjectsRoute.addChildren([
-          createRoute({ getParentRoute: () => brainObjectsRoute, path: '/', component: () => null }),
-          createRoute({ getParentRoute: () => brainObjectsRoute, path: '$', component: BrainObjectDrawer })
-        ])
-      ])
-    ])
-    return (
-      <RouterProvider
-        router={createRouter({
-          routeTree,
-          parseSearch: parseRouterSearch,
-          stringifySearch: stringifyRouterSearch
-        })}
-      />
-    )
-  })()
-) : PodApp ? (
-  <PodApp />
-) : null
+  buildConsoleTestApp()
+) : (
+  ((PodApp && <PodApp />) ?? null)
+)
 createRoot(document.getElementById('root')!).render(<AppProviders queryClient={client}>{app}</AppProviders>)
 
 function RegressionNavigation() {

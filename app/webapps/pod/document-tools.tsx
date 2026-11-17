@@ -15,6 +15,7 @@ import {
   CopyRegular,
   DataHistogramRegular,
   DocumentPdfRegular,
+  DocumentWordRegular,
   HistoryRegular,
   MarkdownRegular,
   NumberSymbolRegular,
@@ -25,7 +26,6 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getPodRuntimeBootstrap, isDesktopRuntime } from '../common/pod-bootstrap'
 import { requestErrorMessage } from '../common/request-errors'
 import { type PageDetail } from './content-api'
 import { contentError } from './content-errors'
@@ -36,6 +36,7 @@ import {
   loadDocumentPrincipals,
   loadDocumentReferences
 } from './state/document-export'
+import { downloadDocumentAsOffice, type OfficeExportFormat } from './state/document-office-export'
 import type { DocumentToolsModel } from './state/document-tools-model'
 import type { DocumentDraftModel } from './state/document-draft'
 
@@ -106,19 +107,25 @@ export function DocumentMenuItems({
       toast.dismiss(pending)
     }
   }
-  const runtime = isDesktopRuntime() ? getPodRuntimeBootstrap() : undefined
-  const exportPDF = runtime?.onExportPDF
-    ? async () => {
-        const pending = toast.loading(t('pod.document.preparing_export'))
-        try {
-          await runtime.onExportPDF!(title.value || detail.page.title)
-        } catch (error) {
-          toast.error(requestErrorMessage(contentError(error)))
-        } finally {
-          toast.dismiss(pending)
-        }
-      }
-    : undefined
+  const downloadOffice = async (format: OfficeExportFormat) => {
+    const pending = toast.loading(t('pod.document.preparing_export'))
+    try {
+      await downloadDocumentAsOffice(
+        client,
+        {
+          pageID: detail.page.id,
+          xml: draft.xml.value,
+          title: title.value,
+          icon: detail.page.icon
+        },
+        format
+      )
+    } catch (error) {
+      toast.error(requestErrorMessage(contentError(error)))
+    } finally {
+      toast.dismiss(pending)
+    }
+  }
   return (
     <>
       <DropdownMenuSeparator />
@@ -157,12 +164,14 @@ export function DocumentMenuItems({
             <MarkdownRegular aria-hidden />
             Markdown
           </DropdownMenuItem>
-          {exportPDF && (
-            <DropdownMenuItem onClick={() => void exportPDF()}>
-              <DocumentPdfRegular aria-hidden />
-              PDF
-            </DropdownMenuItem>
-          )}
+          <DropdownMenuItem onClick={() => void downloadOffice('docx')}>
+            <DocumentWordRegular aria-hidden />
+            Word (.docx)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void downloadOffice('pdf')}>
+            <DocumentPdfRegular aria-hidden />
+            PDF (.pdf)
+          </DropdownMenuItem>
         </DropdownMenuSubContent>
       </DropdownMenuSub>
       <DropdownMenuSub>

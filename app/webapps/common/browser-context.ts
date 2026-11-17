@@ -47,7 +47,7 @@ export function devMailboxPath(): string | undefined {
 
 /**
  * Returns the optional CDN/static base prefix advertised by `<meta name="ankole-static-base">`
- * (for example `//ankole-static-files.cdn.agentbull.net`), or `""` when static assets resolve
+ * (for example `//cdn.example.com`), or `""` when static assets resolve
  * from the current document origin or local Desktop bundle.
  */
 export function staticAssetBase(): string {

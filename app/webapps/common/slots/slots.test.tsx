@@ -31,21 +31,29 @@ test('slot IDs reject duplicate and built-in claims', () => {
   expect(() => validateSlotIDs([{ id: 'fixture' }], ['general'])).not.toThrow()
 })
 
+test('Console modules contribute settings through the shared slot context', () => {
+  const settingGroups = [{ id: 'fixture', prefix: 'extension.fixture.' }]
+  const settingOwners = [{ key: 'extension.owner', route: '/extension/owner', label: 'fixture.owner' }]
+  const module = defineWebappModule({ console: { settingGroups } })
+  expect(resolveConsoleSlots({ settingOwners }, [module])).toEqual({ settingGroups, settingOwners })
+  expect(resolveConsoleSlots()).toEqual({})
+})
+
 test('Console slot declarations reject reserved routes', () => {
   const load = async () => ({ default: () => null })
   expect(() =>
     validateConsoleSlots({
-      routes: [{ id: 'custom', pluginId: 'saas', path: '/tenants/extra', scope: 'site', load }]
+      routes: [{ id: 'custom', pluginId: 'fixture', path: '/tenants/extra', scope: 'site', load }]
     })
   ).toThrow('Console route path')
 
   const routes = [
-    { id: 'codes', pluginId: 'saas', path: '/invitation-codes', scope: 'site' as const, load },
-    { id: 'codes-new', pluginId: 'saas', path: '/invitation-codes/new', scope: 'site' as const, load },
+    { id: 'items', pluginId: 'fixture', path: '/fixture-items', scope: 'site' as const, load },
+    { id: 'items-new', pluginId: 'fixture', path: '/fixture-items/new', scope: 'site' as const, load },
     {
-      id: 'codes-edit',
-      pluginId: 'saas',
-      path: '/invitation-codes/$codeID',
+      id: 'items-edit',
+      pluginId: 'fixture',
+      path: '/fixture-items/$itemID',
       scope: 'tenant' as const,
       load
     }
@@ -60,42 +68,48 @@ test('resolveConsoleSlots merges module routes, combines matching nav sections, 
   let secondVisible = true
 
   const modA = defineWebappModule({
-    id: 'relay',
+    id: 'fixture',
     console: {
       routes: [
-        { id: 'relay-upstreams', pluginId: 'relay', path: '/relay/upstreams', scope: 'site', load },
-        { id: 'relay-upstream-edit', pluginId: 'relay', path: '/relay/upstreams/$accountID', scope: 'site', load },
-        { id: 'relay-policies', pluginId: 'relay', path: '/relay/policies', scope: 'tenant', load },
+        { id: 'fixture-upstreams', pluginId: 'fixture', path: '/fixture/upstreams', scope: 'site', load },
         {
-          id: 'relay-policy-edit',
-          pluginId: 'relay',
-          path: '/relay/policies/$policyID',
+          id: 'fixture-upstream-edit',
+          pluginId: 'fixture',
+          path: '/fixture/upstreams/$accountID',
+          scope: 'site',
+          load
+        },
+        { id: 'fixture-policies', pluginId: 'fixture', path: '/fixture/policies', scope: 'tenant', load },
+        {
+          id: 'fixture-policy-edit',
+          pluginId: 'fixture',
+          path: '/fixture/policies/$policyID',
           scope: 'tenant',
-          collectionPath: '/relay/policies',
+          collectionPath: '/fixture/policies',
           load
         }
       ],
       navSections: [
         {
-          id: 'relay-section',
-          pluginId: 'relay',
-          label: 'relay.nav.group',
+          id: 'fixture-section',
+          pluginId: 'fixture',
+          label: 'fixture.nav.group',
           isVisible: () => firstVisible,
-          items: [{ id: 'relay-upstreams-nav', to: '/relay/upstreams', label: 'relay.nav.upstreams', icon: Icon }]
+          items: [{ id: 'fixture-upstreams-nav', to: '/fixture/upstreams', label: 'fixture.nav.upstreams', icon: Icon }]
         }
       ]
     }
   })
 
   const modB = defineWebappModule({
-    id: 'relay-extra',
+    id: 'fixture-extra',
     console: {
       navSections: [
         {
-          id: 'relay-section',
-          pluginId: 'relay',
+          id: 'fixture-section',
+          pluginId: 'fixture',
           isVisible: () => secondVisible,
-          items: [{ id: 'relay-policies-nav', to: '/relay/policies', label: 'relay.nav.policies', icon: Icon }]
+          items: [{ id: 'fixture-policies-nav', to: '/fixture/policies', label: 'fixture.nav.policies', icon: Icon }]
         }
       ]
     }
@@ -104,44 +118,47 @@ test('resolveConsoleSlots merges module routes, combines matching nav sections, 
   try {
     const resolved = resolveConsoleSlots(undefined, [modA, modB])
     expect(resolved.routes?.map(route => route.id)).toEqual([
-      'relay-upstreams',
-      'relay-upstream-edit',
-      'relay-policies',
-      'relay-policy-edit'
+      'fixture-upstreams',
+      'fixture-upstream-edit',
+      'fixture-policies',
+      'fixture-policy-edit'
     ])
     expect(resolved.navSections).toHaveLength(1)
-    expect(resolved.navSections?.[0]?.label).toBe('relay.nav.group')
-    expect(resolved.navSections?.[0]?.items.map(item => item.id)).toEqual(['relay-upstreams-nav', 'relay-policies-nav'])
+    expect(resolved.navSections?.[0]?.label).toBe('fixture.nav.group')
+    expect(resolved.navSections?.[0]?.items.map(item => item.id)).toEqual([
+      'fixture-upstreams-nav',
+      'fixture-policies-nav'
+    ])
     expect(resolved.navSections?.[0]?.isVisible?.()).toBe(true)
     secondVisible = false
     expect(resolved.navSections?.[0]?.isVisible?.()).toBe(false)
 
-    expect(consoleSlotPageKind({ path: '/relay/policies' })).toBe('collection')
-    expect(consoleSlotPageKind({ path: '/relay/policies/$policyID' })).toBe('record')
-    expect(consoleSlotPageKind({ path: '/relay/policies/new' })).toBe('record')
-    expect(consoleSlotPageKind({ path: '/relay/policies/$policyID', tenantPage: 'collection' })).toBe('collection')
+    expect(consoleSlotPageKind({ path: '/fixture/policies' })).toBe('collection')
+    expect(consoleSlotPageKind({ path: '/fixture/policies/$policyID' })).toBe('record')
+    expect(consoleSlotPageKind({ path: '/fixture/policies/new' })).toBe('record')
+    expect(consoleSlotPageKind({ path: '/fixture/policies/$policyID', tenantPage: 'collection' })).toBe('collection')
 
-    expect(consoleSlotTenantPage('/relay/upstreams')).toBe('site')
-    expect(consoleSlotTenantPage('/relay/upstreams/acct_01')).toBe('site')
-    expect(consoleSlotTenantPage('/relay/policies')).toBe('collection')
-    expect(consoleSlotTenantPage('/relay/policies/pol_01')).toBe('record')
-    expect(consoleSlotCollectionPath('/relay/upstreams/acct_01')).toBeUndefined()
-    expect(consoleSlotCollectionPath('/relay/policies/pol_01')).toBe('/relay/policies')
+    expect(consoleSlotTenantPage('/fixture/upstreams')).toBe('site')
+    expect(consoleSlotTenantPage('/fixture/upstreams/acct_01')).toBe('site')
+    expect(consoleSlotTenantPage('/fixture/policies')).toBe('collection')
+    expect(consoleSlotTenantPage('/fixture/policies/pol_01')).toBe('record')
+    expect(consoleSlotCollectionPath('/fixture/upstreams/acct_01')).toBeUndefined()
+    expect(consoleSlotCollectionPath('/fixture/policies/pol_01')).toBe('/fixture/policies')
   } finally {
     validateConsoleSlots({})
   }
 
   expect(() =>
     mergeConsoleSlots(
-      { navSections: [{ id: 'sec', pluginId: 'relay', label: 'a', items: [] }] },
-      { navSections: [{ id: 'sec', pluginId: 'relay', label: 'b', items: [] }] }
+      { navSections: [{ id: 'sec', pluginId: 'fixture', label: 'a', items: [] }] },
+      { navSections: [{ id: 'sec', pluginId: 'fixture', label: 'b', items: [] }] }
     )
   ).toThrow('Conflicting Console navSection label')
 
   expect(() =>
     mergeConsoleSlots(
-      { navSections: [{ id: 'sec', pluginId: 'relay', when: 'flag.a', items: [] }] },
-      { navSections: [{ id: 'sec', pluginId: 'relay', when: 'flag.b', items: [] }] }
+      { navSections: [{ id: 'sec', pluginId: 'fixture', when: 'flag.a', items: [] }] },
+      { navSections: [{ id: 'sec', pluginId: 'fixture', when: 'flag.b', items: [] }] }
     )
   ).toThrow('Conflicting Console navSection when flag')
 })
@@ -244,10 +261,10 @@ test('resolvePodSlots merges singular and plural account navigations and validat
     }
   })
   const modB = defineWebappModule({
-    id: 'relay',
+    id: 'fixture',
     pod: {
-      accountNavigations: [{ pluginId: 'relay', content: 'Relay Account' }],
-      settingsTabs: [{ id: 'relay-tab', pluginId: 'relay', labelKey: 'relay.tab', Component: LazyTab }]
+      accountNavigations: [{ pluginId: 'fixture', content: 'Fixture Account' }],
+      settingsTabs: [{ id: 'fixture-tab', pluginId: 'fixture', labelKey: 'fixture.tab', Component: LazyTab }]
     }
   })
 
@@ -255,12 +272,12 @@ test('resolvePodSlots merges singular and plural account navigations and validat
     modA,
     modB
   ])
-  expect(resolved.accountNavigations?.map(item => item.pluginId)).toEqual(['cloud', 'relay', 'override'])
-  expect(resolved.settingsTabs?.map(tab => tab.id)).toEqual(['cloud-tab', 'relay-tab'])
+  expect(resolved.accountNavigations?.map(item => item.pluginId)).toEqual(['cloud', 'fixture', 'override'])
+  expect(resolved.settingsTabs?.map(tab => tab.id)).toEqual(['cloud-tab', 'fixture-tab'])
 
   expect(() =>
     resolvePodSlots({
-      settingsTabs: [{ id: 'connectors', pluginId: 'relay', labelKey: 'relay.tab', Component: LazyTab }]
+      settingsTabs: [{ id: 'connectors', pluginId: 'fixture', labelKey: 'fixture.tab', Component: LazyTab }]
     })
   ).toThrow('reserved slot ID: connectors')
 
@@ -277,13 +294,13 @@ test('editionWebappModules and prepareEditionModules discover modules in SaaS an
     expect(readFileSync(emptyRegistry, 'utf8')).toContain('export const editionModules = [] as const')
 
     const webappsDir = path.join(tempRoot, 'webapps')
-    const relayDir = path.join(webappsDir, 'modules/relay')
-    const pluginDir = path.join(tempRoot, 'plugins/billing/webapps')
+    const fixtureDir = path.join(webappsDir, 'modules/fixture')
+    const pluginDir = path.join(tempRoot, 'plugins/beta/webapps')
     const customFile = path.join(webappsDir, 'custom-ext.tsx')
-    mkdirSync(relayDir, { recursive: true })
+    mkdirSync(fixtureDir, { recursive: true })
     mkdirSync(pluginDir, { recursive: true })
 
-    writeFileSync(path.join(relayDir, 'extension.tsx'), 'export default {}\n')
+    writeFileSync(path.join(fixtureDir, 'extension.tsx'), 'export default {}\n')
     writeFileSync(path.join(pluginDir, 'extension.ts'), 'export default {}\n')
     writeFileSync(customFile, 'export default {}\n')
     writeFileSync(
@@ -294,8 +311,8 @@ test('editionWebappModules and prepareEditionModules discover modules in SaaS an
     const discovered = editionWebappModules(tempRoot, 'saas')
     expect(discovered).toEqual([
       { id: 'alpha', file: customFile },
-      { id: 'billing', file: path.join(pluginDir, 'extension.ts') },
-      { id: 'relay', file: path.join(relayDir, 'extension.tsx') }
+      { id: 'beta', file: path.join(pluginDir, 'extension.ts') },
+      { id: 'fixture', file: path.join(fixtureDir, 'extension.tsx') }
     ])
 
     const populatedRegistry = path.join(tempRoot, 'populated-edition-modules.gen.ts')
@@ -303,16 +320,16 @@ test('editionWebappModules and prepareEditionModules discover modules in SaaS an
     const generatedText = readFileSync(populatedRegistry, 'utf8')
     expect(generatedText).toContain(`import module0 from ${JSON.stringify(customFile)}`)
     expect(generatedText).toContain('id: entry0.id ?? "alpha"')
-    expect(generatedText).toContain('id: entry2.id ?? "relay"')
+    expect(generatedText).toContain('id: entry2.id ?? "fixture"')
 
-    writeFileSync(path.join(relayDir, 'extension.ts'), 'export default {}\n')
+    writeFileSync(path.join(fixtureDir, 'extension.ts'), 'export default {}\n')
     expect(() => editionWebappModules(tempRoot, 'saas')).toThrow('Multiple extension entrypoints')
-    rmSync(path.join(relayDir, 'extension.ts'))
+    rmSync(path.join(fixtureDir, 'extension.ts'))
 
-    const duplicatePluginDir = path.join(tempRoot, 'plugins/relay/webapps')
+    const duplicatePluginDir = path.join(tempRoot, 'plugins/fixture/webapps')
     mkdirSync(duplicatePluginDir, { recursive: true })
     writeFileSync(path.join(duplicatePluginDir, 'extension.tsx'), 'export default {}\n')
-    expect(() => editionWebappModules(tempRoot, 'saas')).toThrow('Duplicate webapp module: relay')
+    expect(() => editionWebappModules(tempRoot, 'saas')).toThrow('Duplicate webapp module: fixture')
   } finally {
     rmSync(tempRoot, { recursive: true, force: true })
   }
@@ -342,14 +359,14 @@ test('active Plugin slots use the mounted snapshot and official SDK conditions',
 test('editionWebappModules discovers generated extension.gen.ts entrypoints and rejects mixed duplicates', () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'ankole-edition-gen-'))
   try {
-    const genDir = path.join(tempRoot, 'plugins/relay_saas/webapps')
+    const genDir = path.join(tempRoot, 'plugins/generated_fixture/webapps')
     mkdirSync(genDir, { recursive: true })
-    writeFileSync(path.join(genDir, 'extension.gen.ts'), 'export default { id: "relay_saas" }\n')
+    writeFileSync(path.join(genDir, 'extension.gen.ts'), 'export default { id: "generated_fixture" }\n')
 
     const discovered = editionWebappModules(tempRoot, 'saas')
-    expect(discovered).toEqual([{ id: 'relay_saas', file: path.join(genDir, 'extension.gen.ts') }])
+    expect(discovered).toEqual([{ id: 'generated_fixture', file: path.join(genDir, 'extension.gen.ts') }])
 
-    writeFileSync(path.join(genDir, 'extension.ts'), 'export default { id: "relay_saas" }\n')
+    writeFileSync(path.join(genDir, 'extension.ts'), 'export default { id: "generated_fixture" }\n')
     expect(() => editionWebappModules(tempRoot, 'saas')).toThrow('Multiple extension entrypoints')
   } finally {
     rmSync(tempRoot, { recursive: true, force: true })

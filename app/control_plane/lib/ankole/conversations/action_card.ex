@@ -18,12 +18,24 @@ defmodule Ankole.Conversations.ActionCard do
     pod.base.delete_table
     conversation.add_participants
     library.skill.save
+    connectors.tool.call
   )
 
-  @statuses [:prepared, :executed, :stale, :cancelled]
+  @statuses [
+    :prepared,
+    :executing,
+    :executed,
+    :execution_uncertain,
+    :failed,
+    :stale,
+    :cancelled
+  ]
+  @terminal_statuses [:executed, :execution_uncertain, :failed, :stale, :cancelled]
 
   def action_kinds, do: @action_kinds
   def statuses, do: @statuses
+  def terminal_statuses, do: @terminal_statuses
+  def terminal_status?(status), do: status in @terminal_statuses
 
   postgres do
     table("conversation_action_cards")
@@ -44,6 +56,8 @@ defmodule Ankole.Conversations.ActionCard do
       check_constraint(:action_kind, "conversation_action_cards_action_kind_check")
       check_constraint(:summary, "conversation_action_cards_summary_check")
       check_constraint(:resolved_at, "conversation_action_cards_resolution_shape")
+      check_constraint(:execution_claim_id, "conversation_action_cards_resolution_shape")
+      check_constraint(:execution_attempts, "conversation_action_cards_execution_attempts_check")
       check_constraint(:notified_senders, "conversation_action_cards_notified_senders_shape")
     end
   end
@@ -105,6 +119,16 @@ defmodule Ankole.Conversations.ActionCard do
     attribute(:resolved_at, :utc_datetime_usec, public?: true)
     attribute(:resolution_note, :string, constraints: [trim?: false], public?: true)
 
+    attribute(:execution_claim_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:execution_claim_expires_at, :utc_datetime_usec, public?: true)
+
+    attribute(:execution_attempts, :integer,
+      allow_nil?: false,
+      default: 0,
+      constraints: [min: 0],
+      public?: true
+    )
+
     attribute(:notified_senders, {:array, :string},
       allow_nil?: false,
       default: [],
@@ -147,6 +171,19 @@ defmodule Ankole.Conversations.ActionCard do
       ])
     end
 
+    update :claim_execution_in_tx do
+      require_atomic?(false)
+
+      accept([
+        :status,
+        :resolved_by_uid,
+        :resolved_by_name,
+        :execution_claim_id,
+        :execution_claim_expires_at,
+        :execution_attempts
+      ])
+    end
+
     update :resolve_in_tx do
       require_atomic?(false)
 
@@ -156,7 +193,9 @@ defmodule Ankole.Conversations.ActionCard do
         :resolved_by_name,
         :resolved_at,
         :resolution_note,
-        :notified_senders
+        :notified_senders,
+        :execution_claim_id,
+        :execution_claim_expires_at
       ])
     end
 

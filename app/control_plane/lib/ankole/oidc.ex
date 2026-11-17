@@ -426,19 +426,21 @@ defmodule Ankole.OIDC do
       LogoutRequest |> Ash.Query.filter(expires_at <= ^now) |> expire_records()
 
     recent_cutoff = DateTime.add(now, -24 * 60 * 60)
+    failed_delivery_cutoff = DateTime.add(now, -14 * 24 * 60 * 60)
 
     oidc_sessions =
       Session
       |> Ash.Query.filter(expires_at <= ^now and (is_nil(ended_at) or ended_at < ^recent_cutoff))
       |> Ash.Query.filter(
         fragment(
-          "NOT EXISTS (SELECT 1 FROM oidc_authorization_codes AS c WHERE c.tenant_id = ? AND c.session_id = ?) AND NOT EXISTS (SELECT 1 FROM oidc_refresh_tokens AS t WHERE t.tenant_id = ? AND t.session_id = ?) AND NOT EXISTS (SELECT 1 FROM oidc_logout_deliveries AS d WHERE d.tenant_id = ? AND d.session_id = ? AND d.status <> 'delivered')",
+          "NOT EXISTS (SELECT 1 FROM oidc_authorization_codes AS c WHERE c.tenant_id = ? AND c.session_id = ?) AND NOT EXISTS (SELECT 1 FROM oidc_refresh_tokens AS t WHERE t.tenant_id = ? AND t.session_id = ?) AND NOT EXISTS (SELECT 1 FROM oidc_logout_deliveries AS d WHERE d.tenant_id = ? AND d.session_id = ? AND (d.status IN ('pending', 'delivering') OR (d.status = 'failed' AND d.deadline > ?)))",
           tenant_id,
           id,
           tenant_id,
           id,
           tenant_id,
-          id
+          id,
+          ^failed_delivery_cutoff
         )
       )
       |> expire_records()

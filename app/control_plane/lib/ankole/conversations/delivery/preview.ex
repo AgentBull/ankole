@@ -1096,7 +1096,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
 
   defp handle_gateway_event(:tool_call_started, payload, state) do
     if match?(%PreviewAdapter{}, state.preview_adapter) do
-      {:noreply, state}
+      {:noreply, handle_rich_tool_activity(state, :started, payload)}
     else
       {:noreply, handle_tool_activity(state, :started, payload)}
     end
@@ -1104,7 +1104,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
 
   defp handle_gateway_event(:tool_call_completed, payload, state) do
     if match?(%PreviewAdapter{}, state.preview_adapter) do
-      {:noreply, state}
+      {:noreply, handle_rich_tool_activity(state, :completed, payload)}
     else
       {:noreply, handle_tool_activity(state, :completed, payload)}
     end
@@ -1618,6 +1618,69 @@ defmodule Ankole.Conversations.Delivery.Preview do
          dirty: false
      }}
   end
+
+  defp handle_rich_tool_activity(%{silent_rich_pending: true} = state, _stage, _payload),
+    do: state
+
+  defp handle_rich_tool_activity(state, stage, payload) when is_map(payload) do
+    call_id = Ankole.Attrs.optional_text(payload["call_id"] || payload["id"])
+    name = tool_activity_name(payload, call_id, state.tool_calls)
+    tool_calls = remember_tool_call(state.tool_calls, call_id, name)
+    operation_id = call_id || "tool:#{name}"
+    existing = get_in(state.presentation, ["activities", operation_id])
+    started_label = tool_activity_text(:started, name)
+
+    cond do
+      stage == :started and is_map(existing) ->
+        %{state | tool_calls: tool_calls}
+
+      stage == :completed and is_map(existing) and existing["label"] != started_label ->
+        %{state | tool_calls: tool_calls}
+
+      true ->
+        label = tool_activity_text(stage, name)
+        activity_phase = if stage == :started, do: "running", else: "completed"
+        rev = state.presentation["revision"]
+
+        presentation =
+          ReplyPresentation.apply_event(state.presentation, "tool.activity", %{
+            "operation_id" => operation_id,
+            "revision" => rev + 1,
+            "phase" => activity_phase,
+            "label" => label
+          })
+
+        phase_label = active_tool_phase_label(presentation["activities"], label)
+
+        presentation =
+          ReplyPresentation.apply_event(presentation, "turn.phase", %{
+            "revision" => rev + 2,
+            "state" => "working",
+            "label" => phase_label
+          })
+
+        state
+        |> Map.put(:tool_calls, tool_calls)
+        |> mark_rich_dirty(presentation)
+    end
+  end
+
+  defp handle_rich_tool_activity(state, _stage, _payload), do: state
+
+  defp active_tool_phase_label(activities, fallback) when is_map(activities) do
+    running =
+      activities
+      |> Map.values()
+      |> Enum.filter(&(&1["phase"] == "running"))
+      |> Enum.sort_by(& &1["revision"])
+
+    case List.last(running) do
+      %{"label" => label} when is_binary(label) and label != "" -> label
+      _none -> fallback
+    end
+  end
+
+  defp active_tool_phase_label(_activities, fallback), do: fallback
 
   defp handle_tool_activity(%{silent_success_allowed: true} = state, _stage, _payload),
     do: state

@@ -219,32 +219,33 @@ export function JobsRoute() {
           onClearFilters={clearFilters}
         />
 
-        {board.isPending ? (
-          <ContentLoading className="flex-1 py-16" />
-        ) : board.error ? (
-          <ContentError error={jobsError(board.error)} retry={() => void board.refetch()} />
-        ) : allItems.length === 0 ? (
-          <EmptyJobsState agents={agents} onPickPreset={openCreateWithPreset} />
-        ) : filteredItems.length === 0 ? (
-          <FilteredEmptyJobsState onReset={clearFilters} />
-        ) : viewMode === 'agent' ? (
-          <AgentColumnsBoard
-            items={filteredItems}
-            agents={agents}
-            selectedID={selectedID}
-            onSelect={selectCard}
-            onQuickCreate={openCreateWithPreset}
-          />
-        ) : (
-          <StatusColumnsBoard
-            items={filteredItems}
-            agents={agents}
-            agentAvatarByUID={agentAvatarByUID}
-            selectedID={selectedID}
-            onSelect={selectCard}
-            onQuickCreate={openCreateWithPreset}
-          />
-        )}
+        {(() => {
+          if (board.isPending) return <ContentLoading className="flex-1 py-16" />
+          if (board.error) return <ContentError error={jobsError(board.error)} retry={() => void board.refetch()} />
+          if (allItems.length === 0) return <EmptyJobsState agents={agents} onPickPreset={openCreateWithPreset} />
+          if (filteredItems.length === 0) return <FilteredEmptyJobsState onReset={clearFilters} />
+          if (viewMode === 'agent') {
+            return (
+              <AgentColumnsBoard
+                items={filteredItems}
+                agents={agents}
+                selectedID={selectedID}
+                onSelect={selectCard}
+                onQuickCreate={openCreateWithPreset}
+              />
+            )
+          }
+          return (
+            <StatusColumnsBoard
+              items={filteredItems}
+              agents={agents}
+              agentAvatarByUID={agentAvatarByUID}
+              selectedID={selectedID}
+              onSelect={selectCard}
+              onQuickCreate={openCreateWithPreset}
+            />
+          )
+        })()}
       </div>
 
       {isMobile ? (

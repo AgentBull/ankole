@@ -681,3 +681,53 @@ test('administrator sees when a database catalog stops at the table limit', asyn
     await consoleContext.close()
   }
 })
+
+test('Feishu connection editor shows /pages/* and /meta/brain/* link preview rules and persists linkPreview across saves', async ({
+  browser
+}) => {
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  const slug = `feishu-preview-${Date.now()}`
+  const host = new URL(state.base_url).host
+  try {
+    await context.addCookies(state.owner.cookies)
+    await page.goto(`${state.base_url}/connectors`)
+    await page.getByRole('button', { name: '添加连接', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByLabel('显示名称', { exact: true }).fill('Feishu Link Preview')
+    await dialog.getByLabel('连接名称', { exact: true }).fill(slug)
+
+    const toggle = dialog.getByRole('switch', { name: '启用飞书内页面链接预览', exact: true })
+    await expect(toggle).toHaveAttribute('aria-checked', 'false')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-checked', 'true')
+
+    await expect(dialog.getByLabel('协作页面 URL 规则', { exact: true })).toHaveValue(`${host}/pages/*`)
+    await expect(dialog.getByLabel('知识库（Brain）页面 URL 规则', { exact: true })).toHaveValue(`${host}/meta/brain/*`)
+    await expect(dialog.getByRole('button', { name: '复制协作页面 URL 规则', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '复制知识库页面 URL 规则', exact: true })).toBeVisible()
+
+    await dialog.getByLabel('App ID', { exact: false }).fill(`cli_${Date.now()}`)
+    await dialog.getByLabel('App Secret', { exact: false }).fill('secret_for_link_preview')
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    await expect(dialog).toBeHidden()
+
+    const card = page.locator(`#connector-app-${slug}`)
+    await card.getByRole('button', { name: '编辑凭证', exact: true }).click()
+    await expect(dialog.getByRole('switch', { name: '启用飞书内页面链接预览', exact: true })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
+    await dialog.getByRole('switch', { name: '启用飞书内页面链接预览', exact: true }).click()
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    await expect(dialog).toBeHidden()
+
+    await card.getByRole('button', { name: '编辑凭证', exact: true }).click()
+    await expect(dialog.getByRole('switch', { name: '启用飞书内页面链接预览', exact: true })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    )
+  } finally {
+    await context.close()
+  }
+})

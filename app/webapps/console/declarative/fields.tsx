@@ -149,7 +149,7 @@ export function KeyValueEditor({
   }
 
   return (
-    <fieldset className="grid gap-3 border border-border p-3">
+    <fieldset className="grid gap-3 border border-border-subtle p-3">
       <legend className="px-1 text-sm font-medium">{label}</legend>
       {rows.map(([rowKey, rowValue], index) => {
         const isExtra = index >= savedPairs.length
@@ -292,7 +292,7 @@ function RuleTreeNodeEditor({
   }
 
   return (
-    <div className="grid gap-2 border border-border p-2.5">
+    <div className="grid gap-2 border border-border-subtle p-2.5">
       <div className="flex flex-wrap items-center gap-2">
         <DeclarativeSelect
           disabled={disabled}
@@ -428,7 +428,7 @@ function RuleTreeEditor({
   const leafOptions = leafField?.enumValues ?? []
 
   return (
-    <fieldset className="grid gap-3 border border-border p-3">
+    <fieldset className="grid gap-3 border border-border-subtle p-3">
       <legend className="px-1 text-sm font-medium">{sectionLabel}</legend>
       {hasNode ? (
         <div className="grid gap-2">
@@ -556,7 +556,7 @@ function DeclarativeField({
           })
           const sectionDraft = section.path.length === 0 ? draft : draftAt(draft, section.path)
           return (
-            <fieldset key={section.id} className="grid gap-3 border border-border p-3">
+            <fieldset key={section.id} className="grid gap-3 border border-border-subtle p-3">
               <legend className="px-1 text-sm font-medium">{sectionLabel}</legend>
               <DeclarativeFields
                 disabled={isDisabled}
@@ -583,7 +583,7 @@ function DeclarativeField({
     if (nestedFields.length > 0) {
       const nestedRecord = asRecord(value)
       return (
-        <fieldset className="grid gap-3 border border-border p-3">
+        <fieldset className="grid gap-3 border border-border-subtle p-3">
           <legend className="px-1 text-sm font-medium">{label}</legend>
           <DeclarativeFields
             disabled={isDisabled}
@@ -721,19 +721,16 @@ function DeclarativeField({
                 ? 'password'
                 : 'text'
         }
-        value={
-          Array.isArray(value)
-            ? value.join(', ')
-            : isDate && value
-              ? descriptor.inputUnit === 'date'
-                ? String(value).slice(0, 10)
-                : /(?:Z|[+-]\d{2}:?\d{2})$/i.test(String(value))
-                  ? dateTimeLocalValue(String(value)).slice(0, 16)
-                  : String(value).slice(0, 16)
-              : typeof value === 'object' && value !== null
-                ? JSON.stringify(value)
-                : String(value ?? '')
-        }
+        value={(() => {
+          if (Array.isArray(value)) return value.join(', ')
+          if (isDate && value) {
+            const raw = String(value)
+            if (descriptor.inputUnit === 'date') return raw.slice(0, 10)
+            return /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? dateTimeLocalValue(raw).slice(0, 16) : raw.slice(0, 16)
+          }
+          if (typeof value === 'object' && value !== null) return JSON.stringify(value)
+          return String(value ?? '')
+        })()}
         onChange={event => onChange(event.target.value)}
       />
     </LabeledField>

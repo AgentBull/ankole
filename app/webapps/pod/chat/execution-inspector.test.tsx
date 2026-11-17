@@ -1,12 +1,14 @@
 import { afterEach, beforeAll, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
 import i18n, { loadLocale } from '../../common/i18n'
 import { podKeys } from '../api'
 import { PodPanelPresence } from '../panel-motion'
 import { ActivityView, CollapsedWorkView } from './collapsed-work-view'
-import { ExecutionInspectorPanel } from './execution-inspector-panel'
+import { ExecutionInspectorPanel, linkDriveDeliverablesInMarkdown } from './execution-inspector-panel'
 import { buildNarrativeSegments, executionItemToStep, shouldShowOutcomeSummary } from './execution-narrative'
+import { executionStatusLabelKey, executionStatusTone } from './execution-status'
 import { LinkedExecutionCard, cleanExecutionPreview } from './linked-execution-card'
 import { ToolRunView, formatToolDetail } from './tool-run-view'
 import {
@@ -414,4 +416,110 @@ test('ToolRunView states how long a finished step took once that reaches a secon
   // Only the slow finished step carries a time: a fast step and a running step show none.
   expect(html.match(/pod-chat-tool-duration/g)).toHaveLength(1)
   expect(html).toContain('<span class="pod-chat-tool-duration">4.2s</span>')
+})
+
+test('ExecutionInspectorPanel surfaces incomplete status and direct Drive deliverable cards (L-01 & L-03)', async () => {
+  expect(executionStatusLabelKey('incomplete')).toBe('pod.chat_timeline.execution_incomplete')
+  expect(executionStatusTone('incomplete')).toBe('waiting')
+
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const nodeID = '019a2b00-0000-7000-8000-000000000088'
+  const jobDetail: ConversationExecutionDetail = {
+    id: '88',
+    kind: 'background_agent_job',
+    title: 'Generate Q4 forecast',
+    agentUID: 'analyst',
+    status: 'incomplete',
+    task: 'Build Q4 forecast workbook',
+    createdAt: '2026-11-05T03:00:00Z',
+    startedAt: '2026-11-05T03:00:01Z',
+    completedAt: '2026-11-05T03:01:00Z',
+    updatedAt: '2026-11-05T03:01:00Z',
+    stoppable: false,
+    canMessage: true,
+    continuedFromJobID: null,
+    successorJobID: null,
+    outcomeText: 'Saved draft workbook to `/drive/Private/q4-forecast.xlsx`.\nOutcome: incomplete',
+    deliverables: [
+      {
+        path: '/drive/Private/q4-forecast.xlsx',
+        nodeID,
+        name: 'q4-forecast.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      }
+    ],
+    errorText: null,
+    stepCount: 1,
+    pendingQuestions: [],
+    plan: null,
+    threads: [],
+    workflowCounts: null,
+    items: [],
+    nextCursor: null
+  }
+
+  client.setQueryData([...podKeys.detail('conv-1'), 'execution', 'background_agent_job', '88'], {
+    pages: [jobDetail],
+    pageParams: [null]
+  })
+
+  const router = createRouter({
+    routeTree: createRootRoute({
+      component: () => (
+        <PodPanelPresence animate={false}>
+          <ExecutionInspectorPanel
+            conversationID="conv-1"
+            target={{ type: 'execution', kind: 'background_agent_job', runID: '88', title: 'Generate Q4 forecast' }}
+            onClose={() => {}}
+            onSwitchTarget={() => {}}
+          />
+        </PodPanelPresence>
+      )
+    }),
+    history: createMemoryHistory({ initialEntries: ['/'] })
+  })
+  await router.load()
+
+  try {
+    await i18n.changeLanguage('en-US')
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    ).replace(/[\u2066-\u2069]/g, '')
+
+    expect(html).toContain('Incomplete · Needs input')
+    expect(html).toContain('Deliverables')
+    expect(html).toContain('q4-forecast.xlsx')
+    expect(html).toContain(`download="q4-forecast.xlsx"`)
+  } finally {
+    client.clear()
+  }
+})
+
+test('linkDriveDeliverablesInMarkdown escapes special label chars and skips fenced code blocks and existing links', () => {
+  const deliverables = [
+    {
+      path: '/drive/Private/report.xlsx',
+      nodeID: '019a2b00-0000-7000-8000-000000000099',
+      name: 'Q4 [Draft]\\v2.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    }
+  ]
+
+  const input = [
+    'Saved to `/drive/Private/report.xlsx` and kept [`/drive/Private/report.xlsx`](https://example.com/raw).',
+    '```sh',
+    'cp `/drive/Private/report.xlsx` /tmp/out.xlsx',
+    '```'
+  ].join('\n')
+
+  expect(linkDriveDeliverablesInMarkdown(input, deliverables)).toBe(
+    [
+      'Saved to [Q4 \\[Draft\\]\\\\v2.xlsx](ankole:page/019a2b00-0000-7000-8000-000000000099) and kept [`/drive/Private/report.xlsx`](https://example.com/raw).',
+      '```sh',
+      'cp `/drive/Private/report.xlsx` /tmp/out.xlsx',
+      '```'
+    ].join('\n')
+  )
 })

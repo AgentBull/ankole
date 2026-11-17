@@ -98,25 +98,90 @@ defmodule Ankole.Signals.Dispatch do
   defp source("applet://" <> id), do: "ankole:applet:#{id}"
   defp source("job://" <> id), do: "ankole:job:#{id}"
 
+  @max_base_hops 5
+
   defp select_bindings(bindings, signal) do
-    Enum.reduce_while(bindings, {:ok, []}, fn binding, {:ok, selected} ->
-      event = filter_changes(binding, signal)
+    if base_hop_exceeded?(signal) do
+      Ankole.Logging.warning(
+        "signals.base_hop_limit_exceeded",
+        "Suppressed Base change cascade exceeding maximum hop budget",
+        %{
+          tenant_id: Repo.tenant_id(),
+          source: signal["source"],
+          signal_id: signal["id"],
+          base_hop_count: get_in(signal, ["data", "base_hop_count"])
+        }
+      )
 
-      case event && BindingFilters.match_event?(binding.filters, event, binding) do
-        :match ->
-          if binding.routing_mode == :action or Target.parse(binding.target) != :error,
-            do: {:cont, {:ok, [%{binding: binding, signal: event} | selected]}},
-            else: {:halt, {:error, :invalid_signal_target}}
-
-        no_match when no_match in [nil, :no_match] ->
-          {:cont, {:ok, selected}}
-
-        error ->
-          {:halt, error}
-      end
-    end)
-    |> reverse_ok()
+      {:ok, []}
+    else
+      bindings
+      |> Enum.reduce_while({:ok, []}, fn binding, {:ok, selected} ->
+        evaluate_binding_match(binding, signal, selected)
+      end)
+      |> reverse_ok()
+    end
   end
+
+  defp evaluate_binding_match(binding, signal, selected) do
+    event = filter_changes(binding, signal)
+
+    cond do
+      is_nil(event) ->
+        {:cont, {:ok, selected}}
+
+      suppress_base_self_write?(binding, event) ->
+        {:cont, {:ok, selected}}
+
+      true ->
+        apply_binding_filter_result(binding, event, selected)
+    end
+  end
+
+  defp apply_binding_filter_result(binding, event, selected) do
+    case BindingFilters.match_event?(binding.filters, event, binding) do
+      :match ->
+        if binding.routing_mode == :action or Target.parse(binding.target) != :error,
+          do: {:cont, {:ok, [%{binding: binding, signal: event} | selected]}},
+          else: {:halt, {:error, :invalid_signal_target}}
+
+      no_match when no_match in [nil, :no_match] ->
+        {:cont, {:ok, selected}}
+
+      {:error, {:invalid_binding_filter, reason}} ->
+        Ankole.Logging.warning(
+          "signals.binding_filter_eval_failed",
+          "Skipped Signal Binding whose CEL filter failed against event payload",
+          %{
+            tenant_id: Repo.tenant_id(),
+            binding_id: binding.id,
+            source: event["source"],
+            reason: reason
+          }
+        )
+
+        {:cont, {:ok, selected}}
+    end
+  end
+
+  defp base_hop_exceeded?(%{
+         "source" => "ankole:base:" <> _,
+         "data" => %{"base_hop_count" => hops}
+       })
+       when is_integer(hops) and hops > @max_base_hops,
+       do: true
+
+  defp base_hop_exceeded?(_signal), do: false
+
+  defp suppress_base_self_write?(
+         %Binding{id: binding_id, filters: filters},
+         %{"source" => "ankole:base:" <> _, "data" => %{"origin_binding_id" => origin_id}}
+       )
+       when is_binary(origin_id) and origin_id == binding_id do
+    Map.get(filters || %{}, "include_self_writes") != true
+  end
+
+  defp suppress_base_self_write?(_binding, _event), do: false
 
   defp reverse_ok({:ok, values}), do: {:ok, Enum.reverse(values)}
   defp reverse_ok(error), do: error
@@ -430,6 +495,7 @@ defmodule Ankole.Signals.Dispatch do
       else
         %{}
       end
+      |> maybe_put_base_causation(binding, signal)
 
     with {:ok, target, route} <- agent_target(binding, plan.opts) do
       {:ok,
@@ -476,6 +542,21 @@ defmodule Ankole.Signals.Dispatch do
                 owner.reply_route}
     end
   end
+
+  defp maybe_put_base_causation(extensions, binding, %{"source" => "ankole:base:" <> _} = signal) do
+    prior_hops =
+      case get_in(signal, ["data", "base_hop_count"]) do
+        hops when is_integer(hops) and hops >= 0 -> hops
+        _ -> 0
+      end
+
+    Map.put(extensions, "ankole_base_causation", %{
+      "binding_id" => binding.id,
+      "base_hop_count" => prior_hops + 1
+    })
+  end
+
+  defp maybe_put_base_causation(extensions, _binding, _signal), do: extensions
 
   def root_signal_id(delivered_id) do
     BindingReceipt

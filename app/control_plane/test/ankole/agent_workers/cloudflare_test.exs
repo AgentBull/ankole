@@ -122,8 +122,9 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
       assert :ok = Cloudflare.delete_instance(provider, object, mode)
     end
 
-    assert {:error, :pause_not_supported} = Cloudflare.pause_instance(provider, object)
-    assert {:error, :pause_not_supported} = Cloudflare.resume_instance(provider, object)
+    assert Cloudflare.definition().support_tier == :cloud_extension
+    refute function_exported?(Cloudflare, :pause_instance, 2)
+    refute function_exported?(Cloudflare, :resume_instance, 2)
   end
 
   test "lists only the requested provider including terminating instances", %{provider: provider} do

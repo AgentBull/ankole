@@ -25,7 +25,7 @@ import { join } from 'node:path'
 import { prepareAgentPlugins, type PreparedAgentPlugins } from '../runtime/agent-plugin-materializer'
 import type { AgentCodexRuntimeAcquireInput } from '../runtime/agent-runtime-manager'
 import {
-  assertCodexJobProjectResumeState,
+  checkCodexJobProjectResumeState,
   codexJobProjectLocation,
   prepareCodexJobProject,
   type PreparedCodexJobProject
@@ -40,6 +40,7 @@ import { loadEnabledSkillMCPServers, type MCPServerConfig } from '../../../tools
 import { decodeCodexJobRuntimeProjection, projectWorkerEnv } from './runtime-projection'
 import { codexJobThreadConfig } from './thread-config'
 import { turnTracePropagationFromTurnStart } from '../../../observability/turn-tracing'
+import { acquireJobWorkspace } from '../../../worker/workspace'
 
 export type CodexJobSetupInput = {
   turnStart: TurnStart
@@ -66,6 +67,7 @@ export type PreparedCodexJobExecution = {
     mcpServers: MCPServerConfig[]
   }
   project: PreparedCodexJobProject
+  workspaceRecreated?: boolean
   preparedAgentPlugins: PreparedAgentPlugins
   updateCliContextId(contextId: string): void
   cleanup(): Promise<void>
@@ -76,6 +78,21 @@ export type PreparedCodexJobExecution = {
  * It does not start the shared app-server or own a Codex thread.
  */
 export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promise<PreparedCodexJobExecution> {
+  const workspaceOwnerJobID = input.job.workspaceOwnerJobId
+  if (!workspaceOwnerJobID) throw new Error('Background agent job is missing its workspace owner')
+  const release = await acquireJobWorkspace(input.opts.agentHome, workspaceOwnerJobID)
+  try {
+    return await prepareRetainedJobExecution(input, release)
+  } catch (error) {
+    release()
+    throw error
+  }
+}
+
+async function prepareRetainedJobExecution(
+  input: CodexJobSetupInput,
+  releaseJobWorkspace: () => void
+): Promise<PreparedCodexJobExecution> {
   const { turnStart, opts, job } = input
   opts.abortSignal?.throwIfAborted()
   const runtimeProjection = decodeCodexJobRuntimeProjection(job)
@@ -136,7 +153,10 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     const workspaceOwnerJobID = job.workspaceOwnerJobId
     if (!workspaceOwnerJobID) throw new Error('Background agent job is missing its workspace owner')
     const projectLocation = codexJobProjectLocation(opts.agentHome, workspaceOwnerJobID)
-    if (job.runtimeThreadId) assertCodexJobProjectResumeState(projectLocation.hostPath)
+    const { workspaceMissing } = job.runtimeThreadId
+      ? checkCodexJobProjectResumeState(projectLocation.hostPath)
+      : { workspaceMissing: false }
+    const workspaceRecreated = Boolean(job.runtimeThreadId) && workspaceMissing
     const jobProject = prepareCodexJobProject({ jobProjectRoot: projectLocation.hostPath })
     const activeCliBridges = startRunCLIBridges({
       drive: opts.drive,
@@ -146,7 +166,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
       agentUid: job.agentUid
     })
     cliBridges = activeCliBridges
-    const initializeProject = !job.runtimeThreadId
+    const initializeProject = !job.runtimeThreadId || workspaceMissing
     const skillsPrompt = agentContext.skillsPrompt
     const jobInstructions = renderCodexJobAgents({
       jobRoot: jobProject.root,
@@ -160,7 +180,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
       viewKey: driveView?.key
     })
     const resumePath =
-      driveView && job.runtimeThreadId
+      driveView && job.runtimeThreadId && !workspaceRecreated
         ? await migrateCodexSession(opts.agentHome, materialized.codexHome, job.runtimeThreadId)
         : undefined
     const preparedAgentPlugins = prepareAgentPlugins({
@@ -306,6 +326,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
         mcpServers: materials.mcpServers
       },
       project: jobProject,
+      workspaceRecreated,
       preparedAgentPlugins,
       updateCliContextId: contextId => {
         activeCliBridges.updateContextId(contextId)
@@ -318,8 +339,15 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
           try {
             activeCliBridges.close()
           } finally {
-            await cleanupSkills?.()
-            await driveView?.release()
+            try {
+              await cleanupSkills?.()
+            } finally {
+              try {
+                await driveView?.release()
+              } finally {
+                releaseJobWorkspace()
+              }
+            }
           }
         }
       }

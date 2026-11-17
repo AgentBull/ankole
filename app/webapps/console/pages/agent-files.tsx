@@ -2,7 +2,15 @@ import { downloadBlob } from '../../common/browser-files'
 import { formatFileBytes } from '../../common/file-format'
 import { BdiLabel } from '../../common/bidi-file-name'
 import { sanitizeFileName, sanitizeRenameValue, stripBidi } from '../../common/bidi'
-import { TableRow, useMutation, useQuery, Link, useSearchParams, useConsoleTenant } from '../tenant-context'
+import {
+  TableRow,
+  useMutation,
+  useQuery,
+  Link,
+  useSearchParams,
+  useConsoleTenant,
+  useEffectiveDataTenantID
+} from '../tenant-context'
 import {
   Button,
   Dialog,
@@ -35,7 +43,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useRef, useState, type InputHTMLAttributes } from 'react'
 import { useTranslation } from 'react-i18next'
 import { linkTarget } from '../../common/router'
-import { dataTenantID } from '../../common/browser-session'
 import { podID } from '../../common/browser-context'
 import { createDriveNode } from '../api/v2/generated/sdk.gen'
 import {
@@ -56,7 +63,9 @@ type Ancestor = ListDriveNodesResponse['ancestors'][number]
 
 export function AgentFilesPage() {
   const { t } = useTranslation()
-  const tenantID = useConsoleTenant()?.id ?? dataTenantID() ?? podID() ?? ''
+  const contextTenant = useConsoleTenant()
+  const effectiveTenantID = useEffectiveDataTenantID(!contextTenant)
+  const tenantID = contextTenant?.id ?? effectiveTenantID ?? podID() ?? ''
   const queryClient = useQueryClient()
   const [params, setParams] = useSearchParams()
   const parentID = params.get('node') ?? undefined

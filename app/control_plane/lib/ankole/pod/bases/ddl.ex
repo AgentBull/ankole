@@ -562,9 +562,11 @@ defmodule Ankole.Pod.Bases.DDL do
   end
 
   defp populate_promoted(write, records) do
-    Enum.reduce_while(records, {:ok, write}, fn {id, {:json, json}}, {:ok, write} ->
+    Enum.reduce_while(records, {:ok, write}, fn {id, {:chunks, chunks}}, {:ok, write} ->
+      rows = Stream.flat_map(chunks, fn {:json, json} -> Torque.decode!(json) end)
+
       result =
-        Enum.reduce_while(Torque.decode!(json), {:ok, write}, fn row, {:ok, write} ->
+        Enum.reduce_while(rows, {:ok, write}, fn row, {:ok, write} ->
           case Links.maintain(write, write.definitions[id], %{}, row["data"], row["id"]) do
             {:ok, write} -> {:cont, {:ok, write}}
             error -> {:halt, error}

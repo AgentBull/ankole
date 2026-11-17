@@ -278,6 +278,10 @@ export function buildCorpus(seed = defaultSeed): Corpus {
     ),
     sample('formula', '<page><math source="manual">E = mc^2</math></page>'),
     sample('empty-formula', '<page><math></math></page>'),
+    sample(
+      'inline-formula',
+      '<page><p>Energy <inline-math>E = mc^2</inline-math>, empty <inline-math />, and <strong><a href="https://example.com"><inline-math source="manual">a\r\nb\nc &lt; d</inline-math></a></strong>.</p><p><comment ids="019a2b00-0000-7000-8000-000000000004"><inline-math>x^2 + y^2</inline-math></comment></p></page>'
+    ),
     sample('mermaid', '<page><mermaid>flowchart TD\n  A[开始] --&gt; B[结束]</mermaid></page>'),
     sample('mermaid-view-theme', '<page><mermaid view="code" theme="dark">flowchart LR\n  X --&gt; Y</mermaid></page>'),
     sample('empty-mermaid', '<page><mermaid></mermaid></page>'),
@@ -330,6 +334,8 @@ export function buildCorpus(seed = defaultSeed): Corpus {
     ['unescaped-attribute-less-than', '<page><p data="<" /></page>'],
     ['cdata-terminator-in-text', '<page><p>]]></p></page>'],
     ['math-element', '<page><math><strong>E</strong></math></page>'],
+    ['inline-math-element', '<page><p><inline-math><strong>E</strong></inline-math></p></page>'],
+    ['inline-math-block-level', '<page><inline-math>E = mc^2</inline-math></page>'],
     ['invalid-wrap', '<page><pre wrap="wrap">a</pre></page>'],
     ['mermaid-element', '<page><mermaid><strong>a</strong></mermaid></page>'],
     ['invalid-mermaid-view', '<page><mermaid view="split">a</mermaid></page>'],

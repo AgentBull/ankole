@@ -340,12 +340,13 @@ test('two teammates answer one real decision concurrently and see the same durab
     await expect(otherCard).toHaveAttribute('data-state', 'pending')
     for (const target of [page, other]) {
       await target.evaluate(() => {
-        Reflect.set(window, '__choiceAlertCount', 0)
+        const tracked = window as Window & { __choiceAlertCount?: number }
+        tracked.__choiceAlertCount = 0
         new MutationObserver(changes => {
           for (const change of changes) {
             for (const node of change.addedNodes) {
               if (node instanceof Element && (node.matches('[role="alert"]') || node.querySelector('[role="alert"]'))) {
-                Reflect.set(window, '__choiceAlertCount', Reflect.get(window, '__choiceAlertCount') + 1)
+                tracked.__choiceAlertCount = (tracked.__choiceAlertCount ?? 0) + 1
               }
             }
           }
@@ -382,7 +383,9 @@ test('two teammates answer one real decision concurrently and see the same durab
     await expect(card.getByRole('alert')).toHaveCount(0)
     await expect(otherCard.getByRole('alert')).toHaveCount(0)
     for (const target of [page, other]) {
-      expect(await target.evaluate(() => Reflect.get(window, '__choiceAlertCount'))).toBe(0)
+      expect(await target.evaluate(() => (window as Window & { __choiceAlertCount?: number }).__choiceAlertCount)).toBe(
+        0
+      )
     }
     const winner = responses[0]!.status() === 201 ? 'Browser owner' : 'Browser member'
     await expect(card.locator('.pod-chat-choice-outcome')).toContainText(winner)

@@ -8,13 +8,11 @@ defmodule Ankole.AppConfigure.Groups do
     "brain" => "brain.",
     "observability" => "observability.traces.",
     "otp" => "authn.email.",
-    "smtp" => "authn.email.mail",
-    "turnstile" => "saas.turnstile.",
-    "pod-access" => "pod.allow_external_guests"
+    "smtp" => "authn.email.mail"
   }
 
   def keys(group) do
-    case @prefixes[group] do
+    case prefixes()[group] do
       nil ->
         []
 
@@ -29,7 +27,7 @@ defmodule Ankole.AppConfigure.Groups do
   def managed?(key),
     do:
       String.starts_with?(key, "ai_agent.library.") or
-        Enum.any?(Map.values(@prefixes), &String.starts_with?(key, &1))
+        Enum.any?(Map.values(prefixes()), &String.starts_with?(key, &1))
 
   # Authorization remains per key, including reset permission for a removal.
   def permissions(args, _attributes, _resource, _action) do
@@ -46,22 +44,29 @@ defmodule Ankole.AppConfigure.Groups do
   end
 
   def validate("observability", read), do: Ankole.Observability.validate_settings(read)
+  def validate(group, _read) when is_map_key(@prefixes, group), do: :ok
 
-  def validate("turnstile", read) do
-    with {:ok, enabled} <- read.("saas.turnstile.enabled") do
-      if enabled do
-        with {:ok, site} when is_binary(site) and site != "" <- read.("saas.turnstile.site_key"),
-             {:ok, secret} when is_binary(secret) and secret != "" <-
-               read.("saas.turnstile.secret_key"),
-             do: :ok,
-             else: (_ -> {:error, :incomplete_turnstile_configuration})
-      else
-        :ok
-      end
+  def validate(group, read) do
+    case edition_groups()[group] do
+      %{validate: validate} -> validate.(read)
+      _ -> :ok
     end
   end
 
-  def validate(_group, _read), do: :ok
+  defp prefixes do
+    edition_groups()
+    |> Map.new(fn {group, definition} -> {group, definition.prefix} end)
+    |> Map.merge(@prefixes)
+  end
+
+  defp edition_groups do
+    module = Application.get_env(:ankole, :edition_config)
+
+    if module && Code.ensure_loaded?(module) &&
+         function_exported?(module, :configuration_groups, 0),
+       do: module.configuration_groups(),
+       else: %{}
+  end
 
   def after_commit(scope, keys) do
     if "pod.allow_external_guests" in keys, do: Ankole.Pod.Config.broadcast_guest_access(scope)

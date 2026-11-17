@@ -50,10 +50,11 @@ defmodule FeishuOpenAPI do
   @max_token_invalid_retries 1
   @max_retry_after_retries 1
   # Wait bounds for rate-limit backoff when the provider's hint is missing or
-  # absurd: default to 1s, never sleep more than 30s inside a single call so a
-  # GenServer.call timeout upstream stays predictable.
+  # absurd: default to 1s, never sleep more than 2s inside a single synchronous
+  # call so GenServer.call and HTTP worker pools stay responsive while callers
+  # with Oban backoff reschedule via Error.retry_after_ms.
   @default_retry_after_ms :timer.seconds(1)
-  @max_retry_after_ms :timer.seconds(30)
+  @max_retry_after_ms :timer.seconds(2)
   # Allowlist of multipart field names Feishu upload endpoints accept as binary
   # keys, mapped to the atoms Req wants. See `build_multipart_field/1` for why
   # binary keys are not turned into atoms dynamically.

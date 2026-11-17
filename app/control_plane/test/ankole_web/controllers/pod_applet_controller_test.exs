@@ -251,6 +251,7 @@ defmodule AnkoleWeb.PodAppletControllerTest do
         })
 
       manifest = stage_manifest(uid, draft_page.id)
+      Ankole.FunctionRuntime.AppletClient.clear_inspect_cache()
 
       assert {:error, :applet_busy} =
                Files.publish(

@@ -198,7 +198,7 @@ defmodule Ankole.Files.Objects do
         {:ok, count}
 
       ids ->
-        removed = Enum.count(ids, &collect_one/1)
+        removed = collect_batch(ids)
         collect_after(cutoff, List.last(ids), count + removed)
     end
   end
@@ -225,6 +225,44 @@ defmodule Ankole.Files.Objects do
       )
 
     Enum.map(rows, &hd/1)
+  end
+
+  defp collect_batch(ids) do
+    case Repo.transact_top_level(fn -> delete_batch_in_tx(ids) end) do
+      {:ok, deleted_count} ->
+        deleted_count
+
+      {:error, _referenced_concurrently} ->
+        Enum.count(ids, &collect_one/1)
+    end
+  end
+
+  defp delete_batch_in_tx(ids) do
+    sorted = Enum.sort(ids)
+
+    objects =
+      FileObject
+      |> Ash.Query.filter(id in ^sorted)
+      |> Ash.Query.sort(id: :asc)
+      |> Ash.Query.lock("FOR UPDATE SKIP LOCKED")
+      |> Ankole.Ash.read!(lock_identity: {"file_objects", sorted})
+
+    case objects do
+      [] ->
+        {:ok, 0}
+
+      locked ->
+        locked_ids = Enum.map(locked, & &1.id)
+        jobs = Enum.map(locked, &Files.Jobs.DeleteObject.new(%{"storage_key" => &1.storage_key}))
+
+        with {:ok, _} <-
+               FileObject
+               |> Ash.Query.filter(id in ^locked_ids)
+               |> Ankole.Ash.destroy_where(:remove) do
+          _inserted = Oban.insert_all(jobs)
+          {:ok, length(locked)}
+        end
+    end
   end
 
   defp collect_one(id) do

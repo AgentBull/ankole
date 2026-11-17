@@ -77,19 +77,19 @@ defmodule Ankole.AgentWorkers.RPCWireTest do
   test "projects one library Skill into the shared RuntimeFabric summary" do
     summary =
       RPCWire.runtime_skill_summary(%{
-        "skill_name" => "bullx-financial-data",
-        "description" => "Use BullX financial data.",
+        "skill_name" => "fixture-skill",
+        "description" => "Read example data.",
         "source_kind" => "builtin",
-        "relative_path" => "bullx-financial-data",
+        "relative_path" => "fixture-skill",
         "skill_root" => "internal",
         "metadata" => %{"ankole-runtime" => "any"},
         "category" => "data"
       })
 
-    assert summary.skill_name == "bullx-financial-data"
-    assert summary.description == "Use BullX financial data."
+    assert summary.skill_name == "fixture-skill"
+    assert summary.description == "Read example data."
     assert summary.source_kind == "builtin"
-    assert summary.relative_path == "bullx-financial-data"
+    assert summary.relative_path == "fixture-skill"
     assert summary.skill_root == "internal"
 
     assert Torque.decode!(summary.metadata_json) == %{

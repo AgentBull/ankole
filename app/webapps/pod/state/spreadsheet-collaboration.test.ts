@@ -233,6 +233,22 @@ test('leaving commits the cell draft and waits for every pending server acknowle
   expect(model.revision.value).toBe(2)
 })
 
+test('rejoining a spreadsheet synchronizes and flushes edits queued during disconnection', async () => {
+  const { engine } = fakeEngine()
+  const socket = fakeChannel(async (_event, payload) => acknowledge(1, payload))
+  const { model } = await started(socket, engine)
+  const failure = new Error('join timed out')
+  socket.channel.ready = Promise.reject(failure)
+  model.sync()
+  await until(() => model.error.value === failure)
+  await model.setCell({ row: 0, col: 0 }, 'kept edit')
+  socket.channel.ready = Promise.resolve({})
+  socket.emit('rejoined', {})
+  await until(() => model.pending.value === 0)
+  expect(model.error.value).toBeUndefined()
+  expect(socket.applies()).toHaveLength(1)
+})
+
 test('leaving reports an interrupted connection and keeps the same request available for retry', async () => {
   const { engine } = fakeEngine()
   const socket = fakeChannel(async () => {

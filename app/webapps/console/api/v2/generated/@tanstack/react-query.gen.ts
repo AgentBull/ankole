@@ -47,11 +47,14 @@ import {
   deletePermissionGrant,
   deletePrincipalGroup,
   deleteSystemModelProfile,
+  deleteSystemTokenQuota,
   deleteWorkerEnv,
+  disableAgent,
   disableHumanAccess,
   disableSignalBinding,
   enableAgent,
   enqueueBrainDream,
+  forceResetAgentWorkerGeneration,
   forgetBrainClaim,
   getAgent,
   getAgentAppConfiguration,
@@ -76,6 +79,7 @@ import {
   getPrincipal,
   getPrincipalGroup,
   getSignalBinding,
+  getSystemTokenQuota,
   getUnreadScans,
   learnBrainSource,
   listAgentLibraryDocuments,
@@ -138,6 +142,8 @@ import {
   putDefaultProviderHosted,
   putSignalBinding,
   putSystemModelProfile,
+  putSystemTokenQuota,
+  recoverHumanPodAdmin,
   rejectBrainMergeSuggestion,
   rejectBrainSuggestion,
   removeCronSchedule,
@@ -147,6 +153,7 @@ import {
   requeueSignalDelivery,
   resetAgentTokenQuota,
   resetAppConfiguration,
+  resetSystemTokenQuota,
   resolveBrainTake,
   restoreHumanAccess,
   resumeCronSchedule,
@@ -307,9 +314,15 @@ import type {
   DeleteSystemModelProfileData,
   DeleteSystemModelProfileError,
   DeleteSystemModelProfileResponse,
+  DeleteSystemTokenQuotaData,
+  DeleteSystemTokenQuotaError,
+  DeleteSystemTokenQuotaResponse,
   DeleteWorkerEnvData,
   DeleteWorkerEnvError,
   DeleteWorkerEnvResponse,
+  DisableAgentData,
+  DisableAgentError,
+  DisableAgentResponse,
   DisableHumanAccessData,
   DisableHumanAccessError,
   DisableHumanAccessResponse,
@@ -322,6 +335,9 @@ import type {
   EnqueueBrainDreamData,
   EnqueueBrainDreamError,
   EnqueueBrainDreamResponse,
+  ForceResetAgentWorkerGenerationData,
+  ForceResetAgentWorkerGenerationError,
+  ForceResetAgentWorkerGenerationResponse,
   ForgetBrainClaimData,
   ForgetBrainClaimError,
   ForgetBrainClaimResponse,
@@ -394,6 +410,9 @@ import type {
   GetSignalBindingData,
   GetSignalBindingError,
   GetSignalBindingResponse,
+  GetSystemTokenQuotaData,
+  GetSystemTokenQuotaError,
+  GetSystemTokenQuotaResponse,
   GetUnreadScansData,
   GetUnreadScansError,
   GetUnreadScansResponse,
@@ -577,6 +596,12 @@ import type {
   PutSystemModelProfileData,
   PutSystemModelProfileError,
   PutSystemModelProfileResponse,
+  PutSystemTokenQuotaData,
+  PutSystemTokenQuotaError,
+  PutSystemTokenQuotaResponse,
+  RecoverHumanPodAdminData,
+  RecoverHumanPodAdminError,
+  RecoverHumanPodAdminResponse,
   RejectBrainMergeSuggestionData,
   RejectBrainMergeSuggestionError,
   RejectBrainMergeSuggestionResponse,
@@ -604,6 +629,9 @@ import type {
   ResetAppConfigurationData,
   ResetAppConfigurationError,
   ResetAppConfigurationResponse,
+  ResetSystemTokenQuotaData,
+  ResetSystemTokenQuotaError,
+  ResetSystemTokenQuotaResponse,
   ResolveBrainTakeData,
   ResolveBrainTakeError,
   ResolveBrainTakeResponse,
@@ -1122,6 +1150,29 @@ export const createWebhookEndpointMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await createWebhookEndpoint({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * recover_human_pod_admin operation on human_access resource
+ */
+export const recoverHumanPodAdminMutation = (
+  options?: Partial<Options<RecoverHumanPodAdminData>>
+): UseMutationOptions<RecoverHumanPodAdminResponse, RecoverHumanPodAdminError, Options<RecoverHumanPodAdminData>> => {
+  const mutationOptions: UseMutationOptions<
+    RecoverHumanPodAdminResponse,
+    RecoverHumanPodAdminError,
+    Options<RecoverHumanPodAdminData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await recoverHumanPodAdmin({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2574,6 +2625,81 @@ export const disableHumanAccessMutation = (
   return mutationOptions
 }
 
+/**
+ * delete_system_token_quota operation on agent_model_configuration resource
+ */
+export const deleteSystemTokenQuotaMutation = (
+  options?: Partial<Options<DeleteSystemTokenQuotaData>>
+): UseMutationOptions<
+  DeleteSystemTokenQuotaResponse,
+  DeleteSystemTokenQuotaError,
+  Options<DeleteSystemTokenQuotaData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteSystemTokenQuotaResponse,
+    DeleteSystemTokenQuotaError,
+    Options<DeleteSystemTokenQuotaData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteSystemTokenQuota({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getSystemTokenQuotaQueryKey = (options: Options<GetSystemTokenQuotaData>) =>
+  createQueryKey('getSystemTokenQuota', options)
+
+/**
+ * get_system_token_quota operation on agent_model_configuration resource
+ */
+export const getSystemTokenQuotaOptions = (options: Options<GetSystemTokenQuotaData>) =>
+  queryOptions<
+    GetSystemTokenQuotaResponse,
+    GetSystemTokenQuotaError,
+    GetSystemTokenQuotaResponse,
+    ReturnType<typeof getSystemTokenQuotaQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getSystemTokenQuota({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getSystemTokenQuotaQueryKey(options)
+  })
+
+/**
+ * put_system_token_quota operation on agent_model_configuration resource
+ */
+export const putSystemTokenQuotaMutation = (
+  options?: Partial<Options<PutSystemTokenQuotaData>>
+): UseMutationOptions<PutSystemTokenQuotaResponse, PutSystemTokenQuotaError, Options<PutSystemTokenQuotaData>> => {
+  const mutationOptions: UseMutationOptions<
+    PutSystemTokenQuotaResponse,
+    PutSystemTokenQuotaError,
+    Options<PutSystemTokenQuotaData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putSystemTokenQuota({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const getPrincipalQueryKey = (options: Options<GetPrincipalData>) => createQueryKey('getPrincipal', options)
 
 /**
@@ -3740,6 +3866,33 @@ export const putDefaultProviderHostedMutation = (
 }
 
 /**
+ * reset_system_token_quota operation on agent_model_configuration resource
+ */
+export const resetSystemTokenQuotaMutation = (
+  options?: Partial<Options<ResetSystemTokenQuotaData>>
+): UseMutationOptions<
+  ResetSystemTokenQuotaResponse,
+  ResetSystemTokenQuotaError,
+  Options<ResetSystemTokenQuotaData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ResetSystemTokenQuotaResponse,
+    ResetSystemTokenQuotaError,
+    Options<ResetSystemTokenQuotaData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await resetSystemTokenQuota({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * run_cron_schedule operation on cron_schedule resource
  */
 export const runCronScheduleMutation = (
@@ -3875,6 +4028,25 @@ export const setAgentLibraryPluginMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await setAgentLibraryPlugin({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * disable_agent operation on agent resource
+ */
+export const disableAgentMutation = (
+  options?: Partial<Options<DisableAgentData>>
+): UseMutationOptions<DisableAgentResponse, DisableAgentError, Options<DisableAgentData>> => {
+  const mutationOptions: UseMutationOptions<DisableAgentResponse, DisableAgentError, Options<DisableAgentData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await disableAgent({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -5060,6 +5232,33 @@ export const cancelWebhookEndpointMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await cancelWebhookEndpoint({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * force_reset_agent_worker_generation operation on agent_worker resource
+ */
+export const forceResetAgentWorkerGenerationMutation = (
+  options?: Partial<Options<ForceResetAgentWorkerGenerationData>>
+): UseMutationOptions<
+  ForceResetAgentWorkerGenerationResponse,
+  ForceResetAgentWorkerGenerationError,
+  Options<ForceResetAgentWorkerGenerationData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ForceResetAgentWorkerGenerationResponse,
+    ForceResetAgentWorkerGenerationError,
+    Options<ForceResetAgentWorkerGenerationData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await forceResetAgentWorkerGeneration({
         ...options,
         ...fnOptions,
         throwOnError: true

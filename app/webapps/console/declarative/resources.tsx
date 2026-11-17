@@ -474,7 +474,7 @@ export function DeclarativeRoutedPage({
   if (visibility.loading) {
     return (
       <PageStack>
-        <p className="text-sm text-muted-foreground" role="status">
+        <p className="text-sm text-fg-secondary" role="status">
           {t('common.loading', { defaultValue: 'Loading...' })}
         </p>
       </PageStack>
@@ -705,7 +705,7 @@ function DeclarativeResourceEditorView({
   if (mode === 'edit' && recordQuery.loading) {
     return (
       <PageStack>
-        <p className="text-sm text-muted-foreground" role="status">
+        <p className="text-sm text-fg-secondary" role="status">
           {t('common.loading', { defaultValue: 'Loading...' })}
         </p>
       </PageStack>

@@ -3,7 +3,7 @@ defmodule Ankole.AgentWorkers.Providers.Runtime do
 
   @enforce_keys [:id, :provider_id, :kind, :settings, :secrets, :runtime, :settings_digest]
   @derive {Inspect, except: [:secrets, :runtime]}
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [:prepared_digest, :prepared_verified_at]
 
   @type t :: %__MODULE__{
           id: Ecto.UUID.t(),
@@ -12,6 +12,8 @@ defmodule Ankole.AgentWorkers.Providers.Runtime do
           settings: map(),
           secrets: map(),
           runtime: Ankole.AgentWorkers.Config.t(),
-          settings_digest: String.t()
+          settings_digest: String.t(),
+          prepared_digest: String.t() | nil,
+          prepared_verified_at: DateTime.t() | nil
         }
 end

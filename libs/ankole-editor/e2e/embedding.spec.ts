@@ -302,6 +302,39 @@ test('an open resource form preserves host edits to fields the user did not chan
   await expect(output).toContainText('resource-preview.html?remote=1')
 })
 
+test('an open inline link form follows a host insertion and preserves input when its target changes', async ({
+  page
+}) => {
+  const source = page.getByLabel('Host source', { exact: true })
+  const apply = page.getByRole('button', { name: 'Apply source without moving focus', exact: true })
+  const panel = page.getByTestId('second-editor')
+  const output = page.getByLabel('Second Markdown', { exact: true })
+  await source.fill('Before [Guide](https://example.com/guide) after')
+  await apply.click()
+  await source.fill('Inserted Before [Guide](https://example.com/guide) after')
+  await caret(panel.locator('.editor-content a'), 2)
+  await page.keyboard.press('ControlOrMeta+k')
+  const url = page.getByRole('textbox', { name: '链接地址', exact: true })
+  await url.fill('https://example.com/local')
+  await apply.dispatchEvent('click')
+  await expect(url).toHaveValue('https://example.com/local')
+  await page.getByRole('button', { name: '应用链接', exact: true }).click()
+  await expect(output).toHaveText('Inserted Before [Guide](https://example.com/local) after')
+
+  await source.fill('Inserted Before [Guide](https://example.com/remote) after')
+  await caret(panel.locator('.editor-content a'), 2)
+  await page.keyboard.press('ControlOrMeta+k')
+  await url.fill('https://example.com/my-draft')
+  await apply.dispatchEvent('click')
+  await page.getByRole('button', { name: '应用链接', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('此链接已被其他编辑者修改或删除')
+  await expect(url).toHaveValue('https://example.com/my-draft')
+  await expect(output).toHaveText('Inserted Before [Guide](https://example.com/remote) after')
+  await page.getByRole('button', { name: '移除链接', exact: true }).click()
+  await expect(url).toHaveValue('https://example.com/my-draft')
+  await expect(output).toHaveText('Inserted Before [Guide](https://example.com/remote) after')
+})
+
 test('the file entry hands chosen files to the host and leaves the document unchanged', async ({ page }) => {
   const editor = page.getByRole('textbox', { name: 'Second document', exact: true })
   await caret(editor.locator('p').last())

@@ -143,6 +143,8 @@ describe('Markdown file upload conversion', () => {
       // Brain knowledge parent -> keeps `.md` upload as a File Page attachment
       const brainParentID = '019a2b00-0000-7000-8000-000000000200'
       const brainDetail: PageDetail = {
+        bindings: {},
+        bindings_digest: '',
         page: fakePage({ id: brainParentID, type: 'knowledge', title: 'Customer Entity' }),
         ancestors: [],
         actions: ['node_view', 'node_edit'],

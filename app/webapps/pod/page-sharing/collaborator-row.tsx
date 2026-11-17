@@ -18,7 +18,7 @@ import { inheritedOriginDescription, sharingRoleLabel, SubjectAvatar, SubjectKin
 
 type CollaboratorRowSubject = {
   name: string
-  kind: 'human' | 'agent' | 'group' | 'userset'
+  kind: 'human' | 'agent' | 'service' | 'group' | 'userset'
   role: PageRole
   avatar_url?: string | null
   subtitle?: string | null

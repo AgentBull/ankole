@@ -29,6 +29,7 @@ class SetBuilder<T extends RangeSet.Value> {
   spilled: SetBuilder<T> | null = null
   lastTo = -1
   lastFrom = -1
+  closed = false
 
   get next() {
     return this.spilled || (this.spilled = new SetBuilder<T>())
@@ -40,6 +41,7 @@ class SetBuilder<T extends RangeSet.Value> {
     } else {
       this.chunks.push(chunk)
       this.lastTo = chunk.end
+      this.closed = true
     }
   }
 
@@ -66,12 +68,13 @@ class SetBuilder<T extends RangeSet.Value> {
 
   addInner(value: T, from: number, to: number) {
     let chunk: Chunk<T> | undefined
-    if (this.chunks.length) {
+    if (this.chunks.length && !this.closed) {
       chunk = this.chunks[this.chunks.length - 1]
       if (chunk!.value.length >= ChunkSize.Max) chunk = undefined
     }
     if (!chunk) {
       this.chunks.push((chunk = new Chunk(from, [], [], [])))
+      this.closed = false
     }
     chunk.from.push(from - chunk.start)
     chunk.to.push(to - chunk.start)
@@ -158,7 +161,7 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
     let { sections } = map
     if (replace.length) sections = addReplacements(map, replace)
     else if (map.empty) return this
-    return this.mapInner(sections, map, replace) as any as this
+    return this.mapInner(sections, map, replace) as this
   }
 
   private mapInner(sections: ChangeSet.Sections, map: ChangeSet, replace: readonly Set.Replacement<T>[]): RangeSet<T> {
@@ -222,7 +225,7 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
     const result = replace?.length
       ? this.map(ChangeSet.empty(Math.max(this.length, replace[replace.length - 1]!.to)), replace)
       : this
-    return add || filter ? (result.modifyInner(add, filter) as any as this) : result
+    return add || filter ? (result.modifyInner(add, filter) as this) : result
   }
 
   private modifyInner(

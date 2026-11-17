@@ -31,34 +31,49 @@ defmodule Ankole.Pod.Documents do
   end
 
   @doc "Edits Markdown through the canonical codec while preserving revision and rich-block semantics."
-  def edit_markdown(actor, id, base_revision, markdown, mode, authority)
+  def edit_markdown(actor, id, base_revision, markdown, mode, authority, opts \\ [])
+
+  def edit_markdown(actor, id, base_revision, markdown, mode, authority, opts)
       when is_integer(base_revision) and is_binary(markdown) and mode in [:write, :append] do
     (authority || actor.turn_authority)
     |> Access.write(
-      fn ->
-        with {:ok, %{type: :doc} = page} <- Pages.lock(id),
-             :ok <- current_revision(page, base_revision),
-             content = content!(page),
-             {:ok, parsed} <-
-               Ankole.Kernel.vfs_document_reconcile(
-                 if(mode == :append, do: "<page />", else: content.content),
-                 markdown
-               ) do
-          case mode do
-            :write -> write_in_tx(actor, id, base_revision, {:ok, parsed})
-            :append -> append_in_tx(actor, id, base_revision, {:ok, parsed})
-          end
-        else
-          {:ok, _page} -> {:error, :invalid_page_type}
-          error -> error
-        end
-      end,
+      fn -> edit_markdown_in_tx(actor, id, base_revision, markdown, mode, opts) end,
       after_commit: &committed/1
     )
     |> result()
   end
 
-  def edit_markdown(_actor, _id, _revision, _markdown, _mode, _authority),
+  def edit_markdown(_actor, _id, _revision, _markdown, _mode, _authority, _opts),
+    do: {:error, :invalid_request}
+
+  @doc false
+  def edit_markdown_in_tx(actor, id, base_revision, markdown, mode \\ :write, opts \\ [])
+
+  def edit_markdown_in_tx(actor, id, base_revision, markdown, mode, opts)
+      when is_integer(base_revision) and is_binary(markdown) and mode in [:write, :append] do
+    with {:ok, %{type: :doc} = page} <- Pages.lock(id),
+         :ok <-
+           if(mode == :append,
+             do: append_revision(page, base_revision),
+             else: current_revision(page, base_revision)
+           ),
+         content = content!(page),
+         {:ok, parsed} <-
+           Ankole.Kernel.vfs_document_reconcile(
+             if(mode == :append, do: "<page />", else: content.content),
+             markdown
+           ) do
+      case mode do
+        :write -> write_in_tx(actor, id, base_revision, {:ok, parsed})
+        :append -> append_in_tx(actor, id, base_revision, {:ok, parsed}, opts)
+      end
+    else
+      {:ok, _page} -> {:error, :invalid_page_type}
+      error -> error
+    end
+  end
+
+  def edit_markdown_in_tx(_actor, _id, _revision, _markdown, _mode, _opts),
     do: {:error, :invalid_request}
 
   def write(uid, id, base_revision, xml, authority \\ nil)
@@ -93,38 +108,76 @@ defmodule Ankole.Pod.Documents do
     end)
   end
 
-  def append(actor, id, base_revision, fragment_xml, authority \\ nil)
+  def append(actor, id, base_revision, fragment_xml, authority \\ nil, opts \\ [])
 
-  def append(%Ankole.AuthZ.Actor{} = actor, id, base_revision, fragment_xml, authority)
+  def append(%Ankole.AuthZ.Actor{} = actor, id, base_revision, fragment_xml, authority, opts)
       when is_integer(base_revision) and is_binary(fragment_xml) do
     validation = Ankole.Kernel.page_validate(fragment_xml)
     authority = authority || actor.turn_authority
 
     authority
-    |> Access.write(fn -> append_in_tx(actor, id, base_revision, validation) end,
+    |> Access.write(fn -> append_in_tx(actor, id, base_revision, validation, opts) end,
       after_commit: &committed/1
     )
     |> result()
   end
 
-  def append(_actor, _id, _revision, _fragment, _authority), do: {:error, :invalid_request}
+  def append(_actor, _id, _revision, _fragment, _authority, _opts), do: {:error, :invalid_request}
 
   @doc false
-  def append_in_tx(%Ankole.AuthZ.Actor{} = actor, id, base_revision, validation) do
+  def append_in_tx(%Ankole.AuthZ.Actor{} = actor, id, base_revision, validation, opts \\ []) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
+    idem_client_id = append_idempotency_client_id(uid, Keyword.get(opts, :idempotency_key))
+
     commit_in_tx(actor, id, fn page ->
-      with :ok <- current_revision(page, base_revision),
-           {:ok, fragment} <- validation do
-        content = content!(page)
+      existing =
+        if idem_client_id do
+          PageChange
+          |> Ash.Query.filter(
+            page_id == ^page.id and client_id == ^idem_client_id and client_seq == 1
+          )
+          |> Ankole.Ash.read_one!()
+        end
 
-        xml =
-          "<page>" <> page_children(content.content) <> page_children(fragment.xml) <> "</page>"
+      if existing do
+        {:ok, %{page: page, content: content!(page)}}
+      else
+        with :ok <- append_revision(page, base_revision),
+             {:ok, fragment} <- validation do
+          content = content!(page)
 
-        with {:ok, parsed} <- Ankole.Kernel.page_validate(xml),
-             {:ok, marked} <- preserve_comments(page.id, content.content, parsed.xml),
-             do: save_diff(page, content, Ankole.AuthZ.Actor.uid(actor), marked)
+          xml =
+            "<page>" <> page_children(content.content) <> page_children(fragment.xml) <> "</page>"
+
+          save_opts =
+            if idem_client_id,
+              do: [client_id: idem_client_id, client_seq: 1],
+              else: []
+
+          with {:ok, parsed} <- Ankole.Kernel.page_validate(xml),
+               {:ok, marked} <- preserve_comments(page.id, content.content, parsed.xml),
+               do: save_diff(page, content, uid, marked, save_opts)
+        end
       end
     end)
   end
+
+  defp append_idempotency_client_id(uid, key) when is_binary(key) and key != "" do
+    digest =
+      :crypto.hash(:sha256, "#{uid}:#{key}")
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 32)
+
+    "append:" <> digest
+  end
+
+  defp append_idempotency_client_id(_uid, _key), do: nil
+
+  defp append_revision(%{revision: revision}, base)
+       when is_integer(base) and base >= 0 and base <= revision and revision - base <= 1_000,
+       do: :ok
+
+  defp append_revision(page, _base), do: {:error, {:revision_conflict, page.revision}}
 
   defp page_children("<page />"), do: ""
   defp page_children("<page>" <> rest), do: String.trim_trailing(rest, "</page>")
@@ -154,8 +207,8 @@ defmodule Ankole.Pod.Documents do
           parsed,
           %{
             kind: :change,
-            client_id: "server:" <> uid,
-            client_seq: page.revision + 1,
+            client_id: Keyword.get(opts, :client_id, "server:" <> uid),
+            client_seq: Keyword.get(opts, :client_seq, page.revision + 1),
             changes: changes
           },
           opts
@@ -224,14 +277,22 @@ defmodule Ankole.Pod.Documents do
           content = content!(page)
 
           with {:ok, parsed} <- Ankole.Kernel.page_apply(content.content, changes),
-               {:ok, %{page: page}} <-
+               {:ok, %{page: page, change_entry: entry}} <-
                  save(page, content, uid, parsed, %{
                    kind: :change,
                    client_id: client,
                    client_seq: seq,
                    changes: changes
                  }) do
-            {:ok, Map.put(replay(page, base), :acknowledged_revision, page.revision)}
+            {:ok,
+             replay(page, base)
+             |> Map.put(:acknowledged_revision, page.revision)
+             |> Map.put(:_delta, %{
+               kind: :doc,
+               base_revision: page.revision - 1,
+               revision: page.revision,
+               entry: entry
+             })}
           end
       end
     end)
@@ -239,14 +300,14 @@ defmodule Ankole.Pod.Documents do
 
   def since(%Ankole.AuthZ.Actor{} = actor, id, revision)
       when is_integer(revision) and revision >= 0 do
-    Repo.transact_top_level(fn -> since_in_tx(actor, id, revision) end)
+    Repo.transact_repeatable_read_only(fn -> since_in_tx(actor, id, revision) end)
   end
 
   def since(_uid, _id, _revision), do: {:error, :invalid_request}
 
   @doc false
   def since_in_tx(%Ankole.AuthZ.Actor{} = actor, id, revision) do
-    with {:ok, page} <- Pages.lock(id, :share),
+    with {:ok, page} <- Pages.fetch(id),
          {:ok, _} <- Access.authorize(actor, page, "node_view"),
          true <- page.type == :doc,
          do: {:ok, replay(page, revision)},
@@ -257,9 +318,9 @@ defmodule Ankole.Pod.Documents do
   end
 
   @doc "Publishes a committed document change to the page channel and VFS workers."
-  def committed(%{page_id: id}) do
+  def committed(%{page_id: id} = committed) do
     Ankole.Files.Vfs.Invalidator.notify_page_updated(id)
-    Pages.broadcast(id)
+    Pages.broadcast(id, Map.get(committed, :delta))
   end
 
   defp replay(page, base) do
@@ -300,13 +361,29 @@ defmodule Ankole.Pod.Documents do
     with {:ok, page} <- Pages.lock(id),
          {:ok, _} <- Access.authorize(actor, page, "node_edit"),
          true <- page.type == :doc,
-         {:ok, result} <- fun.(page) do
-      {:ok, %{page_id: page.id, result: result}}
+         {:ok, raw_result} <- fun.(page) do
+      {delta, clean_result} = pop_commit_delta(raw_result)
+      {:ok, %{page_id: page.id, delta: delta, result: clean_result}}
     else
       false -> {:error, :invalid_page_type}
       error -> error
     end
   end
+
+  defp pop_commit_delta(%{_delta: delta} = map), do: {delta, Map.delete(map, :_delta)}
+
+  defp pop_commit_delta(%{page: page, change_entry: %PageChange{} = entry} = map) do
+    delta = %{
+      kind: :doc,
+      base_revision: page.revision - 1,
+      revision: page.revision,
+      entry: entry
+    }
+
+    {delta, Map.delete(map, :change_entry)}
+  end
+
+  defp pop_commit_delta(other), do: {nil, other}
 
   defp result({:ok, %{result: result}}), do: {:ok, result}
   defp result(error), do: error
@@ -351,7 +428,7 @@ defmodule Ankole.Pod.Documents do
                  if(edited or Keyword.get(opts, :force, false), do: now, else: page.updated_at)
              })
            ),
-         {:ok, _} <-
+         {:ok, change_entry} <-
            Ankole.Ash.create(
              PageChange,
              :append,
@@ -367,8 +444,12 @@ defmodule Ankole.Pod.Documents do
            |> Ash.Query.filter(page_id == ^page.id and revision <= ^(page.revision - window))
            |> Ankole.Ash.destroy_where(:prune),
          :ok <- Ankole.Pod.SearchProjection.upsert_in_tx(page, body_text: parsed.plain_text) do
-      with :ok <- Ankole.Brain.Knowledge.page_changed_in_tx(page, content),
-           do: {:ok, %{page: page, content: content}}
+      with :ok <-
+             if(edited and Ankole.Brain.Config.enabled?(),
+               do: Ankole.Brain.Knowledge.page_changed_in_tx(page, content),
+               else: :ok
+             ),
+           do: {:ok, %{page: page, content: content, change_entry: change_entry}}
     end
   end
 

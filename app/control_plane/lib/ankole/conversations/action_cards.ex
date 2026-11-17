@@ -6,10 +6,11 @@ defmodule Ankole.Conversations.ActionCards do
 
   require Ash.Query
 
-  alias Ankole.{AuthZ, Logging, Principals, Repo, Signals}
+  alias Ankole.{AuthZ, Principals, Repo, Signals}
   alias Ankole.AuthZ.Actor
   alias Ankole.Conversations
   alias Ankole.Conversations.{ActionCard, Conversation, Native, NativeRoom, Queries}
+  alias Ankole.Conversations.ActionCards.DomainActions
 
   alias Ankole.Conversations.Delivery
 
@@ -537,27 +538,141 @@ defmodule Ankole.Conversations.ActionCards do
 
   defp supported_conversation_action(_, _), do: :ok
 
+  @doc "Records a prepared `connectors.tool.call` ActionCard during a live conversation turn."
+  def prepare_connector_action_card(turn, digest, summary, payload)
+      when is_map(turn) and is_binary(digest) and is_binary(summary) and is_map(payload) do
+    run_tx = fn ->
+      Ankole.AdvisoryLock.lock!(
+        Repo,
+        "connector_card_prepare:#{Repo.tenant_id!()}:#{turn.signal_id}"
+      )
+
+      prepared =
+        ActionCard
+        |> Ash.Query.filter(
+          source_signal_id == ^turn.signal_id and status == :prepared and
+            action_kind == "connectors.tool.call"
+        )
+        |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+        |> Ankole.Ash.read!()
+
+      case prepared do
+        [%ActionCard{} = existing | _] ->
+          if existing.preconditions["args_sha256"] == digest do
+            {:ok, existing}
+          else
+            {:error, {:approval_already_pending_in_turn, existing}}
+          end
+
+        [] ->
+          card_id = Ankole.Ecto.UUIDv7.autogenerate()
+
+          Ankole.Ash.create(ActionCard, :prepare_in_tx, %{
+            id: card_id,
+            conversation_id: turn.conversation_id,
+            session_id: turn.session_id,
+            agent_uid: turn.agent_uid,
+            source_signal_id: turn.signal_id,
+            interaction_id: "action_card:#{card_id}",
+            action_kind: "connectors.tool.call",
+            summary: summary,
+            target_node_id: nil,
+            payload: payload,
+            preconditions: %{"args_sha256" => digest}
+          })
+      end
+    end
+
+    if Repo.in_transaction?(), do: run_tx.(), else: Repo.transact_top_level(run_tx)
+  end
+
+  @doc "Returns the ActionCardPrompt for the latest prepared connector ActionCard of `signal_id`."
+  def prepared_prompt_for_signal(signal_id) when is_binary(signal_id) do
+    case Ecto.UUID.cast(signal_id) do
+      {:ok, signal_id} ->
+        ActionCard
+        |> Ash.Query.filter(
+          source_signal_id == ^signal_id and status == :prepared and
+            action_kind == "connectors.tool.call"
+        )
+        |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+        |> Ash.Query.limit(1)
+        |> Ankole.Ash.read_one!()
+        |> case do
+          %ActionCard{} = card -> ActionCardPrompt.from_card(card)
+          nil -> nil
+        end
+
+      :error ->
+        nil
+    end
+  end
+
+  def prepared_prompt_for_signal(_), do: nil
+
+  @doc "Idempotently attaches a prepared connector ActionCard prompt onto `completion` or `statement`."
+  def attach_prepared_completion(completion, signal_id) when is_map(completion) do
+    cond do
+      Map.has_key?(completion, :action_card_attached) ->
+        completion
+
+      completion[:action_card_prompt] != nil or completion[:clarify_prompt] != nil ->
+        Map.put(completion, :action_card_attached, true)
+
+      true ->
+        prompt = prepared_prompt_for_signal(signal_id)
+
+        completion
+        |> Map.put(:action_card_attached, true)
+        |> then(fn map -> if prompt, do: Map.put(map, :action_card_prompt, prompt), else: map end)
+    end
+  end
+
+  def attach_prepared_prompt(
+        %Ankole.Conversations.Statement{
+          notice: nil,
+          signal: %Signal{id: signal_id},
+          completion: %{} = completion
+        } = statement
+      ) do
+    %{statement | completion: attach_prepared_completion(completion, signal_id)}
+  end
+
+  def attach_prepared_prompt(
+        %Ankole.Conversations.Statement{completion: %{} = completion} = statement
+      ) do
+    %{statement | completion: Map.put_new(completion, :action_card_attached, true)}
+  end
+
+  def attach_prepared_prompt(statement), do: statement
+
   @doc "Persists a prepared ActionCard row inside the turn-completion transaction."
   def commit_prepared_in_tx(%Signal{} = event, conversation_id, prompt) when is_map(prompt) do
-    conversation_id =
-      case Conversations.peer_exchange(event.conversation_id) do
-        %{origin_conversation_id: id} when not is_nil(id) -> id
-        _ -> conversation_id
-      end
+    case get_card(prompt["card_id"]) do
+      %ActionCard{} = existing ->
+        {:ok, existing}
 
-    Ankole.Ash.create(ActionCard, :prepare_in_tx, %{
-      id: prompt["card_id"],
-      conversation_id: conversation_id,
-      session_id: event.session_id,
-      agent_uid: event.agent_uid,
-      source_signal_id: event.id,
-      interaction_id: prompt["interaction_id"],
-      action_kind: prompt["action_kind"],
-      summary: prompt["summary"],
-      target_node_id: prompt["target_node_id"],
-      payload: prompt["payload"] || %{},
-      preconditions: prompt["preconditions"] || %{}
-    })
+      nil ->
+        conversation_id =
+          case Conversations.peer_exchange(event.conversation_id) do
+            %{origin_conversation_id: id} when not is_nil(id) -> id
+            _ -> conversation_id
+          end
+
+        Ankole.Ash.create(ActionCard, :prepare_in_tx, %{
+          id: prompt["card_id"],
+          conversation_id: conversation_id,
+          session_id: event.session_id,
+          agent_uid: event.agent_uid,
+          source_signal_id: event.id,
+          interaction_id: prompt["interaction_id"],
+          action_kind: prompt["action_kind"],
+          summary: prompt["summary"],
+          target_node_id: prompt["target_node_id"],
+          payload: prompt["payload"] || %{},
+          preconditions: prompt["preconditions"] || %{}
+        })
+    end
   end
 
   @doc "Classifies an external binding into Tier 1 (in-place refresh), Tier 2 (append receipt), or Tier 3 (non-interactive)."
@@ -599,6 +714,19 @@ defmodule Ankole.Conversations.ActionCards do
     |> MapSet.new(& &1.conversation_id)
   end
 
+  @doc "Returns the subset of conversation IDs that have at least one unresolved (`prepared` or `executing`) Action Card."
+  def open_conversation_ids([]), do: MapSet.new()
+
+  def open_conversation_ids(conversation_ids) when is_list(conversation_ids) do
+    ActionCard
+    |> Ash.Query.filter(
+      conversation_id in ^conversation_ids and status in [:prepared, :executing]
+    )
+    |> Ash.Query.select([:conversation_id])
+    |> Ankole.Ash.read!()
+    |> MapSet.new(& &1.conversation_id)
+  end
+
   @doc "Locks prepared Action Cards belonging to candidate Signals in canonical row order before Signal locks."
   def lock_prepared_for_signals_in_tx([]), do: []
 
@@ -610,6 +738,52 @@ defmodule Ankole.Conversations.ActionCards do
     |> Ankole.Ash.read!(lock_identity: {:rows, "conversation_action_cards", :id})
   end
 
+  @doc "Cancels any prepared ActionCards for `signal_id` except `keep_card_id` inside the caller's transaction."
+  def cancel_unattached_prepared_in_tx(signal_id, keep_card_id \\ nil)
+
+  def cancel_unattached_prepared_in_tx(signal_id, keep_card_id) when is_binary(signal_id) do
+    case Ecto.UUID.cast(signal_id) do
+      {:ok, id} -> cancel_unattached_prepared_for_signals_in_tx([id], keep_card_id)
+      :error -> :ok
+    end
+  end
+
+  def cancel_unattached_prepared_in_tx(_, _), do: :ok
+
+  @doc "Cancels any prepared ActionCards across `signal_ids` except `keep_card_id` inside the caller's transaction."
+  def cancel_unattached_prepared_for_signals_in_tx([], _keep_card_id), do: :ok
+
+  def cancel_unattached_prepared_for_signals_in_tx(signal_ids, keep_card_id)
+      when is_list(signal_ids) do
+    :ok = Repo.require_transaction()
+    now = DateTime.utc_now(:microsecond)
+
+    cards =
+      ActionCard
+      |> Ash.Query.filter(source_signal_id in ^signal_ids and status == :prepared)
+      |> Ash.Query.sort(id: :asc)
+      |> Ankole.Ash.read!()
+
+    Enum.reduce_while(cards, :ok, fn %ActionCard{} = card, :ok ->
+      if card.id == keep_card_id or
+           (card.action_kind == "connectors.tool.call" and
+              DomainActions.connector_execution_started?(card, now)) do
+        {:cont, :ok}
+      else
+        case Ankole.Ash.update(card, :resolve_in_tx, %{
+               status: :cancelled,
+               resolved_by_uid: nil,
+               resolved_by_name: nil,
+               resolved_at: now,
+               resolution_note: "Turn ended without attaching this approval card."
+             }) do
+          {:ok, _updated} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end
+    end)
+  end
+
   @doc "Marks pre-locked prepared Action Cards cancelled when their source Signal entry was removed."
   def cancel_locked_for_signals_in_tx([], _superseded_signal_ids, _now), do: :ok
   def cancel_locked_for_signals_in_tx(_locked_cards, [], _now), do: :ok
@@ -619,7 +793,8 @@ defmodule Ankole.Conversations.ActionCards do
     superseded_set = MapSet.new(superseded_signal_ids)
 
     Enum.reduce_while(locked_cards, :ok, fn %ActionCard{} = card, :ok ->
-      if card.status == :prepared and MapSet.member?(superseded_set, card.source_signal_id) do
+      if card.status == :prepared and MapSet.member?(superseded_set, card.source_signal_id) and
+           not DomainActions.connector_execution_started?(card, now) do
         case Ankole.Ash.update(card, :resolve_in_tx, %{
                status: :cancelled,
                resolved_by_uid: nil,
@@ -668,25 +843,40 @@ defmodule Ankole.Conversations.ActionCards do
   end
 
   def client_card_state(%ActionCard{} = card, viewer_actor \\ nil) do
+    redacted_connector? = redacted_connector_card?(viewer_actor, card)
+
+    can_recover =
+      card.status == :executing and
+        not DomainActions.active_execution_claim?(card, DateTime.utc_now(:microsecond))
+
     %{
       "card_id" => card.id,
       "interaction_id" => card.source_signal_id <> ":" <> card.interaction_id,
       "action_kind" => card.action_kind,
       "summary" => card.summary,
       "target_node_id" => card.target_node_id,
-      "payload" => client_payload(card, viewer_actor),
+      "payload" => client_payload(card, viewer_actor, redacted_connector?),
       "status" => to_string(card.status),
+      "can_recover" => can_recover,
       "resolved_by_uid" => card.resolved_by_uid,
       "resolved_by_name" => card.resolved_by_name,
       "resolved_at" => card.resolved_at && DateTime.to_iso8601(card.resolved_at),
-      "resolution_note" => card.resolution_note
+      "resolution_note" => if(redacted_connector?, do: nil, else: card.resolution_note)
     }
   end
 
-  defp client_payload(%ActionCard{action_kind: "pod.knowledge.save"} = card, _viewer_actor),
-    do: Map.put(card.payload, "base_revision", card.preconditions["expected_revision"])
+  defp client_payload(
+         %ActionCard{action_kind: "pod.knowledge.save"} = card,
+         _viewer_actor,
+         _redacted?
+       ),
+       do: Map.put(card.payload, "base_revision", card.preconditions["expected_revision"])
 
-  defp client_payload(%ActionCard{action_kind: "library.skill.save"} = card, viewer_actor) do
+  defp client_payload(
+         %ActionCard{action_kind: "library.skill.save"} = card,
+         viewer_actor,
+         _redacted?
+       ) do
     payload =
       case card.preconditions["expected_revision"] do
         rev when is_integer(rev) -> Map.put(card.payload, "base_revision", rev)
@@ -702,10 +892,38 @@ defmodule Ankole.Conversations.ActionCards do
     end
   end
 
-  defp client_payload(%ActionCard{} = card, _viewer_actor), do: card.payload
+  defp client_payload(
+         %ActionCard{action_kind: "connectors.tool.call"} = card,
+         _viewer_actor,
+         true
+       ) do
+    card.payload
+    |> Map.drop(["arguments", "arguments_preview"])
+    |> Map.put("redacted", true)
+  end
+
+  defp client_payload(
+         %ActionCard{action_kind: "connectors.tool.call"} = card,
+         _viewer_actor,
+         false
+       ),
+       do: Map.delete(card.payload, "arguments")
+
+  defp client_payload(%ActionCard{} = card, _viewer_actor, _redacted?), do: card.payload
+
+  defp redacted_connector_card?(
+         %Actor{} = viewer_actor,
+         %ActionCard{action_kind: "connectors.tool.call"} = card
+       ) do
+    card.payload["subject_kind"] == "human" and
+      Actor.uid(viewer_actor) != card.resolved_by_uid and
+      not DomainActions.can_manage_card_target?(%{viewer_actor | turn_authority: nil}, card)
+  end
+
+  defp redacted_connector_card?(_viewer_actor, _card), do: false
 
   defp viewer_can_read_skill_card?(%Actor{} = viewer_actor, %ActionCard{} = card),
-    do: can_view_card_target?(%{viewer_actor | turn_authority: nil}, card)
+    do: DomainActions.can_view_card_target?(%{viewer_actor | turn_authority: nil}, card)
 
   defp viewer_can_read_skill_card?(_, _card), do: false
 
@@ -731,7 +949,7 @@ defmodule Ankole.Conversations.ActionCards do
          %ActionCard{} = card <- get_card(card_id),
          {:ok, %Conversation{} = conversation} <-
            Conversations.get_conversation(card.conversation_id),
-         :ok <- authorize_browser_card_view(human_actor, conversation, card) do
+         :ok <- DomainActions.authorize_browser_card_view(human_actor, conversation, card) do
       {:ok, browser_card_state(card, conversation, human_actor)}
     else
       {:ok, nil} -> {:error, :not_found}
@@ -746,17 +964,20 @@ defmodule Ankole.Conversations.ActionCards do
     decision = if to_string(decision) == "confirm", do: :confirm, else: :cancel
     human_actor = %{actor | turn_authority: nil}
 
-    with {:ok, outcome} <-
-           Repo.transact_top_level(
-             fn -> resolve_browser_card_in_tx(human_actor, card_id, decision) end,
-             after_commit: &__MODULE__.publish_after_commit/1
-           ) do
+    step = fn settlement ->
+      Repo.transact_top_level(
+        fn -> resolve_browser_card_in_tx(human_actor, card_id, decision, settlement) end,
+        after_commit: &__MODULE__.publish_after_commit/1
+      )
+    end
+
+    with {:ok, outcome} <- DomainActions.run_web_lifecycle(human_actor, step) do
       {:ok, browser_card_state(outcome.card, outcome.conversation, human_actor)}
     end
   end
 
   @doc false
-  def resolve_browser_card_in_tx(%Actor{} = actor, card_id, decision)
+  def resolve_browser_card_in_tx(%Actor{} = actor, card_id, decision, settlement \\ nil)
       when decision in [:confirm, :cancel] do
     now = DateTime.utc_now(:microsecond)
 
@@ -772,11 +993,19 @@ defmodule Ankole.Conversations.ActionCards do
             initial_conversation.id,
             snapshot,
             decision,
-            now
+            now,
+            settlement
           )
 
         :external ->
-          resolve_external_browser_in_tx(actor, initial_conversation, snapshot, decision, now)
+          resolve_external_browser_in_tx(
+            actor,
+            initial_conversation,
+            snapshot,
+            decision,
+            now,
+            settlement
+          )
       end
     else
       {:ok, nil} -> {:error, :not_found}
@@ -791,17 +1020,28 @@ defmodule Ankole.Conversations.ActionCards do
     decision = if to_string(decision) == "confirm", do: :confirm, else: :cancel
     human_actor = %{actor | turn_authority: nil}
 
-    with {:ok, outcome} <-
-           Repo.transact_top_level(
-             fn -> resolve_native_in_tx(human_actor, conversation_id, card_id, decision) end,
-             after_commit: &__MODULE__.publish_after_commit/1
-           ) do
+    step = fn settlement ->
+      Repo.transact_top_level(
+        fn ->
+          resolve_native_in_tx(human_actor, conversation_id, card_id, decision, settlement)
+        end,
+        after_commit: &__MODULE__.publish_after_commit/1
+      )
+    end
+
+    with {:ok, outcome} <- DomainActions.run_web_lifecycle(human_actor, step) do
       Conversations.get(human_actor, outcome.conversation_id)
     end
   end
 
   @doc false
-  def resolve_native_in_tx(%Actor{} = actor, conversation_id, card_id, decision)
+  def resolve_native_in_tx(
+        %Actor{} = actor,
+        conversation_id,
+        card_id,
+        decision,
+        settlement \\ nil
+      )
       when decision in [:confirm, :cancel] do
     now = DateTime.utc_now(:microsecond)
 
@@ -809,29 +1049,40 @@ defmodule Ankole.Conversations.ActionCards do
          {:ok, card_id} <- cast_uuid(card_id, "card_id"),
          :ok <- Ankole.Pod.lock_tree_in_tx(),
          %ActionCard{conversation_id: ^conversation_id} = snapshot <- get_card(card_id) do
-      resolve_native_after_tree_lock_in_tx(actor, conversation_id, snapshot, decision, now)
+      resolve_native_after_tree_lock_in_tx(
+        actor,
+        conversation_id,
+        snapshot,
+        decision,
+        now,
+        settlement
+      )
     else
       nil -> {:error, :not_found}
       {:error, _} = error -> error
     end
   end
 
-  defp resolve_native_after_tree_lock_in_tx(actor, conversation_id, snapshot, decision, now) do
+  defp resolve_native_after_tree_lock_in_tx(
+         actor,
+         conversation_id,
+         snapshot,
+         decision,
+         now,
+         settlement
+       ) do
     with :ok <- lock_target_roots_in_tx(snapshot),
          %Conversation{kind: :native} = visible <-
            Native.visible_conversation(actor, conversation_id),
-         :ok <- lock_resolution_principals_in_tx(Actor.uid(actor), snapshot, visible),
-         :ok <-
-           Ankole.Sessions.Queue.lock_sessions_in_tx(
-             resolution_sessions(snapshot, [
-               {snapshot.agent_uid, Ankole.Sessions.Key.conversation(conversation_id)}
-             ])
-           ),
-         %Conversation{} = conversation <-
-           Native.visible_conversation(actor, conversation_id, lock: true),
-         %ActionCard{} = card <- lock_card_in_tx(snapshot.id),
-         %Signal{} = source <- Signals.lock_signal_in_tx(card.source_signal_id) do
-      if card.status != :prepared do
+         {:ok, conversation, card, source} <-
+           lock_resolution_entities_in_tx(
+             Actor.uid(actor),
+             snapshot,
+             visible,
+             [{snapshot.agent_uid, Ankole.Sessions.Key.conversation(conversation_id)}],
+             fn -> Native.visible_conversation(actor, conversation_id, lock: true) end
+           ) do
+      if ActionCard.terminal_status?(card.status) do
         {:ok,
          %{
            conversation_id: conversation.id,
@@ -841,15 +1092,24 @@ defmodule Ankole.Conversations.ActionCards do
          }}
       else
         with {:ok, outcome} <-
-               execute_resolution_in_tx(
+               DomainActions.advance_locked_in_tx(
                  actor,
                  conversation,
                  card,
-                 source,
                  decision,
-                 :native,
-                 nil,
-                 now
+                 now,
+                 settlement,
+                 &execute_resolution_in_tx(
+                   actor,
+                   conversation,
+                   card,
+                   source,
+                   decision,
+                   :native,
+                   nil,
+                   now,
+                   &1
+                 )
                ) do
           {:ok, Map.put(outcome, :conversation, conversation)}
         end
@@ -860,16 +1120,25 @@ defmodule Ankole.Conversations.ActionCards do
     end
   end
 
-  defp resolve_external_browser_in_tx(actor, initial_conversation, snapshot, decision, now) do
+  defp resolve_external_browser_in_tx(
+         actor,
+         initial_conversation,
+         snapshot,
+         decision,
+         now,
+         settlement
+       ) do
     with :ok <- lock_target_roots_in_tx(snapshot),
-         :ok <- authorize_browser_card_view(actor, initial_conversation, snapshot),
-         :ok <- lock_resolution_principals_in_tx(Actor.uid(actor), snapshot, initial_conversation),
-         :ok <-
-           Ankole.Sessions.Queue.lock_sessions_in_tx(resolution_sessions(snapshot)),
-         %Conversation{} = conversation <- Queries.lock_conversation(initial_conversation.id),
-         %ActionCard{} = card <- lock_card_in_tx(snapshot.id),
-         %Signal{} = source <- Signals.lock_signal_in_tx(card.source_signal_id) do
-      if card.status != :prepared do
+         :ok <- DomainActions.authorize_browser_card_view(actor, initial_conversation, snapshot),
+         {:ok, conversation, card, source} <-
+           lock_resolution_entities_in_tx(
+             Actor.uid(actor),
+             snapshot,
+             initial_conversation,
+             [],
+             fn -> Queries.lock_conversation(initial_conversation.id) end
+           ) do
+      if ActionCard.terminal_status?(card.status) do
         {:ok,
          %{
            conversation_id: conversation.id,
@@ -881,15 +1150,24 @@ defmodule Ankole.Conversations.ActionCards do
         {tier, external_ctx} = browser_external_channel_context(actor, conversation, card, source)
 
         with {:ok, outcome} <-
-               execute_resolution_in_tx(
+               DomainActions.advance_locked_in_tx(
                  actor,
                  conversation,
                  card,
-                 source,
                  decision,
-                 tier,
-                 external_ctx,
-                 now
+                 now,
+                 settlement,
+                 &execute_resolution_in_tx(
+                   actor,
+                   conversation,
+                   card,
+                   source,
+                   decision,
+                   tier,
+                   external_ctx,
+                   now,
+                   &1
+                 )
                ) do
           {:ok, Map.put(outcome, :conversation, conversation)}
         end
@@ -953,59 +1231,249 @@ defmodule Ankole.Conversations.ActionCards do
          %Signal{} = source <- Signals.lock_signal_in_tx(card.source_signal_id),
          true <- external_surface_matches?(source, fact.provider_message_id, binding) do
       cond do
-        card.status != :prepared ->
+        ActionCard.terminal_status?(card.status) ->
           maybe_notify_tier2_repeat_in_tx(tier, card, source, fact, sender_key)
 
+        card.status == :executing and DomainActions.active_execution_claim?(card, now) ->
+          {:ok, %{status: :duplicate_action}}
+
         true ->
-          case resolve_external_operator(operator_uid) do
-            {:ok, human_actor} ->
-              case execute_resolution_in_tx(
-                     human_actor,
-                     channel,
-                     card,
-                     source,
-                     decision,
-                     tier,
-                     {fact, sender_key},
-                     now
-                   ) do
-                {:ok, outcome} ->
-                  {:ok,
-                   %{
-                     status: :accepted_action_card,
-                     action_card_outcome: outcome
-                   }}
-
-                {:error, reason} when reason in [:forbidden, :forbidden_room_operation] ->
-                  maybe_notify_unauthorized_in_tx(
-                    tier,
-                    card,
-                    source,
-                    fact,
-                    sender_key,
-                    "You do not have permission to confirm this action card. It remains open for an authorized manager."
-                  )
-
-                {:error, _reason} = error ->
-                  error
-              end
-
-            {:error, :unauthorized_operator} ->
-              maybe_notify_unauthorized_in_tx(
-                tier,
-                card,
-                source,
-                fact,
-                sender_key,
-                "Only linked active workspace members with the required permission can confirm this action card."
-              )
-          end
+          resolve_prepared_external_card_in_tx(
+            operator_uid,
+            channel,
+            card,
+            source,
+            decision,
+            tier,
+            binding,
+            {fact, sender_key},
+            now
+          )
       end
     else
       false -> {:ok, %{status: :stale_action}}
       nil -> {:ok, %{status: :stale_action}}
       :invalid_decision -> {:error, :invalid_reply_interaction}
       {:error, _} -> {:error, :invalid_reply_interaction}
+    end
+  end
+
+  defp resolve_prepared_external_card_in_tx(
+         operator_uid,
+         channel,
+         card,
+         source,
+         decision,
+         tier,
+         binding,
+         {fact, sender_key} = external_ctx,
+         now
+       ) do
+    case resolve_external_operator(operator_uid) do
+      {:error, :unauthorized_operator} ->
+        maybe_notify_unauthorized_in_tx(
+          tier,
+          card,
+          source,
+          fact,
+          sender_key,
+          "Only linked active workspace members with the required permission can confirm this action card."
+        )
+
+      {:ok, human_actor} ->
+        if decision == :confirm and card.action_kind == "connectors.tool.call" do
+          settlement_tier =
+            if tier == :tier1 and binding.adapter == "wecom", do: :tier2, else: tier
+
+          accept_external_connector_confirm_in_tx(
+            human_actor,
+            channel,
+            card,
+            source,
+            tier,
+            settlement_tier,
+            external_ctx,
+            now
+          )
+        else
+          execute_sync_external_card_in_tx(
+            human_actor,
+            channel,
+            card,
+            source,
+            decision,
+            tier,
+            external_ctx,
+            now
+          )
+        end
+    end
+  end
+
+  defp execute_sync_external_card_in_tx(
+         human_actor,
+         channel,
+         card,
+         source,
+         decision,
+         tier,
+         {fact, sender_key} = external_ctx,
+         now
+       ) do
+    case execute_resolution_in_tx(
+           human_actor,
+           channel,
+           card,
+           source,
+           decision,
+           tier,
+           external_ctx,
+           now,
+           nil
+         ) do
+      {:ok, outcome} ->
+        {:ok, %{status: :accepted_action_card, action_card_outcome: outcome}}
+
+      {:error, :conflict} ->
+        {:ok, %{status: :duplicate_action}}
+
+      {:error, reason} when reason in [:forbidden, :forbidden_room_operation] ->
+        maybe_notify_unauthorized_in_tx(
+          tier,
+          card,
+          source,
+          fact,
+          sender_key,
+          "You do not have permission to confirm this action card. It remains open for an authorized manager."
+        )
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp accept_external_connector_confirm_in_tx(
+         human_actor,
+         channel,
+         card,
+         source,
+         tier,
+         settlement_tier,
+         {fact, sender_key} = external_ctx,
+         now
+       ) do
+    case DomainActions.claim_connector_execution_in_tx(human_actor, channel, card, now) do
+      {:ok, claimed_card, claim_id} ->
+        tenant_id = Repo.tenant_id!()
+
+        effect = fn ->
+          Task.Supervisor.start_child(Ankole.Conversations.ActionCardTasks, fn ->
+            Repo.with_tenant(tenant_id, fn ->
+              settle_external_connector_card(
+                human_actor,
+                channel,
+                claimed_card,
+                claim_id,
+                settlement_tier,
+                external_ctx
+              )
+            end)
+          end)
+        end
+
+        {:ok,
+         %{
+           status: :accepted_action_card,
+           action_card_outcome: %{
+             conversation_id: channel.id,
+             card: claimed_card,
+             side_effects: [effect]
+           }
+         }}
+
+      {:error, :conflict} ->
+        {:ok, %{status: :duplicate_action}}
+
+      {:error, :forbidden} ->
+        maybe_notify_unauthorized_in_tx(
+          tier,
+          card,
+          source,
+          fact,
+          sender_key,
+          "You do not have permission to confirm this action card. It remains open for an authorized manager."
+        )
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp settle_external_connector_card(
+         human_actor,
+         channel,
+         claimed_card,
+         claim_id,
+         tier,
+         external_ctx
+       ) do
+    case DomainActions.execute_claimed_connector_card(claimed_card, human_actor) do
+      {:error, :conflict} ->
+        :ok
+
+      normalized_outcome ->
+        case Repo.transact_top_level(
+               fn ->
+                 now = DateTime.utc_now(:microsecond)
+
+                 with :ok <- Ankole.Pod.lock_tree_in_tx(),
+                      :ok <- lock_target_roots_in_tx(claimed_card),
+                      {:ok, locked_conv, card, source} <-
+                        lock_resolution_entities_in_tx(
+                          Actor.uid(human_actor),
+                          claimed_card,
+                          channel,
+                          [],
+                          fn -> Queries.lock_conversation(channel.id) end,
+                          expected_status: :executing
+                        ),
+                      true <- DomainActions.claim_matches?(card, claim_id) do
+                   execute_resolution_in_tx(
+                     human_actor,
+                     locked_conv,
+                     card,
+                     source,
+                     :confirm,
+                     tier,
+                     external_ctx,
+                     now,
+                     normalized_outcome
+                   )
+                 else
+                   false -> {:ok, %{side_effects: []}}
+                   {:unexpected_status, _card} -> {:ok, %{side_effects: []}}
+                   nil -> {:error, :not_found}
+                   {:error, _} = error -> error
+                 end
+               end,
+               after_commit: &__MODULE__.publish_after_commit/1
+             ) do
+          {:ok, _result} ->
+            :ok
+
+          {:error, reason} ->
+            Ankole.Logging.warning(
+              "conversations.action_card_external_settle_failed",
+              "Failed to settle external connector ActionCard after upstream execution",
+              %{
+                card_id: claimed_card.id,
+                conversation_id: channel.id,
+                reason: inspect(reason)
+              }
+            )
+
+            :ok
+        end
     end
   end
 
@@ -1017,9 +1485,11 @@ defmodule Ankole.Conversations.ActionCards do
          :cancel,
          channel_mode,
          external_ctx,
-         now
+         now,
+         _precomputed
        ) do
-    with :ok <- authorize_cancel(actor, conversation, card, source) do
+    with false <- DomainActions.connector_execution_started?(card, now),
+         :ok <- authorize_cancel(actor, conversation, card, source) do
       note = "Cancelled by #{NativeRoom.display_name(actor.principal)}."
 
       with {:ok, card} <-
@@ -1042,6 +1512,9 @@ defmodule Ankole.Conversations.ActionCards do
            side_effects: [conversation_broadcast_effect(conversation)]
          }}
       end
+    else
+      true -> {:error, :conflict}
+      error -> error
     end
   end
 
@@ -1053,24 +1526,41 @@ defmodule Ankole.Conversations.ActionCards do
          :confirm,
          channel_mode,
          external_ctx,
-         now
+         now,
+         precomputed
        ) do
-    case apply_domain_action_in_tx(actor, conversation, card) do
-      {:ok, note, domain_effects} ->
-        with {:ok, card} <- transition_card_in_tx(card, :executed, actor, note, now),
+    outcome =
+      case DomainActions.apply_in_tx(actor, conversation, card, connector_outcome: precomputed) do
+        {:ok, note, domain_effects} -> {:ok, :succeeded, note, domain_effects}
+        other -> other
+      end
+
+    case outcome do
+      {:ok, outcome_kind, note, domain_effects} ->
+        target_status = confirmed_outcome_status(outcome_kind)
+        checkpoint_option = confirmed_checkpoint_option(target_status)
+
+        with {:ok, card} <- transition_card_in_tx(card, target_status, actor, note, now),
              {:ok, _source} <-
                resolve_interaction_checkpoint_in_tx(
                  source,
                  card.interaction_id,
                  actor,
-                 "confirm",
+                 checkpoint_option,
                  note,
                  now
                ),
              :ok <-
                maybe_commit_tier2_settlement_in_tx(channel_mode, card, source, external_ctx, note),
              {:ok, wakeup_signal} <-
-               enqueue_executed_wakeup_in_tx(actor, conversation, card, source, note, now) do
+               enqueue_executed_wakeup_in_tx(
+                 actor,
+                 conversation,
+                 card,
+                 source,
+                 note,
+                 now
+               ) do
           {:ok,
            %{
              conversation_id: conversation.id,
@@ -1112,404 +1602,12 @@ defmodule Ankole.Conversations.ActionCards do
     end
   end
 
-  defp apply_domain_action_in_tx(
-         actor,
-         _conversation,
-         %ActionCard{action_kind: "brain.object.create"} = card
-       ) do
-    with {:ok, category} <- Ankole.Brain.ObjectWrites.category(card.payload["category"]),
-         true <- category.id == card.target_node_id,
-         {:ok, parsed} <- Ankole.Kernel.knowledge_parse(card.payload["markdown"]),
-         {:ok, page} <-
-           Pages.create_in_tx(actor, %{
-             type: :knowledge,
-             parent_id: category.id,
-             title: card.payload["node_title"],
-             xml: parsed.xml,
-             metadata: parsed.metadata
-           }) do
-      {:ok, "Created Brain object \"#{page.title}\".",
-       [fn -> Pages.committed_tree(%{page: page}) end]}
-    else
-      false -> {:error, :not_found}
-      error -> error
-    end
-  end
-
-  defp apply_domain_action_in_tx(
-         actor,
-         _conversation,
-         %ActionCard{action_kind: "pod.knowledge.save"} = card
-       ) do
-    with {:ok, page} <- Pages.lock(card.target_node_id),
-         {:ok, _} <- Access.authorize(actor, page, "node_edit"),
-         {:ok, parsed} <- Ankole.Kernel.knowledge_parse(card.payload["markdown"]) do
-      case Ankole.Pod.Knowledge.put_in_tx(page.id, parsed,
-             actor: actor,
-             base_revision: card.preconditions["expected_revision"]
-           ) do
-        {:ok, %{page: saved}} ->
-          {:ok, "Saved knowledge page \"#{saved.title}\".",
-           [fn -> Pages.committed_page(saved) end]}
-
-        {:error, {:revision_conflict, _}} ->
-          {:stale,
-           "The knowledge page changed after the proposed edit. Read it again and prepare a new draft."}
-
-        error ->
-          error
-      end
-    end
-  end
-
-  defp apply_domain_action_in_tx(
-         actor,
-         _conversation,
-         %ActionCard{action_kind: "pod.page.set_sharing"} = card
-       ) do
-    node_id = card.payload["node_id"] || card.target_node_id
-    expected_sv = card.preconditions["expected_sharing_version"]
-
-    attrs =
-      %{sharing_version: expected_sv}
-      |> maybe_put_map_key(:inherit_permissions, card.payload, "inherit_permissions")
-      |> maybe_put_map_key(:grants, card.payload, "grants")
-
-    case Sharing.set_sharing_in_tx(actor, node_id, attrs) do
-      {:ok, page} ->
-        {:ok, "Updated sharing permissions on \"#{page.title}\".",
-         [fn -> Pages.committed(page) end]}
-
-      {:error, :sharing_conflict} ->
-        {:stale, "Sharing settings on this item changed after the card was drafted."}
-
-      {:error, :not_found} ->
-        {:stale, "Target item is no longer available."}
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp apply_domain_action_in_tx(
-         actor,
-         _conversation,
-         %ActionCard{action_kind: "pod.page.delete"} = card
-       ) do
-    node_id = card.payload["node_id"] || card.target_node_id
-
-    with {:ok, current_page} <- Pages.lock(node_id) do
-      # Check human permission BEFORE CAS so an unauthorized clicker never marks the card :stale!
-      required_action =
-        if current_page.type == :file, do: "node_edit", else: "node_manage"
-
-      with {:ok, _} <- Access.authorize(actor, current_page, required_action) do
-        if page_matches_preconditions?(current_page, card.preconditions, false) do
-          case Pages.delete_in_tx(actor, node_id) do
-            {:ok, deleted_page} ->
-              {:ok, "Moved \"#{deleted_page.title}\" to trash.",
-               [fn -> Pages.committed_access_tree(deleted_page) end]}
-
-            {:error, _} = error ->
-              error
-          end
-        else
-          {:stale, "Item was modified or already moved to trash since this card was drafted."}
-        end
-      end
-    else
-      {:error, :not_found} -> {:stale, "Target item no longer exists."}
-    end
-  end
-
-  defp apply_domain_action_in_tx(
-         actor,
-         _conversation,
-         %ActionCard{action_kind: "pod.page.restore"} = card
-       ) do
-    node_id = card.payload["node_id"] || card.target_node_id
-
-    with {:ok, current_page} <- Pages.lock(node_id) do
-      with {:ok, _} <- Access.authorize(actor, current_page, "node_manage", trash: true) do
-        if page_matches_preconditions?(current_page, card.preconditions, true) do
-          case Pages.restore_in_tx(actor, node_id) do
-            {:ok, restored_page} ->
-              {:ok, "Restored \"#{restored_page.title}\" from trash.",
-               [fn -> Pages.committed_access_tree(restored_page) end]}
-
-            {:error, :cannot_restore} ->
-              {:stale,
-               "Item can no longer be restored (already restored, purged, or parent deleted)."}
-
-            {:error, _} = error ->
-              error
-          end
-        else
-          {:stale, "Trashed item state changed since this card was drafted."}
-        end
-      end
-    else
-      {:error, :not_found} -> {:stale, "Target item no longer exists."}
-    end
-  end
-
-  defp apply_domain_action_in_tx(
-         actor,
-         _conversation,
-         %ActionCard{action_kind: "pod.base.delete_table"} = card
-       ) do
-    page_id = card.preconditions["page_id"] || card.payload["page_id"]
-    table_id = card.preconditions["table_id"] || card.payload["table_id"]
-
-    with {:ok, base_page} <- authorize_base_page_for_card(actor, page_id),
-         {:ok, write} <- Bases.Write.open(actor, table_id, :delete_table),
-         true <- base_table_matches_preconditions?(write.table, base_page, card.preconditions) do
-      delete_base_table_in_tx(write)
-    else
-      false -> {:stale, "Base table or Base page changed since this card was drafted."}
-      {:error, :not_found} -> {:stale, "Base table was already deleted."}
-      other -> other
-    end
-  end
-
-  defp apply_domain_action_in_tx(
-         actor,
-         %Conversation{kind: :native} = conversation,
-         %ActionCard{action_kind: "conversation.add_participants"} = card
-       ) do
-    uids = card.payload["participant_uids"] || []
-
-    if NativeRoom.participant(conversation.id, Actor.uid(actor)) ||
-         NativeRoom.owner?(actor, conversation) do
-      with {:ok, added} <- NativeRoom.ensure_members(actor, conversation, uids),
-           {:ok, _promoted} <- NativeRoom.promote(conversation),
-           :ok <- NativeRoom.notice_added(actor, conversation, added) do
-        names =
-          case added do
-            [] -> "already members"
-            list -> Enum.map_join(list, ", ", &NativeRoom.display_name/1)
-          end
-
-        {:ok, "Added participants (#{names}) to conversation.",
-         [fn -> Conversations.Events.publish_status(conversation.id) end]}
-      end
-    else
-      {:error, :forbidden_room_operation}
-    end
-  end
-
-  defp apply_domain_action_in_tx(
-         actor,
-         _conversation,
-         %ActionCard{action_kind: "library.skill.save"} = card
-       ) do
-    case Ankole.AIAgent.Library.Skills.upsert_from_action_card_in_tx(
-           actor,
-           card.payload,
-           card.preconditions
-         ) do
-      {:ok, saved, effects} ->
-        verb = if card.payload["operation"] == "update", do: "Updated", else: "Saved"
-        scope = if is_binary(saved.agent_uid), do: "personal Skill", else: "workspace Skill"
-        {:ok, "#{verb} #{scope} \"#{saved.name}\" (/#{saved.slug}).", effects}
-
-      {:stale, _note} = stale ->
-        stale
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp apply_domain_action_in_tx(_actor, _conversation, _card), do: {:error, :invalid_request}
-
-  defp authorize_base_page_for_card(actor, page_id) do
-    with {:ok, base_page} <- Pages.lock(page_id),
-         {:ok, _} <- Access.authorize(actor, base_page, "node_manage") do
-      {:ok, base_page}
-    else
-      {:error, :not_found} -> {:stale, "Parent Base no longer exists."}
-      {:error, _} = error -> error
-    end
-  end
-
-  defp delete_base_table_in_tx(%Bases.Write{table: table} = write) do
-    case Bases.Delete.mark_in_tx(write) do
-      {:ok, marked} ->
-        effect = fn ->
-          try do
-            _ = Bases.Delete.cleanup(marked.id)
-          rescue
-            err ->
-              Logging.warning(
-                "conversations.action_cards.base_table_cleanup_failed",
-                "Base table shard cleanup failed after mark_in_tx; scheduled reconciler will retry",
-                %{table_id: marked.id, error: Exception.message(err)}
-              )
-          catch
-            kind, reason ->
-              Logging.warning(
-                "conversations.action_cards.base_table_cleanup_failed",
-                "Base table shard cleanup exited after mark_in_tx; scheduled reconciler will retry",
-                %{table_id: marked.id, kind: inspect(kind), reason: inspect(reason)}
-              )
-          end
-
-          Bases.broadcast_schema([%{id: marked.id, data_version: marked.data_version + 1}])
-        end
-
-        {:ok, "Scheduled deletion of Base table \"#{marked.name}\".", [effect]}
-
-      {:error, :table_referenced} ->
-        {:stale,
-         "Table \"#{table.name}\" is now referenced by a link field and cannot be deleted."}
-
-      {:error, :not_found} ->
-        {:stale, "Base table was already deleted."}
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp page_matches_preconditions?(%Page{} = page, preconditions, expected_deleted) do
-    deleted_matches? = not is_nil(page.deleted_at) == expected_deleted
-
-    updated_matches? =
-      updated_at_matches?(page.updated_at, preconditions["expected_updated_at"])
-
-    revision_matches? =
-      case preconditions["expected_revision"] do
-        nil -> true
-        rev -> page.revision == rev
-      end
-
-    deleted_matches? and updated_matches? and revision_matches?
-  end
-
-  defp base_table_matches_preconditions?(%BaseTable{} = table, %Page{} = page, preconditions) do
-    table.page_id == preconditions["page_id"] and
-      is_nil(table.deleting_at) and
-      table.name == preconditions["expected_name"] and
-      table.schema_version == preconditions["expected_schema_version"] and
-      table.data_version == preconditions["expected_data_version"] and
-      updated_at_matches?(page.updated_at, preconditions["expected_updated_at"])
-  end
-
-  defp updated_at_matches?(updated_at, expected) when is_binary(expected) do
-    case Ankole.Attrs.parse_datetime(expected) do
-      %DateTime{} = datetime -> DateTime.compare(updated_at, datetime) == :eq
-      nil -> false
-    end
-  end
-
-  defp updated_at_matches?(_updated_at, _expected), do: true
-
-  defp authorize_browser_card_view(
-         actor,
-         %Conversation{kind: :native} = conversation,
-         %ActionCard{} = card
-       ) do
-    personal_skill_card? =
-      card.action_kind == "library.skill.save" and is_binary(card.payload["agent_uid"])
-
-    if Native.visible_conversation?(actor, conversation.id) and
-         (not personal_skill_card? or Actor.uid(actor) == card.resolved_by_uid or
-            can_view_card_target?(actor, card)) do
-      :ok
-    else
-      {:error, :not_found}
-    end
-  end
-
-  defp authorize_browser_card_view(actor, %Conversation{kind: :external}, %ActionCard{} = card) do
-    if Actor.uid(actor) == card.resolved_by_uid or can_view_card_target?(actor, card) do
-      :ok
-    else
-      {:error, :not_found}
-    end
-  end
-
-  defp can_view_card_target?(actor, %ActionCard{target_node_id: node_id} = card)
-       when is_binary(node_id) do
-    case Pages.fetch(node_id) do
-      {:ok, page} ->
-        match?(
-          {:ok, _},
-          Access.authorize(actor, page, "node_view",
-            trash: card.action_kind == "pod.page.restore"
-          )
-        )
-
-      _ ->
-        false
-    end
-  end
-
-  defp can_view_card_target?(actor, %ActionCard{action_kind: "library.skill.save"} = card) do
-    case card.payload["agent_uid"] do
-      uid when is_binary(uid) ->
-        Ankole.AIAgent.Library.Management.agent(actor, uid, "read") == :ok
-
-      _ ->
-        Ankole.AIAgent.Library.Management.member(actor) == :ok
-    end
-  end
-
-  defp can_view_card_target?(_actor, _card), do: false
-
-  defp can_manage_card_target?(actor, %ActionCard{action_kind: "library.skill.save"} = card) do
-    alias Ankole.AIAgent.Library.Management
-
-    case card.payload["agent_uid"] do
-      uid when is_binary(uid) ->
-        Management.agent(actor, uid, "update") == :ok
-
-      _ ->
-        Management.authorize(actor, "tenant_console:custom_skills") == :ok and
-          (is_nil(card.payload["bind_agent_uid"]) or
-             Management.binding(actor, card.payload["bind_agent_uid"]) == :ok)
-    end
-  end
-
-  defp can_manage_card_target?(actor, %ActionCard{action_kind: "pod.base.delete_table"} = card) do
-    with table_id when is_binary(table_id) <- card.payload["table_id"],
-         {:ok, table} <- Bases.fetch_table(table_id),
-         {:ok, _} <- Bases.table_access(actor, table, :delete_table) do
-      true
-    else
-      _ -> false
-    end
-  end
-
-  defp can_manage_card_target?(actor, %ActionCard{target_node_id: node_id} = card)
-       when is_binary(node_id) do
-    case Pages.fetch(node_id) do
-      {:ok, page} ->
-        required =
-          if card.action_kind in ["pod.knowledge.save", "brain.object.create"] or
-               (card.action_kind == "pod.page.delete" and page.type == :file),
-             do: "node_edit",
-             else: "node_manage"
-
-        match?(
-          {:ok, _},
-          Access.authorize(actor, page, required, trash: card.action_kind == "pod.page.restore")
-        )
-
-      _ ->
-        false
-    end
-  end
-
-  defp can_manage_card_target?(_actor, _card), do: false
-
   defp authorize_cancel(actor, %Conversation{kind: :native} = conversation, card, _source) do
     personal_skill_card? =
       card.action_kind == "library.skill.save" and is_binary(card.payload["agent_uid"])
 
     if Native.visible_conversation?(actor, conversation.id) and
-         (not personal_skill_card? or can_manage_card_target?(actor, card)) and
+         (not personal_skill_card? or DomainActions.can_manage_card_target?(actor, card)) and
          (NativeRoom.participant(conversation.id, Actor.uid(actor)) != nil or
             NativeRoom.owner?(actor, conversation) or
             AuthZ.authorize(
@@ -1531,12 +1629,20 @@ defmodule Ankole.Conversations.ActionCards do
          %Signal{} = source
        ) do
     if (is_binary(source.human_uid) and Actor.uid(actor) == source.human_uid) or
-         can_manage_card_target?(actor, card) do
+         DomainActions.can_manage_card_target?(actor, card) do
       :ok
     else
       {:error, :forbidden}
     end
   end
+
+  defp confirmed_outcome_status(:succeeded), do: :executed
+  defp confirmed_outcome_status(:failed_uncertain), do: :execution_uncertain
+  defp confirmed_outcome_status(:failed_not_sent), do: :failed
+
+  defp confirmed_checkpoint_option(:executed), do: "confirm"
+  defp confirmed_checkpoint_option(:execution_uncertain), do: "execution_uncertain"
+  defp confirmed_checkpoint_option(:failed), do: "failed"
 
   defp transition_card_in_tx(card, status, actor, note, now) do
     Ankole.Ash.update(card, :resolve_in_tx, %{
@@ -1544,7 +1650,9 @@ defmodule Ankole.Conversations.ActionCards do
       resolved_by_uid: Actor.uid(actor),
       resolved_by_name: NativeRoom.display_name(actor.principal),
       resolved_at: now,
-      resolution_note: note
+      resolution_note: note,
+      execution_claim_id: nil,
+      execution_claim_expires_at: nil
     })
   end
 
@@ -1598,6 +1706,8 @@ defmodule Ankole.Conversations.ActionCards do
     status_label =
       case card.status do
         :executed -> "Executed"
+        :execution_uncertain -> "Outcome Uncertain"
+        :failed -> "Failed"
         :cancelled -> "Cancelled"
         :stale -> "Expired (Stale)"
         other -> to_string(other)
@@ -1714,6 +1824,29 @@ defmodule Ankole.Conversations.ActionCards do
     end
   end
 
+  defp wakeup_header_and_guard(%ActionCard{action_kind: "connectors.tool.call", status: :failed}),
+    do:
+      {"Failed",
+       "\nNOTE: The approved connector call failed before mutating upstream state. Do not assume the action succeeded."}
+
+  defp wakeup_header_and_guard(%ActionCard{
+         action_kind: "connectors.tool.call",
+         status: :execution_uncertain
+       }),
+       do:
+         {"Outcome Uncertain",
+          "\nIMPORTANT: The approved connector call ended with an uncertain upstream outcome. Inspect upstream state before proposing another write."}
+
+  defp wakeup_header_and_guard(%ActionCard{
+         action_kind: "connectors.tool.call",
+         status: :executed
+       }),
+       do:
+         {"Executed",
+          "\nIMPORTANT: This approved connector call has already been executed once with the locked arguments. Do not call this tool again; continue using the result above."}
+
+  defp wakeup_header_and_guard(_card), do: {"Executed", ""}
+
   defp enqueue_executed_wakeup_in_tx(
          actor,
          conversation,
@@ -1722,8 +1855,10 @@ defmodule Ankole.Conversations.ActionCards do
          note,
          now
        ) do
+    {status_label, followup_guard} = wakeup_header_and_guard(card)
+
     text =
-      "[Action Card Executed] #{card.action_kind}: #{card.summary}\nConfirmed by #{NativeRoom.display_name(actor.principal)}. #{note}"
+      "[Action Card #{status_label}] #{card.action_kind}: #{card.summary}\nConfirmed by #{NativeRoom.display_name(actor.principal)}. #{note}#{followup_guard}"
 
     reply_route =
       if conversation.kind == :external and is_binary(source.reply_binding_name) do
@@ -1765,6 +1900,7 @@ defmodule Ankole.Conversations.ActionCards do
           "conversation_id" => conversation.id,
           "action_card_id" => card.id,
           "action_kind" => card.action_kind,
+          "status" => to_string(card.status),
           "summary" => card.summary,
           "resolution_note" => note,
           "confirmed_by_uid" => Actor.uid(actor),
@@ -1867,6 +2003,34 @@ defmodule Ankole.Conversations.ActionCards do
     |> Ankole.Ash.read_one!(lock_identity: {"conversation_action_cards", card_id})
   end
 
+  defp lock_resolution_entities_in_tx(
+         actor_uid,
+         snapshot,
+         conversation_for_principals,
+         extra_sessions,
+         lock_conversation_fn,
+         opts \\ []
+       ) do
+    expected_status = Keyword.get(opts, :expected_status)
+
+    with :ok <- lock_resolution_principals_in_tx(actor_uid, snapshot, conversation_for_principals),
+         :ok <-
+           Ankole.Sessions.Queue.lock_sessions_in_tx(
+             resolution_sessions(snapshot, extra_sessions)
+           ),
+         %Conversation{} = conversation <- lock_conversation_fn.(),
+         %ActionCard{} = card <- lock_card_in_tx(snapshot.id) do
+      if is_nil(expected_status) or card.status == expected_status do
+        case Signals.lock_signal_in_tx(card.source_signal_id) do
+          %Signal{} = source -> {:ok, conversation, card, source}
+          other -> other
+        end
+      else
+        {:unexpected_status, card}
+      end
+    end
+  end
+
   defp external_surface_matches?(%Signal{} = event, provider_message_id, binding)
        when is_binary(provider_message_id) do
     PreviewStates.get(event).provider_message_id == provider_message_id or
@@ -1962,12 +2126,6 @@ defmodule Ankole.Conversations.ActionCards do
       end)
 
     if summaries == [], do: payload, else: Map.put(payload, "explain_summaries", summaries)
-  end
-
-  defp maybe_put_map_key(target, atom_key, source, string_key) when is_atom(atom_key) do
-    if Map.has_key?(source, string_key),
-      do: Map.put(target, atom_key, source[string_key]),
-      else: target
   end
 
   defp non_empty_string(value) when is_binary(value) do

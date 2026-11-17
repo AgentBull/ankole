@@ -1,20 +1,23 @@
 import { expect, test } from 'bun:test'
 import { readTree } from '../src/editor/convert'
 import { headlessState } from '../src/editor/extension'
+import { codeHighlight, loadCodeHighlighter } from '../src/editor/code-block'
 import { parseMarkdown, printMarkdown } from '../src/document/markdown'
 import { normalizeTree } from '../src/document/normalize'
 import { parseXml, printXml } from '../src/document/xml'
 import { element, text } from '../src/document/tree'
-import { Leaf } from '../src/core/doc'
+import { Attributes, type Elt, Leaf } from '../src/core/doc'
 import { GardSelection } from '../src/core/state'
 import * as T from '../src/core/types'
 import { markSet } from '../src/editor/attributes'
 import { BlockSelection } from '../src/editor/block-selection'
 import {
   applyMermaidTemplate,
+  mermaidMenuField,
   mermaidTemplates,
   MermaidTheme,
   MermaidView,
+  openMermaidMenu,
   setMermaidView
 } from '../src/blocks/mermaid'
 import { open } from './helpers'
@@ -68,7 +71,7 @@ test('Mermaid content loses inline marks added by formatting and paste', () => {
 
 test('a Mermaid block holds text only', () => {
   expect(() => normalizeTree(page(element('mermaid', {}, [element('strong', {}, [text('x')])])))).toThrow(
-    '<mermaid> 只能包含文字'
+    '<mermaid> can contain only text'
   )
 })
 
@@ -116,4 +119,46 @@ test('applying a Mermaid template focuses the block and switching to or from dia
   const initialDiagram = headlessState('<mermaid view="diagram">\n```mermaid\nflowchart LR\n```\n</mermaid>')
   expect(initialDiagram.selection).toBeInstanceOf(GardSelection.Text)
   expect(initialDiagram.selection.head).toBe(initialDiagram.doc.length)
+})
+
+test('Mermaid source receives Kirari syntax highlight classes', async () => {
+  await loadCodeHighlighter()
+  const state = headlessState(fence('%% diagram\nflowchart LR\n  U["员工 / 群聊"] --> S["状态层"]'))
+  const ranges = codeHighlight(state)
+  const classes: string[] = []
+  for (const cursor = ranges.cursor(); cursor.value; cursor.next()) {
+    const elt = (cursor.value as unknown as { elt: Elt }).elt
+    const name = Attributes.get(elt.attrs, 'class')
+    if (name) classes.push(name)
+  }
+  expect(classes).toEqual(
+    expect.arrayContaining([
+      'kirari-comment',
+      'kirari-keyword',
+      'kirari-type',
+      'kirari-variable',
+      'kirari-punctuation',
+      'kirari-string',
+      'kirari-operator'
+    ])
+  )
+})
+
+test('Mermaid highlighter tokenizes unclosed backslash strings in linear time', async () => {
+  await loadCodeHighlighter()
+  const backslashes = '\\'.repeat(64)
+  const unclosed = [`A["${backslashes}`, `B['${backslashes}`, `C[\`${backslashes}`].join('\n')
+  const state = headlessState(fence(unclosed))
+  const start = performance.now()
+  const ranges = codeHighlight(state)
+  expect(performance.now() - start).toBeLessThan(100)
+  expect(ranges.empty).toBe(false)
+})
+
+test('an open Mermaid template menu closes when the block becomes non-empty', () => {
+  const state = headlessState('```mermaid\n```')
+  const opened = state.update({ effects: openMermaidMenu.of({ pos: 0, kind: 'template' }) }).state
+  expect(opened.field(mermaidMenuField, false)).toEqual({ pos: 0, kind: 'template' })
+  const typed = opened.update({ changes: { from: 1, to: 1, insert: [Leaf.text('flowchart LR')] } }).state
+  expect(typed.field(mermaidMenuField, false)).toBeNull()
 })

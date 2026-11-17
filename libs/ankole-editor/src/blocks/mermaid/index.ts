@@ -67,7 +67,11 @@ export const mermaidMenuField = GardState.Field.define<MermaidMenuState | null>(
       if (effect.is(openMermaidMenu)) next = effect.value
       else if (effect.is(closeMermaidMenu)) next = null
     }
-    return next !== null && isSourceDiagramNode(tr.state.doc.nodeAt(next.pos)) ? next : null
+    if (next === null) return null
+    const node = tr.state.doc.nodeAt(next.pos)
+    if (!isSourceDiagramNode(node)) return null
+    if (next.kind === 'template' && node?.isPlot && node.textContent().trim() !== '') return null
+    return next
   }
 })
 
@@ -182,10 +186,49 @@ function mermaidToolbar(value: MermaidToolbarValue): HTMLDivElement {
   return bar
 }
 
+const diagramToolbars = new WeakMap<Wordgard, { doc?: Node; bars: Set<HTMLDivElement> }>()
+
+function syncDiagramToolbar(editor: Wordgard, bar: HTMLDivElement, nodeType: Node.Type) {
+  const button = bar.querySelector<HTMLButtonElement>('.mermaid-toolbar-template')
+  if (!button) return
+  const found = editor.nodeFromDOM(bar)
+  if (found?.node.type === nodeType && found.node.isPlot) {
+    button.hidden = found.node.textContent().trim() !== ''
+  }
+}
+
+export const diagramToolbarSync = Wordgard.updateListener.of(update => {
+  if (!update.docChanged) return
+  const entry = diagramToolbars.get(update.editor)
+  if (!entry || entry.doc === update.state.doc) return
+  entry.doc = update.state.doc
+  for (const bar of entry.bars) {
+    const button = bar.querySelector<HTMLButtonElement>('.mermaid-toolbar-template')
+    if (!button) continue
+    const found = update.editor.nodeFromDOM(bar)
+    if (found?.node.isPlot && isSourceDiagramNode(found.node)) {
+      button.hidden = found.node.textContent().trim() !== ''
+    }
+  }
+})
+
 export function createDiagramToolbarWidget(nodeType: Node.Type, helpUrl: string) {
   return connectedWidget<MermaidToolbarValue, HTMLDivElement>({
     render: value => mermaidToolbar(value),
     connect: (_value, bar, editor) => {
+      let entry = diagramToolbars.get(editor)
+      if (!entry) {
+        entry = { bars: new Set() }
+        diagramToolbars.set(editor, entry)
+      }
+      entry.bars.add(bar)
+      if (editor.isFlushing) {
+        editor.scheduleDOMWrite(wg => {
+          if (bar.isConnected) syncDiagramToolbar(wg, bar, nodeType)
+        })
+      } else {
+        syncDiagramToolbar(editor, bar, nodeType)
+      }
       const find = () => {
         const found = widgetBlock(editor, bar)
         return found?.node.type === nodeType ? found.pos : null
@@ -242,6 +285,7 @@ export function createDiagramToolbarWidget(nodeType: Node.Type, helpUrl: string)
       bar.addEventListener('mousedown', mouseDown)
       bar.addEventListener('click', click)
       return () => {
+        entry.bars.delete(bar)
         bar.removeEventListener('mousedown', mouseDown)
         bar.removeEventListener('click', click)
       }
@@ -385,6 +429,7 @@ export const mermaid: BlockDefinition = {
   extension: [
     mermaidMenuField,
     expandedMermaidField,
+    diagramToolbarSync,
     mermaidViewsPlugin,
     Decoration.Tag.shape.derived(MermaidBlock.type, state => {
       const labels: MermaidLabels = {

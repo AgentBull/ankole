@@ -8,7 +8,7 @@
     "build": "astro build && bun run scripts/check-motion-css.mjs && bun run scripts/check-internal-links.mjs",
     "preview": "astro preview",
     "type-check": "astro check",
-    "lint": "oxlint . --ignore-pattern '.astro/**' --ignore-pattern 'dist/**'",
+    "lint": "bun --bun oxlint . --ignore-pattern '.astro/**' --ignore-pattern 'dist/**'",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check ."
   },

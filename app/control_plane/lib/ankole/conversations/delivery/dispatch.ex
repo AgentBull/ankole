@@ -209,8 +209,6 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
 
   @doc false
   def claim_in_tx(agent_uid, binding_name, outbound_key, %Adapter{} = adapter, now) do
-    :ok = Ankole.Pod.lock_tree_in_tx()
-
     with %Intent{} = intent <-
            Ankole.Conversations.Delivery.Queries.fetch_delivery_for_update(
              agent_uid,
@@ -783,7 +781,8 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
 
   @doc false
   def finalize_in_tx(intent, phase, result, conversation, now) do
-    :ok = Ankole.Pod.lock_tree_in_tx()
+    if Map.get(intent.payload || %{}, "attachments", []) != [],
+      do: :ok = Ankole.Pod.lock_tree_in_tx()
 
     case refetch_claimed_intent(intent, Atom.to_string(phase)) do
       {:ok, current_intent} ->

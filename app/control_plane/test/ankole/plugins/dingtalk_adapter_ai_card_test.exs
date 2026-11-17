@@ -12,6 +12,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Conversations.Delivery.PreviewAdapter
   alias Ankole.Conversations.Delivery.PreviewAdapter.Request
 
@@ -519,6 +520,32 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
              })
 
     refute_received {:card_call, "POST", "/v1.0/robot/groupMessages/send", _body}
+  end
+
+  test "a rejected plain fallback distinguishes ambiguous delivery from a known rejection" do
+    event = setup_binding(%{"clientId" => "cli_aicard", "clientSecret" => "secret"})
+    path = "/v1.0/robot/groupMessages/send"
+    record_requests(self(), %{path => {503, %{"code" => "Unavailable"}}})
+
+    assert :unknown =
+             finalize(%Request{signal: event, presentation: completed("hello"), mode: :terminal})
+
+    checkpoint =
+      fresh(event)
+      |> PreviewStates.get()
+      |> Map.fetch!(:checkpoint)
+      |> PreviewAdapter.adapter_checkpoint()
+
+    assert checkpoint["plain_chunks"] == []
+
+    record_requests(self(), %{path => {400, %{"code" => "InvalidParameter"}}})
+
+    assert {:error, _} =
+             finalize(%Request{
+               signal: fresh(event),
+               presentation: completed("hello"),
+               mode: :terminal
+             })
   end
 
   test "a permanent content rejection degrades once and never oscillates back to cards" do

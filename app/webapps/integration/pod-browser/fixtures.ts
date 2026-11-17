@@ -117,8 +117,18 @@ async function agentAction<T>(action: 'create' | 'publish', body: unknown): Prom
 export const createApplet = (attributes: { parent_id: string; title: string; saved_from_message_id?: string }) =>
   agentAction<{ id: string; revision: number }>('create', attributes)
 
-export const publishApplet = (page_id: string, base_revision: number, files: unknown[]) =>
-  agentAction<{ revision: number; routes: string[] }>('publish', { page_id, base_revision, files })
+export const publishApplet = (
+  page_id: string,
+  base_revision: number,
+  files: unknown[],
+  options: { draft?: boolean; summary?: string } = {}
+) =>
+  agentAction<{ revision: number; routes: string[]; draft?: { id: string; base_revision: number } }>('publish', {
+    page_id,
+    base_revision,
+    files,
+    ...options
+  })
 
 export async function continuePodEntry(page: Page, uid: string) {
   await page.getByRole('button', { name: new RegExp(uid) }).click()

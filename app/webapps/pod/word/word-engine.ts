@@ -8,6 +8,7 @@ import type {
   EngineMethods,
   EngineRequest,
   EngineResponse,
+  ExportFontNeeds,
   PageRect,
   WordCommandInfo,
   WordFindMatch,
@@ -15,13 +16,15 @@ import type {
   WordPageInfo,
   WordRenderedPage,
   WordSnapshot,
-  WordStoryRef
+  WordStoryRef,
+  WorkerExportAsset
 } from './word-worker'
 // Vite generates this URL export; the worker source itself exports no default.
 // oxlint-disable-next-line import/default
 import workerSourceURL from './word-worker.ts?worker&url'
 
 export type {
+  ExportFontNeeds,
   PageRect,
   WordCommandInfo,
   WordFindMatch,
@@ -29,7 +32,8 @@ export type {
   WordPageInfo,
   WordRenderedPage,
   WordSnapshot,
-  WordStoryRef
+  WordStoryRef,
+  WorkerExportAsset
 }
 
 export type WordSession = InstanceType<typeof OfficeCollaborationModel<WordSnapshot>>
@@ -94,15 +98,26 @@ export function bytesToBase64(bytes: Uint8Array): string {
 
 type Waiting = { resolve(value: unknown): void; reject(error: Error): void }
 
-/** Starts the Word Web Worker and dispatches one typed request per message. */
-export function createWordEngine(): WordEngine {
+export type PageExportEngine = {
+  openPageExport(
+    requestJson: string,
+    assets: WorkerExportAsset[],
+    includeFontNeeds: boolean
+  ): Promise<ExportFontNeeds | null>
+  addExportFonts(fontBlobs: Uint8Array[]): Promise<ExportFontNeeds>
+  exportPageDocx(): Promise<Uint8Array>
+  exportPagePdf(): Promise<Uint8Array>
+  dispose(): void
+}
+
+function startWordWorkerRpc() {
   const workerURL = new URL(workerSourceURL, import.meta.url)
   // Phoenix and Vite use different origins in development. A same-origin module
   // worker can import Vite's compiled entry with its normal CORS checks.
-  const bootstrapURL =
-    workerURL.origin === location.origin
-      ? undefined
-      : URL.createObjectURL(new Blob([`import ${JSON.stringify(workerURL.href)}`], { type: 'text/javascript' }))
+  const sameOrigin = typeof location === 'undefined' || workerURL.origin === location.origin
+  const bootstrapURL = sameOrigin
+    ? undefined
+    : URL.createObjectURL(new Blob([`import ${JSON.stringify(workerURL.href)}`], { type: 'text/javascript' }))
   let worker: Worker
   try {
     worker = new Worker(bootstrapURL ?? workerURL, { type: 'module' })
@@ -135,6 +150,50 @@ export function createWordEngine(): WordEngine {
     })
 
   return {
+    call,
+    dispose() {
+      worker.terminate()
+      if (bootstrapURL) URL.revokeObjectURL(bootstrapURL)
+      failAll(new Error('The Word worker stopped'))
+    }
+  }
+}
+
+function ownedAssetTransfers(assets: readonly WorkerExportAsset[]): Transferable[] {
+  const seen = new Set<ArrayBuffer>()
+  for (const { bytes } of assets) {
+    if (
+      bytes.buffer instanceof ArrayBuffer &&
+      bytes.byteOffset === 0 &&
+      bytes.byteLength === bytes.buffer.byteLength &&
+      bytes.byteLength > 0
+    ) {
+      seen.add(bytes.buffer)
+    }
+  }
+  return [...seen]
+}
+
+/** Starts a disposable Word Web Worker dedicated to one `<page>` -> `.docx`/`.pdf` export. */
+export function createPageExportEngine(): PageExportEngine {
+  const rpc = startWordWorkerRpc()
+  return {
+    openPageExport: (requestJson, assets, includeFontNeeds) =>
+      rpc.call('openPageExport', [requestJson, assets, includeFontNeeds], ownedAssetTransfers(assets)),
+    // Cached site font buffers in `office-fonts.ts` are shared across exports and Office pages; never transfer them.
+    addExportFonts: fontBlobs => rpc.call('addExportFonts', [fontBlobs]),
+    exportPageDocx: () => rpc.call('exportPageDocx', []),
+    exportPagePdf: () => rpc.call('exportPagePdf', []),
+    dispose: () => rpc.dispose()
+  }
+}
+
+/** Starts the Word Web Worker and dispatches one typed request per message. */
+export function createWordEngine(): WordEngine {
+  const rpc = startWordWorkerRpc()
+  const { call } = rpc
+
+  return {
     open: (bytes, ops, checkpoint = null) => call('open', [bytes, ops, checkpoint], [bytes]),
     addFonts: fontBlobs => call('addFonts', [fontBlobs]),
     renderPageRgba: (pageIndex, scale) => call('renderPageRgba', [pageIndex, scale]),
@@ -159,10 +218,6 @@ export function createWordEngine(): WordEngine {
     exportDocx: () => call('exportDocx', []),
     exportPdf: () => call('exportPdf', []),
     commands: query => call('commands', [query]),
-    dispose() {
-      worker.terminate()
-      if (bootstrapURL) URL.revokeObjectURL(bootstrapURL)
-      failAll(new Error('The Word worker stopped'))
-    }
+    dispose: () => rpc.dispose()
   }
 }

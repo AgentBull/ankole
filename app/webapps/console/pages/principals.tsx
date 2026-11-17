@@ -1,6 +1,4 @@
-import { TableRow, useMutation, useQuery, Link, useNavigate } from '../tenant-context'
-import { PrincipalRename } from '../../common/principal-rename'
-import { renameHumanMutation } from '../api/v2/generated/@tanstack/react-query.gen'
+import { TableRow, useMutation, useQuery, Link } from '../tenant-context'
 import { principalLabel } from '../state/principal-label'
 import { HumanAccessSection } from './principal-access'
 import { WorkAccessReview } from './work-access-review'
@@ -26,7 +24,6 @@ import { useTranslation } from 'react-i18next'
 import { useParams } from '@tanstack/react-router'
 import {
   addPrincipalGroupMemberMutation,
-  changeHumanMembershipMutation,
   getPrincipalOptions,
   listGrantsOfPrincipalOptions,
   listGroupsOfPrincipalOptions,
@@ -40,7 +37,8 @@ import { AddMembershipPicker } from '../add-membership-picker'
 import { BackLink, DocumentTitle, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
 import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
-import { ResourceListPage, ResourceSearch, RowViewAction, SubNav } from '../console-list-page'
+import { FilterSwitch, ResourceListPage, ResourceSearch, RowViewAction, SubNav } from '../console-list-page'
+import { PodSettingsLinkBanner } from '../pod-settings-banner'
 import { principalGroupDisplayName, principalGroupErrorMessage } from '../state/principal-group-text'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { PermissionGrantsSection } from './permission-grant-editor'
@@ -48,13 +46,6 @@ import { PermissionGrantsSection } from './permission-grant-editor'
 /** The flat Console record of a Principal; `id` is its UID. */
 export type PrincipalRecord = Flat<Principal>
 
-/**
- * Sibling views of the "Access" nav area.
- *
- * The side nav has one entry for access control and it lands on the group list,
- * so the principal list below was reachable only by typing its URL. Both lists
- * now carry this strip.
- */
 export function AccessSubNav() {
   const { t } = useTranslation()
   return (
@@ -80,26 +71,27 @@ export function PrincipalsListPage() {
     select: data => fromDocument(data)
   })
   const [query, setQuery] = useState('')
+  const [showServiceAccounts, setShowServiceAccounts] = useState(false)
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-  const rows = (principals.data ?? []).filter(principal =>
-    matchesResourceSearch(
-      searchQuery,
-      principal.id,
-      principal.email,
-      principal.display_name,
-      principal.type,
-      principal.status,
-      principal.membership
+  const rows = (principals.data ?? [])
+    .filter(principal => showServiceAccounts || principal.type !== 'system')
+    .filter(principal =>
+      matchesResourceSearch(
+        searchQuery,
+        principal.id,
+        principal.email,
+        principal.display_name,
+        principal.type,
+        principal.status,
+        principal.membership
+      )
     )
-  )
 
   return (
     <ResourceListPage
       title={t('console.principals.title')}
       description={t('console.principals.description')}
-      createTo="new"
-      createLabel={t('console.principals.new_user')}
       columns={[
         t('console.principals.principal'),
         t('console.principals.identity'),
@@ -116,9 +108,11 @@ export function PrincipalsListPage() {
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
       count={rows.length}
+      toolbarCanRevealRows
       subNav={
         <div className="grid gap-4">
           <AccessSubNav />
+          <PodSettingsLinkBanner section="members" />
           <WorkAccessReview />
         </div>
       }
@@ -128,6 +122,13 @@ export function PrincipalsListPage() {
           placeholder={t('console.principals.search_placeholder')}
           value={query}
           onChange={setQuery}
+          filters={
+            <FilterSwitch
+              checked={showServiceAccounts}
+              label={t('console.principals.show_service_accounts')}
+              onChange={setShowServiceAccounts}
+            />
+          }
         />
       }>
       {rows.map(principal => (
@@ -171,19 +172,13 @@ export function PrincipalDetailPage() {
   const uid = params.uid ?? ''
   const principal = useQuery({ ...getPrincipalOptions({ path: { uid } }), select: data => fromDocument(data) })
   const loadedPrincipal = principal.data
-  const navigate = useNavigate()
-  const rename = useMutation({
-    ...renameHumanMutation(),
-    onSuccess: result => {
-      void navigate({ to: `/access/principals/${encodeURIComponent(result.uid)}` })
-    }
-  })
 
   return (
     <PageStack className="mx-auto max-w-4xl">
       <DocumentTitle title={loadedPrincipal ? principalLabel(loadedPrincipal) : uid} />
       <div className="grid gap-3">
         <BackLink to="/access/principals" />
+        <PodSettingsLinkBanner section="members" />
         <div className="flex flex-wrap items-center gap-4 border-b border-border-subtle pb-5">
           {loadedPrincipal ? <PrincipalAvatar principal={loadedPrincipal} size="lg" /> : null}
           <div className="grid min-w-0 gap-1">
@@ -197,22 +192,18 @@ export function PrincipalDetailPage() {
           {loadedPrincipal ? (
             <div className="flex items-center gap-2">
               <Badge variant="secondary">{t(`console.principals.type_${loadedPrincipal.type}`)}</Badge>
+              {loadedPrincipal.membership ? (
+                <Badge variant="outline">{t(`console.principals.membership_${loadedPrincipal.membership}`)}</Badge>
+              ) : null}
               <StatusIndicator tone={loadedPrincipal.status === 'active' ? 'positive' : 'neutral'}>
                 {t(`console.status.${loadedPrincipal.status}`)}
               </StatusIndicator>
             </div>
           ) : null}
           {loadedPrincipal?.type === 'human' ? (
-            <PrincipalRename
-              uid={uid}
-              mutation={{
-                ...rename,
-                mutateAsync: newUID => rename.mutateAsync({ path: { uid }, body: { data: { new_uid: newUID } } })
-              }}
-            />
-          ) : null}
-          {loadedPrincipal && loadedPrincipal.type === 'human' ? (
-            <Link className={cn(buttonVariants({ size: 'sm', variant: 'outline' }), 'ml-auto')} to="edit">
+            <Link
+              className={cn(buttonVariants({ size: 'sm', variant: 'outline' }), 'ml-auto')}
+              to={`/access/principals/${encodeURIComponent(uid)}/edit`}>
               {t('console.principals.edit_profile')}
             </Link>
           ) : null}
@@ -221,7 +212,6 @@ export function PrincipalDetailPage() {
       <ErrorBlock error={principal.error} />
       {loadedPrincipal ? (
         <div className="grid gap-10">
-          {loadedPrincipal.type === 'human' ? <HumanMembershipSection principal={loadedPrincipal} /> : null}
           {loadedPrincipal.type === 'human' ? <HumanAccessSection key={uid} uid={uid} /> : null}
           <PrincipalGroupsSection principal={loadedPrincipal} />
           <PrincipalGrantsSection principal={loadedPrincipal} />
@@ -234,42 +224,6 @@ export function PrincipalDetailPage() {
         </div>
       ) : null}
     </PageStack>
-  )
-}
-
-function HumanMembershipSection({ principal }: { principal: PrincipalRecord }) {
-  const { t } = useTranslation()
-  const next = principal.membership === 'guest' ? 'member' : 'guest'
-  const change = useMutation({
-    ...changeHumanMembershipMutation(),
-    onSuccess: () => toast.success(t('console.principals.membership_saved')),
-    onError: error => toast.error(principalGroupErrorMessage(t, error))
-  })
-  return (
-    <section className="grid gap-3 border-b border-border-subtle pb-6">
-      <h3 className="title-section">{t('console.principals.membership')}</h3>
-      <p className="text-sm text-fg-secondary">{t('console.principals.membership_hint')}</p>
-      <div className="flex items-center gap-3">
-        <Badge variant="secondary">{t(`console.principals.membership_${principal.membership}`)}</Badge>
-        <ConfirmDeleteButton
-          label={t(`console.principals.convert_to_${next}`)}
-          variant="outline"
-          pending={change.isPending}
-          confirm={{
-            title: t(`console.principals.convert_to_${next}`),
-            description: t('console.principals.membership_change_hint'),
-            confirmLabel: t(`console.principals.convert_to_${next}`)
-          }}
-          onConfirm={() =>
-            change.mutate({
-              path: { uid: principal.id },
-              body: { data: { type: 'principal', id: principal.id, attributes: { membership: next } } }
-            })
-          }
-        />
-      </div>
-      <ErrorBlock error={change.error} />
-    </section>
   )
 }
 
@@ -299,6 +253,82 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalRecord }) {
     onError: error => toast.error(principalGroupErrorMessage(t, error))
   })
 
+  const renderGroupsTable = () => {
+    if (groups.error) return null
+    if (!groups.isLoading && memberships.length === 0) {
+      return (
+        <p className="border border-border-subtle bg-page p-6 text-sm text-fg-secondary">
+          {t('console.principals.groups_empty')}
+        </p>
+      )
+    }
+    return (
+      <div className="overflow-x-auto border border-border-subtle bg-page">
+        <Table className="min-w-[560px]" aria-busy={groups.isLoading}>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('console.principals.group')}</TableHead>
+              <TableHead>{t('console.principals.kind')}</TableHead>
+              <TableHead className="w-0 text-right">
+                <span className="sr-only">{t('console.actions')}</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {groups.isLoading ? (
+              <TableRow>
+                <TableCell colSpan={3}>
+                  <div className="grid gap-2">
+                    <Skeleton className="h-6 w-full" />
+                    <Skeleton className="h-6 w-4/5" />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              memberships.map(group => {
+                const canRemove = group.domain === 'operator' && group.kind === 'static'
+                return (
+                  <TableRow key={group.id}>
+                    <TableCell>
+                      <Link
+                        data-row-link
+                        className="font-mono text-xs text-fg-primary"
+                        to={`/access/groups/${encodeURIComponent(group.name)}`}>
+                        {group.name}
+                      </Link>
+                      <span className="ml-2 text-sm text-fg-secondary">{principalGroupDisplayName(t, group)}</span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Badge variant="secondary">{t(`console.principal_groups.kind_${group.kind}`)}</Badge>
+                        {group.built_in ? <Badge variant="info">{t('console.principal_groups.built_in')}</Badge> : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="w-12 text-right">
+                      {canRemove ? (
+                        <ConfirmDeleteButton
+                          pending={removeMember.isPending}
+                          confirm={{
+                            title: t('console.principals.remove_group_title'),
+                            description: t('console.principals.remove_group_description', { id: group.name }),
+                            confirmLabel: t('console.principals.remove_group')
+                          }}
+                          onConfirm={() =>
+                            removeMember.mutate({ path: { name: group.name, principal_uid: principal.id } })
+                          }
+                        />
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                )
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    )
+  }
+
   return (
     <section className="grid gap-4">
       <div className="grid gap-1">
@@ -322,77 +352,7 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalRecord }) {
         onAdd={name => addMember.mutate({ path: { name, principal_uid: principal.id } })}
       />
       <ErrorBlock error={groups.error} />
-      {!groups.error && !groups.isLoading && memberships.length === 0 ? (
-        <p className="border border-border-subtle bg-page p-6 text-sm text-fg-secondary">
-          {t('console.principals.groups_empty')}
-        </p>
-      ) : !groups.error ? (
-        <div className="overflow-x-auto border border-border-subtle bg-page">
-          <Table className="min-w-[560px]" aria-busy={groups.isLoading}>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('console.principals.group')}</TableHead>
-                <TableHead>{t('console.principals.kind')}</TableHead>
-                <TableHead className="w-0 text-right">
-                  <span className="sr-only">{t('console.actions')}</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {groups.isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={3}>
-                    <div className="grid gap-2">
-                      <Skeleton className="h-6 w-full" />
-                      <Skeleton className="h-6 w-4/5" />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                memberships.map(group => {
-                  const canRemove = group.domain === 'operator' && group.kind === 'static'
-                  return (
-                    <TableRow key={group.id}>
-                      <TableCell>
-                        <Link
-                          data-row-link
-                          className="font-mono text-xs text-fg-primary"
-                          to={`/access/groups/${encodeURIComponent(group.name)}`}>
-                          {group.name}
-                        </Link>
-                        <span className="ml-2 text-sm text-fg-secondary">{principalGroupDisplayName(t, group)}</span>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap items-center gap-1">
-                          <Badge variant="secondary">{t(`console.principal_groups.kind_${group.kind}`)}</Badge>
-                          {group.built_in ? (
-                            <Badge variant="info">{t('console.principal_groups.built_in')}</Badge>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell className="w-12 text-right">
-                        {canRemove ? (
-                          <ConfirmDeleteButton
-                            pending={removeMember.isPending}
-                            confirm={{
-                              title: t('console.principals.remove_group_title'),
-                              description: t('console.principals.remove_group_description', { id: group.name }),
-                              confirmLabel: t('console.principals.remove_group')
-                            }}
-                            onConfirm={() =>
-                              removeMember.mutate({ path: { name: group.name, principal_uid: principal.id } })
-                            }
-                          />
-                        ) : null}
-                      </TableCell>
-                    </TableRow>
-                  )
-                })
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      ) : null}
+      {renderGroupsTable()}
     </section>
   )
 }

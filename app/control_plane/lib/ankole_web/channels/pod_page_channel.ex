@@ -10,8 +10,9 @@ defmodule AnkoleWeb.PodPageChannel do
   intercept(["presence_diff"])
 
   @impl true
-  def join("page:" <> id, _params, socket) do
+  def join("page:" <> id, params, socket) do
     Ankole.Repo.put_tenant_id(socket.assigns.tenant_id)
+    slim? = is_map(params) and Map.get(params, "slim") == true
 
     with_tenant(socket, fn ->
       AnkoleWeb.PodChannel.subscribe(socket)
@@ -19,7 +20,15 @@ defmodule AnkoleWeb.PodPageChannel do
       Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-node:" <> id)
 
       with true <- AnkoleWeb.PodSocket.active?(socket.assigns),
-           {:ok, detail} <- Pages.get(socket.assigns.actor, id) do
+           {:ok, detail} <-
+             if(slim?,
+               do:
+                 with(
+                   {:ok, page} <- Pages.authorize(socket.assigns.actor, id, "node_view"),
+                   do: {:ok, %{page: page}}
+                 ),
+               else: Pages.get(socket.assigns.actor, id)
+             ) do
         session = Ankole.Ecto.UUIDv7.autogenerate()
         author = Ankole.ActorRef.from_actor(socket.assigns.actor)
         profile = JSON.author_profiles([author])[author]
@@ -27,9 +36,20 @@ defmodule AnkoleWeb.PodPageChannel do
         if detail.page.type == :doc or not is_nil(office_kind), do: send(self(), :track_presence)
 
         reply =
-          detail
-          |> JSON.detail_json()
-          |> Map.put(:presence_session, session)
+          if(slim?,
+            do: %{
+              page: %{
+                id: detail.page.id,
+                type: Atom.to_string(detail.page.type),
+                revision: detail.page.revision
+              },
+              presence_session: session
+            },
+            else:
+              detail
+              |> JSON.detail_json()
+              |> Map.put(:presence_session, session)
+          )
           |> put_comment_summary(socket.assigns.actor, detail.page)
 
         {:ok, reply,
@@ -139,6 +159,21 @@ defmodule AnkoleWeb.PodPageChannel do
     if allowed?(socket) do
       push(socket, "comments_changed", %{})
       {:noreply, socket}
+    else
+      revoke(socket)
+    end
+  end
+
+  def handle_info({:node_committed, id, delta}, socket) when is_map(delta) do
+    if allowed?(socket) do
+      case fast_push_delta(socket, delta) do
+        {:ok, event, payload, rev} ->
+          push(socket, event, payload)
+          {:noreply, assign(socket, :revision, rev)}
+
+        :fallback ->
+          handle_info({:node_committed, id}, socket)
+      end
     else
       revoke(socket)
     end
@@ -326,10 +361,50 @@ defmodule AnkoleWeb.PodPageChannel do
   defp json_result(_socket, result),
     do: Map.update(result, :changes, [], &Enum.map(&1, fn change -> JSON.change_json(change) end))
 
+  defp fast_push_delta(
+         %{assigns: %{page_type: :doc, revision: base}} = socket,
+         %{kind: :doc, base_revision: base, revision: rev, entry: entry}
+       ) do
+    payload = json_result(socket, %{revision: rev, changes: [entry], reset_required: false})
+
+    if byte_size(Torque.encode!(payload)) <= Ankole.Pod.DocumentWire.max_bytes(),
+      do: {:ok, "changes", payload, rev},
+      else: :fallback
+  end
+
+  defp fast_push_delta(
+         %{assigns: %{office_kind: kind, revision: base}} = socket,
+         %{kind: :office, base_revision: base, revision: rev, entry: entry}
+       )
+       when not is_nil(kind) do
+    payload = json_result(socket, %{revision: rev, changes: [entry], reset_required: false})
+
+    if byte_size(Torque.encode!(payload)) <= Ankole.Pod.DocumentWire.max_bytes(),
+      do: {:ok, "office:changes", payload, rev},
+      else: :fallback
+  end
+
+  defp fast_push_delta(_socket, _delta), do: :fallback
+
   defp latest(%{assigns: %{page_type: :doc}} = socket) do
     with {:ok, result} <-
            Documents.since(socket.assigns.actor, socket.assigns.page_id, socket.assigns.revision),
          do: {:ok, "changes", result, socket}
+  end
+
+  defp latest(%{assigns: %{page_type: :applet}} = socket) do
+    with {:ok, detail} <- Pages.get(socket.assigns.actor, socket.assigns.page_id) do
+      payload = %{
+        revision: detail.page.revision,
+        object_id: detail.page.object_id,
+        changes: [],
+        bindings: detail.bindings,
+        bindings_digest: detail.bindings_digest,
+        applet_draft: JSON.json_value(detail.applet_draft)
+      }
+
+      {:ok, "changes", payload, socket}
+    end
   end
 
   defp latest(socket) do

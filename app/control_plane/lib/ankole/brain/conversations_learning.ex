@@ -488,7 +488,7 @@ defmodule Ankole.Brain.ConversationsLearning do
   defp write_item(
          _conversation_id,
          %{"type" => "link"} = item,
-         _learning_context,
+         learning_context,
          _prepared
        ) do
     attrs = %{
@@ -496,7 +496,8 @@ defmodule Ankole.Brain.ConversationsLearning do
       to_page_id: item["to"],
       link_type: item["link_type"] || "",
       context: item["context"] || "",
-      link_source: "extraction"
+      link_source: "extraction",
+      origin_page_id: learning_context.default_scope
     }
 
     case Links.upsert_link(attrs) do

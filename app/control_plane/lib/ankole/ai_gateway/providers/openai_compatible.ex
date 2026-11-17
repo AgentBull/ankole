@@ -30,10 +30,19 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
       advanced: true
     )
 
+    setting(:upstream_websocket_continuation,
+      type: :boolean,
+      default: false,
+      advanced: true
+    )
+
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 
     setting(:user, scope: :request, advanced: true)
+
+    setting(:supportsParallelToolCalls, type: :boolean, scope: :request, advanced: true)
+    setting(:promptCacheKey, scope: :request, advanced: true)
 
     setting(:reasoningEffort,
       type: :select,
@@ -74,7 +83,7 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
         |> UniversalAIRequest.put_client_identity_headers(ctx)
         |> UniversalAIRequest.bearer_auth()
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
-        |> OpenAIRequestOptions.put_provider_options(:responses)
+        |> OpenAIRequestOptions.put_provider_options(:responses, ctx.request)
 
       {true, _stream?, _transport} ->
         ctx
@@ -83,7 +92,7 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
         |> UniversalAIRequest.put_client_identity_headers(ctx)
         |> UniversalAIRequest.bearer_auth()
         |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
-        |> OpenAIRequestOptions.put_provider_options(:responses)
+        |> OpenAIRequestOptions.put_provider_options(:responses, ctx.request)
 
       {false, _stream?, _transport} ->
         ctx

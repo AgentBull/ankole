@@ -63,15 +63,6 @@ defmodule Ankole.Repo.Migrations.GovernAppConfigurationTasks do
               "DELETE FROM site_app_configurations WHERE scope = 'global' AND key = 'authn.email.#{kind}_#{old}'"
             )
     end
-
-    execute("""
-    INSERT INTO site_app_configurations (scope, key, value, inserted_at, updated_at)
-    SELECT 'global', 'saas.turnstile.enabled', jsonb_build_object('type', 'plaintext', 'value',
-      EXISTS (SELECT 1 FROM site_app_configurations WHERE key = 'saas.turnstile.site_key' AND scope = 'global' AND coalesce(value->>'value', '') != '')
-      AND EXISTS (SELECT 1 FROM site_app_configurations WHERE key = 'saas.turnstile.secret_key' AND scope = 'global')),
-      now(), now()
-    WHERE EXISTS (SELECT 1 FROM site_app_configurations WHERE key LIKE 'saas.turnstile.%')
-    """)
   end
 
   def down,

@@ -255,6 +255,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
               "source_kind" => "agent_plugin",
               "agent_plugin_id" => agent_plugin.id,
               "enabled_for_all" => false,
+              "has_upstream_update" => false,
               "bound" => false,
               "effective_enabled" => false,
               "revision" => 0
@@ -279,7 +280,11 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   end
 
   defp global_plugin_default(agent_plugin, defaults) do
-    Map.get(defaults.agent_plugins, agent_plugin.id, agent_plugin.id not in ~w(github lark))
+    Map.get(
+      defaults.agent_plugins,
+      agent_plugin.id,
+      Map.get(agent_plugin, :default_enabled, false)
+    )
   end
 
   defp catalog_entry(capability) do

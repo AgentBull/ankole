@@ -1,7 +1,7 @@
 import * as api from './api/generated/sdk.gen'
 import { contentKeys, type PageDetail } from './content-api'
 
-export type AppletSettingsTab = 'environment' | 'automation' | 'webhooks' | 'logs' | 'functions'
+export type AppletSettingsTab = 'environment' | 'bindings' | 'automation' | 'webhooks' | 'logs' | 'functions'
 
 export type OpenAppletSettingsRequest = {
   tab?: AppletSettingsTab
@@ -67,7 +67,7 @@ export function resolveAppletSettingsInitialTab({
   hasAutomationLink: boolean
   requestedTab?: AppletSettingsTab
 }): AppletSettingsTab {
-  if (requestedTab && (requestedTab !== 'environment' || canEdit)) {
+  if (requestedTab && (!['environment', 'bindings'].includes(requestedTab) || canEdit)) {
     return requestedTab
   }
   if (hasAutomationLink) {

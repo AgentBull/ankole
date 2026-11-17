@@ -318,7 +318,7 @@ When a published immutable GHCR Worker image matches the current Git inputs,
 devkit resolves and reuses it. If the Worker inputs have changed, devkit builds
 a content-addressed local image: it reuses the pinned Agent OS base when
 `Dockerfile.base` matches the lockfile, or builds the base from the current
-recipe otherwise. Codex, MCPorter, OfficeCLI, Typst, `kubectl`, and the AWS CLI
+recipe otherwise. Codex, MCPorter, OfficeCLI, and Typst
 are installed as layers of the Worker image. The OfficeCLI launcher disables
 background self-updates by default, including in isolated Agent command
 environments, so document rendering uses the version tested with that image.

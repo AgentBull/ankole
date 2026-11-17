@@ -9,6 +9,7 @@ defmodule Ankole.Conversations.Delivery.Supervisor do
     Supervisor.init(
       [
         {Task.Supervisor, name: Ankole.Conversations.Delivery.PreviewTasks},
+        {Task.Supervisor, name: Ankole.Conversations.ActionCardTasks},
         {DynamicSupervisor, name: Ankole.Conversations.Delivery.Previews, strategy: :one_for_one}
       ],
       strategy: :one_for_one

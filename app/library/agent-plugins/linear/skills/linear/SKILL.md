@@ -1,6 +1,7 @@
 ---
 name: linear
 description: "Find and manage Linear issues, projects, cycles, comments, teams, labels, and workflow states through the official MCP service."
+default_enabled: false
 ---
 
 # linear

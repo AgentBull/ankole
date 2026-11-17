@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -238,7 +239,7 @@ export function WordDocumentSurface({
     fontsReady,
     waitForFonts
   } = useOfficeFonts(fontRequests, model, {
-    documentLoaded: status !== 'loading'
+    documentLoaded: status === 'ready' || status === 'read_only'
   })
   const [bitmapTick, setBitmapTick] = useState(0)
 
@@ -310,6 +311,19 @@ export function WordDocumentSurface({
   const cssScale = effectiveZoom * POINTS_TO_CSS_PX
   const rasterScale = cssScale * dpr
   const rasterScaleKey = rasterScale.toFixed(4)
+  const versionPrefix = `${version}:${fontEpoch}:${rasterScaleKey}:`
+  const renderContextRef = useRef({ mounted: false, model, versionPrefix })
+
+  useLayoutEffect(() => {
+    if (renderContextRef.current.model !== model) {
+      bitmapCacheRef.current.clear()
+      inflightRendersRef.current = new Set()
+    }
+    renderContextRef.current = { mounted: true, model, versionPrefix }
+    return () => {
+      renderContextRef.current.mounted = false
+    }
+  }, [model, versionPrefix])
 
   const pageLayout = useMemo(() => {
     const items: {
@@ -357,6 +371,8 @@ export function WordDocumentSurface({
       activeVisiblePage: current
     }
   }, [pageLayout.items, scrollTop, viewportSize.height])
+  const visibleRangeRef = useRef({ start: 0, end: -1 })
+  visibleRangeRef.current = { start: visibleStart, end: visibleEnd }
 
   const scrollToRect = useCallback(
     (pageIndex: number, rect?: PageRect) => {
@@ -435,9 +451,8 @@ export function WordDocumentSurface({
 
   // Rasterize visible pages (+ 1-page overscan) and cache bitmaps by (version, fontEpoch, scale, pageIndex).
   useEffect(() => {
-    if (status === 'loading' || !fontsReady || visibleEnd < visibleStart) return
-    let cancelled = false
-    const versionPrefix = `${version}:${fontEpoch}:${rasterScaleKey}:`
+    if ((status !== 'ready' && status !== 'read_only') || !fontsReady || visibleEnd < visibleStart) return
+    const inflightRenders = inflightRendersRef.current
 
     // Drop bitmaps belonging to older document versions once cache grows beyond budget.
     if (bitmapCacheRef.current.size > BITMAP_CACHE_LIMIT) {
@@ -451,15 +466,25 @@ export function WordDocumentSurface({
 
     for (let pageIdx = visibleStart; pageIdx <= visibleEnd; pageIdx++) {
       const cacheKey = `${versionPrefix}${pageIdx}`
-      if (bitmapCacheRef.current.has(cacheKey) || inflightRendersRef.current.has(cacheKey)) {
+      if (bitmapCacheRef.current.has(cacheKey) || inflightRenders.has(cacheKey)) {
         continue
       }
-      inflightRendersRef.current.add(cacheKey)
+      inflightRenders.add(cacheKey)
       void model
         .read(eng => (eng as WordEngine).renderPageRgba(pageIdx, rasterScale))
         .then(rendered => {
-          inflightRendersRef.current.delete(cacheKey)
-          if (cancelled || !rendered || rendered.width === 0 || rendered.height === 0) return
+          inflightRenders.delete(cacheKey)
+          const context = renderContextRef.current
+          if (
+            !context.mounted ||
+            context.model !== model ||
+            context.versionPrefix !== versionPrefix ||
+            !rendered ||
+            rendered.width === 0 ||
+            rendered.height === 0
+          ) {
+            return
+          }
           const clamped =
             rendered.rgba.buffer instanceof ArrayBuffer
               ? new Uint8ClampedArray(rendered.rgba.buffer, rendered.rgba.byteOffset, rendered.rgba.byteLength)
@@ -472,21 +497,19 @@ export function WordDocumentSurface({
               bitmapCacheRef.current.delete(oldest)
             }
           }
-          setBitmapTick(t0 => t0 + 1)
+          if (pageIdx >= visibleRangeRef.current.start && pageIdx <= visibleRangeRef.current.end) {
+            setBitmapTick(t0 => t0 + 1)
+          }
         })
         .catch(() => {
-          inflightRendersRef.current.delete(cacheKey)
+          inflightRenders.delete(cacheKey)
         })
     }
-
-    return () => {
-      cancelled = true
-    }
-  }, [status, fontsReady, visibleStart, visibleEnd, version, fontEpoch, rasterScale, rasterScaleKey, model])
+  }, [status, fontsReady, visibleStart, visibleEnd, versionPrefix, rasterScale, model])
 
   // Resolve collaborator selection rectangles and Presence soft block locks.
   useEffect(() => {
-    if (members.length === 0 || status === 'loading') {
+    if (members.length === 0 || (status !== 'ready' && status !== 'read_only')) {
       setCollaboratorOverlays([])
       return
     }

@@ -70,7 +70,10 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   def connector_specs do
     with {:ok, configs} <- Ankole.Connectors.active_auth_configs("lark") do
       configs
-      |> Enum.filter(&Ankole.Connectors.event_connection_needed?(&1.id))
+      |> Enum.filter(fn credential ->
+        link_preview_enabled?(credential.public_metadata) or
+          Ankole.Connectors.event_connection_needed?(credential.id)
+      end)
       |> Enum.reduce_while({:ok, []}, fn credential, {:ok, acc} ->
         with {:ok, secret} <- Ankole.Connectors.Credentials.secret(credential) do
           config =
@@ -84,7 +87,13 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
             |> Map.put_new("appID", config["app_id"])
             |> Map.put_new("appSecret", config["app_secret"])
 
-          consumer = %{kind: :connector, auth_config_id: credential.id, config: config}
+          consumer = %{
+            kind: :connector,
+            auth_config_id: credential.id,
+            link_preview: link_preview_enabled?(credential.public_metadata),
+            config: config
+          }
+
           {:cont, {:ok, [connection_spec(config, consumer) | acc]}}
         else
           error -> {:halt, error}
@@ -92,6 +101,9 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
       end)
     end
   end
+
+  defp link_preview_enabled?(metadata) when is_map(metadata), do: metadata["linkPreview"] == true
+  defp link_preview_enabled?(_), do: false
 
   @impl true
   def owner_child_spec(key, config, consumers) do

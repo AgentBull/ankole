@@ -7,7 +7,7 @@ order: 320
 
 재해 복구 시에는 컨트롤 플레인 PostgreSQL 데이터베이스, 별도의 Pod Base 샤드 데이터베이스, 파일 저장소, 영속 Agent Home, `ankole-function-runtime`, 그리고 원래 배포 시크릿을 하나의 배포 단위로 묶어 함께 복원해야 합니다. 보존 대상 데이터와 일관성 있는 백업 절차는 [백업 가이드](../backup-and-restore/)를 참조하세요.
 
-복구 전에 실제 Base 데이터베이스 구성을 확인하세요. `BASE_DB_URLS`가 없으면 dev/test는 4개 샤드, SaaS production은 8개 샤드를 자동 구성하고 FOSS production은 `DATABASE_URL`을 공유합니다. 기본값으로 구성된 샤드도 포함해 별도의 모든 샤드를 복원해야 합니다.
+복구 전에 실제 Base 데이터베이스 구성을 확인하세요. `BASE_DB_URLS`가 없으면 dev/test는 4개 샤드를 자동 구성하고 FOSS production은 `DATABASE_URL`을 공유합니다. 기본값으로 구성된 샤드도 포함해 별도의 모든 샤드를 복원해야 합니다.
 
 ## 복구 전
 

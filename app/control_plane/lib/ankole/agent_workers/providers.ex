@@ -92,13 +92,46 @@ defmodule Ankole.AgentWorkers.Providers do
          settings: settings,
          secrets: secrets,
          runtime: runtime,
-         settings_digest: Configuration.digest(definition.schema, settings)
+         settings_digest: Configuration.digest(definition.schema, settings),
+         prepared_digest: provider.prepared_digest,
+         prepared_verified_at: provider.prepared_verified_at
        }}
     end
   end
 
   def load(provider_id) do
     with {:ok, provider} <- fetch(provider_id), do: load(provider)
+  end
+
+  @prepared_image_ttl_seconds 86_400
+
+  def prepared_image_digest(%Runtime{} = provider) do
+    {provider.provider_id, provider.runtime.image, provider.settings_digest}
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  def image_prepared_fresh?(%Runtime{} = provider, now \\ DateTime.utc_now(:microsecond)) do
+    is_binary(provider.prepared_digest) and
+      provider.prepared_digest == prepared_image_digest(provider) and
+      match?(%DateTime{}, provider.prepared_verified_at) and
+      DateTime.diff(now, provider.prepared_verified_at, :second) < @prepared_image_ttl_seconds
+  end
+
+  def record_prepared_image(%Runtime{} = provider, now \\ DateTime.utc_now(:microsecond)) do
+    digest = prepared_image_digest(provider)
+
+    Provider
+    |> Ash.Query.filter(provider_id == ^provider.provider_id)
+    |> Ankole.Ash.update_where(:record_prepared_image, %{
+      prepared_digest: digest,
+      prepared_verified_at: now
+    })
+    |> case do
+      {:ok, _} -> :ok
+      {:error, _} -> :ok
+    end
   end
 
   def check(provider_id) do

@@ -31,6 +31,7 @@ defmodule Ankole.Brain.Patterns do
 
   defp evidence_buckets do
     since = DateTime.add(DateTime.utc_now(), -30 * 86_400, :second)
+    watermarks = read_pattern_watermarks()
 
     Claim
     |> Ash.Query.filter(
@@ -41,8 +42,9 @@ defmodule Ankole.Brain.Patterns do
     |> Ankole.Ash.read!()
     |> Enum.group_by(& &1.source_node_id)
     |> Enum.map(fn {source, facts} -> {source, Enum.take(facts, @fact_limit)} end)
-    |> Enum.filter(fn {_source, facts} ->
-      length(Enum.uniq_by(facts, & &1.subject_page_id)) >= @min_pages
+    |> Enum.filter(fn {source, facts} ->
+      length(Enum.uniq_by(facts, & &1.subject_page_id)) >= @min_pages and
+        Map.get(watermarks, source) != facts_fingerprint(facts)
     end)
   end
 
@@ -74,10 +76,52 @@ defmodule Ankole.Brain.Patterns do
 
           with {:ok, _} <- Nodes.lock(source),
                :ok <- current_evidence(facts),
-               do: write_patterns_in_tx(patterns, source)
+               {:ok, count} <- write_patterns_in_tx(patterns, source) do
+            record_pattern_watermark_in_tx(source, facts_fingerprint(facts))
+            {:ok, count}
+          end
         end,
         after_commit: &Ankole.Brain.Namespace.committed/1
       )
+    end
+  end
+
+  defp facts_fingerprint(facts) do
+    facts
+    |> Enum.map(&{&1.id, &1.claim})
+    |> Enum.sort()
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp read_pattern_watermarks do
+    case Ankole.Principals.ServiceAccounts.fetch("ankole_brain") do
+      {:ok, %{options: %{"pattern_watermarks" => watermarks}}} when is_map(watermarks) ->
+        watermarks
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp record_pattern_watermark_in_tx(source, fingerprint) do
+    case Ankole.Principals.ServiceAccounts.lock_in_tx("ankole_brain") do
+      %Ankole.Principals.ServiceAccount{} = account ->
+        watermarks =
+          account.options
+          |> Map.get("pattern_watermarks", %{})
+          |> Map.put(source, fingerprint)
+
+        {:ok, _} =
+          Ankole.Principals.options_service_account(account, %{
+            options: Map.put(account.options, "pattern_watermarks", watermarks)
+          })
+
+        :ok
+
+      nil ->
+        :ok
     end
   end
 

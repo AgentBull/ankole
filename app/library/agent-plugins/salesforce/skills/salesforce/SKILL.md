@@ -1,6 +1,7 @@
 ---
 name: salesforce
 description: "Find and use salesforce operations through Ankole connections."
+default_enabled: false
 ---
 
 # salesforce

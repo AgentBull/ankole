@@ -62,10 +62,11 @@ defmodule Ankole.Kernel.UniversalAIClient do
   end
 
   @type stream :: Stream.t()
+  @type ws_session :: reference()
   @type stream_event ::
           %Ready{} | %Chunk{} | %Done{} | %StreamError{} | %Aborted{}
   @type error :: map() | String.t()
-  @type open_opts :: [receiver: pid()]
+  @type open_opts :: [receiver: pid(), ws_session: ws_session() | nil]
 
   @doc """
   Returns whether a raw mailbox message belongs to a native stream.
@@ -110,13 +111,24 @@ defmodule Ankole.Kernel.UniversalAIClient do
   @spec raw_get(binary() | map(), keyword()) :: {:ok, map()} | {:error, error()}
   def raw_get(request, opts \\ []), do: raw_request("GET", request, opts)
 
+  @spec new_ws_session() :: {:ok, ws_session()} | {:error, error()}
+  def new_ws_session do
+    call_native(fn -> NativeKernel.universal_ai_client_ws_session_new_nif() end)
+  end
+
+  @spec close_ws_session(ws_session()) :: :ok | {:error, error()}
+  def close_ws_session(session) when is_reference(session) do
+    call_native(fn -> NativeKernel.universal_ai_client_ws_session_close_nif(session) end)
+  end
+
   @spec open(map(), open_opts()) :: {:ok, stream()} | {:error, error()}
   def open(spec, opts \\ []) when is_map(spec) and is_list(opts) do
     receiver = Keyword.get(opts, :receiver, self())
+    ws_session = Keyword.get(opts, :ws_session)
     ref = make_ref()
 
     with {:ok, encoded_spec} <- encode_spec(spec),
-         {:ok, resource} <- open_native(encoded_spec, receiver, ref) do
+         {:ok, resource} <- open_native(encoded_spec, ws_session, receiver, ref) do
       {:ok, %Stream{resource: resource, ref: ref, owner: receiver}}
     end
   end
@@ -233,7 +245,7 @@ defmodule Ankole.Kernel.UniversalAIClient do
     end
   end
 
-  defp open_native(encoded_spec, receiver, ref) do
+  defp open_native(encoded_spec, nil, receiver, ref) do
     case call_open_native(fn ->
            NativeKernel.universal_ai_client_open_nif(encoded_spec, receiver, ref)
          end) do
@@ -242,6 +254,24 @@ defmodule Ankole.Kernel.UniversalAIClient do
       other -> {:error, invalid_error("native stream open returned #{inspect(other)}")}
     end
   end
+
+  defp open_native(encoded_spec, ws_session, receiver, ref) when is_reference(ws_session) do
+    case call_open_native(fn ->
+           NativeKernel.universal_ai_client_open_with_session_nif(
+             encoded_spec,
+             ws_session,
+             receiver,
+             ref
+           )
+         end) do
+      {:ok, resource} -> {:ok, resource}
+      {:error, _reason} = error -> error
+      other -> {:error, invalid_error("native stream open returned #{inspect(other)}")}
+    end
+  end
+
+  defp open_native(_encoded_spec, _ws_session, _receiver, _ref),
+    do: {:error, invalid_error("ws_session must be a native session reference or nil")}
 
   defp call_open_native(fun) do
     fun.()

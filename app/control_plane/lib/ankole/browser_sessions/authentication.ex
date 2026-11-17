@@ -128,6 +128,8 @@ defmodule Ankole.BrowserSessions.Authentication do
       accept([:revision])
       change(set_attribute(:revoked_at, &DateTime.utc_now/0))
     end
+
+    destroy(:expire_in_tx)
   end
 
   @type t :: %__MODULE__{}

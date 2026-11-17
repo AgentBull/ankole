@@ -308,7 +308,7 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  min-height: 50cqh;
+  min-height: clamp(200px, 38cqh, 360px);
 }
 .pod-chat-delegation-hint {
   display: flex;
@@ -361,8 +361,18 @@
   font-weight: 500;
   line-height: 1.3;
 }
-.pod-chat-home-subtitle {
+.pod-chat-home-lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
   margin: 8px 0 16px;
+}
+.pod-chat-home-subtitle {
+  margin: 0;
+  min-width: min(240px, 100%);
+  flex: 1;
   color: var(--fg-secondary);
   font-size: var(--text-85);
   line-height: 24px;
@@ -370,14 +380,98 @@
 .pod-chat-home-guides {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 28px;
-  margin-top: 30px;
+  gap: 24px 28px;
+  margin-top: 28px;
 }
 .pod-chat-home-guides:has(> :only-child) {
   grid-template-columns: minmax(0, 1fr);
 }
 .pod-chat-home-guides > section {
   min-width: 0;
+}
+.pod-chat-home-guides > .pod-home-span-full {
+  grid-column: 1 / -1;
+}
+.pod-home-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.pod-chat-home-guides .pod-home-section-header h2 {
+  margin-bottom: 0;
+}
+.pod-home-section-more {
+  color: var(--fg-tertiary);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
+  text-decoration: none;
+  transition: color var(--duration-feedback) ease-out;
+}
+.pod-home-section-more:hover {
+  color: var(--fg-primary);
+}
+.pod-home-section-more:focus-visible {
+  border-radius: var(--radius-mini);
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.pod-home-card-strip {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  gap: 12px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+.pod-home-card-link {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-surface);
+  color: inherit;
+  text-decoration: none;
+  outline: none;
+}
+.pod-home-card {
+  display: flex;
+  height: 146px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--border-subtle) 82%, transparent);
+  border-radius: var(--radius-surface);
+  background: var(--page);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.03);
+  transition:
+    border-color var(--duration-feedback) ease-out,
+    background-color var(--duration-feedback) ease-out,
+    box-shadow var(--duration-feedback) ease-out,
+    scale var(--duration-feedback) ease-out;
+}
+.dark .pod-home-card {
+  box-shadow: none;
+}
+.pod-home-card-link:hover .pod-home-card {
+  border-color: var(--control-edge);
+  background: color-mix(in oklab, var(--layer-hover) 32%, var(--page));
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.06);
+}
+.dark .pod-home-card-link:hover .pod-home-card {
+  box-shadow: none;
+}
+.pod-home-card-link:active .pod-home-card {
+  scale: 0.99;
+}
+.pod-home-card-link:focus-visible .pod-home-card {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pod-home-card,
+  .pod-home-section-more {
+    transition: none;
+  }
 }
 .pod-chat-home-guides h2,
 .pod-chat-summary h3 {

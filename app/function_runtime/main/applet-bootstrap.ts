@@ -1,12 +1,15 @@
 import { matchRoute, validateRoutes, validateActions } from './routes.ts'
+import { createIdempotencyExecutor } from '@ankole/applet-sdk/idempotency'
 import { withRecordIDs } from '@ankole/applet-sdk/records'
 import type { RecordWrite } from '@ankole/applet-sdk/types'
+import type { AppletBindings } from './code-cache.ts'
 
 type InvocationState = {
   ws: WebSocket
   runId: string
   method: string
   readOnly: boolean
+  diagnostic: boolean
   deadline: number
   logs: { level: string; message: string }[]
   pending: Map<number, { resolve: (value: any) => void; reject: (reason: unknown) => void }>
@@ -15,7 +18,7 @@ type InvocationState = {
   timer: ReturnType<typeof setTimeout>
 }
 
-export function buildAppletWorkerBootstrap(source: string, inspectOnly = false) {
+export function buildAppletWorkerBootstrap(source: string, inspectOnly = false, bindings: AppletBindings = {}) {
   // Install capabilities before the source runs. Wait for top-level await so self-import can read the default export.
   return `const __ankoleAppletReady = Promise.withResolvers();
 {
@@ -25,14 +28,15 @@ const importApplet = () => import(import.meta.url);
 const validateRoutes = ${validateRoutes.toString()};
 const validateActions = ${validateActions.toString()};
 const matchRoute = ${matchRoute.toString()};
+const createIdempotencyExecutor = ${createIdempotencyExecutor.toString()};
 const withRecordIDs = ${withRecordIDs.toString()};
-(${appletWorker.toString()})(${inspectOnly}, __ankoleAppletReady.promise);
+(${appletWorker.toString()})(${inspectOnly}, __ankoleAppletReady.promise, ${JSON.stringify(bindings)});
 }
 ${source}
 __ankoleAppletReady.resolve();`
 }
 
-function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
+function appletWorker(inspectOnly: boolean, initialized: Promise<void>, bindings: AppletBindings) {
   ;(globalThis as Record<string, unknown>).Buffer ??= Buffer
   const als = new AsyncLocalStorage<InvocationState>()
   const errorInstances = new WeakSet()
@@ -96,16 +100,24 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
         'file.write',
         'state.set',
         'state.delete',
+        'idempotency.claim',
+        'idempotency.complete',
+        'idempotency.release',
         'signals.emit',
         'ai.generateImage',
         'ai.generateSpeech',
         'notifications.post',
         'approvals.request',
         'approvals.decide',
-        'brain.writeTake'
+        'brain.writeTake',
+        'brain.writeFact'
       ].includes(capability)
     ) {
-      throw hostError({ status: 500, code: 'read_only_route', message: 'GET routes cannot write data' })
+      throw hostError({
+        status: state.diagnostic ? 403 : 500,
+        code: state.diagnostic ? 'diagnostic_read_only' : 'read_only_route',
+        message: 'Read-only Applet routes cannot write data'
+      })
     }
     const callId = ++state.nextCall
     const result: any = await new Promise((resolve, reject) => {
@@ -119,7 +131,52 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
   }
   function capabilities(prefix = '') {
     const invoke = (operation: string, args: unknown[]) => call(prefix + operation, args)
+    const runIdempotent = createIdempotencyExecutor({
+      claim: async (storageKey: string, requestHash: string) => {
+        const res = (await invoke('idempotency.claim', [storageKey, requestHash])) as {
+          status: 'claimed' | 'replayed'
+          claim_id?: unknown
+          value?: unknown
+        }
+        if (res.status === 'replayed') return { status: 'replayed', value: res.value }
+        if (typeof res.claim_id !== 'string' || !res.claim_id) {
+          throw new TypeError('The idempotency claim must include a non-empty claim_id')
+        }
+        return { status: 'claimed', claimId: res.claim_id }
+      },
+      complete: (storageKey: string, value: unknown, ttlSeconds: number, claimId: string) =>
+        invoke('idempotency.complete', [storageKey, value, ttlSeconds, claimId]),
+      release: (storageKey: string, claimId: string) => invoke('idempotency.release', [storageKey, claimId])
+    })
     return Object.freeze({
+      bindings: Object.freeze({
+        table: (slotKey: string) => {
+          const binding = bindings[slotKey]
+          if (!binding || binding.status !== 'ready' || !binding.tableId) {
+            throw new HttpError(422, 'applet_binding_missing', `Table slot "${slotKey}" is not configured`)
+          }
+          const tableId = binding.tableId
+          return Object.freeze({
+            tableId,
+            fields: Object.freeze({ ...binding.fields }),
+            schema: () => invoke('base.schema', [tableId]),
+            query: (query = {}) => invoke('base.query', [tableId, query]),
+            aggregate: (query: unknown) => invoke('base.aggregate', [tableId, query]),
+            write: (changes: RecordWrite) => invoke('base.write', [tableId, withRecordIDs(changes)])
+          })
+        }
+      }),
+      idempotent: <T>(key: string, fn: () => T | Promise<T>, options?: { ttlSeconds?: number }) => {
+        const current = store()
+        if (current.readOnly) {
+          throw hostError({
+            status: current.diagnostic ? 403 : 500,
+            code: current.diagnostic ? 'diagnostic_read_only' : 'read_only_route',
+            message: 'Read-only Applet routes cannot write data'
+          })
+        }
+        return runIdempotent(key, fn, options)
+      },
       base: Object.freeze({
         schema: (tableId: string) => invoke('base.schema', [tableId]),
         query: (tableId: string, query = {}) => invoke('base.query', [tableId, query]),
@@ -133,6 +190,7 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
         listTakes: (options: unknown) => invoke('brain.listTakes', [options]),
         listFacts: (options: unknown) => invoke('brain.listFacts', [options]),
         writeTake: (options: unknown) => invoke('brain.writeTake', [options]),
+        writeFact: (options: unknown) => invoke('brain.writeFact', [options]),
         calibration: (options: unknown) => invoke('brain.calibration', [options])
       }),
       notifications: Object.freeze({
@@ -302,6 +360,7 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
         runId: frame.run_id,
         method: frame.context.method,
         readOnly: frame.context.read_only === true || frame.context.method === 'GET',
+        diagnostic: frame.context.diagnostic === true,
         deadline: Date.now() + (Number(new URL(req.url).searchParams.get('timeout_ms')) || 60000),
         logs: [],
         pending: new Map(),
@@ -315,6 +374,13 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
       als.run(state, async () => {
         const continuations = new WeakMap<object, unknown>()
         function scope(scopeKey = 'default'): any {
+          if (scopeKey === '_idempotency' || scopeKey.startsWith('_idempotency:')) {
+            throw new HttpError(
+              400,
+              'reserved_state_scope',
+              'State scope "_idempotency" is reserved for AnkoleRuntime.idempotent'
+            )
+          }
           return Object.freeze({
             get: (key: string) => call('state.get', [scopeKey, key]),
             set: (key: string, value: unknown) => call('state.set', [scopeKey, key, value]),

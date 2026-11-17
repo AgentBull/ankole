@@ -5,7 +5,7 @@ import { GardSelection, GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { BlockSelection } from './block-selection'
 import { dispatchStep, splitInsert } from './block-insert'
-import { Attrs, markValue } from './attributes'
+import { inheritedInlineMarks, markValue } from './attributes'
 import { editorPhrases } from './phrases'
 import { Align, checkMentionTarget, Link, Mention, type MentionTarget } from './schema'
 
@@ -73,30 +73,7 @@ function charBeforeInBlock(block: Pos.Plot, pos: number): string {
 
 /** Inline format and discussion marks at `pos` in `block` that `Mention` can inherit. */
 export function inheritedMentionMarks(state: GardState, pos: number): readonly Mark[] {
-  if (
-    state.selection instanceof GardSelection.Text &&
-    state.selection.empty &&
-    state.selection.head === pos &&
-    state.selection.marks
-  ) {
-    return state.selection.marks.filter(mark => mark.type !== Attrs && state.schema.markAllowed(mark.type, Mention))
-  }
-  const resolved = state.doc.resolve(pos)
-  const block = resolved.parent
-  if (!block.node.inlineContent) return []
-  let offset = block.start
-  for (const child of block.node.content) {
-    const next = offset + child.length
-    if (pos >= offset && pos < next) {
-      return child.marks.filter(mark => mark.type !== Attrs && state.schema.markAllowed(mark.type, Mention))
-    }
-    offset = next
-  }
-  const before = resolved.nodeBefore
-  if (before) {
-    return before.marks.filter(mark => mark.type !== Attrs && state.schema.markAllowed(mark.type, Mention))
-  }
-  return []
+  return inheritedInlineMarks(state, pos, Mention)
 }
 
 function validateSessionSpan(

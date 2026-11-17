@@ -33,6 +33,17 @@ case config_env() do
     :ok
 end
 
+base_database_defaults =
+  case Application.get_env(:ankole, :edition_config) do
+    nil ->
+      []
+
+    module ->
+      if Code.ensure_loaded?(module) and function_exported?(module, :base_database_defaults, 1),
+        do: module.base_database_defaults(config_env()),
+        else: []
+  end
+
 config :ankole, Ankole.Pod.BaseCluster,
   databases:
     Ankole.Config.Bootstrap.base_databases(
@@ -40,7 +51,7 @@ config :ankole, Ankole.Pod.BaseCluster,
       Ankole.Config.Bootstrap.env!("DATABASE_URL"),
       config_env(),
       Ankole.Config.Bootstrap.env_string("MIX_TEST_PARTITION"),
-      Application.get_env(:ankole, :edition, :foss)
+      base_database_defaults
     ),
   create_databases: config_env() in [:dev, :test]
 

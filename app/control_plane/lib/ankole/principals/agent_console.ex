@@ -44,7 +44,14 @@ defmodule Ankole.Principals.AgentConsole do
     end
   end
 
-  # A disabled Agent is deleted, so the Agent row is read before the change.
+  @doc false
+  def disable_in_tx(uid) do
+    with {:ok, {principal, conversation_ids}} <- Principals.disable_agent_in_tx(uid) do
+      {:ok, Principals.get_agent_record!(uid) |> present(principal, conversation_ids)}
+    end
+  end
+
+  # Only a disabled Agent may be deleted, so the Agent row is read before deletion.
   @doc false
   def delete_in_tx(uid) do
     with %Agent{} = agent <- Principals.get_agent_record!(uid),
@@ -59,6 +66,10 @@ defmodule Ankole.Principals.AgentConsole do
   @doc "Publishes the conversation status of an enabled Agent after the commit."
   def publish_enable(%Agent{} = agent),
     do: Principals.publish_agent_changes({agent, agent.__metadata__[:conversation_ids]})
+
+  @doc "Publishes the conversation status and reconciles the Worker after disabling an Agent."
+  def publish_disable(%Agent{} = agent),
+    do: Principals.publish_agent_deletion({agent, agent.__metadata__[:conversation_ids]})
 
   @doc "Publishes the conversation status and reconciles the Worker after a deletion."
   def publish_delete(%Agent{} = agent),

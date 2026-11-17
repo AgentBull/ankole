@@ -13,7 +13,8 @@ defmodule Ankole.Connectors.Resolver do
   end
 
   defp resolve_account(spec, actor, module, config, connection, account_key, args) do
-    with human <- human(actor),
+    with :ok <- Ankole.Connectors.ConnectionAccess.authorize(actor, config),
+         human <- human(actor),
          :ok <- subject(spec.subject_policy, human),
          credential_spec = credential_spec(module, spec, human, args),
          {:ok, account, external_user_id} <-

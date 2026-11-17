@@ -116,10 +116,13 @@ client: if a client exits, `ConnectionLifecycle` restarts that pair immediately
 once and then waits 5 seconds and 30 seconds between subsequent attempts while
 other pairs stay connected.
 
-Chat bindings and real-time directory sync share one WebSocket whenever their
-`(domain, appID)` pair and `appSecret` match; if two consumers supply
-conflicting secrets for the same pair, Ankole marks that connection unavailable.
-Restarts rebuild the active connection set from PostgreSQL.
+Chat bindings, real-time directory sync, connector event streams, and optional
+Pod page link previews (`public_metadata.linkPreview`) share one WebSocket
+whenever their `(domain, appID)` pair and `appSecret` match; if two consumers
+supply conflicting secrets for the same pair, Ankole marks that connection
+unavailable. Saving connection settings broadcasts a credential change so
+`ConnectionReconciler` replaces the connection owner with the updated consumer
+set, and restarts rebuild the active connection set from PostgreSQL.
 
 Feishu and Lark deliver each event to only one of an application's long
 connections. A connection that serves no chat binding, such as one opened for
@@ -336,6 +339,35 @@ The packaged approval inbox Applet queries pending tasks, sends interactive
 cards, and handles signed card callbacks through a personal Action. It checks
 the clicking employee against that Action's human authority, performs the
 selected approval operation, and writes the result back to the card.
+
+## Preview Pod Page Links
+
+A Pod administrator can enable `linkPreview` on a Feishu or Lark connection in
+Pod's Connections page. The connection dialog presents the two required URL
+rules (`<pod-host>/pages/*` for collaboration pages and
+`<pod-host>/meta/brain/*` for knowledge and Brain attachment pages) with copy
+controls and setup steps for subscribing to `url.preview.get` over the
+application's long connection.
+
+When `linkPreview` is enabled, `Ankole.Plugins.LarkAdapter.LinkPreview` answers
+`url.preview.get` callbacks within the connection's tenant context without
+creating Signal rows or checking per-reader Page ACLs:
+
+- `AnkoleWeb.PodURL.page_id_from_url/2` verifies that the requested URL matches
+  the Pod's canonical origin and resolves `/pages/:segment` or
+  `/meta/brain/:segment` (accepting canonical UUIDs, 26-character short IDs, and
+  slugged segments) to a Page UUID.
+- `Ankole.Pod.link_preview/1` verifies that the target Page and all of its
+  ancestors are live (`deleted_at` and `purge_started_at` are nil, excluding
+  roots, Brain containers, and `ankole_brain_sources` backing nodes) and reads
+  bounded 600-character excerpt prefixes (`PageContent.plain_text`,
+  `Knowledge.summary/1`, `PageSearchDocument`, and `Files.primary_files_by_page/1`).
+- Live Pages return a bare response map containing `inline.title` and a `raw`
+  Card JSON 2.0 body (`div` + `plain_text` summary, localized Pod/type/date
+  notation, and an `open_url` button targeting `/meta/brain/<id>` or
+  `/pages/<slug>-<short-id>`). Disabled connections, foreign hosts, and
+  missing or trashed Pages return `:ok`, acknowledging the WebSocket frame with
+  `code: 200` and no `data`.
 
 ## Import People and Departments
 

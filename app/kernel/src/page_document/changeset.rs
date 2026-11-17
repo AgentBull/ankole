@@ -225,6 +225,128 @@ fn is_mark_modification(data: &[Value]) -> bool {
         .is_some_and(|value| value.get("add").is_some() || value.get("remove").is_some())
 }
 
+fn is_section_item(value: &Value) -> bool {
+    value.is_u64()
+        || value
+            .as_array()
+            .filter(|section| section.len() == 2)
+            .is_some_and(|section| {
+                section[0].is_u64()
+                    && section[1].as_array().is_some_and(|data| {
+                        data.iter()
+                            .all(|item| item.is_object() || item.as_str() == Some("."))
+                    })
+            })
+}
+
+fn inserted_item_span(value: &Value, inserted: &mut usize) -> Result<usize> {
+    if value.as_str() == Some(".") {
+        return Ok(1);
+    }
+    count_inserted(value, 0, inserted)?;
+    let node = DocNode::from_json(value)?;
+    if is_container(node.kind) && value.get("content").is_none() {
+        Ok(1)
+    } else {
+        Ok(node.span())
+    }
+}
+
+fn map_range_once(sections: &[Value], from: usize, to: usize) -> Result<Option<(usize, usize)>> {
+    if sections.is_empty() {
+        return Ok(Some((from, to)));
+    }
+    let mut src_pos = 0usize;
+    let mut add_before = 0usize;
+    let mut sub_before = 0usize;
+    let mut inserted_nodes = 0usize;
+
+    for raw in sections {
+        let section = Section::read(raw)?;
+        let len = section.source_len();
+        let src_end = src_pos.checked_add(len).ok_or("change length overflow")?;
+
+        match section {
+            Section::Retain(_) | Section::Marks(..) => {}
+            Section::Replace(del_len, data) => {
+                let mut ins_len = 0usize;
+                for item in data {
+                    let span = inserted_item_span(item, &mut inserted_nodes)?;
+                    ins_len = ins_len.checked_add(span).ok_or("change length overflow")?;
+                }
+                if del_len == 0 && ins_len == 0 {
+                    // Empty replacement does not touch any range.
+                } else if del_len == 0 {
+                    if src_pos <= from {
+                        add_before = add_before
+                            .checked_add(ins_len)
+                            .ok_or("change length overflow")?;
+                    } else if src_pos < to {
+                        return Ok(None);
+                    }
+                } else if src_end <= from {
+                    add_before = add_before
+                        .checked_add(ins_len)
+                        .ok_or("change length overflow")?;
+                    sub_before = sub_before
+                        .checked_add(del_len)
+                        .ok_or("change length overflow")?;
+                } else if src_pos >= to {
+                    // Edit strictly at or after `to` leaves `[from, to)` unchanged.
+                } else {
+                    return Ok(None);
+                }
+            }
+        }
+
+        src_pos = src_end;
+    }
+
+    if to > src_pos {
+        return Err("comment range exceeds document".into());
+    }
+
+    let next_from = (from - sub_before)
+        .checked_add(add_before)
+        .ok_or("change length overflow")?;
+    let next_to = (to - sub_before)
+        .checked_add(add_before)
+        .ok_or("change length overflow")?;
+    Ok(Some((next_from, next_to)))
+}
+
+/// Maps a non-empty `[from, to)` selection range forward across a single ChangeSet or a JSON array
+/// of sequential committed ChangeSets. Returns `Ok(None)` when any edit inserts strictly inside
+/// `(from, to)` or replaces tokens overlapping `[from, to)`.
+pub fn map_range(changes: &Value, from: usize, to: usize) -> Result<Option<(usize, usize)>> {
+    if from >= to {
+        return Err("comment range must be non-empty".into());
+    }
+    let array = changes.as_array().ok_or("ChangeSet must be an array")?;
+    if array.is_empty() {
+        return Ok(Some((from, to)));
+    }
+    if array.iter().all(is_section_item) {
+        return map_range_once(array, from, to);
+    }
+
+    let mut cur_from = from;
+    let mut cur_to = to;
+    for step in array {
+        let sections = step
+            .as_array()
+            .ok_or("each ChangeSet in sequence must be an array")?;
+        match map_range_once(sections, cur_from, cur_to)? {
+            Some((next_from, next_to)) => {
+                cur_from = next_from;
+                cur_to = next_to;
+            }
+            None => return Ok(None),
+        }
+    }
+    Ok(Some((cur_from, cur_to)))
+}
+
 pub fn apply(doc: &DocNode, changes: &Value) -> Result<DocNode> {
     let changes = changes.as_array().ok_or("ChangeSet must be an array")?;
     let mut source = Vec::new();

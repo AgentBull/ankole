@@ -55,6 +55,22 @@ fn unsupported_doc_features_are_rejected() {
 }
 
 #[test]
+fn document_embed_props_roundtrip_through_markdown_and_vfs_only() {
+    let markdown = r#"<embed ref="report" props='{"region":"华东"}' />"#;
+    let page = super::parse_document(markdown).unwrap();
+    let exported = super::export_document(&page.xml).unwrap();
+    assert_eq!(super::parse_document(&exported).unwrap().xml, page.xml);
+    assert!(parse(markdown).is_err());
+    assert!(super::validate(&page.xml).is_err());
+    let vfs = crate::page_document::vfs::export(&page.xml).unwrap();
+    assert!(vfs.contains("props="));
+    let changed =
+        crate::page_document::vfs::reconcile(&page.xml, &vfs.replace("华东", "华南")).unwrap();
+    assert!(changed.xml.contains("华南"));
+    assert!(!changed.xml.contains("华东"));
+}
+
+#[test]
 fn overview_reads_introduction_and_h2_skeleton() {
     let page =
         parse("Intro.\n\n## First\n\nLong body.\n\n### Detail\n\nMore.\n\n## Second\n\nTail.")

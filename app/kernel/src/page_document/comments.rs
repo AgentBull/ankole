@@ -194,7 +194,11 @@ fn annotate_nodes(
             }
         } else if matches!(
             node.kind,
-            NodeKind::LineBreak | NodeKind::Image | NodeKind::InlineElement | NodeKind::Mention
+            NodeKind::LineBreak
+                | NodeKind::Image
+                | NodeKind::InlineMath
+                | NodeKind::InlineElement
+                | NodeKind::Mention
         ) {
             modify_mark(&mut node, &[json!(id)], true);
             if node.kind == NodeKind::LineBreak {
@@ -207,6 +211,9 @@ fn annotate_nodes(
                         .and_then(Value::as_str)
                         .unwrap_or_default(),
                 );
+            }
+            if node.kind == NodeKind::InlineMath {
+                quote.push_str(node.param.as_str().unwrap_or_default());
             }
             if node.kind == NodeKind::InlineElement {
                 quote.push_str(&tree::text_of(&super::document_schema::thaw(&node.param)?));

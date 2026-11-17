@@ -169,6 +169,7 @@ defmodule Ankole.Conversations.Conversation do
       accept([
         :id,
         :title,
+        :title_customized,
         :created_by,
         :page_id,
         :last_activity_at,

@@ -284,7 +284,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     }
 
     assert {:error, %{failure_kind: "forbidden"}} = Tools.prepare(stale, call)
-    assert {:ok, _} = Ankole.Principals.delete_agent(ctx.agent.uid)
+    assert {:ok, _} = Ankole.Principals.disable_agent(ctx.agent.uid)
     assert {:error, _} = Tools.prepare(run, call)
   end
 

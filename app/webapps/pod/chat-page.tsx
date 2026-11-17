@@ -396,7 +396,7 @@ export function ChatPage({
     lastSeq = data?.messageRange.lastSeq
   const visitedRoom = useRef<string | null>(null)
   // A reread that started before Ankole confirmed a read can still carry the older position, so a visit sends each
-  // read position once.
+  // read position once unless the request fails.
   const sentReadSeq = useRef(0)
   const atBottom = model.reading.value[pageID ? 'page' : 'standalone']?.atBottom !== false
   useEffect(() => {
@@ -410,14 +410,25 @@ export function ChatPage({
         (visitedRoom.current !== conversationID || (lastReadSeq < lastSeq && atBottom && seq > sentReadSeq.current)) &&
         document.visibilityState === 'visible'
       ) {
+        const hadVisited = visitedRoom.current === conversationID
         visitedRoom.current = conversationID
         sentReadSeq.current = seq
-        actions.markRead.mutate(seq)
+        actions.markRead.mutate(seq, {
+          onError: () => {
+            if (visitedRoom.current !== conversationID || sentReadSeq.current !== seq) return
+            if (!hadVisited) visitedRoom.current = null
+            sentReadSeq.current = lastReadSeq
+          }
+        })
       }
     }
     markRead()
     document.addEventListener('visibilitychange', markRead)
-    return () => document.removeEventListener('visibilitychange', markRead)
+    window.addEventListener('focus', markRead)
+    return () => {
+      document.removeEventListener('visibilitychange', markRead)
+      window.removeEventListener('focus', markRead)
+    }
   }, [conversationID, lastReadSeq, lastSeq, atBottom])
   const roomReady = !!data && !gone
   useEffect(() => {
@@ -467,13 +478,7 @@ export function ChatPage({
     </Button>
   )
   if (nonAssistantPageChat) return <>{pageHeader}</>
-  if (!conversationID && !colleagueUID && !pageID && agents.isSuccess && !agents.data.personalAssistantAvailable) {
-    return (
-      <section className="pod-chat pod-chat-standalone">
-        <p className="m-auto p-6 text-sm text-fg-secondary">{t('pod.superagent.choose_colleague')}</p>
-      </section>
-    )
-  }
+  const assistantAvailable = !agents.isSuccess || !!agents.data.personalAssistantAvailable
   if (!conversationID) {
     return (
       <section
@@ -481,10 +486,11 @@ export function ChatPage({
         className={cn('pod-chat pod-chat-empty', pageID ? 'pod-chat-embedded' : 'pod-chat-standalone')}>
         {pageHeader}
         <ChatHomeView
-          composer={composer}
+          composer={assistantAvailable || !!colleagueUID || !!pageID ? composer : null}
+          assistantAvailable={assistantAvailable}
           pageID={pageID}
           colleague={colleagueUID ? availableAgents.find(agent => agent.uid === colleagueUID) : undefined}
-          showSuggestions={!model.hasContent.value && !model.links.value.length}
+          showSuggestions={assistantAvailable && !model.hasContent.value && !model.links.value.length}
           onSuggestion={text => {
             model.draft.value = text
             composerInput.current?.focus()
@@ -496,11 +502,13 @@ export function ChatPage({
               {t('pod.chat.selected_agent_unavailable')}
             </p>
           )}
-          {!agents.isPending && !agents.isError && !availableAgents.length && !personalAssistant && (
-            <p className="pod-chat-status">{t('pod.chat.no_agents')}</p>
-          )}
+          {assistantAvailable &&
+            !agents.isPending &&
+            !agents.isError &&
+            !availableAgents.length &&
+            !personalAssistant && <p className="pod-chat-status">{t('pod.chat.no_agents')}</p>}
           {!!failure && <RequestFailure error={failure} action={retry} sendFailure />}
-          {!pageID && <UnconfirmedChats current={model} select={selectDraft} />}
+          {!pageID && assistantAvailable && <UnconfirmedChats current={model} select={selectDraft} />}
         </ChatHomeView>
       </section>
     )

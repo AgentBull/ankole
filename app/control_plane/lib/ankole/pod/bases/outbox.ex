@@ -31,19 +31,46 @@ defmodule Ankole.Pod.Bases.Outbox do
   end
 
   defp append_batch(write, table, rows) do
+    serialized_rows =
+      rows
+      |> Ankole.Pod.Serialization.json_value()
+      |> attach_causation(write)
+
     attrs = %{
       id: Ash.UUIDv7.generate(),
       page_id: table.page_id,
       table_id: table.id,
       data_version: table.data_version,
       actor_ref: to_string(Ankole.ActorRef.from_writer(write.uid, Ankole.Repo.tenant_id!(), [])),
-      changes: Ankole.Pod.Serialization.json_value(rows)
+      changes: serialized_rows
     }
 
     case table.storage_mode do
       :physical -> Physical.append_changes(table, attrs)
       :inline -> with {:ok, _} <- Ankole.Ash.create(ChangeOutbox, :append, attrs), do: :ok
     end
+  end
+
+  defp attach_causation([first | rest], %{origin_binding_id: binding_id, base_hop_count: hops})
+       when is_map(first) and (is_binary(binding_id) or (is_integer(hops) and hops > 0)) do
+    causation =
+      %{"base_hop_count" => max(hops || 0, 0)}
+      |> then(fn map ->
+        if is_binary(binding_id), do: Map.put(map, "origin_binding_id", binding_id), else: map
+      end)
+
+    [Map.put(first, "_causation", causation) | rest]
+  end
+
+  defp attach_causation(rows, _write), do: rows
+
+  def has_pending? do
+    Ankole.Ash.exists?(ChangeOutbox) or
+      BaseRepo.with_shard(BaseRepo.shard!(), fn -> Physical.pending_changes([], 1) != [] end)
+  end
+
+  def wake_if_pending do
+    if has_pending?(), do: wake(), else: {:ok, :idle}
   end
 
   def wake do
@@ -101,14 +128,44 @@ defmodule Ankole.Pod.Bases.Outbox do
   end
 
   defp deliver(row, acknowledge) do
+    {clean_changes, causation} = extract_causation(row.changes)
+
+    data =
+      row
+      |> Map.take([:page_id, :table_id, :data_version, :actor_ref])
+      |> Map.put(:changes, clean_changes)
+      |> maybe_merge_causation(causation)
+
     event = %{
       id: row.id,
       type: "base.records.changed",
-      data: Map.take(row, [:page_id, :table_id, :data_version, :actor_ref, :changes])
+      data: data
     }
 
     with {:ok, _} <- Ankole.Signals.emit("base://#{row.table_id}", event),
          result when result == :ok or elem(result, 0) == :ok <- acknowledge.(row),
          do: :ok
+  end
+
+  defp extract_causation([%{"_causation" => causation} = first | rest]) when is_map(causation) do
+    {[Map.delete(first, "_causation") | rest], causation}
+  end
+
+  defp extract_causation(changes), do: {changes, nil}
+
+  defp maybe_merge_causation(data, nil), do: data
+
+  defp maybe_merge_causation(data, causation) do
+    data
+    |> then(fn d ->
+      if is_binary(causation["origin_binding_id"]),
+        do: Map.put(d, :origin_binding_id, causation["origin_binding_id"]),
+        else: d
+    end)
+    |> then(fn d ->
+      if is_integer(causation["base_hop_count"]),
+        do: Map.put(d, :base_hop_count, causation["base_hop_count"]),
+        else: d
+    end)
   end
 end

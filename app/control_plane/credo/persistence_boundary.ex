@@ -5,7 +5,8 @@ defmodule Ankole.Credo.PersistenceBoundary do
   `Ankole.Credo.AshBoundary`, `Ankole.Credo.RawSQLTenant`, and
   `Ankole.PersistenceBoundaryTest` use these occurrences and the same data
   file: `test/ankole/persistence_boundary.exs`. That file lists the registered
-  exception modules. A private checkout adds its exceptions in
+  exception modules. A private checkout adds its exceptions and consumer
+  directories in
   `internals/control_plane/test/persistence_boundary.exs`.
 
   Each occurrence gives its kind, module, function, line, and the module that
@@ -35,7 +36,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
   """
 
   @data Path.expand("../test/ankole/persistence_boundary.exs", __DIR__)
-  # A private checkout keeps the counts of its own files beside its sources.
+  # A private checkout keeps its boundary declarations beside its sources.
   @private_data Path.expand(
                   "../../../internals/control_plane/test/persistence_boundary.exs",
                   __DIR__
@@ -51,9 +52,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
                    [
                      "lib/ankole_web",
                      "lib/mix/tasks",
-                     "../../plugins",
-                     "../../internals/control_plane/lib/ankole/saas_web",
-                     "../../internals/plugins"
+                     "../../plugins"
                    ],
                    &Path.expand(&1, @application_root)
                  )
@@ -137,15 +136,23 @@ defmodule Ankole.Credo.PersistenceBoundary do
     :raw_sql_tenant
   ]
 
-  @doc "Reads the registered exceptions."
+  @doc "Reads the registered exceptions and edition consumer directories."
   def data do
-    exceptions =
-      [@data, @private_data]
-      |> Enum.filter(&File.exists?/1)
-      |> Enum.map(&(&1 |> Code.eval_file() |> elem(0) |> Map.fetch!(:exceptions)))
-      |> Enum.reduce(&Map.merge(&2, &1))
+    data_paths()
+    |> Enum.filter(&File.exists?/1)
+    |> Enum.map(&(&1 |> Code.eval_file() |> elem(0)))
+    |> Enum.reduce(%{exceptions: %{}, consumer_dirs: []}, fn data, merged ->
+      %{
+        exceptions: Map.merge(merged.exceptions, Map.fetch!(data, :exceptions)),
+        consumer_dirs: merged.consumer_dirs ++ Map.get(data, :consumer_dirs, [])
+      }
+    end)
+  end
 
-    %{exceptions: exceptions}
+  defp data_paths do
+    if Mix.Project.config()[:ankole_edition] == :saas,
+      do: [@data, @private_data],
+      else: [@data]
   end
 
   @doc """
@@ -166,7 +173,11 @@ defmodule Ankole.Credo.PersistenceBoundary do
   end
 
   defp cached_data do
-    version = for path <- [@data, @private_data], File.exists?(path), do: File.stat!(path).mtime
+    paths = data_paths()
+
+    version =
+      {Mix.Project.config()[:ankole_edition],
+       for(path <- paths, File.exists?(path), do: File.stat!(path).mtime)}
 
     case :persistent_term.get(__MODULE__, nil) do
       {^version, data} ->
@@ -233,7 +244,8 @@ defmodule Ankole.Credo.PersistenceBoundary do
 
   defp consumer?(path) do
     path = Path.expand(path)
-    path in @consumer_files or Enum.any?(@consumer_dirs, &String.starts_with?(path, &1 <> "/"))
+    directories = @consumer_dirs ++ cached_data().consumer_dirs
+    path in @consumer_files or Enum.any?(directories, &String.starts_with?(path, &1 <> "/"))
   end
 
   # The walk keeps the lexical module, function, and aliases of each node.

@@ -59,10 +59,6 @@ defmodule Ankole.Config.BootstrapTest do
              Bootstrap.base_databases(nil, url, :test, "suite"),
              &String.ends_with?(&1.url, "_test_suite")
            )
-
-    saas = Bootstrap.base_databases(nil, url, :prod, nil, :saas)
-    assert length(saas) == 8
-    assert Enum.all?(saas, &(&1.pool_size == 5))
   end
 
   test "Base topology rejects ambiguous identities and unsupported connection parameters" do

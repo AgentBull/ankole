@@ -93,7 +93,7 @@ export class MermaidPreview {
     layer.className = 'mermaid-preview-layer'
     this.layer = layer
     this.host.replaceChildren(layer)
-    this.mount(layer, source, { zoom: this.zoom })
+    this.mount(layer, source, { zoom: this.zoom, maxWidth: 0 })
       .then(result => {
         if (this.disposed || this.layer !== layer || !layer.isConnected) {
           result.destroy()

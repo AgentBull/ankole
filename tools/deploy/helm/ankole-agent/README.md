@@ -373,10 +373,14 @@ uid `1000`, sets the root `/agents` directory to group `1000` and mode `2777` so
 uid `1000` can write into directories that kubelet creates for new Agents, and
 grants read access so the drive import can read legacy files.
 
-Next, upgrade with `--set files.importAgentHomeClaim=<claim>` to mount the claim
-read-only at `/agents` in the control plane, and run the one-time import:
+Next, when upgrading from a 1.x release, run `/app/bin/upgrade_from_1x` once
+before starting 2.0 traffic, upgrade with `--set files.importAgentHomeClaim=<claim>`
+to mount the claim read-only at `/agents` in the control plane, and run the
+one-time import:
 
 ```sh
+kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
+  /app/bin/upgrade_from_1x
 kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```

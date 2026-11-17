@@ -12,6 +12,11 @@ defmodule Ankole.AgentWorkers.AgentWorker do
     resolve_param(:agent_uid, :principal_key)
     allow(:console_list, resource: "site_console:agent_workers", action: "read")
     allow(:console_assign_provider, resource: "site_console:agent:{agent_uid}", action: "update")
+
+    allow(:console_force_reset_generation,
+      resource: "site_console:agent:{agent_uid}",
+      action: "update"
+    )
   end
 
   alias Ankole.AgentWorkers.{Changes.StateClock, ReconcileJob}
@@ -472,6 +477,14 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
       after_commit({ReconcileJob, :enqueue})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_force_reset_generation, :struct do
+      transaction?(false)
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
 
       run(__MODULE__.Actions)
     end

@@ -405,7 +405,8 @@ defmodule Ankole.Pod.Chat.Presentation do
           workflow_run_summary(
             wf,
             detail.source_signals[wf.source_signal_id],
-            Map.get(metrics.workflows, wf.id)
+            Map.get(metrics.workflows, wf.id),
+            MapSet.member?(agents, wf.agent_uid) and MapSet.member?(callable, wf.agent_uid)
           )
         end
       )
@@ -463,17 +464,18 @@ defmodule Ankole.Pod.Chat.Presentation do
          kind: :background_agent_job,
          title: job.title || "",
          agentUID: job.agent_uid,
-         status: to_string(job.status),
+         status: effective_job_status(job, successor_id),
          task: non_empty_text(job.task),
          createdAt: timestamp(job.inserted_at),
          startedAt: timestamp(job.started_at),
          completedAt: timestamp(job.completed_at),
          updatedAt: timestamp(job.updated_at),
-         stoppable: job.status in [:queued, :running, :waiting_on_user],
+         stoppable: can_act? and job.status in [:queued, :running, :waiting_on_user],
          canMessage: job_can_message?(job, successor_id, can_act?),
          continuedFromJobID: job.continued_from_job_id && to_string(job.continued_from_job_id),
          successorJobID: successor_id && to_string(successor_id),
          outcomeText: job_outcome_text(job),
+         deliverables: extract_job_deliverables(job),
          errorText: job_error_text(job),
          stepCount: step_count,
          pendingQuestions: extract_pending_questions(job),
@@ -492,7 +494,7 @@ defmodule Ankole.Pod.Chat.Presentation do
     end
   end
 
-  def execution_page(workflow, :workflow, cursor, _can_act?) do
+  def execution_page(workflow, :workflow, cursor, can_act?) do
     with {:ok, after_seq} <- workflow_cursor(cursor) do
       filter = Ash.Expr.expr(run_id == ^workflow.id and call_seq > ^after_seq)
 
@@ -534,11 +536,12 @@ defmodule Ankole.Pod.Chat.Presentation do
          startedAt: timestamp(workflow.inserted_at),
          completedAt: timestamp(workflow.completed_at),
          updatedAt: timestamp(workflow.updated_at),
-         stoppable: workflow.status == :running,
+         stoppable: can_act? and workflow.status == :running,
          canMessage: false,
          continuedFromJobID: nil,
          successorJobID: nil,
          outcomeText: non_empty_text(workflow.result_text),
+         deliverables: [],
          errorText: format_workflow_error(workflow.error),
          stepCount: counts.total,
          pendingQuestions: [],
@@ -762,7 +765,7 @@ defmodule Ankole.Pod.Chat.Presentation do
       sourceToolCallID: job.source_tool_call_id,
       continuedFromJobID: job.continued_from_job_id && to_string(job.continued_from_job_id),
       successorJobID: successor_id && to_string(successor_id),
-      stoppable: job.status in [:queued, :running, :waiting_on_user],
+      stoppable: can_act? and job.status in [:queued, :running, :waiting_on_user],
       canMessage: job_can_message?(job, successor_id, can_act?),
       pendingQuestions: pending_questions,
       summary: summary && String.slice(summary, 0, 240),
@@ -776,7 +779,7 @@ defmodule Ankole.Pod.Chat.Presentation do
     }
   end
 
-  defp workflow_run_summary(workflow, source, counts) do
+  defp workflow_run_summary(workflow, source, counts, can_act?) do
     summary =
       cond do
         workflow.status == :completed -> non_empty_text(workflow.result_text)
@@ -793,7 +796,7 @@ defmodule Ankole.Pod.Chat.Presentation do
       sourceSignalID: workflow.source_signal_id,
       sourceMessageID: source && source.message_id,
       sourceToolCallID: workflow.source_tool_call_id,
-      stoppable: workflow.status == :running,
+      stoppable: can_act? and workflow.status == :running,
       canMessage: false,
       pendingQuestions: [],
       summary: summary && String.slice(summary, 0, 240),
@@ -819,4 +822,39 @@ defmodule Ankole.Pod.Chat.Presentation do
 
   defp timestamp(nil), do: nil
   defp timestamp(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  defp effective_job_status(job, successor_id) do
+    if is_nil(successor_id) and job.status == :succeeded and
+         get_in(job.result || %{}, ["completion_state"]) == "incomplete" and
+         map_size(job.reply_route || %{}) == 0 and
+         match?({:pod_job, _}, Ankole.Sessions.Key.parse(job.owner_session_id)) do
+      "incomplete"
+    else
+      to_string(job.status)
+    end
+  end
+
+  defp extract_job_deliverables(job) do
+    case get_in(job.result || %{}, ["deliverables"]) do
+      items when is_list(items) ->
+        Enum.flat_map(items, fn
+          %{"path" => path, "node_id" => node_id, "name" => name} = item
+          when is_binary(path) and is_binary(node_id) and is_binary(name) ->
+            [
+              %{
+                path: path,
+                nodeID: node_id,
+                name: name,
+                mimeType: if(is_binary(item["mime_type"]), do: item["mime_type"], else: nil)
+              }
+            ]
+
+          _ ->
+            []
+        end)
+
+      _ ->
+        []
+    end
+  end
 end

@@ -2387,7 +2387,6 @@ source = "git+https://github.com/storytold/gridcraft?rev=68a4b1a1c3684fa17553ecb
 [[package]]
 name = "gridcraft-xlsx"
 version = "0.13.0"
-source = "git+https://github.com/storytold/gridcraft?rev=68a4b1a1c3684fa17553ecb2a1f088c75f6a3567#68a4b1a1c3684fa17553ecb2a1f088c75f6a3567"
 dependencies = [
  "aes 0.9.4",
  "gridcraft-core",

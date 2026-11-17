@@ -3,13 +3,11 @@ defmodule Ankole.Pod.Comments.Activity do
   require Ash.Query
   alias Ankole.{ActorRef, AuthZ, Repo}
   alias Ankole.Pod.Access
-  alias Ankole.Pod.{PageComment, PageContent, Pages, PageUserState}
+  alias Ankole.Pod.{Comments, PageComment, PageContent, Pages, PageUserState}
 
   def attention(actor) do
     uid = AuthZ.Actor.uid(actor)
     actor_ref = ActorRef.from_actor(actor)
-    xml = "<mention principal=\"#{uid}\""
-    markdown = "(principal:#{uid})"
 
     Repo.transact_repeatable_read_only(fn ->
       roots =
@@ -24,10 +22,10 @@ defmodule Ankole.Pod.Comments.Activity do
             )
         )
         |> Ash.Query.filter(
-          author == ^actor_ref or contains(body, ^xml) or contains(body, ^markdown) or
+          author == ^actor_ref or ^uid in mentioned_uids or
             exists(
               replies,
-              author == ^actor_ref or contains(body, ^xml) or contains(body, ^markdown)
+              author == ^actor_ref or ^uid in mentioned_uids
             )
         )
         |> Ankole.Ash.read!()
@@ -62,11 +60,12 @@ defmodule Ankole.Pod.Comments.Activity do
 
   def summary(actor, id) do
     Repo.transact_top_level(fn ->
-      with {:ok, page} when page.type in [:doc, :knowledge, :file] <- Pages.lock(id, :share),
+      with {:ok, page} <- Pages.lock(id, :share),
+           true <- Comments.commentable_type?(page.type),
            {:ok, _} <- Access.authorize(actor, page, "node_view") do
         {:ok, summary_in_tx(actor, page)}
       else
-        {:ok, _} -> {:error, :invalid_page_type}
+        false -> {:error, :invalid_page_type}
         error -> error
       end
     end)
@@ -75,7 +74,8 @@ defmodule Ankole.Pod.Comments.Activity do
   def acknowledge(actor, id, through) do
     Repo.transact_top_level(
       fn ->
-        with {:ok, page} when page.type in [:doc, :knowledge, :file] <- Pages.lock(id),
+        with {:ok, page} <- Pages.lock(id),
+             true <- Comments.commentable_type?(page.type),
              {:ok, _} <- AuthZ.authorize_locked_in_tx(actor, page, "node_view") do
           latest = Ankole.Ash.max!(roots_in_tx(id), :activity_at)
           previous = read_at_in_tx(actor, id)
@@ -90,7 +90,7 @@ defmodule Ankole.Pod.Comments.Activity do
 
           {:ok, summary_in_tx(actor, page)}
         else
-          {:ok, _} -> {:error, :invalid_page_type}
+          false -> {:error, :invalid_page_type}
           error -> error
         end
       end,
@@ -152,48 +152,43 @@ defmodule Ankole.Pod.Comments.Activity do
       (is_nil(read_at) || DateTime.compare(root.activity_at, read_at) == :gt)
   end
 
-  defp summary_in_tx(actor, %{type: type, id: id}) when type in [:doc, :knowledge] do
+  defp summary_in_tx(actor, %{id: id} = page) do
     roots = roots_in_tx(id)
-    content = PageContent |> Ash.Query.filter(page_id == ^id) |> Ankole.Ash.read_one!()
-    {:ok, info} = Ankole.Kernel.page_comment_info(content.content)
-
-    resolved_ids =
-      roots
-      |> Ash.Query.filter(id in ^info.ids and not is_nil(resolved_at))
-      |> Ash.Query.select([:id])
-      |> Ankole.Ash.read!()
-      |> Enum.map(& &1.id)
 
     %{
-      resolved_ids: resolved_ids,
+      resolved_ids: resolved_ids_in_tx(page, roots),
       unread_count: roots |> unread_query_in_tx(actor, id) |> Ankole.Ash.count!(),
       open_count: roots |> Ash.Query.filter(is_nil(resolved_at)) |> Ankole.Ash.count!(),
       activity_at: Ankole.Ash.max!(roots, :activity_at)
     }
   end
 
-  defp summary_in_tx(actor, %{type: :file, id: id, object_id: object_id}) do
-    roots = roots_in_tx(id)
+  defp resolved_ids_in_tx(%{type: type, id: id}, roots) when type in [:doc, :knowledge] do
+    content = PageContent |> Ash.Query.filter(page_id == ^id) |> Ankole.Ash.read_one!()
+    {:ok, info} = Ankole.Kernel.page_comment_info(content.content)
 
-    resolved_ids =
-      if is_binary(object_id) do
-        roots
-        |> Ash.Query.filter(
-          not is_nil(resolved_at) and not is_nil(anchor) and
-            fragment("?->>'object_id' = ?", anchor, ^object_id)
-        )
-        |> Ash.Query.select([:id])
-        |> Ankole.Ash.read!()
-        |> Enum.map(& &1.id)
-      else
-        []
-      end
+    roots
+    |> Ash.Query.filter(id in ^info.ids and not is_nil(resolved_at))
+    |> read_resolved_root_ids()
+  end
 
-    %{
-      resolved_ids: resolved_ids,
-      unread_count: roots |> unread_query_in_tx(actor, id) |> Ankole.Ash.count!(),
-      open_count: roots |> Ash.Query.filter(is_nil(resolved_at)) |> Ankole.Ash.count!(),
-      activity_at: Ankole.Ash.max!(roots, :activity_at)
-    }
+  defp resolved_ids_in_tx(%{type: :file, object_id: object_id}, roots)
+       when is_binary(object_id) do
+    roots
+    |> Ash.Query.filter(
+      not is_nil(resolved_at) and not is_nil(anchor) and
+        fragment("?->>'object_id' = ?", anchor, ^object_id)
+    )
+    |> read_resolved_root_ids()
+  end
+
+  defp resolved_ids_in_tx(%{type: :file}, _roots), do: []
+  defp resolved_ids_in_tx(%{type: type}, _roots) when type in [:applet, :base], do: []
+
+  defp read_resolved_root_ids(query) do
+    query
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.id)
   end
 end

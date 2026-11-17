@@ -19,17 +19,32 @@ defmodule Ankole.Signals.BindingFilters do
   """
   @spec validate_config(map() | nil) :: :ok | {:error, String.t()}
   def validate_config(nil), do: :ok
-  def validate_config(filters) when filters == %{}, do: :ok
 
-  def validate_config(%{"cel" => source} = filters) when map_size(filters) == 1 do
-    validate_source(source)
+  def validate_config(filters) when is_map(filters) do
+    normalized =
+      Map.new(filters, fn
+        {k, v} when is_atom(k) -> {Atom.to_string(k), v}
+        {k, v} -> {k, v}
+      end)
+
+    unknown = Map.keys(normalized) -- ["cel", "include_self_writes"]
+
+    cond do
+      unknown != [] ->
+        {:error, "must be empty or contain only cel and include_self_writes"}
+
+      Map.has_key?(normalized, "include_self_writes") and
+          not is_boolean(normalized["include_self_writes"]) ->
+        {:error, "include_self_writes must be a boolean"}
+
+      Map.has_key?(normalized, "cel") ->
+        validate_source(normalized["cel"])
+
+      true ->
+        :ok
+    end
   end
 
-  def validate_config(%{cel: source} = filters) when map_size(filters) == 1 do
-    validate_source(source)
-  end
-
-  def validate_config(%{}), do: {:error, "must be empty or contain only cel"}
   def validate_config(_filters), do: {:error, "must be a map"}
 
   @doc """
@@ -39,31 +54,42 @@ defmodule Ankole.Signals.BindingFilters do
   def match?(filters, fact)
 
   def match?(nil, %Observation{}), do: :match
-  def match?(filters, %Observation{}) when filters == %{}, do: :match
 
-  def match?(%{"cel" => source} = filters, %Observation{} = fact) when map_size(filters) == 1 do
-    match_cel(source, fact)
-  end
+  def match?(filters, %Observation{} = fact) when is_map(filters),
+    do: evaluate_filter_map(filters, fact)
 
-  def match?(%{cel: source} = filters, %Observation{} = fact) when map_size(filters) == 1 do
-    match_cel(source, fact)
-  end
-
-  def match?(%{}, %Observation{}), do: {:error, {:invalid_binding_filter, "unsupported shape"}}
   def match?(_filters, %Observation{}), do: {:error, {:invalid_binding_filter, "must be a map"}}
 
   @doc "Evaluates the same CEL filter against canonical CloudEvent facts."
-  def match_event?(filters, event, binding) do
+  def match_event?(nil, _event, _binding), do: :match
+
+  def match_event?(filters, event, binding) when is_map(filters) do
     context = %{
       "binding" => %{"name" => binding.name, "adapter" => binding.adapter},
       "signal" => event
     }
 
-    case filters do
-      nil -> :match
-      empty when empty == %{} -> :match
-      %{"cel" => source} = value when map_size(value) == 1 -> match_cel(source, context)
-      _ -> {:error, {:invalid_binding_filter, "unsupported shape"}}
+    evaluate_filter_map(filters, context)
+  end
+
+  def match_event?(_filters, _event, _binding),
+    do: {:error, {:invalid_binding_filter, "unsupported shape"}}
+
+  defp evaluate_filter_map(filters, subject) do
+    cleaned = Map.drop(filters, ["include_self_writes", :include_self_writes])
+
+    cond do
+      cleaned == %{} ->
+        :match
+
+      map_size(cleaned) == 1 and Map.has_key?(cleaned, "cel") ->
+        match_cel(cleaned["cel"], subject)
+
+      map_size(cleaned) == 1 and Map.has_key?(cleaned, :cel) ->
+        match_cel(cleaned[:cel], subject)
+
+      true ->
+        {:error, {:invalid_binding_filter, "unsupported shape"}}
     end
   end
 

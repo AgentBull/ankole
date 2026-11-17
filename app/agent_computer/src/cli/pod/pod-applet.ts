@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs
 import { isBuiltin } from 'node:module'
 import { join, resolve } from 'node:path'
 import type { BunPlugin } from 'bun'
+import { parse } from '@babel/parser'
 import { nodeErrorCode } from '../../common/errors'
 
 export async function initializeApplet(directory: string) {
@@ -39,8 +40,48 @@ const appletHostModules = [
   'react-dom',
   'react-dom/client',
   '@ankole/uikit',
+  '@ankole/uikit/icons',
   '@ankole/applet-sdk'
 ]
+
+/** Add source coordinates without rewriting JSX expressions or changing source line numbers. */
+export function annotateAppletSource(source: string, filename: string) {
+  const tree = parse(source, { sourceType: 'module', plugins: ['typescript', 'jsx'] })
+  const edits: { position: number; text: string }[] = []
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== 'object') return
+    if (Array.isArray(node)) {
+      node.forEach(visit)
+      return
+    }
+    const item = node as Record<string, any>
+    if (item.type === 'JSXOpeningElement') {
+      // Native elements own DOM attributes. Composite components may choose not to forward props.
+      if (item.name.type === 'JSXIdentifier' && /^[a-z]/.test(item.name.name)) {
+        const hasSource = item.attributes.some(
+          (attribute: any) => attribute.type === 'JSXAttribute' && attribute.name.name === 'data-ankole-src'
+        )
+        if (!hasSource) {
+          const insertAt = source.lastIndexOf(item.selfClosing ? '/' : '>', item.end - 1)
+          if (insertAt >= item.start) {
+            edits.push({
+              position: insertAt,
+              text: ` data-ankole-src=${JSON.stringify(`${filename}:${item.loc.start.line}`)}`
+            })
+          }
+        }
+      }
+    }
+    for (const [key, value] of Object.entries(item)) {
+      if (key !== 'loc' && key !== 'comments' && key !== 'tokens') visit(value)
+    }
+  }
+  visit(tree.program)
+  for (const edit of edits.sort((left, right) => right.position - left.position)) {
+    source = source.slice(0, edit.position) + edit.text + source.slice(edit.position)
+  }
+  return source
+}
 
 function appletBuildError(stage: string, error: unknown) {
   const errors = error instanceof AggregateError ? error.errors : Array.isArray(error) ? error : [error]
@@ -125,6 +166,17 @@ export async function buildApplet(directory: string) {
       {
         name: 'applet-entry',
         setup(build) {
+          build.onLoad({ filter: /\.tsx$/ }, async args => {
+            if (!args.path.startsWith(`${sourceDirectory}/`)) return
+            return {
+              contents: annotateAppletSource(
+                await readFile(args.path, 'utf8'),
+                `src/${args.path.slice(sourceDirectory.length + 1)}`
+              ),
+              loader: 'tsx',
+              resolveDir: resolve(args.path, '..')
+            }
+          })
           build.onResolve({ filter: /^ankole-applet-entry$/ }, () => ({ path: 'app', namespace: 'applet' }))
           build.onResolve({ filter: /\.worker\.(?:ts|js)\?url$/ }, async args => {
             const source = await realpath(resolve(args.resolveDir, args.path.slice(0, -4)))

@@ -45,15 +45,15 @@
     },
     "20": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "21": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 1 列：标签 <a> 没有闭合。请在内容后写 </a>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 1: The tag <a> is not closed. Add </a> after the content, or write &lt; for a literal <."
     },
     "31": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 1 列：标签 <a> 没有闭合。请在内容后写 </a>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 1: The tag <a> is not closed. Add </a> after the content, or write &lt; for a literal <."
     },
     "36": {
       "reason": "indentation",
@@ -85,7 +85,7 @@
     },
     "91": {
       "reason": "invalid-element",
-      "error": "Markdown 第 5 行第 1 列：<a> 缺少 href 属性。请为 <a> 写上 href。"
+      "error": "[missing_attribute] Markdown, line 5, column 1: <a> is missing the href attribute. Add href to <a>."
     },
     "100": {
       "reason": "indentation",
@@ -97,7 +97,7 @@
     },
     "110": {
       "reason": "invalid-element",
-      "error": "Markdown 第 1 行第 5 列：<a> 缺少 href 属性。请为 <a> 写上 href。"
+      "error": "[missing_attribute] Markdown, line 1, column 5: <a> is missing the href attribute. Add href to <a>."
     },
     "111": {
       "reason": "indentation",
@@ -137,7 +137,7 @@
     },
     "148": {
       "reason": "invalid-element",
-      "error": "Markdown 第 2 行第 1 列：<pre> 只能包含一个代码围栏。请把代码写在 ``` 围栏里。"
+      "error": "[invalid_content] Markdown, line 2, column 1: <pre> can contain only one code fence. Wrap the code inside a ``` fence."
     },
     "149": {
       "reason": "tags",
@@ -145,11 +145,11 @@
     },
     "150": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 3 行第 15 列：标签 <a> 没有闭合。请在内容后写 </a>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 3, column 15: The tag <a> is not closed. Add </a> after the content, or write &lt; for a literal <."
     },
     "151": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 2 列：结束标签前没有对应的开始标签。请删除它，或补上开始标签。"
+      "error": "[unexpected_closing_tag] Markdown, line 1, column 2: Closing tag has no matching opening tag. Remove it or add the matching opening tag."
     },
     "152": {
       "reason": "tags",
@@ -165,7 +165,7 @@
     },
     "155": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 1 列：标签 <div> 没有闭合。请在内容后写 </div>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 1: The tag <div> is not closed. Add </div> after the content, or write &lt; for a literal <."
     },
     "156": {
       "reason": "incomplete-tag",
@@ -205,7 +205,7 @@
     },
     "165": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 2 列：结束标签前没有对应的开始标签。请删除它，或补上开始标签。"
+      "error": "[unexpected_closing_tag] Markdown, line 1, column 2: Closing tag has no matching opening tag. Remove it or add the matching opening tag."
     },
     "166": {
       "reason": "tags",
@@ -221,7 +221,7 @@
     },
     "169": {
       "reason": "invalid-element",
-      "error": "Markdown 第 1 行第 1 列：<pre> 只能包含一个代码围栏。请把代码写在 ``` 围栏里。"
+      "error": "[invalid_content] Markdown, line 1, column 1: <pre> can contain only one code fence. Wrap the code inside a ``` fence."
     },
     "170": {
       "reason": "tags",
@@ -237,15 +237,15 @@
     },
     "173": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 1 列：标签 <style> 没有闭合。请在内容后写 </style>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 1: The tag <style> is not closed. Add </style> after the content, or write &lt; for a literal <."
     },
     "174": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 3 列：标签 <div> 没有闭合。请在内容后写 </div>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 3: The tag <div> is not closed. Add </div> after the content, or write &lt; for a literal <."
     },
     "175": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 3 列：标签 <div> 没有闭合。请在内容后写 </div>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 3: The tag <div> is not closed. Add </div> after the content, or write &lt; for a literal <."
     },
     "176": {
       "reason": "tags",
@@ -253,35 +253,35 @@
     },
     "177": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 1 行第 1 列：页面没有注释节点。请删除这段注释。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not have comment nodes. Remove this comment."
     },
     "178": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 3 行第 1 列：结束标签 </script> 和开始标签不在同一层。开始标签单独成行时，结束标签也要单独成行；否则把两个标签写在同一段里。"
+      "error": "[misaligned_closing_tag] Markdown, line 3, column 1: The closing tag </script> is not at the same block/inline level as its opening tag. Put both tags on their own lines, or keep both tags inside the same paragraph."
     },
     "179": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 1 行第 1 列：页面没有注释节点。请删除这段注释。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not have comment nodes. Remove this comment."
     },
     "180": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 1 行第 1 列：页面不支持处理指令。请删除这段指令。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow processing instructions. Remove this processing instruction."
     },
     "181": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 1 行第 1 列：页面不支持 <!…> 声明。请删除这段声明。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow <!…> declarations. Remove this declaration."
     },
     "182": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 1 行第 1 列：页面不支持 CDATA。请直接写文字。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow CDATA sections. Write plain text instead."
     },
     "183": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 1 行第 3 列：页面没有注释节点。请删除这段注释。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 3: Pages do not have comment nodes. Remove this comment."
     },
     "184": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 3 行第 5 列：标签 <div> 没有闭合。请在内容后写 </div>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 3, column 5: The tag <div> is not closed. Add </div> after the content, or write &lt; for a literal <."
     },
     "185": {
       "reason": "tags",
@@ -293,7 +293,7 @@
     },
     "187": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 2 行第 1 列：标签 <a> 没有闭合。请在内容后写 </a>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 2, column 1: The tag <a> is not closed. Add </a> after the content, or write &lt; for a literal <."
     },
     "188": {
       "reason": "tags",
@@ -313,11 +313,11 @@
     },
     "195": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 2 行第 1 列：标签 <my> 没有闭合。请在内容后写 </my>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 2, column 1: The tag <my> is not closed. Add </my> after the content, or write &lt; for a literal <."
     },
     "201": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 8 列：标签 <bar> 没有闭合。请在同一段里写 </bar>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 8: The tag <bar> is not closed. Close it with </bar> in the same paragraph without blank lines or block tags in between, or write &lt; for a literal <."
     },
     "211": {
       "reason": "indentation",
@@ -413,11 +413,11 @@
     },
     "308": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 4 行第 1 列：页面没有注释节点。请删除这段注释。"
+      "error": "[unsupported_syntax] Markdown, line 4, column 1: Pages do not have comment nodes. Remove this comment."
     },
     "309": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 7 行第 1 列：页面没有注释节点。请删除这段注释。"
+      "error": "[unsupported_syntax] Markdown, line 7, column 1: Pages do not have comment nodes. Remove this comment."
     },
     "312": {
       "reason": "indentation",
@@ -429,11 +429,11 @@
     },
     "344": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 1 列：标签 <a> 没有闭合。请在同一段里写 </a>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 1: The tag <a> is not closed. Close it with </a> in the same paragraph without blank lines or block tags in between, or write &lt; for a literal <."
     },
     "346": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "475": {
       "reason": "tags",
@@ -441,79 +441,79 @@
     },
     "476": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 3 列：标签 <a> 没有闭合。请在同一段里写 </a>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 3: The tag <a> is not closed. Close it with </a> in the same paragraph without blank lines or block tags in between, or write &lt; for a literal <."
     },
     "477": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 3 列：标签 <a> 没有闭合。请在同一段里写 </a>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 3: The tag <a> is not closed. Close it with </a> in the same paragraph without blank lines or block tags in between, or write &lt; for a literal <."
     },
     "480": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 4 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 4: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "481": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 4 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 4: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "491": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 8 列：标签 <foo> 没有闭合。请在同一段里写 </foo>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 8: The tag <foo> is not closed. Close it with </foo> in the same paragraph without blank lines or block tags in between, or write &lt; for a literal <."
     },
     "493": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 12 列：标签中不能有字符 \\。请检查标签名和属性的写法；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[invalid_tag_syntax] Markdown, line 1, column 12: A tag cannot contain the character \\. Check the tag name and attributes, or write &lt; for a literal <."
     },
     "494": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 7 列：标签中不能有字符 )。请检查标签名和属性的写法；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[invalid_tag_syntax] Markdown, line 1, column 7: A tag cannot contain the character ). Check the tag name and attributes, or write &lt; for a literal <."
     },
     "524": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 6 列：标签 <bar> 没有闭合。请在同一段里写 </bar>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 6: The tag <bar> is not closed. Close it with </bar> in the same paragraph without blank lines or block tags in between, or write &lt; for a literal <."
     },
     "526": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 5 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 5: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "536": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 6 列：标签 <bar> 没有闭合。请在同一段里写 </bar>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 6: The tag <bar> is not closed. Close it with </bar> in the same paragraph without blank lines or block tags in between, or write &lt; for a literal <."
     },
     "538": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 5 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 5: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "594": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "595": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "596": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "597": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "598": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "599": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "600": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "601": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "602": {
       "reason": "bare-url",
@@ -521,15 +521,15 @@
     },
     "603": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "604": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "605": {
       "reason": "angle-autolink",
-      "error": "Markdown 第 1 行第 1 列：页面不支持尖括号自动链接。请改用 [文字](网址)，或直接写网址。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 1: Pages do not allow angle-bracket autolinks. Use [text](url) or write the bare URL instead."
     },
     "608": {
       "reason": "bare-url",
@@ -537,11 +537,11 @@
     },
     "609": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 1 列：标签 <m:abc> 没有闭合。请在内容后写 </m:abc>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 1: The tag <m:abc> is not closed. Add </m:abc> after the content, or write &lt; for a literal <."
     },
     "610": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 1 列：标签 <foo.bar.baz> 没有闭合。请在内容后写 </foo.bar.baz>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 1: The tag <foo.bar.baz> is not closed. Add </foo.bar.baz> after the content, or write &lt; for a literal <."
     },
     "611": {
       "reason": "bare-url",
@@ -553,19 +553,19 @@
     },
     "613": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 9 列：标签 <c2c> 没有闭合。请在内容后写 </c2c>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 9: The tag <c2c> is not closed. Add </c2c> after the content, or write &lt; for a literal <."
     },
     "614": {
       "reason": "invalid-element",
-      "error": "Markdown 第 1 行第 1 列：<a> 缺少 href 属性。请为 <a> 写上 href。"
+      "error": "[missing_attribute] Markdown, line 1, column 1: <a> is missing the href attribute. Add href to <a>."
     },
     "615": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 7 列：标签 <b2> 没有闭合。请在内容后写 </b2>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 7: The tag <b2> is not closed. Add </b2> after the content, or write &lt; for a literal <."
     },
     "616": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 2 行第 15 列：标签中不能有字符 3。请检查标签名和属性的写法；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[invalid_tag_syntax] Markdown, line 2, column 15: A tag cannot contain the character 3. Check the tag name and attributes, or write &lt; for a literal <."
     },
     "617": {
       "reason": "tags",
@@ -573,47 +573,47 @@
     },
     "618": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 6 列：标签 <__> 没有闭合。请在同一段里写 </__>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 6: The tag <__> is not closed. Close it with </__> in the same paragraph without blank lines or block tags in between, or write &lt; for a literal <."
     },
     "623": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 2 列：结束标签前没有对应的开始标签。请删除它，或补上开始标签。"
+      "error": "[unexpected_closing_tag] Markdown, line 1, column 2: Closing tag has no matching opening tag. Remove it or add the matching opening tag."
     },
     "625": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 1 行第 5 列：页面没有注释节点。请删除这段注释。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 5: Pages do not have comment nodes. Remove this comment."
     },
     "626": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 1 行第 5 列：页面没有注释节点。请删除这段注释。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 5: Pages do not have comment nodes. Remove this comment."
     },
     "627": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 1 行第 5 列：页面不支持处理指令。请删除这段指令。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 5: Pages do not allow processing instructions. Remove this processing instruction."
     },
     "628": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 1 行第 5 列：页面不支持 <!…> 声明。请删除这段声明。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 5: Pages do not allow <!…> declarations. Remove this declaration."
     },
     "629": {
       "reason": "hidden-markup",
-      "error": "Markdown 第 1 行第 5 列：页面不支持 CDATA。请直接写文字。"
+      "error": "[unsupported_syntax] Markdown, line 1, column 5: Pages do not allow CDATA sections. Write plain text instead."
     },
     "630": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 5 列：标签 <a> 没有闭合。请在同一段里写 </a>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 5: The tag <a> is not closed. Close it with </a> in the same paragraph without blank lines or block tags in between, or write &lt; for a literal <."
     },
     "631": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 5 列：标签 <a> 没有闭合。请在同一段里写 </a>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 5: The tag <a> is not closed. Close it with </a> in the same paragraph without blank lines or block tags in between, or write &lt; for a literal <."
     },
     "642": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 1 列：标签 <a> 没有闭合。请在内容后写 </a>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 1: The tag <a> is not closed. Add </a> after the content, or write &lt; for a literal <."
     },
     "643": {
       "reason": "tag-syntax",
-      "error": "Markdown 第 1 行第 1 列：标签 <a> 没有闭合。请在内容后写 </a>；如果这里是文字，请把 < 写成 &lt;。"
+      "error": "[unclosed_tag] Markdown, line 1, column 1: The tag <a> is not closed. Add </a> after the content, or write &lt; for a literal <."
     }
   }
 }

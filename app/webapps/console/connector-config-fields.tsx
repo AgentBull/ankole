@@ -7,13 +7,20 @@ import {
   listConnectorCatalogOptions
 } from './api/v2/generated/@tanstack/react-query.gen'
 
-export function ConnectorConfigFields(props: Omit<ComponentProps<typeof Fields>, 'catalog' | 'connections'>) {
+export function ConnectorConfigFields(
+  props: Omit<ComponentProps<typeof Fields>, 'catalog' | 'connections' | 'loading'>
+) {
   const catalog = useQuery(listConnectorCatalogOptions())
   const connections = useQuery(listConnectorAuthConfigsOptions())
   return (
     <>
       <ErrorBlock error={catalog.error ?? connections.error} />
-      <Fields {...props} catalog={catalog.data?.connectors} connections={connections.data?.connections ?? []} />
+      <Fields
+        {...props}
+        loading={catalog.isPending || connections.isPending}
+        catalog={catalog.data?.connectors}
+        connections={connections.data?.connections ?? []}
+      />
     </>
   )
 }

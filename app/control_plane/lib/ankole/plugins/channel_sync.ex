@@ -22,12 +22,32 @@ defmodule Ankole.Plugins.ChannelSync do
   def child_spec(opts) do
     adapter = Keyword.fetch!(opts, :adapter)
     worker = Keyword.fetch!(opts, :worker)
+    register_periodic_worker(adapter, worker)
 
     %{
       id: {__MODULE__, adapter},
-      start: {Task, :start_link, [fn -> enqueue_enabled_bindings(adapter, worker) end]},
+      start:
+        {Task, :start_link, [fn -> enqueue_enabled_bindings(adapter, worker, "startup") end]},
       restart: :temporary
     }
+  end
+
+  @doc "Enqueues periodic full syncs for all registered IM channel projections."
+  @spec enqueue_periodic_all() :: :ok
+  def enqueue_periodic_all do
+    registered_periodic_workers()
+    |> Enum.each(fn {adapter, worker} ->
+      enqueue_enabled_bindings(adapter, worker, "periodic")
+    end)
+  end
+
+  defp register_periodic_worker(adapter, worker) do
+    current = registered_periodic_workers()
+    :persistent_term.put({__MODULE__, :periodic_workers}, Map.put(current, adapter, worker))
+  end
+
+  defp registered_periodic_workers do
+    :persistent_term.get({__MODULE__, :periodic_workers}, %{})
   end
 
   @doc "Enqueues one full sync of the channels that one binding serves."
@@ -44,7 +64,7 @@ defmodule Ankole.Plugins.ChannelSync do
     |> Oban.insert()
   end
 
-  defp enqueue_enabled_bindings(adapter, worker) do
+  defp enqueue_enabled_bindings(adapter, worker, reason) do
     Repo.across_tenants(fn -> Ankole.Signals.Bindings.list_enabled_bindings(adapter) end)
     |> Enum.reduce_while(:ok, fn binding, :ok ->
       Repo.with_tenant(binding.tenant_id, fn ->
@@ -52,8 +72,8 @@ defmodule Ankole.Plugins.ChannelSync do
           if Tenants.accepting_work?(binding.tenant_id),
             do:
               enqueue_binding(worker, binding.id,
-                reason: "startup",
-                source: "startup"
+                reason: reason,
+                source: reason
               ),
             else: {:ok, :skipped}
 

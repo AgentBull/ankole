@@ -1,19 +1,5 @@
 import { composingKey } from '@ankole/uikit/lib/keyboard'
-import { Button } from '@ankole/uikit/components/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@ankole/uikit/components/dropdown-menu'
-import {
-  BotRegular,
-  ChevronDownRegular,
-  CodeRegular,
-  CommentRegular,
-  HighlightRegular,
-  LinkRegular,
-  TextBoldRegular,
-  TextItalicRegular,
-  TextStrikethroughRegular,
-  TextUnderlineRegular
-} from '@ankole/uikit/icons'
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Command } from '../core/command'
 import { Node, type Leaf, type Mark, type Plot } from '../core/doc'
@@ -21,18 +7,17 @@ import type { Wordgard } from '../core/editor'
 import browser from '../core/editor/browser'
 import { GardSelection, type GardState } from '../core/state'
 import { webURL, type ResourceView } from '../document/resources'
+import { singleSelectedInlineMathPos } from '../blocks/math'
 import { toggleFormat, type FormatName } from '../editor/commands'
-import { blockTypeAt, canTurnInto, turnBlockInto } from '../editor/block-actions'
-import { blockOptions, type BlockType } from '../editor/block-catalog'
-import { selectedUnits } from '../editor/block-selection'
 import { editorHost, openLinkHref, type EditorHost } from '../editor/host-context'
-import { commentSelection, type CommentSelection } from '../editor/comments'
+import { commentSelection } from '../editor/comments'
 import {
   availableLinkViews,
   convertInlineLinkView,
   convertPageMentionToEmbed,
   inlineLinkView,
-  isWebLink
+  trackInlineLink,
+  trackTextRange
 } from '../editor/link-views'
 import {
   linkAt,
@@ -45,41 +30,22 @@ import {
   type LinkInfo
 } from '../editor/links'
 import { Mention, formats, safeLinkHref, type MentionTarget } from '../editor/schema'
-import { editorPhrases } from '../editor/phrases'
-import type { PhraseSet } from '../core/phrases'
-import { BlockTypeItems } from './block-type-items'
 import { useEditor, useEditorLabel, useEditorState } from './context'
-import { isKnowledge, knowledgeBlockTypes } from '../editor/knowledge'
+import { isKnowledge } from '../editor/knowledge'
 import {
   LinkEditForm,
   LinkFloatingBar,
-  LinkViewDropdown,
   MentionFloatingBar,
   rovingToolbarKeyDown,
-  type LinkBarDescription
+  type LinkBarDescription,
+  type LinkEditError
 } from './link-view-menu'
-
-// How the text looks. Highlight is a look of the text like the others, so it closes this group.
-const buttons = [
-  { format: 'strong', label: editorPhrases.ref('bold'), Icon: TextBoldRegular },
-  { format: 'em', label: editorPhrases.ref('italic'), Icon: TextItalicRegular },
-  { format: 'u', label: editorPhrases.ref('underline'), Icon: TextUnderlineRegular },
-  { format: 's', label: editorPhrases.ref('strikethrough'), Icon: TextStrikethroughRegular },
-  { format: 'code', label: editorPhrases.ref('inline_code'), Icon: CodeRegular },
-  { format: 'mark', label: editorPhrases.ref('highlight'), Icon: HighlightRegular }
-] satisfies { format: FormatName; label: PhraseSet.Ref; Icon: typeof TextBoldRegular }[]
-
-/** Whether every block the selection touches can turn into another type. */
-function canTurnSelection(state: GardState) {
-  const units = selectedUnits(state)
-  return !!units?.length && units.every(unit => canTurnInto(state, unit.before))
-}
-
-/** The block type every block the selection touches shares, or null when they differ. */
-function sharedBlockType(state: GardState): BlockType | null {
-  const types = new Set(selectedUnits(state)?.map(unit => blockTypeAt(state, unit.before)))
-  return types.size === 1 ? [...types][0]! : null
-}
+import {
+  SELECTION_FORMAT_BUTTONS,
+  SelectionActions,
+  type PageMentionInfo,
+  type SelectionToolbarInfo
+} from './selection-actions'
 
 /** The address for the link form input, or null when it is not a usable address (SPEC §7.6). */
 export function resolveLinkInputUrl(value: string, host?: EditorHost): string | null {
@@ -120,8 +86,6 @@ function describeLinkForBar(host: EditorHost | undefined, href: string): LinkBar
   }
   return { display: href, title: href, editHref: href }
 }
-
-type PageMentionInfo = { id: string; from: number; to: number }
 
 function caretPageMention(state: GardState): PageMentionInfo | null {
   if (!(state.selection instanceof GardSelection.Text) || !state.selection.empty) return null
@@ -174,7 +138,12 @@ function formattable(state: GardState): Range | null {
   const { selection, doc } = state
   if (!(selection instanceof GardSelection.Text) || selection.empty) return null
   const { from, to } = selection
-  if (!doc.textContent({ from, to, leafText: leaf => (leaf.type === Mention ? '@' : '') }).trim()) return null
+  if (
+    singleSelectedInlineMathPos(state) === null &&
+    !doc.textContent({ from, to, leafText: leaf => (leaf.type === Mention ? '@' : '') }).trim()
+  ) {
+    return null
+  }
   let code = false
   doc.iterate(from, to, node => {
     if (node.type.hasRole(Node.Role.Code)) code = true
@@ -222,16 +191,21 @@ const actsOnSelection = (editor: Wordgard) => {
   return !!((!isKnowledge(editor.state) && host?.requestComment) || host?.askAgent)
 }
 
-type Info = {
-  rect: DOMRect
-  active: boolean[]
-  link: boolean
-  selectedLink: LinkInfo | null
-  caretLink: LinkInfo | null
-  caretMention: PageMentionInfo | null
+function sameRect(a: DOMRect, b: DOMRect): boolean {
+  return (
+    Math.abs(a.left - b.left) < 0.5 &&
+    Math.abs(a.top - b.top) < 0.5 &&
+    Math.abs(a.width - b.width) < 0.5 &&
+    Math.abs(a.height - b.height) < 0.5
+  )
 }
+
 /** The open link form, with the link that it edits, if any. */
 type LinkForm = { link: LinkInfo | null; canEditText: boolean; initialText: string }
+
+type TrackedTarget =
+  | { kind: 'link'; tracker: ReturnType<typeof trackInlineLink> }
+  | { kind: 'range'; tracker: ReturnType<typeof trackTextRange> }
 
 export function SelectionToolbar() {
   const label = useEditorLabel()
@@ -239,11 +213,20 @@ export function SelectionToolbar() {
   const state = useEditorState()
   const host = editorHost(editor)
   const toolbar = useRef<HTMLDivElement>(null)
-  const [info, setInfo] = useState<Info | null>(null)
+  const [info, setInfo] = useState<SelectionToolbarInfo | null>(null)
   const [linkForm, setLinkForm] = useState<LinkForm | null>(null)
   const [url, setUrl] = useState('')
   const [linkText, setLinkText] = useState('')
-  const [error, setError] = useState(false)
+  const [error, setError] = useState<LinkEditError>(null)
+  const trackedTarget = useRef<TrackedTarget | null>(null)
+  const releaseTrackedTarget = () => {
+    trackedTarget.current?.tracker.finish()
+    trackedTarget.current = null
+  }
+  useEffect(() => releaseTrackedTarget, [editor])
+  useLayoutEffect(() => {
+    if (!linkForm) releaseTrackedTarget()
+  }, [linkForm])
   const [unfurling, setUnfurling] = useState(false)
   const [, setPageVersion] = useState(0)
   const [position, setPosition] = useState({ left: 0, top: 0 })
@@ -296,10 +279,16 @@ export function SelectionToolbar() {
     const canEditText = Boolean(link && isPlainTextRange(state.doc, link))
     const initialText = link && canEditText ? state.doc.textContent({ from: link.from, to: link.to }) : ''
     const currentHost = editorHost(editor)
+    releaseTrackedTarget()
+    trackedTarget.current = link
+      ? { kind: 'link', tracker: trackInlineLink(editor, link, link.href) }
+      : range
+        ? { kind: 'range', tracker: trackTextRange(editor, range) }
+        : null
     setLinkForm({ link, canEditText, initialText })
     setUrl(link ? describeLinkForBar(currentHost, link.href).editHref : '')
     setLinkText(initialText)
-    setError(false)
+    setError(null)
     setInfo(
       current =>
         current ?? {
@@ -315,8 +304,9 @@ export function SelectionToolbar() {
   }
 
   const closeLink = () => {
+    releaseTrackedTarget()
     setLinkForm(null)
-    setError(false)
+    setError(null)
     editor.focus()
   }
 
@@ -334,16 +324,24 @@ export function SelectionToolbar() {
     const update = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        // The toolbar keeps its place while the user works in it or an open portaled menu.
-        if (
-          viewMenuOpen.current ||
-          [toolbar.current, typeMenu.current, viewMenu.current].some(part => part?.contains(document.activeElement))
-        ) {
+        const focused = document.activeElement === editor.contentDOM
+        const inToolbar = [toolbar.current, typeMenu.current, viewMenu.current].some(part =>
+          part?.contains(document.activeElement)
+        )
+        if (form.current && (inToolbar || focused)) {
+          const live = trackedTarget.current?.tracker.current()
+          if (!live) {
+            setError('changed')
+            return
+          }
+          const rect = selectionRect(editor, live)
+          setInfo(current => (current && !sameRect(current.rect, rect) ? { ...current, rect } : current))
           return
         }
-        const focused = document.activeElement === editor.contentDOM
-        // The link form takes focus right after it opens.
-        if (form.current && focused) return
+        // The toolbar keeps its place while the user works in it or an open portaled menu.
+        if (viewMenuOpen.current || inToolbar) {
+          return
+        }
         const { state } = editor
         if (dismissed.current && !dismissed.current.eq(state.selection)) dismissed.current = null
         const range = formattable(state) ?? (actsOnSelection(editor) ? commentSelection(editor) : null)
@@ -375,7 +373,9 @@ export function SelectionToolbar() {
           }
           setInfo({
             rect,
-            active: buttons.map(({ format }) => hasFormat(state.doc, range.from, range.to, formats[format])),
+            active: SELECTION_FORMAT_BUTTONS.map(({ format }) =>
+              hasFormat(state.doc, range.from, range.to, formats[format])
+            ),
             link: !!linkAt(state),
             selectedLink: !state.readOnly ? singleLinkInRange(state, range) : null,
             caretLink: null,
@@ -627,22 +627,38 @@ export function SelectionToolbar() {
   }
 
   const submitLink = () => {
+    if (error === 'changed') return
+    if (linkForm?.link && linkForm.canEditText && linkText !== linkForm.initialText && !linkText.trim()) {
+      setError('empty_text')
+      return
+    }
     const href = resolveLinkInputUrl(url, editorHost(editor))
     if (!href) {
-      setError(true)
+      setError('invalid_url')
       return
     }
     if (linkForm?.link) {
+      const target = trackedTarget.current?.kind === 'link' ? trackedTarget.current.tracker.finish() : null
+      trackedTarget.current = null
+      if (!target) {
+        setError('changed')
+        return
+      }
       if (linkForm.canEditText && linkText !== linkForm.initialText) {
-        if (!linkText.trim()) {
-          setError(true)
-          return
-        }
-        updateLinkAt(editor, linkForm.link, { href, text: linkText })
+        updateLinkAt(editor, target, { href, text: linkText })
       } else {
-        updateLinkAt(editor, linkForm.link, { href })
+        updateLinkAt(editor, target, { href })
       }
     } else {
+      const live = trackedTarget.current?.kind === 'range' ? trackedTarget.current.tracker.finish() : null
+      trackedTarget.current = null
+      if (!live) {
+        setError('changed')
+        return
+      }
+      if (editor.state.selection.from !== live.from || editor.state.selection.to !== live.to) {
+        editor.dispatch({ selection: GardSelection.range(live.from, live.to) })
+      }
       Command.dispatch(editor, setLink, { href })
     }
     hovered.current = null
@@ -715,17 +731,25 @@ export function SelectionToolbar() {
           error={error}
           onChangeText={value => {
             setLinkText(value)
-            setError(false)
+            setError(current => (current === 'changed' ? 'changed' : null))
           }}
           onChangeUrl={value => {
             setUrl(value)
-            setError(false)
+            setError(current => (current === 'changed' ? 'changed' : null))
           }}
           onSubmit={submitLink}
           onCancel={closeLink}
           onRemove={() => {
-            if (linkForm.link) removeLinkAt(editor, linkForm.link)
-            else Command.dispatch(editor, removeLink)
+            if (error === 'changed') return
+            if (linkForm.link) {
+              const target = trackedTarget.current?.kind === 'link' ? trackedTarget.current.tracker.finish() : null
+              trackedTarget.current = null
+              if (!target) {
+                setError('changed')
+                return
+              }
+              removeLinkAt(editor, target)
+            } else Command.dispatch(editor, removeLink)
             hovered.current = null
             closeLink()
           }}
@@ -798,171 +822,5 @@ export function SelectionToolbar() {
       )}
     </div>,
     document.body
-  )
-}
-
-/**
- * The selection toolbar groups its actions by the question each answers, in this order: who helps with the
- * text (ask an Agent), what the blocks are (block type), how the text looks (marks), and what the text
- * connects to (link, comment, link view). Read-only documents and code keep only the actions that leave the
- * text as it is: asking an Agent and commenting.
- */
-function SelectionActions({
-  editable,
-  info,
-  apply,
-  openLink,
-  switchInlineView,
-  unfurling,
-  hide,
-  typeMenu,
-  viewMenu,
-  onViewMenuOpenChange
-}: {
-  editable: boolean
-  info: Info
-  apply(format: FormatName): void
-  openLink(): boolean
-  switchInlineView(target: LinkInfo, nextView: ResourceView): Promise<void>
-  unfurling: boolean
-  hide(): void
-  typeMenu: RefObject<HTMLDivElement | null>
-  viewMenu: RefObject<HTMLDivElement | null>
-  onViewMenuOpenChange(open: boolean): void
-}) {
-  const label = useEditorLabel()
-  const editor = useEditor()
-  const state = useEditorState()
-  const host = editorHost(editor)
-  // A native selection can be newer than the editor's last animation frame.
-  const handOff = (action: (selection: CommentSelection) => void) => {
-    editor.flush()
-    const selection = commentSelection(editor)
-    if (selection) action(selection)
-    hide()
-  }
-  const askAgent = host?.askAgent
-  const requestComment = isKnowledge(state) ? undefined : host?.requestComment
-  const type = sharedBlockType(state)
-  const selectedLink = editable && info.selectedLink && isWebLink(info.selectedLink.href) ? info.selectedLink : null
-  const activeSelectedView =
-    selectedLink && selectedLink.to <= state.doc.length ? inlineLinkView(state, selectedLink) : 'link'
-  const linkViews = selectedLink ? availableLinkViews(state) : []
-  return (
-    <>
-      {askAgent && (
-        <div role="group" className="selection-group">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="selection-ask"
-            aria-label={label('ask_agent')}
-            title={label('ask_agent')}
-            onMouseDown={event => event.preventDefault()}
-            onClick={() => handOff(askAgent)}>
-            <BotRegular aria-hidden="true" />
-            <span className="selection-ask-label">{label('ask_agent')}</span>
-          </Button>
-        </div>
-      )}
-      {editable && canTurnSelection(state) && (
-        <div role="group" className="selection-group">
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger
-              onMouseDown={event => event.preventDefault()}
-              render={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="selection-block-type"
-                  aria-label={label('turn_into_type')}
-                  title={label('turn_into_type')}
-                />
-              }>
-              <span className="selection-block-type-label">
-                {type ? blockOptions.find(option => option.type === type)?.title(state) : label('turn_into')}
-              </span>
-              <ChevronDownRegular aria-hidden="true" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              ref={typeMenu}
-              className="block-menu ankole-editor-overlay"
-              aria-label={label('turn_into_type')}
-              finalFocus={() => {
-                editor.focus()
-                return false
-              }}>
-              <BlockTypeItems
-                options={blockOptions.filter(
-                  option => option.turnInto && (!isKnowledge(state) || knowledgeBlockTypes.has(option.type))
-                )}
-                current={type}
-                onChoose={next => turnBlockInto(editor, undefined, next)}
-              />
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
-      {editable && (
-        <div role="group" className="selection-group">
-          {buttons.map(
-            ({ format, label: phrase, Icon }, index) =>
-              (!isKnowledge(state) || !['u', 'mark'].includes(format)) && (
-                <Button
-                  key={format}
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={phrase(state)}
-                  title={phrase(state)}
-                  aria-pressed={info.active[index]}
-                  onMouseDown={event => event.preventDefault()}
-                  onClick={() => apply(format)}>
-                  <Icon aria-hidden="true" />
-                </Button>
-              )
-          )}
-        </div>
-      )}
-      {(editable || requestComment) && (
-        <div role="group" className="selection-group">
-          {editable && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={label('link')}
-              title={label('link')}
-              aria-pressed={info.link}
-              onMouseDown={event => event.preventDefault()}
-              onClick={openLink}>
-              <LinkRegular aria-hidden="true" />
-            </Button>
-          )}
-          {requestComment && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={label('comment')}
-              title={label('comment')}
-              onMouseDown={event => event.preventDefault()}
-              onClick={() => handOff(requestComment)}>
-              <CommentRegular aria-hidden="true" />
-            </Button>
-          )}
-        </div>
-      )}
-      {selectedLink && (
-        <div role="group" className="selection-group">
-          <LinkViewDropdown
-            editor={editor}
-            current={activeSelectedView}
-            views={linkViews}
-            unfurling={unfurling}
-            menuRef={viewMenu}
-            onOpenChange={onViewMenuOpenChange}
-            onSelect={viewOption => void switchInlineView(selectedLink, viewOption)}
-          />
-        </div>
-      )}
-    </>
   )
 }

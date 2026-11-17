@@ -87,7 +87,7 @@ test('full-page and embedded applets give padded 100vh content and UIKit Portals
     expect(body).toEqual({ overflow: 0, offset: 0, width: 0 })
     const html = page.frameLocator('iframe').locator('html')
     await expect(html).toHaveCSS('padding-top', '40px')
-    await expect(html).toHaveCSS('padding-left', '48px')
+    await expect(html).toHaveCSS('padding-left', '68px')
     // The wheel moves the Applet even beside its content column.
     const panel = (await page.locator('.pod-page-scroll').boundingBox())!
     await page.mouse.move(panel.x + 12, panel.y + panel.height / 2)
@@ -145,6 +145,73 @@ test('full-page and embedded applets give padded 100vh content and UIKit Portals
     // A layout sized from the viewport keeps the whole panel without growing or shrinking frame after frame.
     await viewportAndPortal(page)
     await expect(embedded.locator('html')).toHaveCSS('padding', '0px')
+  } finally {
+    if (documentID) await request(page, `/pages/${documentID}`, 'DELETE')
+    await context.close()
+  }
+})
+
+test('document embed parameters update the running Applet without losing its iframe or form state', async ({
+  browser
+}) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let documentID: string | undefined
+  try {
+    await page.goto(state.base_url + pageRoute(state.applet_id))
+    const created = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+      type: 'doc',
+      title: 'Parameterized report',
+      private_owner_uid: state.owner.uid,
+      xml: `<page><p>Regional report</p><embed ref="${state.applet_id}" props='{"region":"华东"}' /></page>`
+    })
+    documentID = created.page.id
+    await page.goto(state.base_url + pageRoute(documentID))
+    const frame = page.frameLocator('iframe')
+    await expect(frame.locator('[data-applet-props]')).toHaveText('{"region":"华东"}')
+    const original = await page.locator('iframe').elementHandle()
+    const originalContainer = await page.locator('.pod-inline-page').elementHandle()
+    await frame.getByRole('textbox', { name: 'Draft evaluation', exact: true }).fill('Keep this unfinished edit')
+    await frame.getByRole('button', { name: 'Local counter 0', exact: true }).click()
+
+    await page.locator('.pod-inline-page').getByRole('button', { name: '视图', exact: true }).click()
+    await page.getByRole('menuitem', { name: '嵌入参数（Props）', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '嵌入参数（Props）', exact: true })
+    await dialog.getByRole('textbox', { name: '参数（JSON）', exact: true }).fill('{"region":"华南"}')
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    await expect(frame.locator('[data-applet-props]')).toHaveText('{"region":"华南"}')
+    await expect(frame.getByRole('textbox', { name: 'Draft evaluation', exact: true })).toHaveValue(
+      'Keep this unfinished edit'
+    )
+    await expect(frame.getByRole('button', { name: 'Local counter 1', exact: true })).toBeVisible()
+    expect(await original!.evaluate(element => element.isConnected)).toBe(true)
+    expect(await originalContainer!.evaluate(element => element.isConnected)).toBe(true)
+
+    await expect
+      .poll(async () => {
+        const detail = await request<{ page: { revision: number }; content: { content: string } }>(
+          page,
+          `/pages/${documentID}`
+        )
+        return detail.content.content.includes('华南')
+      })
+      .toBe(true)
+    const detail = await request<{ page: { revision: number }; content: { content: string } }>(
+      page,
+      `/pages/${documentID}`
+    )
+    await request(page, `/pages/${documentID}/content`, 'PUT', {
+      base_revision: detail.page.revision,
+      xml: detail.content.content.replace('华南', '华北')
+    })
+    await expect(frame.locator('[data-applet-props]')).toHaveText('{"region":"华北"}')
+    await expect(frame.getByRole('textbox', { name: 'Draft evaluation', exact: true })).toHaveValue(
+      'Keep this unfinished edit'
+    )
+    await expect(frame.getByRole('button', { name: 'Local counter 1', exact: true })).toBeVisible()
+    expect(await original!.evaluate(element => element.isConnected)).toBe(true)
+    expect(await originalContainer!.evaluate(element => element.isConnected)).toBe(true)
   } finally {
     if (documentID) await request(page, `/pages/${documentID}`, 'DELETE')
     await context.close()

@@ -417,7 +417,7 @@ describe('selectPendingFontFamilies & createOfficeFontCoordinator', () => {
       configurable: true,
       value: {
         querySelector: (selector: string) =>
-          selector === 'meta[name="ankole-static-base"]' ? { content: '//ankole-static-files.cdn.agentbull.net' } : null
+          selector === 'meta[name="ankole-static-base"]' ? { content: '//cdn.example.com' } : null
       }
     })
 
@@ -425,13 +425,13 @@ describe('selectPendingFontFamilies & createOfficeFontCoordinator', () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       observedRequests.push({ url, credentials: init?.credentials })
-      if (url === '//ankole-static-files.cdn.agentbull.net/fonts/office/manifest.json') {
+      if (url === '//cdn.example.com/fonts/office/manifest.json') {
         return new Response(JSON.stringify({ version: 2, fonts: MANIFEST_FONTS }), {
           status: 200,
           headers: { 'content-type': 'application/json' }
         })
       }
-      if (url === '//ankole-static-files.cdn.agentbull.net/fonts/office/LXGWWenKaiGB-Regular.ttf') {
+      if (url === '//cdn.example.com/fonts/office/LXGWWenKaiGB-Regular.ttf') {
         return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 })
       }
       return new Response('not found', { status: 404 })
@@ -443,11 +443,11 @@ describe('selectPendingFontFamilies & createOfficeFontCoordinator', () => {
       expect(result.blobs).toHaveLength(1)
       expect(observedRequests).toEqual([
         {
-          url: '//ankole-static-files.cdn.agentbull.net/fonts/office/manifest.json',
+          url: '//cdn.example.com/fonts/office/manifest.json',
           credentials: 'omit'
         },
         {
-          url: '//ankole-static-files.cdn.agentbull.net/fonts/office/LXGWWenKaiGB-Regular.ttf',
+          url: '//cdn.example.com/fonts/office/LXGWWenKaiGB-Regular.ttf',
           credentials: 'omit'
         }
       ])
@@ -532,5 +532,47 @@ describe('selectPendingFontFamilies & createOfficeFontCoordinator', () => {
 
     unsub2()
     coordinator.dispose()
+  })
+
+  it('bootstraps base Latin fonts and gates fontsReady on blank documents when WASM starts with 0 embedded fonts', async () => {
+    const server = installFakeFontServer()
+    const { addedBatches, model } = makeFakeModel()
+    const coordinator = createOfficeFontCoordinator(model)
+
+    expect(coordinator.peek({ substitutedFamilies: [], missingGlyphFamilies: [] }, true)).toEqual({
+      epoch: 0,
+      fontsReady: false
+    })
+
+    const initial = coordinator.sync({ substitutedFamilies: [], missingGlyphFamilies: [] }, { documentLoaded: true })
+    expect(initial.fontsReady).toBe(false)
+
+    await coordinator.waitForFonts()
+    expect(server.requestedFiles).toEqual([
+      'Carlito-Regular.ttf',
+      'Carlito-Bold.ttf',
+      'Carlito-Italic.ttf',
+      'Carlito-BoldItalic.ttf'
+    ])
+    expect(addedBatches).toHaveLength(1)
+    expect(coordinator.getState()).toEqual({ epoch: 1, fontsReady: true, allSettled: true })
+    coordinator.dispose()
+  })
+
+  it('falls back to base Latin and Monospace manifest faces for unmapped ASCII font names', async () => {
+    const sansServer = installFakeFontServer()
+    const sansResult = await resolveOfficeFontBlobs(['Avenir Next'])
+    expect(sansResult.complete).toBe(true)
+    expect(sansServer.requestedFiles).toEqual([
+      'Carlito-Regular.ttf',
+      'Carlito-Bold.ttf',
+      'Carlito-Italic.ttf',
+      'Carlito-BoldItalic.ttf'
+    ])
+
+    const monoServer = installFakeFontServer()
+    const monoResult = await resolveOfficeFontBlobs(['Inconsolata Mono'])
+    expect(monoResult.complete).toBe(true)
+    expect(monoServer.requestedFiles).toEqual(['JetBrainsMono-Regular.ttf'])
   })
 })

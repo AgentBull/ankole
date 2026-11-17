@@ -154,15 +154,14 @@ export function InlineMessageEditor({
       model.activities.value[editing.agentUID]?.state === 'active')
   const revertsLaterMessages = detail.messages.some(other => other.seq > message.seq)
   const keepsArtifacts = detail.artifacts.pageIDs.length > 0 || detail.linkedRuns.length > 0
-  const hint = !recipientAvailable
-    ? t('pod.chat_room.recipient_unavailable')
-    : revertsLaterMessages
-      ? t('pod.chat.edit_reverts_later')
-      : stopsActiveTurn
-        ? t('pod.chat.edit_stops_active')
-        : keepsArtifacts
-          ? t('pod.chat.retry_keeps_artifacts')
-          : undefined
+  const resolveHint = () => {
+    if (!recipientAvailable) return t('pod.chat_room.recipient_unavailable')
+    if (revertsLaterMessages) return t('pod.chat.edit_reverts_later')
+    if (stopsActiveTurn) return t('pod.chat.edit_stops_active')
+    if (keepsArtifacts) return t('pod.chat.retry_keeps_artifacts')
+    return undefined
+  }
+  const hint = resolveHint()
 
   const savedSnapshot = editing ? editingSnapshot(detail, editing) : undefined
   const savedChanged = !!savedSnapshot && model.savedEditChanged(savedSnapshot)

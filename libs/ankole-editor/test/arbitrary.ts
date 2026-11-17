@@ -18,6 +18,8 @@ export const prose = fc
       '_',
       '~',
       '`',
+      '$',
+      '$$',
       '#',
       '-',
       '+',
@@ -69,6 +71,9 @@ function inline(depth: number, linked = false): fc.Arbitrary<Node> {
   const leaf: fc.Arbitrary<Node>[] = [
     prose.map(value => t(value)),
     fc.constant(e('br')),
+    fc
+      .tuple(prose, fc.oneof(fc.constant({}), attributes))
+      .map(([value, attrs]) => e('inline-math', attrs, value ? [t(value)] : [])),
     fc
       .record({ src: word, alt: fc.option(word, { nil: undefined }), title: fc.option(word, { nil: undefined }) })
       .map(({ src, alt, title }) =>

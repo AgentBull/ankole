@@ -199,7 +199,14 @@ Readers can fold each heading's section up to the next sibling heading of equal
 or lower level, or to the end of its parent container. The editor calculates each
 section by its position, including when containers share immutable node objects.
 Fold state belongs to that editor instance and never modifies
-the document. The slash menu searches translated labels and multilingual aliases,
+the document. On viewports wider than 760 px, document and knowledge Pages with
+at least two visible H1–H3 body headings display a right-aligned outline rail on
+the trailing edge of the canvas: idle tick marks scale by relative heading depth,
+hovering, focusing, or clicking the rail expands a ceramic table-of-contents card
+that marks the active section with `aria-current="location"` at constant
+per-depth font weight, and choosing an entry scrolls smoothly to that heading
+while holding the target section active until scrolling settles. The slash menu
+searches translated labels and multilingual aliases,
 so Chinese and English names can select the same block in either interface.
 
 Media blocks store image and video addresses in `<media>`, while external
@@ -230,7 +237,10 @@ surfaces the view switcher inside the selection toolbar, and placing a collapsed
 caret on or hovering over an inline link opens a floating link bar with URL
 navigation (resolving Page titles and canonical Pod URLs for
 `ankole:page/<uuid>` links), link text and address editing, unlinking, and the
-view switcher. Switching to title, card, or preview view or saving an external
+view switcher. While its edit form is open, the editor maps the target link
+through document transactions. If another editor removes or changes that link,
+saving or unlinking leaves the document and the form's input intact and asks the
+user to select the link again. Switching to title, card, or preview view or saving an external
 `<embed>` without a manual title queries `POST /api/v2/pod/links/unfurl` to
 populate missing webpage metadata outside undo history so a single Undo restores
 the prior state. Changing `href` on an existing external `<embed>` clears stale
@@ -271,6 +281,17 @@ Base table in quiet chart-card chrome, or switching an embeddable inline
 /api/v2/pod/pages/search?embeddable=true` so Document Pages never appear as
 canvas embeds, and an embedded Page's header view switcher collapses `<embed
 ref="…" />` back into `<mention page="…" />` in one undo step.
+When an editor closes the chart picker, the browser discards pending Base
+inspection results so a late response cannot insert a chart into the document.
+
+An Applet embed accepts a `props` attribute containing a JSON object of at most
+16 KiB in UTF-8. The document stores these parameters per embed, and the Applet
+reads the parsed object through `usePod().embedProps`. Editors change the object
+from **Embed parameters (Props)** in the embed header menu. Attribute edits use
+individual OT marks; changing parameters on the same referenced Page updates
+the mounted instance while preserving its iframe, form input, and scroll state.
+Document Markdown reads and writes preserve `<embed ref="…" props='…' />` along
+with the other embed attributes.
 
 Resource forms submit only edited fields, preserving concurrent updates to the
 other fields. Replacing a source removes its old MIME type, size, and explicit
@@ -370,10 +391,14 @@ Each code block shows a toolbar with a searchable language picker, a wrap
 toggle, and copy. Kirari tokenizes the source for highlighting, while Page XML
 keeps the language in `lang`, the info string remainder in `meta`, and wrapping
 in `wrap="true"`; the Markdown codec writes a plain fence unless wrapping or
-extra attributes require a `<pre>` tag. Formula blocks store their LaTeX source
-in a `<math>` element and render it through Temml. The editor opens a formula
-panel from the block, reports invalid formulas there, and writes each edit to
-the page immediately. Markdown uses `$$` fences for formula blocks.
+extra attributes require a `<pre>` tag. Display formula blocks store their LaTeX
+source in `<math>` and inline formulas store theirs in `<inline-math>`, both
+rendering through Temml while ignoring redundant outer math delimiters (`$…$`,
+`$$…$$`, `\(…\)`, and `\[…\]`). The editor opens a formula panel below either
+element, previews validation errors in place, writes each edit immediately, and
+strips outer delimiters when the panel closes. Markdown uses `$$` fences for
+display formula blocks and `$$…$$` for inline formulas, leaving single `$`
+characters as literal currency text.
 Source-diagram blocks share one parameterized descriptor table across the
 browser editor and Rust kernel: `<mermaid>` renders procedural diagrams with
 Pele, and `<infographic>` renders structured narrative diagrams with AntV
@@ -607,8 +632,8 @@ The Pod shell paints the window on the ground (`--ground`), which in the light
 theme washes down the window from a cool gray to a warm white and in the dark
 theme is flat black, and opens with a 44 px top bar that spans it with no fill
 and no edge. Above the sidebar column,
-the bar carries the Pod's mark (its avatar, or the initials of its name) at
-20 px, which names the Pod and links to the Pod's chat home, and, while the
+the bar carries the Pod's 20 px mark (its avatar, or the initials of its name)
+and its name, linking to the Pod's chat home, and, while the
 sidebar is hidden or on a phone, the sidebar toggle. Back and forward buttons
 follow at the content card's edge and walk the Pod router's history: Back is
 available after the first navigation inside the Pod, and Forward while the
@@ -656,7 +681,11 @@ count, and `Share` displays a scope icon on live Pages and opens a two-level
 sharing popover across overview, multi-select invite, collaborator management,
 and permission settings subviews; viewers without `node_manage` open a read-only
 collaborator overview with link copy, while trashed Pages render a standalone
-Copy link icon button. The more-actions menu ends the bar. On desktop, an open
+Copy link icon button. Both the sharing overview and the read-only collaborator
+overview render a miniature Page preview card (reflecting the Pod host, access
+scope, live Page icon and title, and body excerpt or Page-type summary) paired
+with a full-width split-URL copy row that sets the host in primary ink and the
+decoded path in secondary ink. The more-actions menu ends the bar. On desktop, an open
 chat or comments panel is a 296 px drawer at the content card's end, flush
 against the Page and divided from it by a hairline, and the Page and its drawer
 share the card's top corners; the Assistant panel can widen to 480 px from its
@@ -681,12 +710,13 @@ shows a permanent `Jobs` row (badged with attention or running counts from
 Assistant section that opens on its latest tasks each time Chat opens and keeps
 the active/unread tasks while collapsed, and existing IM rooms plus callable
 colleagues. Every tab offers New Chat for formal members.
-Opening a Conversation from `Recently visited` keeps the sidebar on `Home` so
-the user's navigation context stays stable, and New Chat keeps whichever tab
+Opening a Conversation from `Recently visited` or the `/` home cards keeps the
+sidebar on `Home` so the user's navigation context stays stable; visiting `/`
+directly selects `Home`, while `New Chat` keeps whichever tab (`Home` or `Chat`)
 is open. `Favorites` renders inline above the
 `Space` and `Private` trees whenever the user has favorited Pages. The sidebar
 ends in a 42 px account row: the signed-in Human's 26 px avatar (their uploaded
-picture, or the initials of their name), the Pod name, the Human name, and an
+picture, or the initials of their name), the Human name, and an
 up-down chevron. Its menu holds the organizations that the browser has
 proved, account settings, `Pod settings` for the Pod's managers, `Trash`, the
 theme, and the ways out.
@@ -706,9 +736,9 @@ Section titles are 32 px rows of 12 px secondary
 text that start where the rows' icons start. A section's caret follows its title
 and shows while the heading is hovered or focused, whether the section is open
 or closed, and always on a screen without hover.
-The account button shows the Pod name before the Human name; its accessible
-name includes both names in that same order. When the Pod name is empty, the
-button announces the Human name alone with its account menu label.
+The account button shows the Human name, while its accessible name announces
+both the Pod name and the Human name when a Pod name is present, or the Human
+name alone when the Pod name is empty.
 The Pod sidebar's 44 px header row holds the tabs and, at its end, the sidebar
 toggle; a hairline separates that row from New Chat, a plain row that starting a
 conversation never marks as current. While the sidebar is hidden, the toggle
@@ -1219,8 +1249,7 @@ Within the domain:
   `ILIKE` substring recall, scores `sort=best` through a single formula
   combining lexical tier/BM25 weight, 30-day workspace activity from
   `page_daily_activities`, and caller recency/favorite boosts from
-  `page_user_states` (`edited_at`, plus `visited_at` when `hide_visits` is
-  false), and emits offset-safe `snippet.segments` plus discriminated-union
+  `page_user_states` (`edited_at` and `visited_at`), and emits offset-safe `snippet.segments` plus discriminated-union
   `primary_target` locators (resolving document headings through
   `Ankole.Kernel.page_sections/1`) exclusively for the post-`LIMIT` result
   slice. Page lifecycle mutations, document saves (including external `<embed>`
@@ -1298,17 +1327,22 @@ Within the domain:
 
 Read isolation matches each operation's locking needs:
 
-- Lock-free multi-page reads use `Repo.transact_repeatable_read_only/1`, whose
-  opening statement sets `REPEATABLE READ, READ ONLY` (reusing the outer
+- Lock-free multi-page reads and `inline` Base table reads (`Bases.get_table/2`,
+  `Bases.query/3`, and `Bases.aggregate/3`) use `Repo.transact_repeatable_read_only/1`,
+  whose opening statement sets `REPEATABLE READ, READ ONLY` (reusing the outer
   savepoint in SQL Sandbox unit tests while exercising full snapshot isolation
-  in committed concurrency tests). Personal page-state reads authorize and read
-  state inside that same snapshot.
+  in committed concurrency tests). Inside that MVCC snapshot, an `inline` Base
+  table's ACL view, `data_version`, and `base_records` come from one logical
+  instant without taking row locks on `base_tables`, so concurrent record writes
+  and chunked inline-to-physical promotions (`500`-row batches) proceed without
+  read/write lock contention. Personal page-state reads authorize and read state
+  inside that same snapshot.
 - Locking reads run at `READ COMMITTED` and lock the Page or table row *before*
-  running authorization or loading protected data: `Bases.query` takes `FOR SHARE`
-  on inline table metadata (keeping records and table version consistent) and
-  `FOR KEY SHARE` on physical table metadata; `Copy.table` locks source tables
-  `FOR UPDATE` in ascending ID order before checking access; and favorite/visit
-  writes lock the Page `FOR SHARE` before authorizing and committing.
+  running authorization or loading protected data: `physical` Base table reads
+  take `FOR KEY SHARE` on `base_tables` before querying `BaseRepo`; `Copy.table`
+  locks source tables `FOR UPDATE` in ascending ID order before checking access;
+  and favorite/visit writes lock the Page `FOR SHARE` before authorizing and
+  committing.
 
 Every Pod table includes `tenant_id` enforced by composite foreign keys and
 mandatory `Ankole.Repo` tenant context; tenant teardown deletes Base records and
@@ -1539,12 +1573,13 @@ that subtree while holding the Page tree lock.
 ### Document tools
 
 The document menu offers **Insights**, **Show editing stats**, **Export →
-Markdown**, and **Copy → Markdown / Plain text**. Export and copy read the
-current editor draft, including edits awaiting OT acknowledgement. Markdown
-includes the title and icon when present; plain text contains only the body.
-Both projections use the canonical document tree. The portable Markdown
-projection flattens layout containers, omits empty top-level paragraphs,
-renders callouts as blockquotes, and
+Markdown / Word (.docx) / PDF (.pdf)**, and **Copy → Markdown / Plain text**,
+while Knowledge Pages offer **Export → Markdown / Word (.docx) / PDF (.pdf)** in
+their header toolbar. Export and copy read the current editor draft, including
+edits awaiting OT acknowledgement. Markdown includes the title and icon when
+present; plain text contains only the body. Both projections use the canonical
+document tree. The portable Markdown projection flattens layout containers,
+omits empty top-level paragraphs, renders callouts as blockquotes, and
 renders accessible Page references and `<mention page="…" />` nodes as readable
 titles and links while redacting restricted targets to plain text and rendering
 `<mention principal="…" />` nodes as `@Name` (plain-text copy outputs Page
@@ -1554,7 +1589,7 @@ readable links. Plain-text tables use
 tabs between cells and newlines between rows. Copy uses the reader's Page and
 file links without the author's browser authentication reference.
 
-Export downloads a `.md` file when the document has no local attachments.
+Markdown export downloads a `.md` file when the document has no local attachments.
 Documents with uploaded media or attachments, referenced File Pages, or a custom icon download
 as a ZIP containing Markdown and the actual files at relative paths. Ankole
 reads each file through its owning authenticated endpoint before producing the
@@ -1562,16 +1597,34 @@ archive; a failed file read leaves an error instead of a partial download.
 Referenced documents, Bases, and Applets remain links to their independent
 Pages, and remote image URLs remain remote URLs.
 
+Word (`.docx`) and PDF (`.pdf`) exports compile the normalized `<page>` tree
+through a disposable `ankole_word_wasm` Web Worker onto an A4 portrait layout
+with running page headers (`page 2+`) and `PAGE / NUMPAGES` footers; see
+[Exporting Document and Knowledge Pages to Word and PDF](OfficeFiles.md#exporting-document-and-knowledge-pages-to-word-and-pdf).
+The browser resolves referenced Pages and Principals with fresh access checks,
+strips `<comment>` range wrappers and `authentication_ref` query tokens,
+pre-renders `<mermaid>` and `<infographic>` blocks in a light print palette at
+300 DPI sized to each container's net content width, tokenizes `<pre>` code
+blocks with Shiki's `github-light` theme, and embeds Knowledge Page YAML
+properties as a structured summary table beneath the document title.
+
 The desktop statistics footer stays visible while enabled, including during
-typing. Statistics read the plain-text body without resource titles and
-addresses. Unicode word segmentation counts word-like segments, including Chinese
-and Japanese text without spaces. UTF-16 code units count as characters,
-nonempty text lines count as paragraphs, and estimated reading time rounds up
-at 200 segmented words per minute.
-Selecting text in the document replaces the whole-body totals with selected
-word and character counts. The browser remembers footer visibility per Pod and
-Principal. Command/Control+Shift+G toggles the footer, and Command/Control+Shift+I
-opens Insights.
+typing. For whole-document totals, the browser walks the `<page>` tree and counts
+authored prose in paragraphs, headings, lists, quotes, callouts, columns, and
+table cells while excluding `<mermaid>` and `<infographic>` diagrams (across all
+view modes), `<pre>` code blocks, `<math>` and `<inline-math>` LaTeX source, and
+media or embed resources from word, character, and paragraph counts. Unicode word
+segmentation counts word-like prose segments (including unspaced Chinese and
+Japanese text), UTF-16 code units count prose characters, and each non-empty
+prose block or populated table counts as one paragraph. To estimate reading time,
+the browser sums word-spaced prose at 238 words per minute, Han, Hiragana, and
+Katakana characters at 350 characters per minute, code and math symbols at 50
+tokens per minute (plus 5 seconds of framing per display formula), and 15 seconds
+for each non-empty diagram or preview image before rounding positive totals up to
+the next minute. Selecting text in the document replaces the whole-body totals
+with the selected range's word and character counts. The browser remembers footer
+visibility per Pod and Principal. Command/Control+Shift+G toggles the footer, and
+Command/Control+Shift+I opens Insights.
 
 `Ankole.Pod.Documents.Insights` shows creation and update times, contributors,
 recent readers, and daily activity for the last 30 UTC dates. `PageContent` owns
@@ -1580,10 +1633,8 @@ Page write transaction. No-op edits and comment annotation changes do not add
 contributors or editing sessions. OT replay pruning leaves attribution and
 activity intact. Author profiles are loaded in one batch for each result page.
 
-Readers need `node_view` to inspect Insights and set their own `hide_visits`
-preference for that document. Only `node_edit` callers can list readers. The
-list is paginated by most recent visit and excludes Principals who hide their
-visits; hiding a name does not subtract anonymous activity counts. The browser
+Callers with `node_view` can inspect Insights, while only `node_edit` callers
+can list readers, paginated by most recent visit. The browser
 records a visit when the actual Page route opens, separately from prefetches,
 reference resolution, and API content reads. `PageUserState.visited_at` stores
 the latest visit and `edited_at` stores the latest meaningful edit for that
@@ -1695,7 +1746,10 @@ until that request settles. The
 participant popover shows the full status and member list. `PodRealtime` owns connection status and reports it from the channel
 lifecycle. A failed synchronization request displays a retryable error while
 the channel continues to report its actual connection
-status. Reconnecting clients request missing revisions.
+status. Reconnecting clients request missing revisions. A successful channel
+rejoin supplies fresh readiness to every owner, including when the first join
+failed. Applet channels register presence, broadcast, and access-revocation
+listeners before waiting for readiness, so receiving events also recovers.
 When the replay window is unavailable, the browser retains an unconfirmed draft
 for export and reads the current document.
 The browser uses the same recovery flow when one author replaces a complete
@@ -1781,8 +1835,9 @@ OT protocol, including rebasing edits that were awaiting acknowledgement.
 ### Comments and anchored discussions
 
 `Ankole.Pod.Comments` owns node-scoped root threads and one level of replies
-across Document (`doc`), Knowledge (`knowledge`), and File (`file`) Pages
-(`page_comments.page_id` references `pages`). `node_view` permits reading, while `node_comment`
+across Document (`doc`), Knowledge (`knowledge`), File (`file`), Applet (`applet`),
+and Base (`base`) Pages (`page_comments.page_id` references `pages`).
+`node_view` permits reading, while `node_comment`
 permits posting. Authors can edit or delete their own comments; `node_manage` can
 manage other authors' comments. The root author or a caller with `node_edit` can
 resolve, reopen, or explicitly relocate a thread. Deleting a root with replies
@@ -1817,8 +1872,9 @@ viewer or in which the viewer has participated. Reading through the observed
 comment watermark clears those items; unrelated unread discussions do not
 light the Home badge. Page visibility is checked on every attention read.
 
-A root may refer to the whole node, to selected Document text, or to a typed
-multimodal File region. On Document nodes, inline `<comment ids="…">` marks carry
+A root may refer to the whole node, selected Document text, a typed multimodal
+File region, or an Applet element. Knowledge and Base Pages support whole-page
+threads. On Document nodes, inline `<comment ids="…">` marks carry
 a set of root thread UUIDs through canonical XML and OT. The set preserves
 overlapping discussions during concurrent annotation. The server emits mark
 additions and removals for annotation changes, preserving the underlying text
@@ -1841,6 +1897,19 @@ Setext headings, and exclude headings inside code blocks. When a subsequent uplo
 `pages.object_id`, comment reads surface `anchor_outdated: true` so the
 browser and `ankole-pod comments` distinguish earlier-version anchors from
 selections on the current file bytes.
+
+Applet Pages support whole-page discussions and `applet_element` anchors;
+Base Pages support whole-page discussions. Applet anchors store the publication
+revision, JSX source path and line, named React component chain, CSS selector,
+and a visible-text fingerprint. The source coordinates guide an Agent's code
+edit. The browser independently resolves the selector and text against the
+current same-origin frame, highlighting only one visible match at the same
+revision. Repeated or missing matches leave the historical quote visible without
+highlighting a different element. Publishing marks older anchors as outdated.
+The Applet toolbar's element picker exits on Esc and offers either a comment
+or a Page Chat request carrying the page ID, revision, source, components, and
+quoted text. These comments use the same mention and Agent wakeup contract as
+other Page discussions.
 
 The browser captures a selection from the actual editor tree and maps its
 retained source tokens through local and remote OT transactions. Edits elsewhere
@@ -1889,7 +1958,9 @@ not advance the root's mutation version, so replies leave an in-progress root
 edit valid. Editing, resolving, relocating, or deleting the root still advances
 its version. Threads are paginated by latest activity, so a new reply in an old
 thread appears at the top. `PageUserState.comments_read_at` stores each
-Principal's acknowledgment. The document header and comments panel show threads
+Principal's acknowledgment. Document, Knowledge, File, Applet, and Base Pages
+share the same discussion summary and read-acknowledgment contract. The Page
+header and comments panel show threads
 whose latest activity came from another Principal after that acknowledgment,
 provide an unread filter, and expose an explicit
 mark-all-read action. That action acknowledges only the activity watermark the
@@ -1898,9 +1969,11 @@ Each discussion has a copyable `commentId` Page link that opens and locates the
 thread, including a resolved
 thread or one beyond the first page of results. Known thread IDs use a direct
 thread read; the browser does not walk list cursors to locate them. The summary
-uses database aggregates for counts and returns resolution state only for native
-anchors in the current document. Each listed thread carries its own unread
-state. Acknowledging activity notifies only connections for the same Principal.
+uses database aggregates for counts and returns resolution state for native
+document anchors or anchors on the current File object. Applet and Base summaries
+return an empty `resolved_ids` list without reading document content. Each listed
+thread carries its own unread state. Acknowledging activity notifies only
+connections for the same Principal.
 The `page:<id>` join reply for a Document carries the reader's comment summary,
 which the channel reads after it subscribes. The document editor replaces any
 summary read that started before the join with that summary and rereads the
@@ -2410,7 +2483,9 @@ errors until their whole-table total is available. Charts open a version-checked
 drill-down record dialog on element or KPI stat click, and keyboard users open it
 from the button in the first cell of each data table row. In standalone Base workspaces,
 editors with `:manage_schema` persist `chart` configuration changes through a
-`600ms` debounced `BaseView` update that flushes on view switch or unmount; in
+`600ms` debounced `BaseView` update that flushes on view switch or unmount. The
+browser includes the current edit sequence in each save and clears the draft on
+acknowledgement only if the same view and sequence remain active, preserving later queued edits. In
 `doc` `<embed>` blocks, both linked shared `chart` views and inline `chart`
 configurations render in quiet single-chart card chrome with permission-aware
 progressive-disclosure controls—inline edits debounce `400ms` into the
@@ -2764,8 +2839,10 @@ share one tabbed viewer with **Preview** and **Source** modes:
   without access to Ankole cookies, storage, or `/api/*` endpoints, while an
   in-memory `localStorage` / `sessionStorage` / `document.cookie` compatibility
   shim keeps bundled single-file web apps running and opens external links in a
-  new tab. Files larger than `16 MiB` skip iframe rendering and offer direct
-  original-file download alongside the **Source** tab.
+  new tab. When a reader follows a fragment-only link such as `#section`, the
+  viewer uses the browser's anchor navigation within the preview document.
+  Files larger than `16 MiB` skip iframe rendering and offer direct original-file
+  download alongside the **Source** tab.
 - **Syntax-highlighted source and line anchors**: **Source** mode on HTML files
   and `TextFilePreview` on source-code File Pages stream up to `256 KiB`, render
   dual-theme Shiki tokens per line (`github-light` / `github-dark`, bypassing
@@ -2796,9 +2873,9 @@ Agent `office.*` RPC contract.
 ESM project layout. Bun compiles the browser entrypoint to `dist/main.js`
 alongside shared chunks, CSS, and `dist/index.html`:
 
-- **Imports and bundling**: Seven host packages resolve via the frame's import
+- **Imports and bundling**: Eight host module names resolve via the frame's import
   map (`react`, `react/jsx-runtime`, `react/jsx-dev-runtime`, `react-dom`,
-  `react-dom/client`, `@ankole/uikit`, and `@ankole/applet-sdk`), while all
+  `react-dom/client`, `@ankole/uikit`, `@ankole/uikit/icons`, and `@ankole/applet-sdk`), while all
   other NPM dependencies bundle into the Applet. Dynamic `import()`, WASM, CSS
   assets, and media imports (which emit standalone assets resolved relative to
   the importing module) follow standard browser ESM and Bun rules. Files
@@ -2807,7 +2884,12 @@ alongside shared chunks, CSS, and `dist/index.html`:
   by the project scaffold) and calling
   `new Worker(new URL(workerURL, import.meta.url), { type: 'module' })` loads a
   wrapper entry at the compiled Worker's output path so nested relative URLs
-  keep the same base.
+  keep the same base. The icons entry and its exclusive chunks load when an
+  Applet imports icons; the frame excludes them from its module preloads.
+  The build checks that the UIKit entry does not import the full icon catalogue.
+  For native JSX elements in `src/**/*.tsx`, the builder adds
+  `data-ankole-src="src/File.tsx:line"` so the host can include source coordinates
+  when an editor selects an element for a comment or an Agent change request.
 - **Publishing and pulling**: A project may also include `src/server/main.ts`
   (bundled by Bun into `server/main.js` with Node built-ins kept as `node:`
   imports) and an optional `applet.env.json` (up to `64 KiB`, mapping POSIX
@@ -2821,7 +2903,7 @@ alongside shared chunks, CSS, and `dist/index.html`:
   `pod_applet_envs` rows and runtime-generated `assets/` files on the Applet Page,
   and permanent Page purge or tenant deletion removes `pod_applet_envs`. A publication manifest covers `src/`, `dist/`, optional
   `server/main.js`, and optional `package.json`, `bun.lock`, `tsconfig.json`, and
-  `applet.env.json`.
+  `applet.env.json` and `applet.bindings.json`.
   Ankole publishes all paths and Action Job policies atomically and increments
   the Page revision by one. The Worker streams local build files through the
   signed WorkerFiles relay into immutable object storage. The publication owner
@@ -2847,6 +2929,89 @@ read-only tree. Reading `src` and `server` requires node editing permission;
 other manifest paths use the existing file-read action. Edits and publication
 continue through the Applet owner so a filesystem write cannot publish a partial
 manifest.
+
+### Declared data bindings
+
+An Applet may publish `applet.bindings.json`, a JSON object of at most 64 KiB
+with a `tables` map. Each logical table slot declares `tableId`, `required`,
+`description`, and a `fields` map whose entries declare `fieldId`, a Base field
+`type`, and a description. Editors configure page-level overrides in Applet
+settings. `pod_applet_bindings` stores one row per `(tenant_id, page_id, slot_key)`
+with the chosen `table_id`, logical-to-physical `field_overrides`, and editor.
+Publication and rollback preserve these page settings.
+
+`Ankole.Pod.Applets.Bindings.resolve/2` resolves each slot as one group. It first
+chooses the overridden or declared table and verifies that the table is live in
+the current tenant. Explicit field overrides must belong to that table and match
+the declared type. Declared field IDs apply only when the table is the declared
+table. On a replacement table, an unmapped field resolves only if exactly one
+field has the logical slot's name and the declared type. Missing tables and
+fields produce explicit configuration states in PageDetail and Applet settings.
+
+The resolver computes `bindings_digest` from compact JSON containing sorted
+`[slot, [tableId, sortedFieldPairs]]` entries, with Unicode code-point key ordering.
+Page reads and `node_committed` refreshes carry the effective bindings and digest.
+The browser includes the digest in Applet route query keys and updates a mounted
+runtime when it changes. The Function Runtime receives the same binding snapshot,
+and its package digest includes `bindings_digest`, so a configuration change
+selects fresh worker state. Base authorization still applies when a caller reads
+or writes the resolved table.
+
+### Drafts and publication history
+
+`pod_applet_revisions` owns immutable snapshots of published artifacts and one
+current draft per page. Every row has a UUIDv7 ID, page, base revision, summary,
+publisher, route and Action signatures, and timestamps. Published rows have a
+positive revision; draft rows have `revision = NULL`. A partial unique index
+allows one draft per `(tenant_id, page_id)`. `pod_applet_revision_files` references
+immutable file objects by tenant, revision ID and path; these references protect
+the artifacts from object garbage collection. Ankole retains the latest 100
+published snapshots.
+
+Publishing a draft replaces the draft row with a new UUID and leaves the live
+publication and Job policies in service. Editors load the concrete draft ID at
+`/pod/applet-frame/:authentication_ref/:page_id/draft-:draft_id/index.html` and send
+`x-ankole-applet-revision: draft:<draft_id>` for routes. A replaced draft's module
+or route request returns `409 applet_revision_changed`. Promotion and discard
+require both `expected_draft_id` and the draft's `base_revision`; a mismatch returns
+`409 draft_changed`. Promotion also requires the live revision to equal that base.
+Editors can discard a superseded-base draft after another publication advances
+the live page.
+
+Live publishing, draft promotion and rollback use the same prepared-publication
+pipeline. Ankole validates environment and bindings, inspects backend exports,
+synchronizes Action Job policies, checks the base revision, replaces the owned
+source/build paths, records the resulting snapshot and broadcasts the page
+commit. Rollback creates a new increasing revision with `restored_from_revision`
+pointing at its source snapshot. The owned paths are `src/`, `dist/`, `server/`,
+`package.json`, `bun.lock`, `tsconfig.json`, `applet.env.json`, and
+`applet.bindings.json`; runtime `assets/`, environment overrides and binding
+overrides belong to their separate owners and survive publication. If a live
+revision has files but no saved snapshot, the publication transaction captures
+that baseline before replacing its files, making it available for rollback.
+
+### Read-only render diagnostics
+
+`applets.inspect_ticket` authorizes `node_view` for the current published Applet
+or `node_edit` for a concrete draft UUID, then issues an encrypted ticket valid
+for 60 seconds. The ticket binds the tenant, executing Actor, Page, and
+publication or draft ID, while optional embed props travel in the URL fragment
+so subresource request lines remain compact. `/pod/applet-diagnostic/:ticket` mounts
+the actual published assets through that authority in a temporary browser
+session. The control plane rechecks access on each request and pins every
+module and route read to the captured version.
+
+The diagnostic transport serves Page metadata, file content, table schemas,
+`POST` record queries and aggregates, and Applet `GET` routes through their
+ordinary domain owners. It rejects writes and other Applet route methods with
+`403 diagnostic_read_only`; backend capabilities enforce `read_only: true`,
+including owner-scoped operations. Applet code can fetch external read sources
+through the ordinary browser and runtime transports.
+
+`ankole-pod applet inspect` reports mounting, runtime and console errors, failed
+HTTP requests, visible text, and an optional PNG screenshot. A mounted result
+with failed requests or errors requires investigation before acceptance. The
+browser profile is temporary and does not inherit interactive login cookies.
 
 ### Same-origin iframe, storage, and frontend SDK
 
@@ -2910,6 +3075,19 @@ generation owning the frame's subscriptions, channels, and observers:
 subscription per Base table and keeping a `ContentProvider`-owned read-denial
 observer across Applet generations until the Pod unmounts:
 
+- **`useTable(slotKey)`**: Resolves a logical slot into its effective table and
+  fields, with plain `field`, `read`, and `patch` helpers and `create`, `update`,
+  and `remove` operations. `update(capturedRecord, logicalPatch)` maps the patch
+  to physical field UUIDs and submits the field versions captured when editing
+  began. A retained table helper also keeps its captured table ID and field
+  mapping, so a later page rebind does not redirect that pending edit.
+  `useTableRecords` and `useTableAggregate` provide the corresponding
+  top-level subscriptions; unconfigured slots disable reads and expose their
+  binding status. A binding digest change updates the existing runtime and
+  route Query keys, so open tabs read the replacement table without losing
+  local form state.
+- **`usePod().embedProps`**: Supplies the containing Document embed's JSON object.
+  Prop updates render the existing React root inside the same iframe.
 - **`useRecords` and `useAggregate`**: Maintain live subscriptions. On the first
   authoritative HTTP `401`, `403`, or `404` (including during a Query retry),
   all subscribers share a sticky denied state, hide cached rows, and stop
@@ -2972,17 +3150,34 @@ results may supply `{status, body}`. Published flat route maps remain supported
 for existing Applets. `AnkoleRuntime.HttpError` carries explicit client errors;
 Agent calls also receive bounded diagnostics and console output.
 
-An Applet has an explicit `owner_uid`, initially its creator. Only that current
-owner or a tenant Pod administrator can transfer ownership. Ordinary capabilities
-use the caller for interactive routes or the enabling Human for personal Jobs.
-`AnkoleRuntime.admin` capabilities use the Page's current owner and record that
-Principal in audit fields. Team Jobs use `admin` capabilities because they have
-no current user. Admission rejects missing/disabled owners and trashed Pages;
-resource AuthZ remains responsible for the actual execution Principal's grants.
+An Applet has an explicit `owner_uid`, initially its creator, paired with a
+dedicated `:applet` service account (`svc_applet_<page_id>`) created in the
+Applet Page creation transaction that holds intrinsic `:system` `manage`
+authority over its live `:applet` host Page and permission-inheriting
+descendants without materializing a user-facing `permission_grants` row. While
+`owner_uid` remains `active`, `AnkoleRuntime.admin` capabilities
+and team Jobs execute as `owner_uid`; if `owner_uid` is suspended or offboarded,
+`Applets.owner/1` seamlessly falls back to `svc_applet_<page_id>` so the Applet
+stays live on its own Page's Bases and Files, and Pod surfaces an inline banner
+letting any collaborator holding `node_manage` (or a Pod administrator) claim
+ownership via `PUT /api/v2/pod/pages/:page_id/applet-owner`. Ordinary
+capabilities use the caller for interactive routes or the enabling Human for
+personal Jobs, and admission rejects trashed Pages; resource AuthZ remains
+responsible for the actual execution Principal's grants.
 
 Interactive route bodies have an 8,000,000-byte cumulative limit across all
 HTTP fragments. Ankole accepts fragmented bodies within that limit and returns
-HTTP 413 for overflow.
+HTTP 413 for overflow. Mutating browser route calls (`POST`, `PUT`, `PATCH`, and
+`DELETE`) support optional `Idempotency-Key` request headers backed by
+`pod_applet_idempotency_keys` (deduplicating in-flight and completed requests per
+`(page_id, scope_uid, idempotency_key)` and rejecting payload mismatches with
+`422 idempotency_key_mismatch`), and handlers can invoke
+`AnkoleRuntime.idempotent(key, fn, options)` over the same durable store for
+business-level idempotency across distinct HTTP calls. Each SDK claim returns
+a nonempty `claim_id`, which completion and release must supply; an older claim
+cannot change a replacement claim's row. The control plane keeps in-flight
+claims for the invocation's remaining deadline plus thirty seconds, with a
+ninety-second minimum and a 330-second default when no deadline is supplied.
 
 `GET` marks the complete call chain read-only, including nested `signals.call`.
 The host rejects record/file writes, `ai.generateImage`, `ai.generateSpeech`, state changes, event emission, slice
@@ -3023,13 +3218,16 @@ with native patches under `app/function_runtime/native/patches`:
 - **Worker pooling and cache identity**: The runtime's main worker authenticates
   control-plane calls via an internal Bearer token, while user workers receive
   only the Applet's merged runtime environment (`Site -> Tenant -> applet.env.json -> Applet`),
-  pooled by `(lane, tenant, page, revision, sha256)` for route or action execution
+  pooled by `(lane, live_or_draft, tenant, page, revision, sha256)` for route or action execution
   with `AsyncLocalStorage` isolating each request's capabilities, console logs,
-  and cancellation to its own WebSocket. Code and merged environment hash together
-  into that SHA-256 key (UTF-8 source + `\n` + compact JSON of environment pairs
-  sorted by UTF-16 key code units), so editing an Applet, Pod, or Site variable
+  and cancellation to its own WebSocket. Code, merged environment, and resolved
+  bindings hash together into that SHA-256 key (UTF-8 source + `\n` + compact JSON
+  of environment pairs sorted by name + `\n` + `bindings_digest`),
+  so editing a data binding or an Applet, Pod, or Site variable
   routes subsequent invocations to a fresh isolate immediately without publishing a
-  new revision.
+  new revision. Draft invocations use `draft:<draft_id>` as their revision;
+  replacing a draft retires only that page's obsolete draft workers. Live and
+  draft workers keep separate reuse and retirement prefixes.
 - **Replica admission and failover**: The control plane tracks active process
   leases across `Ready` replicas, picks the least-occupied replica, and sends an
   HTTP preflight returning `204` (reserving one slot), `428` (upload missing
@@ -3064,7 +3262,10 @@ with native patches under `app/function_runtime/native/patches`:
   selects the shared deployment. Foreground routes keep their own endpoint pool.
   Idle isolates expire after 20 seconds or are evicted for incoming work; high
   resident memory retires idle workers and returns `503 runtime_busy`. Each
-  leased isolate serves one invocation. These limits combine with per-worker CPU
+  leased isolate serves one invocation. Cancellation and timeout synchronously
+  settle its lease; after asynchronous eviction or worker creation, the runtime
+  checks that lease before proceeding and retires any late-created isolate.
+  These limits combine with per-worker CPU
   quotas enforced by the native supervisor on each poll (including when soft and
   hard CPU limits match; each user worker runs on its own native thread plus an
   optional Tokio blocking helper so a tight JS loop cannot starve sibling
@@ -3116,18 +3317,23 @@ business write:
   capability is read-only, so `GET` routes may call it. It returns the metric
   result and fails with the metric error codes that
   [Brain](BrainV3.md#executing-a-metric) defines.
-- **`brain.listFacts`, `brain.listTakes`, `brain.writeTake`, and `brain.calibration`**
-  read active extracted Facts, read and record Takes, and compute calibration
-  scores for a specific `sourceNodeId` and optional `subjectPageId`. Brain
-  applies the execution Principal's source access and any Agent turn disclosure
-  limits. Writing a Take requires `node_contribute` on the source and attributes
-  both author and holder to that Principal. Both `listFacts` and `listTakes`
-  filter by `holderUid` and `kind` (`listFacts` also filters by `notability` and
-  case-insensitive `query` text) and resolve `holderUid` alongside `holder` on
-  returned items so Applets can join claims directly to Principal metadata and
-  per-holder calibration scores. Calibration can also filter by the domain
-  assigned to a resolved Take. [Brain](BrainV3.md#atomic-knowledge-and-authorization)
-  owns grading and evidence scope.
+- **`brain.listFacts`, `brain.listTakes`, `brain.writeFact`, `brain.writeTake`, and `brain.calibration`**
+  read active extracted Facts, record deterministic Facts without synchronous LLM
+  or embedding calls, read and record Takes, and compute calibration scores for
+  a specific `sourceNodeId` and optional `subjectPageId` (mirrored on
+  `AnkoleRuntime.admin.brain` for shared Applet `svc_applet_<page_id>` service
+  accounts). Brain applies the execution Principal's source access and any Agent
+  turn disclosure limits. Writing a Fact or Take requires `node_contribute` on
+  the source; `writeFact` accepts an optional structured `recordRef`
+  (`{tableId, recordId}`) encoded as `[base:tableId/recordId]` in `provenance`
+  for exact normalized-text deduplication and row-level superseding. Both
+  `listFacts` and `listTakes` filter by `holderUid` and `kind` (`listFacts` also
+  filters by `notability` and case-insensitive `query` text) and resolve
+  `holderUid` alongside `holder` on returned items so Applets can join claims
+  directly to Principal metadata and per-holder calibration scores. Calibration
+  can also filter by the domain assigned to a resolved Take.
+  [Brain](BrainV3.md#atomic-knowledge-and-authorization) owns grading and
+  evidence scope.
 - **`notifications.post({conversationId, messageId, text})`** posts a native
   chat message and advances the room's unread marker without addressing an
   Agent. The execution Principal is a Human who can contribute to the Applet

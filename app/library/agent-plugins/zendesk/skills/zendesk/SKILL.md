@@ -1,6 +1,7 @@
 ---
 name: zendesk
 description: "Find and use zendesk operations through Ankole connections."
+default_enabled: false
 ---
 
 # zendesk

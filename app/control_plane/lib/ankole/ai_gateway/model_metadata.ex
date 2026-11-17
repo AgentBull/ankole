@@ -81,11 +81,29 @@ defmodule Ankole.AIGateway.ModelMetadata do
 
   def runtime_reasoning(_runtime), do: nil
 
+  @doc """
+  Returns whether local `llm_db` metadata reports parallel tool calling
+  support for a runtime model, or `nil` when no local metadata matches.
+  """
+  @spec runtime_parallel_tool_calls(map()) :: boolean() | nil
+  def runtime_parallel_tool_calls(%{"provider" => %Provider{} = provider, "model" => model})
+      when is_binary(model) do
+    case resolve_llm_db_model(provider, model) do
+      %LLMDB.Model{capabilities: %{tools: %{parallel: parallel}}} when is_boolean(parallel) ->
+        parallel
+
+      _other ->
+        nil
+    end
+  end
+
+  def runtime_parallel_tool_calls(_runtime), do: nil
+
   @default_cache_ttl_ms :timer.hours(1)
 
   @base_supported_parameters ~w(
     temperature top_p max_tokens max_output_tokens response_format tools tool_choice metadata
-    reasoning reasoningEffort text textVerbosity
+    reasoning reasoningEffort text textVerbosity supportsParallelToolCalls promptCacheKey
   )
   @embedding_supported_parameters ~w(input dimensions encoding_format)
   @rerank_supported_parameters ~w(query documents top_n)
@@ -178,15 +196,49 @@ defmodule Ankole.AIGateway.ModelMetadata do
   end
 
   defp llm_db_provider(%Provider{} = provider) do
+    provider
+    |> provider_candidate_ids()
+    |> find_llm_db_provider_by_candidates()
+  end
+
+  defp provider_candidate_ids(%Provider{} = provider) do
+    [provider.provider_kind, provider.provider_id]
+    |> Enum.flat_map(&normalized_provider_candidates/1)
+    |> Enum.uniq()
+  end
+
+  defp resolve_llm_db_model(%Provider{} = provider, model_id) do
+    case llm_db_provider(provider) do
+      {:ok, provider_atom} ->
+        find_llm_db_model(provider_atom, model_id)
+
+      :error ->
+        resolve_vendor_prefixed_llm_db_model(provider, model_id)
+    end
+  end
+
+  defp resolve_vendor_prefixed_llm_db_model(
+         %Provider{provider_kind: "openai_compatible"},
+         model_id
+       ) do
+    with [vendor, bare_id] <- String.split(model_id, "/", parts: 2),
+         {:ok, vendor_atom} <-
+           find_llm_db_provider_by_candidates(normalized_provider_candidates(vendor)) do
+      find_llm_db_model(vendor_atom, bare_id)
+    else
+      _other -> nil
+    end
+  end
+
+  defp resolve_vendor_prefixed_llm_db_model(_provider, _model_id), do: nil
+
+  defp find_llm_db_provider_by_candidates(candidates) do
     provider_index =
-      LLMDB.providers()
-      |> Map.new(fn llm_db_provider ->
+      Map.new(LLMDB.providers(), fn llm_db_provider ->
         {Atom.to_string(llm_db_provider.id), llm_db_provider.id}
       end)
 
-    provider
-    |> provider_candidate_ids()
-    |> Enum.find_value(:error, fn candidate ->
+    Enum.find_value(candidates, :error, fn candidate ->
       case Map.fetch(provider_index, candidate) do
         {:ok, provider_atom} -> {:ok, provider_atom}
         :error -> false
@@ -194,10 +246,16 @@ defmodule Ankole.AIGateway.ModelMetadata do
     end)
   end
 
-  defp provider_candidate_ids(%Provider{} = provider) do
-    [provider.provider_kind, provider.provider_id]
-    |> Enum.flat_map(&normalized_provider_candidates/1)
-    |> Enum.uniq()
+  defp find_llm_db_model(provider_atom, model_id) do
+    case LLMDB.model(provider_atom, model_id) do
+      {:ok, model} ->
+        model
+
+      {:error, :not_found} ->
+        provider_atom
+        |> LLMDB.models()
+        |> Enum.find(fn model -> model_id in (model.aliases || []) end)
+    end
   end
 
   defp normalized_provider_candidates(value) when is_binary(value) do
@@ -694,6 +752,7 @@ defmodule Ankole.AIGateway.ModelMetadata do
     |> maybe_add(truthy_capability?(capabilities, :embeddings), @embedding_supported_parameters)
     |> maybe_add(truthy_capability?(capabilities, :rerank), @rerank_supported_parameters)
     |> maybe_add(tool_capable?(capabilities), ~w(tools tool_choice))
+    |> maybe_add(tool_parallel_capable?(capabilities), ~w(parallel_tool_calls))
     |> maybe_add(json_capable?(capabilities), ~w(response_format))
     |> maybe_add(reasoning_capable?(capabilities), ~w(reasoning reasoningEffort))
     |> Enum.uniq()
@@ -726,6 +785,9 @@ defmodule Ankole.AIGateway.ModelMetadata do
   end
 
   defp tool_capable?(_capabilities), do: false
+
+  defp tool_parallel_capable?(%{tools: %{parallel: true}}), do: true
+  defp tool_parallel_capable?(_capabilities), do: false
 
   defp json_capable?(capabilities) when is_map(capabilities) do
     case Map.get(capabilities, :json) do

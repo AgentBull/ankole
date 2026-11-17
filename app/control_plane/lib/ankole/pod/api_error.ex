@@ -3,6 +3,7 @@ defmodule Ankole.Pod.APIError do
   use Splode.Error, fields: [:reason], class: :invalid
 
   @chat_errors %{
+    conflict: {409, "This action card is already being executed."},
     stale: {409, "This item changed. Reload it before saving."},
     skill_enabled_for_all:
       {409,
@@ -91,6 +92,15 @@ defmodule Ankole.Pod.APIError do
   }
 
   def message(error), do: public_error(error.reason).message
+
+  def public_error({:brain_source_scope_in_use, sources}),
+    do: %{
+      code: "brain_source_scope_in_use",
+      message:
+        "This page is the default learning scope for active Brain Sources. Confirm force deletion to move it to Trash and pause those Sources.",
+      status: 409,
+      details: %{sources: sources}
+    }
 
   def public_error({:invalid_worker_env_name, _}),
     do: %{

@@ -7,6 +7,7 @@
     ".": "./src/index.tsx",
     "./types": "./src/types.ts",
     "./records": "./src/records.ts",
+    "./idempotency": "./src/idempotency.ts",
     "./viz": "./src/viz.ts",
     "./toolkits": {
       "types": "./src/toolkits/index.d.ts"

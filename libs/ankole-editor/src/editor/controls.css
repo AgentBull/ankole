@@ -219,7 +219,7 @@
 }
 /* Only the slash picker gives block types a raised tile and coloured light. The tile fills the 44px icon box of its
    row and holds a 24px glyph. */
-:where(.ankole-editor-overlay).slash-menu .block-type-icon {
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing) .block-type-icon {
   --slash-icon-halo: var(--menu-icon-neutral);
   width: 100%;
   height: 100%;
@@ -235,22 +235,168 @@
     inset 0.5px 0.5px 0 var(--slash-icon-edge),
     0 1px 2px var(--slash-icon-shadow);
 }
-:where(.ankole-editor-overlay).slash-menu
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)
   .block-type-icon:is([data-block-type='h1'], [data-block-type='number'], [data-block-type='embed']) {
   --slash-icon-halo: var(--menu-icon-blue);
 }
-:where(.ankole-editor-overlay).slash-menu .block-type-icon:is([data-block-type='h3'], [data-block-type='bullet']) {
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)
+  .block-type-icon:is([data-block-type='h3'], [data-block-type='bullet']) {
   --slash-icon-halo: var(--menu-icon-purple);
 }
-:where(.ankole-editor-overlay).slash-menu .block-type-icon:is([data-block-type='check'], [data-block-type='code']) {
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)
+  .block-type-icon:is([data-block-type='check'], [data-block-type='code']) {
   --slash-icon-halo: var(--menu-icon-cyan);
 }
-:where(.ankole-editor-overlay).slash-menu .block-type-icon[data-block-type='embed'] {
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing) .block-type-icon[data-block-type='embed'] {
   color: var(--menu-icon-blue);
 }
-:where(.ankole-editor-overlay).slash-menu .block-type-icon svg {
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing) .block-type-icon svg {
   width: 24px;
   height: 24px;
+}
+
+/* Compact/narrow editors place a 36px circular `/` trigger in their visible bottom-right corner; opening the slash
+   menu morphs the ceramic surface directly out of that 36px circle and back into it when dismissed. */
+:where(.ankole-editor-overlay).slash-corner-trigger {
+  position: fixed;
+  z-index: 29;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  color: var(--fg-secondary);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+:where(.ankole-editor-overlay).slash-corner-trigger:hover {
+  color: var(--foreground);
+}
+:where(.ankole-editor-overlay).slash-corner-trigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+:where(.ankole-editor-overlay).slash-corner-trigger[data-hidden] {
+  opacity: 0;
+  pointer-events: none;
+  transition: none !important;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :where(.ankole-editor-overlay).slash-corner-trigger {
+    transition:
+      color 140ms ease-out,
+      scale 140ms ease-out;
+  }
+  :where(.ankole-editor-overlay).slash-corner-trigger:active {
+    scale: 0.95;
+  }
+}
+
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact] {
+  display: flex;
+  flex-direction: column;
+  max-height: min(440px, 60vh, var(--slash-corner-room, 440px));
+  overflow: hidden;
+  transform-origin: bottom right;
+}
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact] .slash-morph-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='closed'],
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='closing'] {
+  clip-path: inset(calc(100% - 36px) 0 0 calc(100% - 36px) round 18px);
+}
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='open'] {
+  clip-path: inset(0 0 0 0 round var(--radius-control));
+}
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact] .slash-morph-glyph {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: var(--fg-secondary);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1;
+  pointer-events: none;
+}
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='closed']
+  .slash-morph-list,
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='closing']
+  .slash-morph-list {
+  opacity: 0;
+  translate: 16px 10px;
+  scale: 0.97;
+  transform-origin: bottom right;
+}
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='open'] .slash-morph-list {
+  opacity: 1;
+  translate: 0 0;
+  scale: 1;
+  transform-origin: bottom right;
+}
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='closed']
+  .slash-morph-glyph,
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='closing']
+  .slash-morph-glyph {
+  opacity: 1;
+  translate: 0 0;
+}
+:where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='open']
+  .slash-morph-glyph {
+  opacity: 0;
+  translate: -26px 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='open'] {
+    transition: clip-path 300ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  :where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='open']
+    .slash-morph-list {
+    transition:
+      opacity 180ms ease-out,
+      translate 280ms ease-out,
+      scale 300ms ease-out;
+    transition:
+      opacity 180ms ease-out,
+      translate 300ms linear(0, 0.55 20%, 1.04 52%, 0.99 76%, 1),
+      scale 300ms linear(0, 0.55 20%, 1.04 52%, 0.99 76%, 1);
+  }
+  :where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='open']
+    .slash-morph-glyph {
+    transition:
+      opacity 150ms ease-out,
+      translate 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  :where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='closing'] {
+    transition: clip-path 210ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  :where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='closing']
+    .slash-morph-list {
+    transition:
+      opacity 140ms ease-out,
+      translate 210ms cubic-bezier(0.22, 1, 0.36, 1),
+      scale 210ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  :where(.ankole-editor-overlay):is(.slash-menu, .slash-menu-closing)[data-compact][data-morph='closing']
+    .slash-morph-glyph {
+    transition:
+      opacity 170ms ease-out 30ms,
+      translate 210ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
 }
 
 /* Menus share the glyphs, while each surface owns its presentation. */

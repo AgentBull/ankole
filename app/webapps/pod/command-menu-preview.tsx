@@ -132,11 +132,60 @@ export function CommandMenuPreview({
     [preview.data?.content?.content, preview.data?.page.id, previewPageID, trimmedQuery]
   )
 
-  return (
-    <aside
-      data-testid="command-preview-pane"
-      className="pod-command-preview hidden min-w-0 flex-col gap-3 overflow-y-auto border-l border-divider-overlay p-3 md:flex">
-      {activeEntry?.kind === 'chat' ? (
+  const renderPageExcerpt = () => {
+    if (xmlPreview.blocks.length > 0) {
+      return (
+        <>
+          {xmlPreview.excerptSkippedBefore && (
+            <p aria-hidden className="text-fg-tertiary">
+              …
+            </p>
+          )}
+          {xmlPreview.blocks.slice(0, 12).map((block, idx) => (
+            <p
+              key={idx}
+              className={
+                block.kind === 'heading'
+                  ? 'font-medium text-fg-primary'
+                  : block.kind === 'code'
+                    ? 'overflow-x-auto rounded-mini bg-layer-03 px-2 py-1 font-mono text-50'
+                    : block.kind === 'quote'
+                      ? 'border-l-2 border-border-subtle pl-2 italic'
+                      : 'line-clamp-3'
+              }>
+              <HighlightedText text={block.text} query={trimmedQuery} />
+            </p>
+          ))}
+        </>
+      )
+    }
+    if (previewPage && preview.data?.page.id === previewPage.id && preview.data?.content?.plain_text?.trim()) {
+      return (
+        <p className="line-clamp-10 whitespace-pre-wrap">
+          <HighlightedText text={preview.data.content.plain_text.trim().slice(0, 600)} query={trimmedQuery} />
+        </p>
+      )
+    }
+    if (previewMatch?.snippet && previewMatch.snippet.segments.length > 0) {
+      const badge = formatSearchTargetBadge(previewMatch.primary_target, t)
+      return (
+        <div className="space-y-1.5">
+          {badge && (
+            <span className="inline-block rounded-mini bg-layer-03 px-1.5 py-0.5 text-50 text-fg-secondary">
+              {badge}
+            </span>
+          )}
+          <SearchSnippet snippet={previewMatch.snippet} />
+        </div>
+      )
+    }
+    if (preview.isPending) return <InlineLoading label={t('pod.command.preview_loading')} />
+    return <p className="text-fg-tertiary">{t('pod.command.preview_empty')}</p>
+  }
+
+  const renderPreviewBody = () => {
+    if (activeEntry?.kind === 'chat') {
+      return (
         <div className="space-y-3">
           <div className="flex items-center gap-2.5">
             <ConversationGlyph room={activeEntry.conversation} size="md" />
@@ -159,7 +208,10 @@ export function CommandMenuPreview({
             <p className="text-xs text-fg-tertiary">{t('pod.sidebar.tabs.chat')}</p>
           )}
         </div>
-      ) : activeEntry?.kind === 'colleague' ? (
+      )
+    }
+    if (activeEntry?.kind === 'colleague') {
+      return (
         <div className="space-y-2">
           <div className="flex items-center gap-2.5">
             <span className="pod-conversation-glyph" data-size="md">
@@ -174,7 +226,10 @@ export function CommandMenuPreview({
           </div>
           {activeEntry.agent.role && <p className="text-xs leading-5 text-fg-secondary">{activeEntry.agent.role}</p>}
         </div>
-      ) : activeEntry?.kind === 'skill' ? (
+      )
+    }
+    if (activeEntry?.kind === 'skill') {
+      return (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <PuzzlePieceRegular aria-hidden className="size-4 shrink-0 text-fg-tertiary" />
@@ -195,7 +250,10 @@ export function CommandMenuPreview({
             </p>
           )}
         </div>
-      ) : activeEntry?.kind === 'nav' ? (
+      )
+    }
+    if (activeEntry?.kind === 'nav') {
+      return (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2 text-sm font-medium text-fg-primary">
             <activeEntry.icon aria-hidden className="size-4 shrink-0 text-fg-tertiary" />
@@ -203,7 +261,15 @@ export function CommandMenuPreview({
           </div>
           <p className="text-xs text-fg-tertiary">{t('pod.content.page_navigation')}</p>
         </div>
-      ) : previewPage ? (
+      )
+    }
+    if (previewPage) {
+      const crumb =
+        targetPageEntry?.parentPath ??
+        pagePathAncestors(previewPage, pagesMap)
+          .map(ancestor => ancestor.title || t('pod.content.untitled'))
+          .join(' / ')
+      return (
         <>
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -215,14 +281,7 @@ export function CommandMenuPreview({
                 query={trimmedQuery}
               />
             </div>
-            {(() => {
-              const crumb =
-                targetPageEntry?.parentPath ??
-                pagePathAncestors(previewPage, pagesMap)
-                  .map(ancestor => ancestor.title || t('pod.content.untitled'))
-                  .join(' / ')
-              return crumb ? <p className="truncate text-xs text-fg-tertiary">{crumb}</p> : null
-            })()}
+            {crumb ? <p className="truncate text-xs text-fg-tertiary">{crumb}</p> : null}
           </div>
 
           {xmlPreview.headings.length > 0 && (
@@ -258,58 +317,22 @@ export function CommandMenuPreview({
             </div>
           )}
 
-          <div className="space-y-2 text-xs leading-5 text-fg-secondary">
-            {xmlPreview.blocks.length > 0 ? (
-              <>
-                {xmlPreview.excerptSkippedBefore && (
-                  <p aria-hidden className="text-fg-tertiary">
-                    …
-                  </p>
-                )}
-                {xmlPreview.blocks.slice(0, 12).map((block, idx) => (
-                  <p
-                    key={idx}
-                    className={
-                      block.kind === 'heading'
-                        ? 'font-medium text-fg-primary'
-                        : block.kind === 'code'
-                          ? 'overflow-x-auto rounded-mini bg-layer-03 px-2 py-1 font-mono text-50'
-                          : block.kind === 'quote'
-                            ? 'border-l-2 border-border-subtle pl-2 italic'
-                            : 'line-clamp-3'
-                    }>
-                    <HighlightedText text={block.text} query={trimmedQuery} />
-                  </p>
-                ))}
-              </>
-            ) : preview.data?.page.id === previewPage.id && preview.data?.content?.plain_text?.trim() ? (
-              <p className="line-clamp-10 whitespace-pre-wrap">
-                <HighlightedText text={preview.data.content.plain_text.trim().slice(0, 600)} query={trimmedQuery} />
-              </p>
-            ) : previewMatch?.snippet && previewMatch.snippet.segments.length > 0 ? (
-              <div className="space-y-1.5">
-                {(() => {
-                  const badge = formatSearchTargetBadge(previewMatch.primary_target, t)
-                  return badge ? (
-                    <span className="inline-block rounded-mini bg-layer-03 px-1.5 py-0.5 text-50 text-fg-secondary">
-                      {badge}
-                    </span>
-                  ) : null
-                })()}
-                <SearchSnippet snippet={previewMatch.snippet} />
-              </div>
-            ) : preview.isPending ? (
-              <InlineLoading label={t('pod.command.preview_loading')} />
-            ) : (
-              <p className="text-fg-tertiary">{t('pod.command.preview_empty')}</p>
-            )}
-          </div>
+          <div className="space-y-2 text-xs leading-5 text-fg-secondary">{renderPageExcerpt()}</div>
         </>
-      ) : (
-        <p className="text-xs text-fg-tertiary">
-          {t(isSearching ? 'pod.command.preview_loading' : 'pod.content.no_matches')}
-        </p>
-      )}
+      )
+    }
+    return (
+      <p className="text-xs text-fg-tertiary">
+        {t(isSearching ? 'pod.command.preview_loading' : 'pod.content.no_matches')}
+      </p>
+    )
+  }
+
+  return (
+    <aside
+      data-testid="command-preview-pane"
+      className="pod-command-preview hidden min-w-0 flex-col gap-3 overflow-y-auto border-l border-divider-overlay p-3 md:flex">
+      {renderPreviewBody()}
     </aside>
   )
 }

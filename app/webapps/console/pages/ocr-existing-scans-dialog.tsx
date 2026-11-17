@@ -35,14 +35,17 @@ export type UnreadScans = { files: number; pages: number; counting: boolean }
  * `scope`, and how many files and pages are waiting. A Pod without its own
  * value follows the Site's. `unread` is missing when Console could not count.
  */
-export async function ocrExistingScansQuestion(scope: DefaultsScope) {
+export async function ocrExistingScansQuestion(scope: DefaultsScope, tenantID?: string | null) {
+  const headers = scope !== 'global' && tenantID ? { 'x-ankole-tenant': tenantID } : undefined
   const request = { path: { key: SETTING_KEY }, throwOnError: true } as const
-  const response = scope === 'global' ? await getSiteAppConfiguration(request) : await getAppConfiguration(request)
+  const response =
+    scope === 'global' ? await getSiteAppConfiguration(request) : await getAppConfiguration({ ...request, headers })
   const setting = response.data.app_configuration
   const enabled = (setting.overridden ? setting.value : setting.fallback_value) === true
   if (enabled) return { enabled }
 
-  const count = scope === 'global' ? getSiteUnreadScans({ throwOnError: true }) : getUnreadScans({ throwOnError: true })
+  const count =
+    scope === 'global' ? getSiteUnreadScans({ throwOnError: true }) : getUnreadScans({ headers, throwOnError: true })
   const unread: UnreadScans | undefined = await count.then(
     counted => counted.data,
     () => undefined
@@ -72,10 +75,10 @@ export function OcrExistingScansDialog({
 }) {
   const { t } = useTranslation()
   const answer = useMutation({
-    mutationFn: async (value: boolean) => {
+    mutationFn: async ({ value, headers }: { value: boolean; headers?: Record<string, string> }) => {
       const request = { path: { key: SETTING_KEY }, body: { data: { value } }, throwOnError: true } as const
       if (scope === 'global') await updateSiteAppConfiguration(request)
-      else await updateAppConfiguration(request)
+      else await updateAppConfiguration({ ...request, headers })
       return value
     },
     onSuccess: accepted => {
@@ -104,10 +107,10 @@ export function OcrExistingScansDialog({
             size="sm"
             type="button"
             variant="ghost"
-            onClick={() => answer.mutate(false)}>
+            onClick={() => answer.mutate({ value: false })}>
             {t('console.models.ocr_existing_scans_decline')}
           </Button>
-          <Button disabled={answer.isPending} size="sm" type="button" onClick={() => answer.mutate(true)}>
+          <Button disabled={answer.isPending} size="sm" type="button" onClick={() => answer.mutate({ value: true })}>
             {t('console.models.ocr_existing_scans_confirm')}
           </Button>
         </DialogFooter>

@@ -93,9 +93,9 @@ export function sessionAvatarContext(data: BrowserSessionResponse | undefined): 
 }
 
 /**
- * The sidebar's account row: the signed-in person's avatar beside the Pod's name and the person's name. Its menu
- * holds the organizations that this browser has proved, the person's settings, the Pod's settings and its Trash, the
- * theme, and the way out. `extra` adds build-specific items, such as a SaaS account center.
+ * The sidebar's account row: the signed-in person's avatar beside their name. Its menu holds the organizations that
+ * this browser has proved, the person's settings, the Pod's settings and its Trash, the theme, and the way out.
+ * `extra` adds build-specific items, such as a SaaS account center.
  */
 export function AccountMenu({ extra }: { extra?: ReactNode }) {
   const { t, i18n } = useTranslation()
@@ -170,7 +170,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
             ? t('pod.sidebar.account_menu', { name, tenant: tenantName })
             : t('pod.sidebar.account_menu_name', { name })
         }>
-        {session.isPending && !runtime?.tenantDisplayName ? (
+        {session.isPending && !runtime?.principalDisplayName ? (
           <>
             <Skeleton aria-hidden className="size-6.5 shrink-0 rounded-full" />
             <SidebarFooterLabel className="pod-account-text">
@@ -185,8 +185,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
               context={currentAvatarContext}
             />
             <SidebarFooterLabel className="pod-account-text">
-              <span>{tenantName || name}</span>
-              {tenantName && <small>{name}</small>}
+              <span>{name}</span>
             </SidebarFooterLabel>
           </>
         )}

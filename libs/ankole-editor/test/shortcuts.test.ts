@@ -5,6 +5,7 @@ import type { Wordgard } from '../src/core/editor'
 import { eventHandler } from '../src/core/editor/input'
 import { undo } from '../src/core/history'
 import { GardSelection, GardState, Transaction } from '../src/core/state'
+import { mathEditorField } from '../src/blocks/math'
 import { printMarkdown } from '../src/document/markdown'
 import { parseXml, printXml } from '../src/document/xml'
 import { readTree } from '../src/editor/convert'
@@ -110,6 +111,8 @@ test.each([
   ['~~gone~~', '~~gone~~', 's'],
   ['~gone~', '~~gone~~', 's'],
   ['`code`', '`code`', 'code'],
+  ['$$E = mc^2$$', '$$E = mc^2$$', 'inline-math'],
+  ['$$ E = mc^2 $$', '$$E = mc^2$$', 'inline-math'],
   ['[text](https://example.com)', '[text](https://example.com)', 'a'],
   ['[text](https://example.com "Title")', '[text](https://example.com "Title")', 'a']
 ])('typing %p formats it', (typed, expected) => {
@@ -128,13 +131,25 @@ test('an inline format waits for the longer marker, and stays text in code', () 
   expect(markdown(type(at('<p />', 1), '2 * 3 * 4'))).toBe('2 \\* 3 \\* 4')
 })
 
-test('a code fence converts on Enter', () => {
+test('a code fence or $$ converts on Enter', () => {
   const state = type(at('<p />', 1), '```js title=x')
   const result = state.update(fenceShortcut(state)!).state
   expect(markdown(result)).toBe('```js title=x\n```')
   expect(result.doc.resolve(result.selection.head).parent.node.name).toBe('CodeBlock')
   expect(fenceShortcut(type(at('<p />', 1), 'a ```'))).toBeNull()
   expect(fenceShortcut(type(at('- a', 3), '```'))).toBeNull()
+
+  const mathFence = type(at('<p />', 1), '$$')
+  const mathResult = mathFence.update(fenceShortcut(mathFence)!).state
+  expect(xml(mathResult)).toBe('<page><math /><p /></page>')
+  expect(mathResult.field(mathEditorField)).toBe(0)
+
+  // Typing $$E=mc^2$$ creates an <inline-math> leaf, and undo restores the literal $$ markers.
+  const typedInline = type(at('<p />', 1), 'Energy $$E=mc^2$$')
+  expect(xml(typedInline)).toBe('<page><p>Energy <inline-math>E=mc^2</inline-math></p></page>')
+  expect(xml(undone(typedInline))).toBe('<page><p>Energy $$E=mc^2$$</p></page>')
+  // Single-$ currency never triggers an inline formula shortcut.
+  expect(xml(type(at('<p />', 1), 'Costs $10 and $20'))).toBe('<page><p>Costs $10 and $20</p></page>')
 })
 
 test('a typed address becomes a link after a space', () => {

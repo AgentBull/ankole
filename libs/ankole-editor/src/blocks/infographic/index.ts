@@ -24,6 +24,7 @@ import {
   diagramGutterWidget,
   diagramLineNumbers,
   diagramPreviewWidget,
+  diagramToolbarSync,
   type MermaidLabels,
   type MermaidTemplate,
   type MermaidThemeMode,
@@ -319,6 +320,7 @@ export const infographic: BlockDefinition = {
     Schema.Override.markTarget(Attrs, target => [target, InfographicBlock])
   ],
   extension: [
+    diagramToolbarSync,
     infographicViewsPlugin,
     Decoration.Tag.shape.derived(InfographicBlock.type, state => {
       const labels: MermaidLabels = {

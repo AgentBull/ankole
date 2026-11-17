@@ -596,25 +596,25 @@ export function Composer({
               aria-autocomplete="list"
               aria-haspopup="listbox"
               aria-controls={picker ? completionID : undefined}
-              placeholder={
-                replySuggestion
-                  ? ''
-                  : answerID
-                    ? t('pod.chat_timeline.answer_placeholder')
-                    : !queueEditing && commands.targetWorking
-                      ? !commands.canSteerTarget
-                        ? t('pod.chat_room.composer_queue_only_hint')
-                        : commands.deliveryModes.primary === 'queue'
-                          ? coarsePointer
-                            ? t('pod.chat_room.composer_queue_only_hint')
-                            : t('pod.chat_room.composer_queue_hint', { shortcut })
-                          : coarsePointer
-                            ? t('pod.chat_room.composer_steer_short_hint')
-                            : t('pod.chat_room.composer_steer_hint', { shortcut })
-                      : !queueEditing && !commands.targetWorking && commands.targetPaused && !coarsePointer
-                        ? t('pod.chat_room.composer_paused_hint', { shortcut })
-                        : t('pod.chat_room.composer_hint')
-              }
+              placeholder={(() => {
+                if (replySuggestion) return ''
+                if (answerID) return t('pod.chat_timeline.answer_placeholder')
+                if (!queueEditing && commands.targetWorking) {
+                  if (!commands.canSteerTarget) return t('pod.chat_room.composer_queue_only_hint')
+                  if (commands.deliveryModes.primary === 'queue') {
+                    return coarsePointer
+                      ? t('pod.chat_room.composer_queue_only_hint')
+                      : t('pod.chat_room.composer_queue_hint', { shortcut })
+                  }
+                  return coarsePointer
+                    ? t('pod.chat_room.composer_steer_short_hint')
+                    : t('pod.chat_room.composer_steer_hint', { shortcut })
+                }
+                if (!queueEditing && commands.targetPaused && !coarsePointer) {
+                  return t('pod.chat_room.composer_paused_hint', { shortcut })
+                }
+                return t('pod.chat_room.composer_hint')
+              })()}
               rows={1}
               value={draft}
               onChange={event => {

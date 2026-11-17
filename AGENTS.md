@@ -2,7 +2,7 @@
 
 Setup instructions, the repository map, and verification commands live in [CONTRIBUTING.md](CONTRIBUTING.md#run-the-right-checks). In addition, `app/webapps/`, `app/agent_computer/`, and `tools/formal/` each provide directory-specific `AGENTS.md` supplements.
 
-This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
+This codebase is yours to keep building on, within the authorization, settled decisions, and product boundaries below.
 
 ## Authorization
 
@@ -12,7 +12,7 @@ User instructions take priority over any Skill or rule file. Whenever a rule blo
 
 ## Shared worktree
 
-Multiple agents edit this worktree concurrently. Always preserve diffs that belong to other agents. If you hit a conflict that you cannot resolve safely, document it inside a uniquely delimited block in `HEY.md` and remove your block once resolved.
+Multiple agents edit this worktree concurrently. Always preserve diffs that belong to other agents: never `git stash`, `git reset`, or `git pull --autostash` here, and when a dirty tree blocks a pull, fetch and merge upstream in place, resolving conflicts by hand without reverting anyone's uncommitted edits. If you hit a conflict that you cannot resolve safely, document it inside a uniquely delimited block in `HEY.md` and remove your block once resolved.
 
 ## Design
 
@@ -38,7 +38,7 @@ Shared responsibility identifies who owns each decision and its consequences. An
 
 Treat users and administrators as adults. An authorized choice may be risky, unwise, or destructive; that alone does not make it a system vulnerability or justify blocking the choice, repeatedly asking for confirmation, or adding safeguards to overrule it. Respect their decisions and leave the consequences with the responsible person.
 
-Apply the functionality and user-experience priority above to every security decision. Before proposing a security change, identify the explicit system contract, a concrete violation path, and its practical consequence for the approved user flow. Citing a contract is a necessary condition, not sufficient justification for a change. Do not add mechanisms, restrictions, or confirmation steps merely because you can imagine a risk. Narrower supported behavior, explicit rejection, and manual handling remain valid for peripheral cases; they do not justify degrading everyday workflows. Preserve settled tradeoffs and do not expand Ankole's responsibilities without an explicit product decision.
+Apply the functionality and user-experience priority above to every security decision. Before proposing a security change, identify the explicit system contract, a concrete violation path, and its practical consequence for the approved user flow. Citing a contract is a necessary condition, not sufficient justification for a change. Do not add mechanisms, restrictions, or confirmation steps merely because you can imagine a risk. Do not expand Ankole's responsibilities without an explicit product decision.
 
 ## Tests
 
@@ -70,4 +70,4 @@ Deliver the full path together—source code, tests, declarations, migrations, g
 
 Run the verification checks in [CONTRIBUTING.md](CONTRIBUTING.md#run-the-right-checks) that cover the boundaries you touched. If a required check cannot run in your environment, report the exact command and what blocked it; never present an unexecuted check as verified.
 
-Write the [changelog entry](CONTRIBUTING.md#changelog) before committing code changes. Write documentation and code comments in clear, natural prose tailored to human readers: put real actors (`Ankole`, the operator, the caller, or the owning module) in subject position rather than personifying inanimate values or missing states, unpack dense noun stacks, maintain smooth Given-before-New paragraph flow with explicit logical connectives, and write localized docs (`zh-Hans`, `ja`, `ko`) idiomatically in the target language rather than calquing English syntax. In timeless documentation (all docs except `CHANGELOG.md` and dedicated upgrade guides), state the current system contract directly: never use diff-relative phrasing (`after this upgrade`, `no longer`, `retains its existing`), negative-space descriptions of deleted paths, prompt-constraint echoes, or paragraphs tacked onto the end of a file outside their owning section.
+Write the [changelog entry](CONTRIBUTING.md#changelog) before committing code changes. Write documentation and code comments in clear, natural prose tailored to human readers: put real actors (`Ankole`, the operator, the caller, or the owning module) in subject position rather than personifying inanimate values or missing states, unpack dense noun stacks, maintain smooth Given-before-New paragraph flow with explicit logical connectives. Timeless documentation, localized docs included, follows the rules in [Keep design docs and the changelog current](CONTRIBUTING.md#keep-design-docs-and-the-changelog-current).

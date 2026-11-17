@@ -79,38 +79,40 @@ export function PrincipalRename({
               }
             }}>
             <ErrorBlock error={mutation.error} />
-            <div className="grid gap-2">
-              <Label htmlFor={inputID}>{t('principal_rename.new_uid')}</Label>
-              <Input
-                id={inputID}
-                required
-                autoCapitalize="none"
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                maxLength={agent ? 96 : undefined}
-                pattern={agent ? '[a-z0-9][a-z0-9._@+\\-]{0,95}' : undefined}
-                value={model.newUID.value}
-                onChange={event => {
-                  mutation.reset()
-                  model.newUID.value = event.target.value.toLowerCase()
-                }}
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={mutation.isPending}
-                onClick={() => {
-                  model.open.value = false
-                }}>
-                {t('common.cancel')}
-              </Button>
-              <Button type="submit" disabled={mutation.isPending}>
-                {t('principal_rename.action')}
-              </Button>
-            </DialogFooter>
+            <fieldset disabled={mutation.isPending} className="contents">
+              <div className="grid gap-2">
+                <Label htmlFor={inputID}>{t('principal_rename.new_uid')}</Label>
+                <Input
+                  id={inputID}
+                  required
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  maxLength={agent ? 96 : undefined}
+                  pattern={agent ? '[a-z0-9][a-z0-9._@+\\-]{0,95}' : undefined}
+                  value={model.newUID.value}
+                  onChange={event => {
+                    if (!mutation.isPending) mutation.reset()
+                    model.newUID.value = event.target.value.toLowerCase()
+                  }}
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={mutation.isPending}
+                  onClick={() => {
+                    model.open.value = false
+                  }}>
+                  {t('common.cancel')}
+                </Button>
+                <Button type="submit" disabled={mutation.isPending}>
+                  {t('principal_rename.action')}
+                </Button>
+              </DialogFooter>
+            </fieldset>
           </form>
         </DialogContent>
       </Dialog>

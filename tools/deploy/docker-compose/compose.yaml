@@ -74,6 +74,8 @@ services:
     command:
       - /app/bin/migrate
     environment: *control-plane-environment
+    volumes:
+      - ./worker-providers.yaml:/etc/ankole/worker-providers.yaml:ro
     depends_on:
       postgresql:
         condition: service_healthy
@@ -82,6 +84,8 @@ services:
       - backend
 
   migrate-agent-homes:
+    profiles:
+      - upgrade-1x
     image: docker:29-cli
     restart: "no"
     entrypoint: [sh, /migrate-agent-homes.sh]
@@ -95,10 +99,6 @@ services:
       - ${ANKOLE_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
       - ./migrate-agent-homes.sh:/migrate-agent-homes.sh:ro
     network_mode: none
-    # Tenant-qualified storage names require the migrated Agent identities.
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
     logging: *default-logging
 
   control-plane:
@@ -119,8 +119,6 @@ services:
       - ./worker-providers.yaml:/etc/ankole/worker-providers.yaml:ro
     depends_on:
       migrate:
-        condition: service_completed_successfully
-      migrate-agent-homes:
         condition: service_completed_successfully
       function-runtime:
         condition: service_healthy

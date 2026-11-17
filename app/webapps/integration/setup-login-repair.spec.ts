@@ -1,5 +1,28 @@
 import { expect, test } from '@playwright/test'
 
+// Browser unit coverage: a controlled OTP response and clock reproduce suspended background timers.
+test('returning from mail after an OTP cooldown unlocks from the deadline without replaying timer ticks', async ({
+  page
+}) => {
+  await page.route('**/api/v2/browser/sessions/email-otp/challenges', route =>
+    route.fulfill({
+      status: 429,
+      json: { errors: [{ code: 'rate_limited', meta: { details: { retryAfterSeconds: 60 } } }] }
+    })
+  )
+  await page.goto('/login-repair')
+  await page.clock.install({ time: new Date('2026-11-17T00:00:00Z') })
+  await page.getByRole('textbox', { name: 'Email address', exact: true }).fill('account@example.test')
+  const submit = page.getByRole('button', { name: 'Send code', exact: true })
+  await submit.click()
+  await expect(submit).toBeDisabled()
+  await expect(page.getByRole('alert')).toBeVisible()
+  await page.clock.setSystemTime(new Date('2026-11-17T00:01:01Z'))
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(submit).toBeEnabled()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+})
+
 test('Setup freezes pending choices and back navigation restores the acknowledged pack selection', async ({ page }) => {
   let selected = ['general']
   let release!: () => void

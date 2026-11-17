@@ -4,7 +4,7 @@ export const test = base.extend<{ browserErrors: void }>({
   browserErrors: [
     async ({ page, browser }, use, info) => {
       info.annotations.push({ type: 'browser-version', description: browser.version() })
-      if (info.project.name === 'chromium126') expect(browser.version()).toMatch(/^126\./)
+      if (info.project.name === 'chromium132') expect(browser.version()).toMatch(/^132\./)
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
       page.on('console', message => {

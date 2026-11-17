@@ -337,14 +337,18 @@ export function ModelProfileEditorCard({
           </div>
           <div className="grid gap-3">
             <h4 className="text-sm font-medium">{t('console.models.provider_options')}</h4>
-            {!hasCompatibleProvider ? (
-              <p className="text-xs text-fg-secondary">{t('console.models.provider_options_unavailable')}</p>
-            ) : !providerID ? (
-              <p className="text-xs text-fg-secondary">{t('console.models.provider_options_select')}</p>
-            ) : !selectedKind ? (
-              <p className="text-xs text-fg-secondary">{t('console.models.provider_options_kind_unavailable')}</p>
-            ) : optionSettings.length === 0 ? (
-              <p className="text-xs text-fg-secondary">{t('console.models.provider_options_empty')}</p>
+            {!hasCompatibleProvider || !providerID || !selectedKind || optionSettings.length === 0 ? (
+              <p className="text-xs text-fg-secondary">
+                {t(
+                  !hasCompatibleProvider
+                    ? 'console.models.provider_options_unavailable'
+                    : !providerID
+                      ? 'console.models.provider_options_select'
+                      : !selectedKind
+                        ? 'console.models.provider_options_kind_unavailable'
+                        : 'console.models.provider_options_empty'
+                )}
+              </p>
             ) : (
               <>
                 {basicOptionSettings.length > 0 ? (

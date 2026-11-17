@@ -26,7 +26,7 @@ defmodule AnkoleWeb.PodURLTest do
     path = "/connectors?connection=github-main&scopes=repo"
     rendered = get(conn, path)
     assert {:ok, ^path} = PodURL.path(rendered)
-    assert html_response(rendered, 200) =~ entry_source(pod_entry())
+    assert html_response(rendered, 200) =~ entry_source("pod")
   end
 
   test "Meta Ankole deep links serve the Pod shell with their query", ctx do
@@ -41,7 +41,7 @@ defmodule AnkoleWeb.PodURLTest do
         ] do
       rendered = get(conn, path)
       assert {:ok, ^path} = PodURL.path(rendered)
-      assert html_response(rendered, 200) =~ entry_source(pod_entry())
+      assert html_response(rendered, 200) =~ entry_source("pod")
     end
   end
 
@@ -64,7 +64,7 @@ defmodule AnkoleWeb.PodURLTest do
 
     html = html_response(rendered, 200)
     assert html =~ ~s(name="ankole-pod" content="#{ctx.tenant.id}")
-    assert html =~ entry_source(pod_entry())
+    assert html =~ entry_source("pod")
     assert get_resp_header(rendered, "cache-control") == ["private, no-store"]
 
     full = rendered |> recycle() |> get("/conversations/#{chat}")
@@ -82,7 +82,7 @@ defmodule AnkoleWeb.PodURLTest do
       |> Map.put(:host, ctx.tenant.slug <> ".ankole.localhost")
       |> get(slugged)
 
-    assert html_response(slugged_rendered, 200) =~ entry_source(pod_entry())
+    assert html_response(slugged_rendered, 200) =~ entry_source("pod")
 
     mixed_case_slugged =
       slugged_rendered
@@ -122,7 +122,7 @@ defmodule AnkoleWeb.PodURLTest do
 
     {shell, otp_origin, challenge_payload} =
       if @host_policy do
-        assert String.starts_with?(login_uri.host, "accounts.")
+        assert login_uri.host == URI.parse(PodURL.login_url(conn, ctx.tenant)).host
         assert login_uri.path == "/sessions/new"
 
         assert URI.decode_query(login_uri.query) == %{
@@ -214,7 +214,7 @@ defmodule AnkoleWeb.PodURLTest do
     assert %{"returnTo" => ^return_to} = api_response(verified, 201)
 
     rendered = verified |> recycle() |> delete_req_header("accept") |> get(return_to)
-    assert html_response(rendered, 200) =~ entry_source(pod_entry())
+    assert html_response(rendered, 200) =~ entry_source("pod")
 
     assert %{"principal_uid" => uid, "tenant_id" => tenant_id} =
              AnkoleWeb.Session.pod_session(rendered)
@@ -267,7 +267,7 @@ defmodule AnkoleWeb.PodURLTest do
       assert redirected_to(response) == target
 
       assert response |> recycle() |> get(target) |> html_response(200) =~
-               entry_source(pod_entry())
+               entry_source("pod")
     end
   end
 
@@ -390,7 +390,46 @@ defmodule AnkoleWeb.PodURLTest do
     end
   end
 
-  defp pod_entry, do: if(@host_policy, do: "saas-pod", else: "pod")
+  test "page_id_from_url and canonical_page_url resolve /pages/* and /meta/brain/* links for matching origins",
+       ctx do
+    page_id = Kernel.gen_uuid_v7()
+    short_id = Kernel.uuid_shorten(page_id)
+    origin = String.trim_trailing(PodURL.tenant_origin(ctx.tenant), "/")
+
+    for valid <- [
+          "#{origin}/pages/#{short_id}",
+          "#{origin}/pages/q4-design-spec-#{short_id}/?chat=abc#top",
+          "#{origin}/pages/#{page_id}",
+          "#{origin}/pod/pages/#{short_id}",
+          "#{origin}/meta/brain/#{page_id}",
+          "#{origin}/meta/brain/#{short_id}",
+          "#{origin}/pod/meta/brain/#{page_id}"
+        ] do
+      assert {:ok, ^page_id} = PodURL.page_id_from_url(valid, ctx.tenant)
+    end
+
+    for invalid <- [
+          "https://other-pod.example/pages/#{short_id}",
+          "#{origin}/meta/brain",
+          "#{origin}/pages/#{short_id}/extra",
+          "#{origin}/pages/not-a-valid-id",
+          "#{origin}/conversations/#{short_id}"
+        ] do
+      assert :error = PodURL.page_id_from_url(invalid, ctx.tenant)
+    end
+
+    assert PodURL.canonical_page_url(ctx.tenant, %{
+             id: page_id,
+             title: "Q4 Design Spec",
+             domain: :pages
+           }) == "#{origin}/pages/q4-design-spec-#{short_id}"
+
+    assert PodURL.canonical_page_url(ctx.tenant, %{
+             id: page_id,
+             title: "Customer Tier Standard",
+             domain: :brain
+           }) == "#{origin}/meta/brain/#{page_id}"
+  end
 
   defp entry_source(entry) do
     source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!(entry)

@@ -146,36 +146,24 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTasksTest do
     |> json_response(200)
   end
 
-  test "site visitor defaults and tenant overrides publish real access changes", %{
-    conn: conn,
-    tenant: tenant
+  test "pod.allow_external_guests is read-only in Console and owned by Pod Settings", %{
+    conn: conn
   } do
     conn = console_conn(conn)
-    other = Ankole.DataCase.create_tenant()
-    Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-access:" <> tenant.id)
-    Phoenix.PubSub.subscribe(Ankole.PubSub, "drive-access:" <> other.id)
-    conn |> task("pod-access", %{"pod.allow_external_guests" => false}) |> json_response(200)
-    assert_receive :recheck_access
-    assert_receive :recheck_access
-    refute Ankole.Pod.Config.allow_external_guests?()
-
-    conn
-    |> task("pod-access", %{"pod.allow_external_guests" => true}, [], :tenant)
-    |> json_response(200)
-
-    assert_receive :recheck_access
-    assert Ankole.Pod.Config.allow_external_guests?()
-    Repo.with_tenant(other.id, fn -> refute Ankole.Pod.Config.allow_external_guests?() end)
 
     %{"app_configuration" => item} =
       conn
       |> api(:get, "/api/v2/app-configurations/pod.allow_external_guests")
       |> json_response(200)
 
-    assert item["fallback_value"] == false
-    assert item["fallback_source"] == "global"
-    conn |> task("pod-access", %{}, ["pod.allow_external_guests"], :tenant) |> json_response(200)
-    refute Ankole.Pod.Config.allow_external_guests?()
+    assert item["editable"] == false
+
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} =
+             conn
+             |> api(:put, "/api/v2/app-configurations/pod.allow_external_guests", %{
+               "value" => false
+             })
+             |> json_response(422)
   end
 
   test "the tenant Brain task exposes its site foundation but cannot overwrite it", %{conn: conn} do

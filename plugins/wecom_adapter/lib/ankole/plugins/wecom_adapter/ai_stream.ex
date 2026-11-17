@@ -187,15 +187,26 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
              checkpoint,
              final?,
              repaint?
-           ),
-         {:ok, checkpoint} <-
-           maybe_send_presentation_card(client, event, presentation, checkpoint, final?) do
-      checkpoint =
-        build_stream_checkpoint(checkpoint, page_records, presentation, request, final?, wrote?)
+           ) do
+      card_outcome =
+        maybe_send_presentation_card(client, event, presentation, checkpoint, final?)
 
-      with {:ok, _event} <-
-             PreviewStates.put_checkpoint(event.id, checkpoint) do
-        {:ok, delivery_result(event, page_records, checkpoint)}
+      # Keep streaming_state open on retryable card failures so Delivery.Preview recovery can retry.
+      settled? = final? and (match?({:ok, _}, card_outcome) or card_outcome == :unknown)
+
+      next_checkpoint =
+        case card_outcome do
+          {:ok, updated} -> updated
+          _ -> checkpoint
+        end
+        |> build_stream_checkpoint(page_records, presentation, request, settled?, wrote?)
+
+      with {:ok, _event} <- PreviewStates.put_checkpoint(event.id, next_checkpoint) do
+        case card_outcome do
+          {:ok, _} -> {:ok, delivery_result(event, page_records, next_checkpoint)}
+          {:error, _reason} = error -> error
+          :unknown -> :unknown
+        end
       end
     end
   end
@@ -587,25 +598,46 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
             case send_presentation_card(client, delivery, event, presentation, checkpoint) do
               {:ok, updated_checkpoint} -> {updated_checkpoint, nil}
               {:error, _reason} = error -> {checkpoint, error}
+              :unknown -> {checkpoint, :unknown}
             end
 
           _existing_failure ->
             {checkpoint, failure}
         end
 
+      outcome =
+        case failure do
+          nil ->
+            :ok
+
+          {:error, %Error{} = error} ->
+            if Delivery.uncertain?(error), do: :unknown, else: {:error, error}
+
+          {:error, _} = error ->
+            error
+
+          :unknown ->
+            :unknown
+
+          {:unknown, _} = unknown ->
+            unknown
+        end
+
+      settled? = not match?({:error, _}, outcome)
+
       checkpoint =
         checkpoint
         |> Map.merge(%{
           "degraded" => true,
           "plain_chunks" => records,
-          "streaming_state" => "closed"
+          "streaming_state" => if(settled?, do: "closed", else: "open")
         })
-        |> merge_common(presentation, request, true)
+        |> merge_common(presentation, request, settled?)
 
       with {:ok, _event} <-
              PreviewStates.put_checkpoint(event.id, checkpoint) do
-        case failure do
-          nil ->
+        case outcome do
+          :ok ->
             {:ok,
              %{
                created_provider_message_id: List.first(records)["provider_message_id"],
@@ -623,11 +655,8 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
                raw_payload: %{"plain_chunks" => length(records)}
              }}
 
-          {:error, _reason} = error ->
-            error
-
-          {:unknown, _} = unknown ->
-            unknown
+          other ->
+            other
         end
       end
     end
@@ -711,8 +740,11 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
       case TemplateCard.render_presentation(presentation, event.id) do
         {:card, task_id, card} ->
           case Bot.send_template_card(client, delivery.chat_target, delivery.chat_type, card) do
-            {:ok, _ack} -> {:ok, Map.put(checkpoint, "card_task_id", task_id)}
-            {:error, _reason} = error -> error
+            {:ok, _ack} ->
+              {:ok, Map.put(checkpoint, "card_task_id", task_id)}
+
+            {:error, %Error{} = error} ->
+              if Delivery.uncertain?(error), do: :unknown, else: {:error, error}
           end
 
         :none ->

@@ -230,6 +230,7 @@ defmodule Ankole.Kernel do
   @type jwt_header :: map()
   @type jwt_validation :: map()
   @type universal_ai_client_stream :: reference()
+  @type universal_ai_client_ws_session :: reference()
   @type object_store :: reference()
   @type reciprocal_rank_fusion_result :: %{
           required(String.t()) => String.t() | float()
@@ -468,10 +469,34 @@ defmodule Ankole.Kernel do
   def page_restore_comments(current, target) when is_binary(current) and is_binary(target),
     do: current |> page_restore_comments_nif(target) |> decode_page_result()
 
+  @doc """
+  Maps a non-empty `[from, to)` comment selection range forward across one or more committed
+  document ChangeSets. Returns `{:ok, {new_from, new_to}}` when `[from, to)` was untouched, or
+  `{:ok, nil}` when an edit overlapped or mutated inside `[from, to)`.
+  """
+  @spec document_map_range(list() | String.t(), non_neg_integer(), pos_integer()) ::
+          {:ok, {non_neg_integer(), pos_integer()} | nil} | {:error, String.t()}
+  def document_map_range(changes, from, to)
+      when is_list(changes) and is_integer(from) and from >= 0 and is_integer(to) and to > from do
+    changes
+    |> Ankole.Kernel.JSON.encode!(dirty: true)
+    |> document_map_range(from, to)
+  end
+
+  def document_map_range(changes_json, from, to)
+      when is_binary(changes_json) and is_integer(from) and from >= 0 and is_integer(to) and
+             to > from do
+    case document_map_range_nif(changes_json, from, to) do
+      {:error, _} = error -> error
+      mapped -> {:ok, mapped}
+    end
+  end
+
   defp page_comment_info_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
   defp page_comment_annotate_nif(_source, _id, _from, _to), do: :erlang.nif_error(:nif_not_loaded)
   defp page_comment_remove_nif(_source, _id), do: :erlang.nif_error(:nif_not_loaded)
   defp page_restore_comments_nif(_current, _target), do: :erlang.nif_error(:nif_not_loaded)
+  defp document_map_range_nif(_changes, _from, _to), do: :erlang.nif_error(:nif_not_loaded)
 
   defp page_diff_nif(_old, _new), do: :erlang.nif_error(:nif_not_loaded)
   defp page_identity_changes_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
@@ -1021,10 +1046,33 @@ defmodule Ankole.Kernel do
   defp authz_evaluate_drive_context_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
+  @spec universal_ai_client_ws_session_new_nif() :: universal_ai_client_ws_session()
+  def universal_ai_client_ws_session_new_nif, do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec universal_ai_client_ws_session_close_nif(universal_ai_client_ws_session()) :: :ok
+  def universal_ai_client_ws_session_close_nif(_session), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
   @spec universal_ai_client_open_nif(String.t(), pid(), reference()) ::
           {:ok, universal_ai_client_stream()} | {:error, map()}
   def universal_ai_client_open_nif(_encoded_spec, _owner_pid, _stream_ref),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec universal_ai_client_open_with_session_nif(
+          String.t(),
+          universal_ai_client_ws_session(),
+          pid(),
+          reference()
+        ) :: {:ok, universal_ai_client_stream()} | {:error, map()}
+  def universal_ai_client_open_with_session_nif(
+        _encoded_spec,
+        _ws_session,
+        _owner_pid,
+        _stream_ref
+      ),
+      do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
   @spec universal_ai_client_read_nif(universal_ai_client_stream(), non_neg_integer()) ::

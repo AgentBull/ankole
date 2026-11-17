@@ -19,3 +19,12 @@ config :ankole, :feature_flags, [
   {"fixture.pod-module", [default: true, client_visible: true]},
   {"fixture.auth-challenge", [default: true, client_visible: true]}
 ]
+
+config :ankole, :openapi_specs, [
+  {Path.expand("../webapps/openapi/fixture-v2.json", __DIR__),
+   Ankole.EditionFixture.JSONAPIRouter},
+  {Path.expand("../webapps/openapi/fixture-pod-v2.json", __DIR__),
+   Ankole.EditionFixture.PodJSONAPIRouter},
+  {Path.expand("../webapps/openapi/fixture-site-v2.json", __DIR__),
+   Ankole.EditionFixture.SiteJSONAPIRouter}
+]

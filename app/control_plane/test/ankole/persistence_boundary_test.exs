@@ -145,10 +145,9 @@ defmodule Ankole.PersistenceBoundaryTest do
           [
             "lib/ankole_web/controllers/probe_controller.ex",
             "../../plugins/probe/lib/probe.ex",
-            "../../internals/control_plane/lib/ankole/saas_web/probe.ex",
-            "../../internals/plugins/probe/lib/probe.ex",
             "lib/mix/tasks/probe.ex"
           ] ++
+            Enum.map(PersistenceBoundary.data().consumer_dirs, &Path.join(&1, "probe.ex")) ++
             Enum.map(
               ~w(application credential_upgrade migrations release upgrade_202610),
               &"lib/ankole/#{&1}.ex"

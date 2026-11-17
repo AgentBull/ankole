@@ -110,7 +110,7 @@ independent even when it equals its fallback.
 
 The default task view shows operational summaries, value sources, independent
 overrides, and pending runtime changes. Brain, trace export, email verification,
-SMTP, external guest access, and SaaS Turnstile have combined editors. The
+SMTP, and external guest access have combined editors. The
 read-only registry view lists exact definitions, pattern policies, and existing
 concrete keys with scope, encryption, source, and read-only reasons. Authorized
 secret reveals remain explicit. Search matches keys, named form fields, localized
@@ -122,6 +122,11 @@ checks the closed task membership and each touched key's update or reset grant,
 locks the task's keys in order, validates the complete resulting configuration,
 and commits one PostgreSQL transaction. A rejected member or reset rolls back the
 whole batch. Cache refresh and visitor-access broadcasts run after commit.
+The edition configuration owner can declare additional groups through
+`configuration_groups/0`, returning each group's key prefix and validation
+function. AppConfigure applies the same membership, permission, and transaction
+rules to those groups; the edition owner supplies its business validation and
+operator-facing errors. Public group definitions retain their existing owners.
 Individual keys remain the storage unit, while raw Console updates and resets
 of grouped keys are rejected. Library default maps also reject raw writes;
 Library validates Plugin and Skill existence and publishes capability changes.
@@ -471,10 +476,6 @@ configuration-update permission, merges the saved password into the draft, and
 uses the real Mailer transport without writing configuration or issuing an OTP.
 Success means the transport accepted the message. The UI binds test feedback to
 the tested draft and permits saving independently of that test.
-
-SaaS Turnstile uses a separate `saas.turnstile.enabled` flag. Enabling requires
-both valid keys in the resulting task. Disabling preserves both credentials and
-does not require decrypting them.
 
 ## Storage units and consolidated policies
 

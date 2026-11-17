@@ -21,60 +21,94 @@ defmodule Ankole.Conversations.Delivery.ActionCardPrompt do
          {:ok, summary} <- sanitize_summary(Map.get(output, "summary")),
          payload when is_map(payload) <- Map.get(output, "payload", %{}),
          preconditions when is_map(preconditions) <- Map.get(output, "preconditions", %{}) do
-      interaction_id = "action_card:#{card_id}"
-      body = card_body(action_kind, summary, payload)
-
-      choices = [
-        %{
-          "id" => "confirm",
-          "label" => "Confirm & Execute",
-          "value" => "confirm",
-          "description" => "Verify your permissions and execute this change."
-        },
-        %{
-          "id" => "cancel",
-          "label" => "Cancel",
-          "value" => "cancel",
-          "description" => "Dismiss this proposed change without applying it."
-        }
-      ]
-
-      fallback =
-        ReplyPresentation.clarification_text(
-          body,
-          choices,
-          "Use Confirm & Execute or Cancel on the card to resolve this proposal."
-        )
-
       {:ok,
-       %{
-         "card_id" => card_id,
-         "call_id" => call_id,
-         "interaction_id" => interaction_id,
-         "action_kind" => action_kind,
-         "summary" => summary,
-         "target_node_id" => Map.get(output, "target_node_id"),
-         "payload" => payload,
-         "preconditions" => preconditions,
-         "body" => body,
-         "fallback_visible_text" => fallback,
-         "interactive_output" => %{
-           "title" => "Action Confirmation Required",
-           "body" => body,
-           "fallback_visible_text" => fallback,
-           "interaction_id" => interaction_id,
-           "control_id" => "action-card-choice",
-           "version" => 1,
-           "free_input" => false,
-           "choices" => choices
-         }
-       }}
+       build_prompt(
+         card_id,
+         call_id,
+         "action_card:#{card_id}",
+         action_kind,
+         summary,
+         Map.get(output, "target_node_id"),
+         payload,
+         preconditions
+       )}
     else
       _invalid -> {:error, {:invalid_action_card_output, call_id}}
     end
   end
 
   def from_output(_output, _call_id), do: :ignore
+
+  def from_card(%ActionCard{} = card) do
+    build_prompt(
+      card.id,
+      card.interaction_id,
+      card.interaction_id,
+      card.action_kind,
+      card.summary,
+      card.target_node_id,
+      card.payload,
+      card.preconditions
+    )
+  end
+
+  defp build_prompt(
+         card_id,
+         call_id,
+         interaction_id,
+         action_kind,
+         summary,
+         target_node_id,
+         payload,
+         preconditions
+       ) do
+    body = card_body(action_kind, summary, payload)
+
+    choices = [
+      %{
+        "id" => "confirm",
+        "label" => "Confirm & Execute",
+        "value" => "confirm",
+        "description" => "Verify your permissions and execute this change."
+      },
+      %{
+        "id" => "cancel",
+        "label" => "Cancel",
+        "value" => "cancel",
+        "description" => "Dismiss this proposed change without applying it."
+      }
+    ]
+
+    fallback =
+      ReplyPresentation.clarification_text(
+        body,
+        choices,
+        "Use Confirm & Execute or Cancel on the card to resolve this proposal."
+      )
+
+    %{
+      "card_id" => card_id,
+      "call_id" => call_id,
+      "interaction_id" => interaction_id,
+      "action_kind" => action_kind,
+      "summary" => summary,
+      "target_node_id" => target_node_id,
+      "payload" => payload,
+      "preconditions" => preconditions,
+      "body" => body,
+      "fallback_visible_text" => fallback,
+      "interactive_output" => %{
+        "title" => "Action Confirmation Required",
+        "body" => body,
+        "fallback_visible_text" => fallback,
+        "interaction_id" => interaction_id,
+        "control_id" => "action-card-choice",
+        "version" => 1,
+        "free_input" => false,
+        "choices" => choices
+      }
+    }
+  end
 
   def sanitize_summary(summary) when is_binary(summary) do
     cleaned =
@@ -113,21 +147,40 @@ defmodule Ankole.Conversations.Delivery.ActionCardPrompt do
           "Action: Delete Base table \"#{payload["table_name"] || payload["table_id"]}\" in \"#{payload["page_title"] || payload["page_id"]}\""
 
         "conversation.add_participants" ->
-          names =
-            (payload["participants"] || [])
-            |> Enum.map(&(&1["name"] || &1["uid"]))
-            |> Enum.join(", ")
-
-          "Action: Add participants (#{names}) to this conversation"
+          participants_target_line(payload)
 
         "library.skill.save" ->
           skill_save_target_line(payload)
+
+        "connectors.tool.call" ->
+          connector_tool_target_line(payload)
 
         _ ->
           "Action: #{action_kind}"
       end
 
     "#{target_line}\nSummary: #{summary}"
+  end
+
+  defp participants_target_line(payload) do
+    names =
+      (payload["participants"] || [])
+      |> Enum.map(&(&1["name"] || &1["uid"]))
+      |> Enum.join(", ")
+
+    "Action: Add participants (#{names}) to this conversation"
+  end
+
+  defp connector_tool_target_line(payload) do
+    conn =
+      payload["connection_name"] || payload["connection"] || payload["server"] || "connector"
+
+    preview =
+      if is_binary(payload["arguments_preview"]),
+        do: "\nArguments:\n" <> payload["arguments_preview"],
+        else: ""
+
+    "Action: Execute external tool #{conn} · #{payload["tool_name"]}#{preview}"
   end
 
   defp skill_save_target_line(payload) do

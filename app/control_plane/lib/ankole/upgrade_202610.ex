@@ -1,21 +1,9 @@
 defmodule Ankole.Upgrade202610 do
   @moduledoc """
-  Temporary data and file upgrade steps for the 2026-10 release.
+  Explicit one-time 1.x -> 2.0 data and file upgrade steps (`Ankole.Release.upgrade_from_1x/0`).
 
-  Mix and Release run `run/0` after schema migrations. To repeat only the
-  database steps, run `mix run --no-start -e 'Ankole.Upgrade202610.run()'`
-  with the original encryption key and every control-plane replica stopped.
-
-  `import_agent_home/1` copies installed Skills and unsent legacy Delivery
-  attachments from a pooled Worker `/agents` directory into Agent drives
-  without replacing existing drive files.
-
-  Remove this file, its Mix alias, its Release call, and
-  `files.importAgentHomeClaim` when every supported direct-upgrade origin
-  includes these steps and upgrade checks find no old identity-provider scope,
-  legacy Slack/Teams/Lark binding key (`signals.lark.bindings.*`), missing
-  application identity, legacy Skill directory, `legacy_directory_path`, or
-  legacy Delivery attachment path.
+  Sunset: Remove at 2.0.0 GA alongside `Ankole.CredentialUpgrade`,
+  `Ankole.Connectors.LegacyUpgrade`, and `migrate-agent-homes`.
   """
 
   import Bitwise
@@ -82,7 +70,7 @@ defmodule Ankole.Upgrade202610 do
                 do: migrate_authn_configurations()
 
               if @meta_schema_version in Ecto.Migrator.migrated_versions(Repo),
-                do: ensure_meta_namespaces()
+                do: Ankole.Brain.Namespace.ensure_all_tenants()
 
               :ok
             end
@@ -93,34 +81,7 @@ defmodule Ankole.Upgrade202610 do
     :ok
   end
 
-  # Each tenant needs a Brain root, its categories, and one page per Agent. A
-  # migration cannot create them because Brain writes use the final schema.
-  # Existing pages are kept, so every upgrade run can repeat this step.
-  defp ensure_meta_namespaces do
-    Enum.each(Repo.all(from(tenant in Tenant, select: tenant.id)), fn tenant_id ->
-      Repo.with_tenant(tenant_id, fn ->
-        {:ok, :ok} =
-          Repo.transact_top_level(fn ->
-            with {:ok, _} <- Ankole.Brain.Namespace.ensure_namespace_in_tx(),
-                 :ok <- Ankole.Brain.Namespace.ensure_categories_in_tx(),
-                 :ok <- ensure_agent_pages(),
-                 do: {:ok, :ok}
-          end)
-      end)
-    end)
-  end
-
-  defp ensure_agent_pages do
-    Enum.reduce_while(Ankole.Principals.list_agents(), :ok, fn %{principal: principal} = entry,
-                                                               :ok ->
-      with {:ok, _} <- Ankole.Brain.Namespace.ensure_agent_in_tx(principal.uid, entry.agent.type),
-           :ok <- Ankole.Brain.Namespace.sync_principal_status_in_tx(principal) do
-        {:cont, :ok}
-      else
-        error -> {:halt, error}
-      end
-    end)
-  end
+  defdelegate ensure_initial_meta_namespaces(), to: Ankole.Brain.Namespace
 
   defp migrate_job_recovery_metadata do
     Repo.across_tenants(fn ->
@@ -135,19 +96,17 @@ defmodule Ankole.Upgrade202610 do
   defp migrate_authn_configurations do
     {:ok, writes} =
       Repo.transact_top_level(fn ->
+        edition_writes = migrate_edition_authn_configurations()
+
         rows =
           Repo.all(
             from row in SiteConfig,
-              where:
-                row.scope == "global" and
-                  (like(row.key, "saas.email.%") or row.key == "authn.email.mail"),
+              where: row.scope == "global" and row.key == "authn.email.mail",
               lock: "FOR UPDATE"
           )
 
         writes =
           Enum.flat_map(rows, fn row ->
-            key = String.replace_prefix(row.key, "saas.email.", "authn.email.")
-
             value =
               case row.value do
                 %{"type" => "cipher", "value" => cipher} ->
@@ -158,12 +117,8 @@ defmodule Ankole.Upgrade202610 do
                   value
               end
 
-            empty_mail? = key == "authn.email.mail" and value == %{}
-            value = if empty_mail?, do: nil, else: value
-
-            if key != row.key or empty_mail? do
-              {:ok, write} = AppConfigure.put_global_by_key_in_tx(key, value)
-              if key != row.key, do: {:ok, _} = Ankole.Ash.destroy(row, :remove)
+            if value == %{} do
+              {:ok, write} = AppConfigure.put_global_by_key_in_tx(row.key, nil)
               [write]
             else
               []
@@ -180,7 +135,7 @@ defmodule Ankole.Upgrade202610 do
 
         local_writes = Enum.flat_map(configs, &remove_local_activation/1)
 
-        {:ok, writes ++ local_writes}
+        {:ok, edition_writes ++ writes ++ local_writes}
       end)
 
     Enum.each(writes, &cache_authn_write/1)
@@ -192,6 +147,15 @@ defmodule Ankole.Upgrade202610 do
     end
 
     :ok
+  end
+
+  defp migrate_edition_authn_configurations do
+    module = Application.get_env(:ankole, :edition_config)
+
+    if module && Code.ensure_loaded?(module) &&
+         function_exported?(module, :migrate_legacy_authn_configurations_in_tx, 0),
+       do: module.migrate_legacy_authn_configurations_in_tx(),
+       else: []
   end
 
   defp cache_authn_write({_, "tenant:" <> tenant_id, _} = write),

@@ -216,6 +216,13 @@ defmodule AnkoleWeb.AuthController do
   defp error(conn, status, reason) do
     conn
     |> put_status(status)
-    |> json(%{error: if(is_binary(reason), do: reason, else: inspect(reason))})
+    |> assign(:auth_error_code, error_code(reason))
+    |> AnkoleWeb.SpaController.render_spa(:sessions)
   end
+
+  defp error_code(reason) when is_binary(reason) and reason != "", do: reason
+  defp error_code(reason) when is_atom(reason) and not is_nil(reason), do: Atom.to_string(reason)
+  defp error_code({tag, _}) when is_atom(tag) and not is_nil(tag), do: Atom.to_string(tag)
+  defp error_code({tag, _, _}) when is_atom(tag) and not is_nil(tag), do: Atom.to_string(tag)
+  defp error_code(_other), do: "oidc_login_failed"
 end

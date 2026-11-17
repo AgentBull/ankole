@@ -3,6 +3,8 @@ defmodule Ankole.AIGateway.Schemas.MediaJob do
   One video or music generation, which the Provider finishes after the gateway
   request has returned.
 
+  `credential_id` names the Provider pool entry that accepted the generation or
+  result link, so subsequent polling and downloads remain on that account.
   `upstream_job_id` names the generation at a Provider that is asked for its
   state. `result_url` is the Provider's link to the generated file, kept from
   the moment the Provider reports it until AIGateway has saved the file.
@@ -49,6 +51,7 @@ defmodule Ankole.AIGateway.Schemas.MediaJob do
       constraints: [one_of: [:pending, :in_progress, :completed, :failed]]
     )
 
+    attribute(:credential_id, :string, constraints: [trim?: false])
     attribute(:upstream_job_id, :string, constraints: [trim?: false])
     attribute(:result_url, :string, sensitive?: true, constraints: [trim?: false])
     attribute(:usage, :map)
@@ -86,6 +89,7 @@ defmodule Ankole.AIGateway.Schemas.MediaJob do
     update :advance do
       accept([
         :status,
+        :credential_id,
         :request,
         :upstream_job_id,
         :result_url,

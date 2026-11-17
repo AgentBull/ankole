@@ -104,6 +104,13 @@ defmodule Ankole.Signals.Signal do
       public?: true
     )
 
+    attribute(:infrastructure_attempt_count, :integer,
+      constraints: [min: 0],
+      default: 0,
+      allow_nil?: false,
+      public?: true
+    )
+
     attribute(:queue_sequence, :integer, allow_nil?: false, public?: true)
     attribute(:data, Ankole.Ash.Types.JSONValue, default: %{}, public?: true)
     attribute(:extensions, Ankole.Ash.Types.JSONMap, default: %{}, public?: true)
@@ -210,7 +217,8 @@ defmodule Ankole.Signals.Signal do
         atomic_update(
           :attempt_count,
           expr(
-            if(attempt_count > provider_capacity_attempt_count,
+            if(
+              attempt_count > provider_capacity_attempt_count + infrastructure_attempt_count,
               do: attempt_count - 1,
               else: attempt_count
             )
@@ -228,6 +236,7 @@ defmodule Ankole.Signals.Signal do
     update :defer do
       accept([:available_at])
       argument(:provider_capacity?, :boolean, default: false, allow_nil?: false)
+      argument(:infrastructure?, :boolean, default: false, allow_nil?: false)
 
       change(
         atomic_update(
@@ -235,6 +244,14 @@ defmodule Ankole.Signals.Signal do
           expr(provider_capacity_attempt_count + 1)
         ),
         where: [argument_equals(:provider_capacity?, true)]
+      )
+
+      change(
+        atomic_update(
+          :infrastructure_attempt_count,
+          expr(infrastructure_attempt_count + 1)
+        ),
+        where: [argument_equals(:infrastructure?, true)]
       )
 
       change(transition_state(:queued))
@@ -245,6 +262,7 @@ defmodule Ankole.Signals.Signal do
       accept([:available_at])
       change(set_attribute(:attempt_count, 0))
       change(set_attribute(:provider_capacity_attempt_count, 0))
+      change(set_attribute(:infrastructure_attempt_count, 0))
       change(set_attribute(:last_attempt_at, nil))
       change(transition_state(:queued))
     end

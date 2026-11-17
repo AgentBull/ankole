@@ -262,7 +262,10 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
        }) do
     title =
       case card.status do
+        :executing -> "执行中"
         :executed -> "已执行"
+        :execution_uncertain -> "结果未确认"
+        :failed -> "执行失败"
         :cancelled -> "已取消"
         :stale -> "已过期"
         _other -> "已处理"

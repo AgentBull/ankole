@@ -254,12 +254,24 @@ defmodule Ankole.Signals.Webhooks do
     end
   end
 
+  @delivery_id_headers ~w(
+    webhook-id
+    svix-id
+    idempotency-key
+    x-idempotency-key
+    x-github-delivery
+    x-gitlab-event-uuid
+    x-linear-delivery
+    x-shopify-webhook-id
+    x-stripe-webhook-id
+  )
+
   defp incoming_event(endpoint, {:raw, headers, body}, now),
     do:
       {:ok,
        receipt_payload(
          endpoint,
-         "webhook:#{endpoint.id}:#{UUIDv7.autogenerate()}",
+         raw_webhook_event_id(endpoint.id, headers),
          headers,
          body,
          now
@@ -267,6 +279,43 @@ defmodule Ankole.Signals.Webhooks do
 
   defp incoming_event(_endpoint, {:cloudevents, event}, _now),
     do: Ankole.Signals.CloudEvents.normalize(event)
+
+  defp raw_webhook_event_id(endpoint_id, headers) when is_list(headers) do
+    lowered =
+      Enum.reduce(headers, %{}, fn
+        {k, v}, acc when is_binary(k) and is_binary(v) ->
+          trimmed = String.trim(v)
+          if trimmed != "", do: Map.put_new(acc, String.downcase(k), trimmed), else: acc
+
+        _, acc ->
+          acc
+      end)
+
+    delivery_token =
+      Enum.find_value(@delivery_id_headers, fn header ->
+        case Map.get(lowered, header) do
+          val when is_binary(val) -> "#{header}:#{val}"
+          nil -> nil
+        end
+      end) || slack_delivery_token(lowered)
+
+    case delivery_token do
+      token when is_binary(token) ->
+        digest = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower) |> binary_part(0, 32)
+        "webhook:#{endpoint_id}:ext:#{digest}"
+
+      nil ->
+        "webhook:#{endpoint_id}:#{UUIDv7.autogenerate()}"
+    end
+  end
+
+  defp slack_delivery_token(%{
+         "x-slack-request-timestamp" => ts,
+         "x-slack-signature" => sig
+       }),
+       do: "slack:#{ts}:#{sig}"
+
+  defp slack_delivery_token(_lowered), do: nil
 
   defp default_binding(%{event_format: "cloudevents", owner_job_id: nil}, _), do: :ok
 

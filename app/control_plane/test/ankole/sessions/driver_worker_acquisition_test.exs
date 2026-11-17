@@ -7,7 +7,7 @@ defmodule Ankole.Sessions.WorkerAcquisitionTest do
     assert {^state, []} = Acquisition.next(state, :request, 60_000)
     {state, effects} = Acquisition.next(state, :acquire, 120_000)
     assert :resolve in effects
-    assert {{:opening, 120_000, nil}, []} = Acquisition.next(state, :expired, 120_001)
+    assert {{:opening, :starting, 120_000, nil}, []} = Acquisition.next(state, :expired, 120_001)
   end
 
   for phase <- [:starting, :resuming, :retrying, :replacing, :preparing, :capacity] do
@@ -19,11 +19,23 @@ defmodule Ankole.Sessions.WorkerAcquisitionTest do
       assert :request in effects
       {state, [:resolve]} = Acquisition.next(state, :acquire, 20_000)
       {state, _} = Acquisition.next(state, {:resolved, {:wait, phase}}, 30_000)
-      assert {^state, []} = Acquisition.next(state, :expired, 60_099)
+      assert {^state, []} = Acquisition.next(state, :expired, 150_099)
 
       assert {{:unavailable, {:timeout, ^phase}}, [{:unavailable, {:timeout, ^phase}}]} =
-               Acquisition.next(state, :expired, 60_100)
+               Acquisition.next(state, :expired, 150_100)
     end
+  end
+
+  test "advancing out of image preparation renews the deadline for container boot" do
+    {state, _} = Acquisition.next(:idle, :acquire, 100)
+    {state, _} = Acquisition.next(state, {:resolved, {:wait, :preparing}}, 200)
+    {state, [:resolve]} = Acquisition.next(state, :acquire, 90_000)
+    {state, effects} = Acquisition.next(state, {:resolved, {:wait, :starting}}, 95_000)
+    assert {:phase, :starting} in effects
+    assert {^state, []} = Acquisition.next(state, :expired, 244_999)
+
+    assert {{:unavailable, {:timeout, :starting}}, _} =
+             Acquisition.next(state, :expired, 245_000)
   end
 
   test "workspace replies can precede the send result" do
@@ -50,7 +62,7 @@ defmodule Ankole.Sessions.WorkerAcquisitionTest do
     assert {^state, [{:check, ^row}]} = Acquisition.next(state, :check, 1)
     assert {^state, [:probe]} = Acquisition.next(state, {:checked, {:ok, :same}}, 2)
 
-    assert {{:opening, 3, nil}, [:retry_calls, :resolve]} =
+    assert {{:opening, :starting, 3, nil}, [:retry_calls, :resolve]} =
              Acquisition.next(state, {:checked, {:ok, :changed}}, 3)
   end
 
@@ -68,15 +80,15 @@ defmodule Ankole.Sessions.WorkerAcquisitionTest do
 
   test "a connection change during opening resolves again without extending the deadline" do
     row = %{transport_route: "old"}
-    state = {:opening, 10, row}
+    state = {:opening, :starting, 10, row}
     assert {^state, [{:check, ^row}]} = Acquisition.next(state, :check, 20)
     assert {^state, []} = Acquisition.next(state, {:checked, {:ok, :same}}, 30)
 
-    assert {{:opening, 10, nil} = retry, [:resolve]} =
+    assert {{:opening, :starting, 10, nil} = retry, [:resolve]} =
              Acquisition.next(state, {:checked, {:ok, :changed}}, 40)
 
     assert {^retry, [:resolve]} = Acquisition.next(retry, :check, 50)
-    assert {{:unavailable, {:timeout, :starting}}, _} = Acquisition.next(retry, :expired, 60_010)
+    assert {{:unavailable, {:timeout, :starting}}, _} = Acquisition.next(retry, :expired, 150_010)
   end
 
   test "unavailability lasts until the run ends and ignores late replies" do
@@ -121,11 +133,17 @@ defmodule Ankole.Sessions.WorkerAcquisitionTest do
   test "a committed round abandons only unfinished acquisition and cancels its timers" do
     row = %{transport_route: "route"}
 
-    for state <- [{:opening, 10, nil}, {:opening, 10, row}, {:waiting, :capacity, 10}] do
+    for state <- [
+          {:opening, :starting, 10, nil},
+          {:opening, :starting, 10, row},
+          {:opening, :preparing, 10, nil},
+          {:waiting, :capacity, 10}
+        ] do
+      assert Acquisition.acquiring?(state)
       assert {{:idle, :requested} = idle, []} = Acquisition.next(state, :round_committed, 30_000)
       assert [{:acquire, :cancel}, {:check, :cancel}] = Acquisition.timers(idle, 30_000)
 
-      assert {{:opening, 70_000, nil}, [{:phase, :starting}, :resolve]} =
+      assert {{:opening, :starting, 70_000, nil}, [{:phase, :starting}, :resolve]} =
                Acquisition.next(idle, :acquire, 70_000)
     end
 
@@ -138,7 +156,7 @@ defmodule Ankole.Sessions.WorkerAcquisitionTest do
     for state <- [
           :idle,
           {:idle, :requested},
-          {:opening, 10, nil},
+          {:opening, :starting, 10, nil},
           {:waiting, :capacity, 10},
           {:ready, row}
         ],

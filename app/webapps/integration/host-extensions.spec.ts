@@ -13,7 +13,7 @@ test('FixturePodModule loads on selection and returns to General when its featur
       }
     })
   )
-  await page.route('**/api/v2/saas-pod/fixture-settings', route => {
+  await page.route('**/api/v2/fixture-pod/fixture-settings', route => {
     requests++
     return route.fulfill({ json: { tenantID: 'fixture-tenant' } })
   })

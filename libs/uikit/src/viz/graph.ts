@@ -1,6 +1,7 @@
 import { Renderer as SVGRenderer } from '@antv/g-svg'
 import { CanvasEvent, Graph, NodeEvent, type IElementEvent } from '@antv/g6'
 import {
+  INCREMENTAL_FORCE_ALPHA,
   buildG6GraphSpec,
   computeGraphTopology,
   projectGraphAnchors,
@@ -21,6 +22,7 @@ import { finalizeExportedSvg, type ExportedSvgArtifact } from './svg-export'
 import { resolveVizTheme, type VizThemeMode } from './theme'
 
 export {
+  INCREMENTAL_FORCE_ALPHA,
   buildG6GraphSpec,
   computeGraphTopology,
   projectGraphAnchors,

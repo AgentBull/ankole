@@ -33,9 +33,16 @@ let phoenixShutdownGuardInstalled = false
 const entries = {
   ...webappEntries(),
   ...Object.fromEntries(
-    ['react', 'react-jsx-runtime', 'react-jsx-dev-runtime', 'react-dom', 'react-dom-client', 'uikit', 'applet-sdk'].map(
-      name => [`applet-${name}`, path.join(dirname, `entrypoints/applet-vendor/${name}.ts`)]
-    )
+    [
+      'react',
+      'react-jsx-runtime',
+      'react-jsx-dev-runtime',
+      'react-dom',
+      'react-dom-client',
+      'uikit',
+      'uikit-icons',
+      'applet-sdk'
+    ].map(name => [`applet-${name}`, path.join(dirname, `entrypoints/applet-vendor/${name}.ts`)])
   )
 }
 const phoenixPort = process.env.PORT || '4000'
@@ -138,7 +145,6 @@ function manualChunks(moduleID: string): string | undefined {
   if (
     moduleID.includes('/@base-ui/') ||
     moduleID.includes('/@floating-ui/') ||
-    moduleID.includes('/@fluentui/react-icons/') ||
     packageName === '@tanstack/react-form' ||
     packageName === '@tanstack/form-core' ||
     packageName === '@tanstack/react-store' ||
@@ -303,6 +309,38 @@ export default defineConfig(({ command }): UserConfig => ({
     {
       name: 'ankole-precompressed-assets',
       apply: 'build',
+      generateBundle(_options, bundle) {
+        const chunks = Object.values(bundle).filter(item => item.type === 'chunk')
+        const closure = (entry: string) => {
+          const root = chunks.find(chunk => chunk.facadeModuleId?.replaceAll('\\', '/').endsWith(entry))
+          const found = new Set<string>()
+          const queue = root ? [root.fileName] : []
+          while (queue.length) {
+            const name = queue.pop()!
+            if (found.has(name)) continue
+            found.add(name)
+            const chunk = bundle[name]
+            if (chunk?.type === 'chunk') queue.push(...chunk.imports)
+          }
+          return found
+        }
+        const icons = closure('/entrypoints/applet-vendor/uikit-icons.ts')
+        const uikit = closure('/entrypoints/applet-vendor/uikit.ts')
+        const iconModules = (files: Set<string>) =>
+          new Set(
+            chunks
+              .filter(chunk => files.has(chunk.fileName))
+              .flatMap(chunk => Object.keys(chunk.modules))
+              .filter(id => id.includes('/@fluentui/react-icons/') && id.includes('/svg/'))
+          )
+        const catalogue = iconModules(icons)
+        const eager = iconModules(uikit)
+        if (catalogue.size && [...catalogue].every(id => eager.has(id))) {
+          throw new Error(
+            'Applet UIKit eagerly imports the complete icon catalogue. Keep icon-only chunks out of its static dependencies.'
+          )
+        }
+      },
       closeBundle(error) {
         if (error || !existsSync(outputPath)) return
         const manifestPath = path.join(outputPath, 'manifest.json')

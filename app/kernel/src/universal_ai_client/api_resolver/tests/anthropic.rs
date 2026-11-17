@@ -820,3 +820,281 @@ fn anthropic_strict_rejects_forced_tool_choice_when_thinking_is_enabled() {
         assert_eq!(err.provider_status, Some(400));
     }
 }
+
+#[test]
+fn anthropic_refusal_stop_reason_maps_to_incomplete_content_filter_on_one_shot_and_stream() {
+    let mut one_shot = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        ResponseContext {
+            policy: ConversionPolicy::Strict,
+            ..ResponseContext::default()
+        },
+    );
+    let response = one_shot
+        .normalize_body(
+            200,
+            json!({
+                "id": "msg_refusal",
+                "model": "claude-test",
+                "content": [],
+                "stop_reason": "refusal",
+                "usage": {"input_tokens": 8, "output_tokens": 0}
+            }),
+        )
+        .unwrap();
+    assert_eq!(response["status"], "incomplete");
+    assert_eq!(response["incomplete_details"]["reason"], "content_filter");
+    assert!(response["completed_at"].is_null());
+    assert_eq!(response["output"], json!([]));
+
+    let mut stream = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        ResponseContext {
+            policy: ConversionPolicy::Strict,
+            ..ResponseContext::default()
+        },
+    );
+    stream
+        .ingest(json!({
+            "type": "message_start",
+            "message": {"id": "msg_stream_refusal", "model": "claude-test", "usage": {"input_tokens": 6}}
+        }))
+        .unwrap();
+    stream
+        .ingest(json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "refusal"},
+            "usage": {"output_tokens": 0}
+        }))
+        .unwrap();
+    let events = stream.ingest(json!({"type": "message_stop"})).unwrap();
+    let terminal = events.last().unwrap();
+    assert_eq!(terminal["type"], "response.incomplete");
+    assert_eq!(terminal["response"]["status"], "incomplete");
+    assert_eq!(
+        terminal["response"]["incomplete_details"]["reason"],
+        "content_filter"
+    );
+    assert!(terminal["response"]["completed_at"].is_null());
+}
+
+#[test]
+fn anthropic_message_threads_create_and_continue_slice_coalesced_messages_and_omit_create_only_fields()
+ {
+    let source = json!({
+        "provider_type": "claude",
+        "model_id": "claude-sonnet-4-6",
+        "account_id": "prov:cred"
+    });
+    let tools = json!([{
+        "type": "function",
+        "name": "calc",
+        "description": "Calculator",
+        "parameters": {"type": "object", "properties": {"expr": {"type": "string"}}}
+    }]);
+
+    // Turn 1: create thread with system, tools, thinking, and tool_use output.
+    let turn1_ctx = ResponseContext {
+        model: "claude-sonnet-4-6".to_string(),
+        request: json!({
+            "__ankole_reasoning_source": source,
+            "__ankole_anthropic_thread": {"mode": "create"},
+            "instructions": "Be concise.",
+            "tools": tools,
+            "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "2+2?"}]}]
+        }),
+        provider_options: json!({"thinking": {"type": "adaptive"}}),
+        stream: Some(true),
+        include_model: true,
+        policy: ConversionPolicy::Strict,
+    };
+    let mut resolver1 = APIResolver::new(APIResolverKind::AnthropicMessages, turn1_ctx);
+    let body1 = resolver1.build_body().unwrap();
+    assert_eq!(body1["thread"], json!({"type": "create"}));
+    assert_eq!(body1["system"], "Be concise.");
+    assert!(body1.contains_key("tools"));
+    assert_eq!(body1["messages"].as_array().unwrap().len(), 1);
+
+    resolver1
+        .ingest(json!({
+            "type": "message_start",
+            "message": {"id": "msg_turn_1", "model": "claude-sonnet-4-6", "usage": {"input_tokens": 20}}
+        }))
+        .unwrap();
+    resolver1
+        .ingest(json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "thinking", "thinking": "", "signature": ""}
+        }))
+        .unwrap();
+    resolver1
+        .ingest(json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": "add"}
+        }))
+        .unwrap();
+    resolver1
+        .ingest(json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "signature_delta", "signature": "sig_1"}
+        }))
+        .unwrap();
+    resolver1
+        .ingest(json!({"type": "content_block_stop", "index": 0}))
+        .unwrap();
+    resolver1
+        .ingest(json!({
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {"type": "tool_use", "id": "toolu_1", "name": "calc"}
+        }))
+        .unwrap();
+    resolver1
+        .ingest(json!({
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {"type": "input_json_delta", "partial_json": "{\"expr\":\"2+2\"}"}
+        }))
+        .unwrap();
+    resolver1
+        .ingest(json!({"type": "content_block_stop", "index": 1}))
+        .unwrap();
+    resolver1
+        .ingest(json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "tool_use"},
+            "usage": {"output_tokens": 12}
+        }))
+        .unwrap();
+    let events1 = resolver1.ingest(json!({"type": "message_stop"})).unwrap();
+    let turn1_output = events1.last().unwrap()["response"]["output"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(turn1_output.len(), 2);
+
+    let meta1 = resolver1.completion_metadata().unwrap();
+    let thread_meta1 = &meta1["anthropic_thread"];
+    assert_eq!(thread_meta1["effective_mode"], "create");
+    assert_eq!(thread_meta1["prefix_mismatch_fallback"], false);
+    assert_eq!(thread_meta1["upstream_message_id"], "msg_turn_1");
+    assert_eq!(thread_meta1["fallback_message_used"], false);
+    let prefix_count = thread_meta1["next_prefix_count"].as_u64().unwrap();
+    let prefix_digest = thread_meta1["next_prefix_digest"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(prefix_count, 2);
+
+    // Turn 2: continue thread with full canonical history; only tool_result suffix goes upstream.
+    let mut turn2_input = vec![json!({
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "2+2?"}]
+    })];
+    turn2_input.extend(turn1_output);
+    turn2_input.push(json!({
+        "type": "function_call_output",
+        "call_id": "toolu_1",
+        "output": "4"
+    }));
+
+    let turn2_ctx = ResponseContext {
+        model: "claude-sonnet-4-6".to_string(),
+        request: json!({
+            "__ankole_reasoning_source": source,
+            "__ankole_anthropic_thread": {
+                "mode": "continue",
+                "previous_message_id": "msg_turn_1",
+                "expected_prefix_count": prefix_count,
+                "expected_prefix_digest": prefix_digest,
+            },
+            "instructions": "Be concise.",
+            "tools": tools,
+            "input": turn2_input,
+        }),
+        provider_options: json!({"thinking": {"type": "adaptive"}}),
+        stream: Some(true),
+        include_model: true,
+        policy: ConversionPolicy::Strict,
+    };
+    let resolver2 = APIResolver::new(APIResolverKind::AnthropicMessages, turn2_ctx.clone());
+    let body2 = resolver2.build_body().unwrap();
+    assert_eq!(
+        body2["thread"],
+        json!({"type": "continue", "previous_message_id": "msg_turn_1"})
+    );
+    assert!(!body2.contains_key("system"));
+    assert!(!body2.contains_key("tools"));
+    let msgs2 = body2["messages"].as_array().unwrap();
+    assert_eq!(msgs2.len(), 1);
+    assert_eq!(msgs2[0]["role"], "user");
+    assert_eq!(msgs2[0]["content"][0]["type"], "tool_result");
+    assert_eq!(msgs2[0]["content"][0]["tool_use_id"], "toolu_1");
+
+    // Mutated history digest falls back in-place to full create with system and tools restored.
+    let mismatch_ctx = ResponseContext {
+        request: json!({
+            "__ankole_reasoning_source": source,
+            "__ankole_anthropic_thread": {
+                "mode": "continue",
+                "previous_message_id": "msg_turn_1",
+                "expected_prefix_count": prefix_count,
+                "expected_prefix_digest": "wrong_digest",
+            },
+            "instructions": "Be concise.",
+            "tools": tools,
+            "input": turn2_ctx.request["input"],
+        }),
+        ..turn2_ctx
+    };
+    let resolver_mismatch = APIResolver::new(APIResolverKind::AnthropicMessages, mismatch_ctx);
+    let body_mismatch = resolver_mismatch.build_body().unwrap();
+    assert_eq!(body_mismatch["thread"], json!({"type": "create"}));
+    assert_eq!(body_mismatch["system"], "Be concise.");
+    assert!(body_mismatch.contains_key("tools"));
+    assert_eq!(body_mismatch["messages"].as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn anthropic_message_threads_skips_anchor_on_fallback_message_or_incomplete() {
+    let ctx = ResponseContext {
+        model: "claude-sonnet-4-6".to_string(),
+        request: json!({
+            "__ankole_anthropic_thread": {"mode": "create"},
+            "input": "hello"
+        }),
+        stream: Some(false),
+        include_model: true,
+        policy: ConversionPolicy::Strict,
+        ..ResponseContext::default()
+    };
+    let mut resolver = APIResolver::new(APIResolverKind::AnthropicMessages, ctx);
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({
+                "id": "msg_fallback",
+                "model": "claude-haiku-4-5",
+                "content": [{"type": "text", "text": "hi from fallback"}],
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 4,
+                    "iterations": [
+                        {"type": "fallback_message", "input_tokens": 10, "output_tokens": 4}
+                    ]
+                }
+            }),
+        )
+        .unwrap();
+    assert!(response["usage"].get("iterations").is_none());
+
+    let meta = resolver.completion_metadata().unwrap();
+    assert_eq!(meta["anthropic_thread"]["fallback_message_used"], true);
+    assert!(meta["anthropic_thread"]["next_prefix_digest"].is_null());
+    assert!(meta["anthropic_thread"]["next_prefix_count"].is_null());
+}

@@ -5,7 +5,6 @@ defmodule Ankole.Principals.Access.Actions do
   alias Ankole.Principals
   alias Ankole.Principals.HumanAccess
   alias Ankole.Principals.WorkAccess
-  alias Ankole.Principals.WorkCleanup
 
   @impl true
   def run(input, _opts, context) do
@@ -44,15 +43,18 @@ defmodule Ankole.Principals.Access.Actions do
     |> changed(args.uid)
   end
 
-  defp action(:retry_cleanup, args, _context) do
-    with {:ok, %{type: :human} = principal} <- Principals.get_principal(args.uid),
-         :ok <- WorkCleanup.enqueue_in_tx(args.uid, principal.access_version) do
-      HumanAccess.console_view(args.uid)
-    else
-      {:ok, _} -> {:error, :not_human}
-      error -> error
-    end
+  defp action(:recover_pod_admin, args, context) do
+    HumanAccess.recover_pod_admin_from_console(
+      args.uid,
+      actor(context),
+      args.reason,
+      args.operation_id
+    )
+    |> changed(args.uid)
   end
+
+  defp action(:retry_cleanup, args, _context),
+    do: HumanAccess.retry_cleanup_view(args.uid)
 
   defp action(:classify_work, args, context) do
     human_uid = if args.authorization_kind == :human, do: Map.get(args, :human_uid)
@@ -77,11 +79,6 @@ defmodule Ankole.Principals.Access.Actions do
     do: Ankole.AuthZ.describe_group_refusal(:last_active_human_admin)
 
   defp describe(:cannot_disable_self), do: {:conflict, "You cannot disable your own access.", []}
-
-  defp describe(:provider_recovery_not_verified),
-    do:
-      {:conflict, "Verify recovery with the identity provider before clearing this restriction.",
-       []}
 
   defp describe(:tenant_deleting),
     do: {:conflict, "Access cannot be restored while the tenant is being deleted.", []}

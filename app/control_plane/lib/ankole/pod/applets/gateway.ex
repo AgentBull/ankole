@@ -21,17 +21,30 @@ defmodule Ankole.Pod.Applets.Gateway do
   @doc "Invokes an AIGateway capability under `caller: \"pod_applet\"` and maps failures into Applet HTTP error envelopes."
   def call(principal, domain, create, request, extra_opts \\ [])
       when domain in [:ai, :ai_image, :web_search, :web_fetch] and is_function(create, 3) do
+    {applet_page_id, extra_opts} = Keyword.pop(extra_opts, :applet_page_id)
+
+    base_context =
+      principal
+      |> human_context()
+      |> maybe_put_service_uid(applet_page_id)
+      |> Map.merge(Keyword.get(extra_opts, :request_context, %{}))
+
     opts =
-      Keyword.merge(
-        [caller: "pod_applet", request_context: human_context(principal)],
-        extra_opts
-      )
+      [caller: "pod_applet"]
+      |> Keyword.merge(extra_opts)
+      |> Keyword.put(:request_context, base_context)
 
     case create.(principal.uid, request, opts) do
       {:ok, %{body: body}} -> {:ok, body}
       {:error, reason} -> {:error, error(domain, reason)}
     end
   end
+
+  defp maybe_put_service_uid(context, page_id) when is_binary(page_id) do
+    Map.put(context, "service_uid", Ankole.Principals.ServiceAccounts.applet_uid(page_id))
+  end
+
+  defp maybe_put_service_uid(context, _page_id), do: context
 
   @doc "Projects an internal or gateway error reason into the public Applet error envelope."
   def error(_domain, %OpenAIError{code: "request_too_large", message: message}),
@@ -64,6 +77,9 @@ defmodule Ankole.Pod.Applets.Gateway do
 
   def error(_domain, {:agent_token_quota_exceeded, _}),
     do: envelope(429, "agent_token_quota_exceeded")
+
+  def error(_domain, {:service_token_quota_exceeded, _}),
+    do: envelope(429, "service_token_quota_exceeded")
 
   def error(_domain, {:reasoning_effort, _}),
     do: envelope(422, "invalid_effort")

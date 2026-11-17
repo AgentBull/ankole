@@ -78,7 +78,10 @@ defmodule Ankole.AIGateway.Providers.GoogleVertexAI do
   def prepare_language_model(ctx) do
     with {:ok, access_token} <- access_token(ctx.settings),
          {:ok, project_id} <- project_id(ctx.settings) do
-      ctx = %{ctx | model: publisher_model(ctx.model)}
+      ctx =
+        ctx
+        |> Map.put(:model, publisher_model(ctx.model))
+        |> drop_unsupported_chat_fields()
 
       ctx
       |> UniversalAIRequest.new(
@@ -91,6 +94,11 @@ defmodule Ankole.AIGateway.Providers.GoogleVertexAI do
       |> put_safety_settings(ctx.settings[:safety_threshold])
     end
   end
+
+  defp drop_unsupported_chat_fields(%{request: request} = ctx) when is_map(request),
+    do: %{ctx | request: Map.delete(request, "prompt_cache_key")}
+
+  defp drop_unsupported_chat_fields(ctx), do: ctx
 
   @doc false
   @impl Ankole.AIGateway.Provider

@@ -5,11 +5,17 @@ defmodule Ankole.Sessions.PromptTest do
   @reply_rule "Keep the body of a chat reply within about 150 Chinese characters or 100 English words"
   @peer_rule "You are working in an asynchronous peer exchange."
 
-  test "chat channels carry the reply length rule, peer exchanges the peer rule, and channel-less sessions neither" do
+  test "chat channels carry the reply length rule, external IM hides it, peer exchanges the peer rule, and channel-less sessions neither" do
     for channel <- [room(:participants), room(nil)] do
       prompt = Prompt.system(opts(channel))
       assert prompt =~ @reply_rule
       refute prompt =~ @peer_rule
+    end
+
+    for kind <- ["im_dm", "im_group"] do
+      im_prompt = Prompt.system(opts(%{room(:participants) | kind: kind, adapter: "lark"}))
+      refute im_prompt =~ @reply_rule
+      refute im_prompt =~ @peer_rule
     end
 
     prompt = Prompt.system(opts(room(:agent_peer)))
@@ -22,6 +28,12 @@ defmodule Ankole.Sessions.PromptTest do
   end
 
   test "the instructions describe the mounted Drive whatever this turn's Worker reports" do
+    mounted = Prompt.mounted_drive_instructions()
+    assert mounted =~ "/drive/MyDrive"
+    assert mounted =~ "-maxdepth"
+    refute mounted =~ "/drive/my/"
+    refute mounted =~ "/drive/spaces/"
+
     prompt = Prompt.system(opts(room(:participants)))
     assert prompt =~ Prompt.drive_instructions()
 

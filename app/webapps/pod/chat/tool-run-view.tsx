@@ -19,23 +19,21 @@ import { formatElapsed } from './elapsed'
 import { ExecutionStatusMark } from './execution-status'
 import type { ExecutionStep } from './types'
 
+function resolveToolIcon(tool: string, toolKind?: string) {
+  if (toolKind === 'skill' || tool === 'skill_view') return SparkleRegular
+  if (toolKind === 'patch' || tool === 'apply_patch' || /edit_file|write_file/.test(tool)) return DocumentEditRegular
+  if (toolKind === 'collab' || /spawnAgent|sendInput|resumeAgent|closeAgent|background_job|workflow/.test(tool)) {
+    return TextBulletListTreeRegular
+  }
+  if (/bash|terminal|command|shell/.test(tool)) return WindowConsoleRegular
+  if (/base|db\.|query/.test(tool)) return DatabaseRegular
+  if (toolKind === 'search' || /brain|search|memory|^grep$|^find$/.test(tool)) return SearchRegular
+  if (/page|file|read|^ls$/.test(tool)) return DocumentTextRegular
+  return WrenchScrewdriverRegular
+}
+
 function ToolIcon({ tool, toolKind }: { tool: string; toolKind?: string }) {
-  const Icon =
-    toolKind === 'skill' || tool === 'skill_view'
-      ? SparkleRegular
-      : toolKind === 'patch' || tool === 'apply_patch' || /edit_file|write_file/.test(tool)
-        ? DocumentEditRegular
-        : toolKind === 'collab' || /spawnAgent|sendInput|resumeAgent|closeAgent|background_job|workflow/.test(tool)
-          ? TextBulletListTreeRegular
-          : /bash|terminal|command|shell/.test(tool)
-            ? WindowConsoleRegular
-            : /base|db\.|query/.test(tool)
-              ? DatabaseRegular
-              : toolKind === 'search' || /brain|search|memory|^grep$|^find$/.test(tool)
-                ? SearchRegular
-                : /page|file|read|^ls$/.test(tool)
-                  ? DocumentTextRegular
-                  : WrenchScrewdriverRegular
+  const Icon = resolveToolIcon(tool, toolKind)
   return <Icon aria-hidden />
 }
 

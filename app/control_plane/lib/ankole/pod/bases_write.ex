@@ -13,6 +13,8 @@ defmodule Ankole.Pod.Bases.Write do
     :shard,
     :timezone,
     :deadline,
+    :origin_binding_id,
+    base_hop_count: 0,
     definitions: %{},
     conversions: %{},
     tables: %{},
@@ -60,6 +62,8 @@ defmodule Ankole.Pod.Bases.Write do
         locked ->
           with {:ok, _} <- Bases.table_access(actor, locked, intent),
                {:ok, timezone} <- Ankole.SystemConfig.timezone() do
+            {origin_binding_id, base_hop_count} = resolve_base_causation(actor.turn_authority)
+
             {:ok,
              %__MODULE__{
                uid: Ankole.AuthZ.Actor.uid(actor),
@@ -69,6 +73,8 @@ defmodule Ankole.Pod.Bases.Write do
                shard: BaseRepo.shard!(),
                timezone: timezone,
                deadline: Ankole.Pod.Access.deadline(),
+               origin_binding_id: origin_binding_id,
+               base_hop_count: base_hop_count,
                definitions: Map.new(tables, fn {id, _} -> {id, Bases.fields(id)} end)
              }}
           end
@@ -156,4 +162,44 @@ defmodule Ankole.Pod.Bases.Write do
     own = Enum.find(changes, &(&1.id == id))
     own |> Map.delete(:id) |> Map.put(:related, Enum.reject(changes, &(&1.id == id)))
   end
+
+  defp resolve_base_causation({%Ankole.AutomationJobs.AttemptRef{run_id: run_id}, _uid})
+       when is_integer(run_id) do
+    case Ankole.AutomationJobs.get_automation_job_run!(run_id) do
+      %{binding_id: binding_id, event: event} ->
+        prior =
+          case get_in(event || %{}, ["data", "base_hop_count"]) do
+            hops when is_integer(hops) and hops >= 0 -> hops
+            _ -> 0
+          end
+
+        hops =
+          if String.starts_with?(Map.get(event || %{}, "source") || "", "ankole:base:"),
+            do: prior + 1,
+            else: 0
+
+        {binding_id, hops}
+
+      _ ->
+        {nil, 0}
+    end
+  end
+
+  defp resolve_base_causation({%{signal_id: signal_id}, _uid}) when is_binary(signal_id) do
+    case Ankole.Signals.get_signal!(signal_id) do
+      %{internal_extensions: %{"ankole_base_causation" => causation}} when is_map(causation) ->
+        hops =
+          case causation["base_hop_count"] do
+            n when is_integer(n) and n >= 0 -> n
+            _ -> 0
+          end
+
+        {causation["binding_id"], hops}
+
+      _ ->
+        {nil, 0}
+    end
+  end
+
+  defp resolve_base_causation(_authority), do: {nil, 0}
 end

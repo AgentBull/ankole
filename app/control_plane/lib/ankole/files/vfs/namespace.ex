@@ -41,15 +41,29 @@ defmodule Ankole.Files.Vfs.Namespace do
     end)
   end
 
-  def resolve(scope, path), do: resolve(scope, path, false)
-  def resolve_write(scope, path), do: resolve(scope, path, true)
+  def resolve(scope, path), do: resolve_normalized(scope, normalize_segments(path), false)
+  def resolve_write(scope, path), do: resolve_normalized(scope, normalize_segments(path), true)
 
-  defp resolve(_scope, [], _body), do: {:ok, %{node: nil, kind: :root, name: ""}}
+  defp normalize_segments(path) when is_list(path) do
+    Enum.map(path, fn
+      seg when is_binary(seg) ->
+        case :unicode.characters_to_nfc_binary(seg) do
+          nfc when is_binary(nfc) -> nfc
+          _ -> seg
+        end
 
-  defp resolve(scope, [root | _] = path, _body) when root in ["Skills", "AGENTS.md", "DESIGN.md"],
-    do: Ankole.Files.Vfs.Library.resolve(scope, path)
+      other ->
+        other
+    end)
+  end
 
-  defp resolve(scope, [root | rest], body) do
+  defp resolve_normalized(_scope, [], _body), do: {:ok, %{node: nil, kind: :root, name: ""}}
+
+  defp resolve_normalized(scope, [root | _] = path, _body)
+       when root in ["Skills", "AGENTS.md", "DESIGN.md"],
+       do: Ankole.Files.Vfs.Library.resolve(scope, path)
+
+  defp resolve_normalized(scope, [root | rest], body) do
     case Enum.find(page_roots(scope), &(&1.name == root)) do
       nil ->
         {:error, :not_found}

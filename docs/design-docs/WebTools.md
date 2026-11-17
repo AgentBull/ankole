@@ -61,10 +61,12 @@ message stating why search is unavailable.
 
 ## `web_fetch`
 
-`web_fetch` accepts between one and five `https://` page URLs and returns
-readable text rather than raw binary bytes. It is not intended for PDFs,
-archives, images, audio, video, or executables—Agents use the command tool for
-explicit file downloads.
+Interactive Agent `web_fetch` tool calls accept between one and five `https://`
+page URLs and return readable text rather than raw binary bytes (whereas
+AIGateway `POST /web_fetch`, shared with Brain URL Sources and
+`AnkoleRuntime.web.fetch`, accepts `http://` and `https://` URLs under the SSRF
+private-network filter). It is not intended for PDFs, archives, images, audio,
+video, or executables—Agents use the command tool for explicit file downloads.
 
 Both foreground Sessions and Codex Jobs call AIGateway first with the
 `web_fetch.default` selector. When `web_fetch` resolves to a `cloudflare`
@@ -264,12 +266,14 @@ scripts.
 
 ## Block Unsafe URLs
 
-Model tool schemas accept only `https://` URLs, and the rendered fallback
-re-validates every URL before opening it. Across all environments, Ankole
-always blocks cloud-metadata hostnames (including trailing-dot variants) and
-metadata IP ranges; operators can also set `security.ssrf_filter` to `true`
-(default `false` so enterprise intranet pages work out of the box) to block
-private and loopback networks as well.
+Interactive Agent `web_fetch` tool schemas accept only `https://` URLs, while
+AIGateway `/v1/web_fetch` (used by Brain URL Sources and Applets) accepts public
+`http://` and `https://` URLs under the SSRF private-network filter, and the
+rendered fallback re-validates every URL before opening it. Across all
+environments, Ankole always blocks cloud-metadata hostnames (including
+trailing-dot variants) and metadata IP ranges; operators can also set
+`security.ssrf_filter` to `true` (default `false` so enterprise intranet pages
+work out of the box) to block private and loopback networks as well.
 
 URL parsing, host classification, and SSRF admission live in the Rust kernel—loaded
 as a NIF in Elixir and as a Node-API addon in `ankole-browser`—and share the

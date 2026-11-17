@@ -1,8 +1,8 @@
 # Core
 
 This directory contains the editing engine, forked from
-[Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit `7008e6a`
-(2026-11-10) under the MIT license in [LICENSE](LICENSE).
+[Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit `2d2d213`
+(2026-11-13) under the MIT license in [LICENSE](LICENSE).
 
 The fork lives inside `@ankole/block-editor` and shares the package's TypeScript
 compiler settings, formatter, and test runners. Upstream changes are never
@@ -59,7 +59,17 @@ Input handling:
   wrapper with the composition's undo step. When the user clears all preedit
   characters mid-composition, the editor removes the composed text without
   inserting a zero-length text leaf and keeps `InputState.composing` active
-  while focus stays in editable DOM.
+  while focus stays in editable DOM. An uncommitted `compositionstart` with zero
+  changes does not claim an unchanged text node as a composition target, and
+  primary-button `mousedown` and `blur` end any lingering `InputState.composing`
+  state when the browser omits `compositionend` (deferring active compositions
+  across a microtask on `blur` so DOM removal reaches `disconnect()` before
+  completion).
+- When `contentDOM` receives non-pointer focus with no pending selection change
+  and the browser leaves the selection outside `contentDOM` or reset to its
+  start, `focus` synchronously restores `state.selection` rather than filtering
+  `DOMObserver.pollSelection` across a post-focus time window, so explicit DOM
+  selections placed at the document start immediately after focus are still read.
 - `insertReplacementText` and `insertFromYank` read text from `data` when
   `dataTransfer` is absent. Non-cancelable replacements—and `input` events that
   arrive without a preceding `beforeinput`—are reconciled from the DOM whenever
@@ -101,9 +111,14 @@ Bug fixes:
   instead of recursing into itself and overflowing the call stack.
 - States without custom key-binding providers still apply the default keymap,
   reading the keymap facet optionally rather than requiring it on the state.
-- `ContentUpdate.copyEltStructure` preserves nested node-inner wrapper elements
-  and marks reused node-inner tiles as fully reused so content edits inside a
-  plot keep its inner DOM hierarchy and connected widgets intact.
+- Window `focus` and `blur` events schedule focus-state updates alongside
+  `contentDOM` focus changes, and regaining focus (`isFocusChange` `true`)
+  synchronizes the native DOM `Selection` with `state.selection` so a selection
+  change flushed before focus settled collapses any prior DOM range highlight.
+- `PointSet` converts relative coordinates across chunk origins and rebases a
+  chunk's `start` when out-of-order insertion crosses chunks or precedes a
+  chunk's first point, and `PointCursor.goto` compares absolute positions and
+  rewinds across equal-side points down to position `0`.
 
 Document and selection:
 

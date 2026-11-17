@@ -327,7 +327,7 @@ end
 
 客户端会统一识别这三种限流响应，等待退避时间后自动重试一次；若重试后仍被限流，则返回 `{:error, %FeishuOpenAPI.Error{code: :rate_limited}}`。
 
-计算等待时长时，客户端优先读取飞书专用的 `x-ogw-ratelimit-reset` 请求头，其次读取标准 `Retry-After`，若两者均未提供则默认等待约 1 秒，单次最大等待时间不超过 30 秒。
+计算等待时长时，客户端优先读取飞书专用的 `x-ogw-ratelimit-reset` 请求头，其次读取标准 `Retry-After`，若两者均未提供则默认等待约 1 秒，单次最大等待时间不超过 2 秒。
 
 每次限流重试都会触发一条 `[:feishu_openapi, :request, :rate_limited]` Telemetry 事件，元数据包含 `:method`、`:path`、`:app_id`、`:http_status`、`:source`（`:x_ogw_ratelimit_reset` | `:retry_after` | `:default`）、`:limit`（若有 `x-ogw-ratelimit-limit` 请求头则一并附带）以及 `:log_id`。如需在应用层监控限流，可挂载对应的事件处理函数。各接口的具体配额参见飞书[频控策略文档](https://open.feishu.cn/document/server-docs/api-call-guide/rate-limit)。
 

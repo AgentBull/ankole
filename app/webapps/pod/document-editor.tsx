@@ -192,54 +192,58 @@ export function DocumentPage({
         : {}),
       mountEmbed: (attributes, container, update, remove, collapseToMention) => {
         const trashed = Boolean(detail.page.deleted_at)
-        // The editor can hand a reused container to the next embed before this root unmounts.
         const mount = container.appendChild(document.createElement('div'))
         const root = createRoot(mount, rootErrorOptions)
-        root.render(
-          <I18nextProvider i18n={i18n}>
-            <QueryClientProvider client={client}>
-              <ContentScope value={content}>
-                <PageHostScope value={embedPageHost}>
-                  <ErrorBoundary
-                    variant="inline"
-                    resetKeys={[attributes.ref, attributes.table, attributes.view]}
-                    actions={
-                      canEdit && !trashed ? (
-                        <Button type="button" size="xs" variant="ghost" onClick={remove}>
-                          {i18n.t('pod.content.remove')}
-                        </Button>
-                      ) : undefined
-                    }>
-                    <PageEmbed
-                      attributes={attributes}
-                      canEdit={canEdit}
-                      trashed={trashed}
-                      model={model}
-                      remove={remove}
-                      collapseToMention={collapseToMention}
-                      configure={(config, table) =>
-                        update({ ...attributes, ...(table ? { table } : {}), view: JSON.stringify(config) })
-                      }
-                      bindSavedView={(viewID, table) =>
-                        update({
-                          ref: attributes.ref,
-                          ...(table ? { table } : attributes.table ? { table: attributes.table } : {}),
-                          ...(viewID ? { view: viewID } : {})
-                        })
-                      }
-                      openPage={id => void navigate({ to: content.pageHref(id) })}
-                    />
-                  </ErrorBoundary>
-                </PageHostScope>
-              </ContentScope>
-            </QueryClientProvider>
-          </I18nextProvider>
-        )
-        return () => {
-          queueMicrotask(() => {
-            root.unmount()
-            mount.remove()
-          })
+        const render = (attributes: Parameters<NonNullable<EditorHost['mountEmbed']>>[0]) =>
+          root.render(
+            <I18nextProvider i18n={i18n}>
+              <QueryClientProvider client={client}>
+                <ContentScope value={content}>
+                  <PageHostScope value={embedPageHost}>
+                    <ErrorBoundary
+                      variant="inline"
+                      resetKeys={[attributes.ref, attributes.table, attributes.view, attributes.props]}
+                      actions={
+                        canEdit && !trashed ? (
+                          <Button type="button" size="xs" variant="ghost" onClick={remove}>
+                            {i18n.t('pod.content.remove')}
+                          </Button>
+                        ) : undefined
+                      }>
+                      <PageEmbed
+                        attributes={attributes}
+                        canEdit={canEdit}
+                        trashed={trashed}
+                        model={model}
+                        remove={remove}
+                        collapseToMention={collapseToMention}
+                        configure={(config, table) =>
+                          update({ ...(table ? { table } : {}), view: JSON.stringify(config) })
+                        }
+                        configureProps={props => update({ props: props === '{}' ? undefined : props })}
+                        bindSavedView={(viewID, table) =>
+                          update({
+                            ...(table ? { table } : {}),
+                            view: viewID || undefined
+                          })
+                        }
+                        openPage={id => void navigate({ to: content.pageHref(id) })}
+                      />
+                    </ErrorBoundary>
+                  </PageHostScope>
+                </ContentScope>
+              </QueryClientProvider>
+            </I18nextProvider>
+          )
+        render(attributes)
+        return {
+          update: render,
+          dispose: () => {
+            queueMicrotask(() => {
+              root.unmount()
+              mount.remove()
+            })
+          }
         }
       },
       // The upload panel shows the rejection's message as it is.

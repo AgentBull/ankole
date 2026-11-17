@@ -1,6 +1,7 @@
 ---
 name: postgresql
 description: "Answer questions from a tenant PostgreSQL database with catalog search, value probes, plans, read-only queries, and published metrics."
+default_enabled: false
 ---
 
 # postgresql

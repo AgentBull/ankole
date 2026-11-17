@@ -211,7 +211,7 @@ function resolveTargetCDPFrameIds(
   rootNode: CDPFrameTreeNode | undefined
 ): { targetFrameId: string; mainFrameId: string } {
   const mainFrameId = rootNode?.frame?.id || 'main'
-  const explicitFrameId = (targetFrame as unknown as { _cdpFrameId?: string })._cdpFrameId
+  const explicitFrameId = (targetFrame as Frame & { _cdpFrameId?: string })._cdpFrameId
   if (typeof explicitFrameId === 'string' && explicitFrameId.length > 0) {
     return { targetFrameId: explicitFrameId, mainFrameId }
   }
@@ -285,7 +285,11 @@ async function withWebMCPCDPSession<T>(
   if (!cdp) return { supported: false }
 
   const registry = new CDPToolRegistry()
-  const emitter = cdp as unknown as CDPWebMCPEmitter
+  const emitter: CDPWebMCPEmitter = {
+    on: (event, listener) => {
+      cdp.on(event as Parameters<CDPSession['on']>[0], listener as Parameters<CDPSession['on']>[1])
+    }
+  }
   emitter.on('WebMCP.toolsAdded', (payload => registry.addEvent(payload)) as (payload: never) => void)
   emitter.on('WebMCP.toolsRemoved', (payload => registry.removeEvent(payload)) as (payload: never) => void)
   options.beforeEnable?.(emitter)

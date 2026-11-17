@@ -64,44 +64,6 @@ defmodule Ankole.IdentityProviders.Console do
     fields: [type: {:array, Ankole.Ash.Types.JSONMap}, allow_nil?: false],
     default_provider_id: [type: :string, allow_nil?: false]
   ]
-  @snapshot_fields [
-    provider_id: [type: :string, allow_nil?: false],
-    status: [type: :string, allow_nil?: false],
-    revision: [type: :integer, allow_nil?: false],
-    scope_fingerprint: [type: :string],
-    snapshot_fingerprint: [type: :string],
-    approved_scope_fingerprint: [type: :string],
-    member_uids: [type: {:array, :string}, allow_nil?: false],
-    missing_uids: [type: {:array, :string}, allow_nil?: false],
-    last_started_at: [type: :utc_datetime_usec],
-    last_success_at: [type: :utc_datetime_usec],
-    last_error: [type: :string],
-    reviewed_by: [type: Ankole.Ash.Types.ActorRef],
-    reviewed_at: [type: :utc_datetime_usec],
-    review_reason: [type: :string]
-  ]
-  @event_fields [
-    id: [type: :string, allow_nil?: false],
-    event_id: [type: :string, allow_nil?: false],
-    event_type: [type: :string, allow_nil?: false],
-    external_ids: [type: {:array, :string}, allow_nil?: false],
-    reason: [type: :string],
-    provider_time: [type: :utc_datetime_usec],
-    status: [type: :string, allow_nil?: false],
-    last_error: [type: :string],
-    processed_at: [type: :utc_datetime_usec],
-    reviewed_by: [type: Ankole.Ash.Types.ActorRef],
-    review_reason: [type: :string],
-    inserted_at: [type: :utc_datetime_usec, allow_nil?: false]
-  ]
-  @directory_fields [
-    snapshot: [type: :map, constraints: [fields: @snapshot_fields]],
-    events: [
-      type: {:array, :map},
-      allow_nil?: false,
-      constraints: [items: [fields: @event_fields]]
-    ]
-  ]
 
   actions do
     action :adapters, :map do
@@ -177,15 +139,13 @@ defmodule Ankole.IdentityProviders.Console do
       run(__MODULE__.Actions)
     end
 
-    action :directory, :map do
-      constraints(fields: @directory_fields)
+    action :directory, Ankole.IdentityProviders.DirectoryView do
       argument(:provider_id, :string, allow_nil?: false)
       transaction?(false)
       run(__MODULE__.Actions)
     end
 
-    action :approve_directory, :map do
-      constraints(fields: @directory_fields)
+    action :approve_directory, Ankole.IdentityProviders.DirectoryView do
       argument(:provider_id, :string, allow_nil?: false)
       argument(:snapshot_fingerprint, :string, allow_nil?: false)
       argument(:reason, :string, allow_nil?: false, constraints: [min_length: 1])
@@ -194,8 +154,7 @@ defmodule Ankole.IdentityProviders.Console do
       run(__MODULE__.Actions)
     end
 
-    action :review_event, :map do
-      constraints(fields: @directory_fields)
+    action :review_event, Ankole.IdentityProviders.DirectoryView do
       argument(:provider_id, :string, allow_nil?: false)
       argument(:event_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
       argument(:action, :atom, allow_nil?: false, constraints: [one_of: [:retry, :dismiss]])

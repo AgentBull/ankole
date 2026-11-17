@@ -361,15 +361,14 @@ export function useChatCommands({
   const editableMessageIDSet = new Set(editableMessageIDs)
   const canEditMessage = (message: ConversationMessage): boolean => editableMessageIDSet.has(message.id)
   const latestMessage = latestInput && data?.messages.find(message => message.id === latestInput.messageID)
-  const editDisabledReason = latestMessage
-    ? editDisabledReasonFor(latestMessage)
-    : latestInput
-      ? latestInput.agentUIDs.length === 0
-        ? t('pod.chat_timeline.no_agent_edit')
-        : latestInput.agentUIDs.length > 1
-          ? t('pod.chat_timeline.multi_agent_edit')
-          : undefined
-      : undefined
+  const resolveEditDisabledReason = () => {
+    if (latestMessage) return editDisabledReasonFor(latestMessage)
+    if (!latestInput) return undefined
+    if (latestInput.agentUIDs.length === 0) return t('pod.chat_timeline.no_agent_edit')
+    if (latestInput.agentUIDs.length > 1) return t('pod.chat_timeline.multi_agent_edit')
+    return undefined
+  }
+  const editDisabledReason = resolveEditDisabledReason()
   const inlineEditing = model.editing.value?.kind === 'last' ? model.editing.value : undefined
   const editRecipientAvailable =
     !inlineEditing ||

@@ -90,6 +90,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute 
         "securityToken" => %{required: false}
       },
       pause: true,
+      support_tier: :cloud_extension,
       max_instance_lifetime: 86_400,
       example: """
       # Region, team, API domain, and storage cannot change after creation.

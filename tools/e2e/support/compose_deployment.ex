@@ -190,6 +190,19 @@ defmodule Ankole.E2E.ComposeDeployment do
     ])
 
     try do
+      compose!(deployment, ["run", "--rm", "migrate", "/app/bin/upgrade_from_1x"])
+
+      compose!(deployment, [
+        "--profile",
+        "upgrade-1x",
+        "up",
+        "--no-deps",
+        "--abort-on-container-exit",
+        "--exit-code-from",
+        "migrate-agent-homes",
+        "migrate-agent-homes"
+      ])
+
       compose!(deployment, ["up", "-d", "control-plane"])
     rescue
       error in ExUnit.AssertionError ->

@@ -60,6 +60,7 @@ defmodule Ankole.AIAgent.Library.Browser do
     runtime_assistant_enabled: [type: :boolean, allow_nil?: false],
     runtime_agent_uids: [type: {:array, :string}, allow_nil?: false],
     enabled_for_all: [type: :boolean, allow_nil?: false],
+    has_upstream_update: [type: :boolean, allow_nil?: false],
     can_edit: [type: :boolean, allow_nil?: false],
     can_delete: [type: :boolean, allow_nil?: false],
     can_bind_all: [type: :boolean, allow_nil?: false],

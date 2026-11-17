@@ -21,7 +21,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   The client drives the loop through one `response.create` per round;
   this module does not call the provider. Each call to
   `start_planned_response_run/1` corresponds to exactly one `response.create`
-  and exactly one `ai_gateway_messages` row (see plan §3.9 step 5–10).
+  and exactly one `ai_gateway_messages` row.
   """
 
   require Ash.Query

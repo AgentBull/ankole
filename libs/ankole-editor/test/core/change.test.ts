@@ -663,6 +663,32 @@ describe('ChangeSet', () => {
       }
     })
   })
+
+  describe('clip', () => {
+    it('cuts off parts outside the range', () => {
+      ist(
+        mk(doc(p(0, 'a', 1, 'bc'), p('d', 2, 'e', 3, 'f'), p('ghi', 4)), [[], [], ['!']])
+          .clip(6, 9)!
+          .sections.join(),
+        '1,-1,1,0,1,-1'
+      )
+    })
+
+    it("won't clip changes that overlap the boundaries", () => {
+      ist(mk(doc(p(0, 'abc'), p('d', 1, 'ef')), [[]]).clip(6, 9), null)
+      ist(mk(doc(p('d', 0, 'ef'), p(1)), [['/']]).clip(1, 4), null)
+      ist(mk(doc(p('abc', 0), p('def'), p(1, 'ghi')), [[]]).clip(6, 9), null)
+    })
+
+    it('can clip updated ranges', () => {
+      ist(
+        mk(doc(p(0, 'abcdef', 1)), [{ add: Strong }])
+          .clip(3, 5)!
+          .sections.join(),
+        '2,-2'
+      )
+    })
+  })
 })
 
 describe('ChangeSet local fitting', () => {

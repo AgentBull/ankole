@@ -1,5 +1,170 @@
 # Changelog
 
+## Version 2.0.0-alpha.168 (2026-11-18)
+
+- Fix HTML preview table-of-contents links opening the Pod login page inside
+  the preview. Fragment links navigate within the preview document.
+
+- Isolate Alibaba Cloud Function Compute OSS workspaces and deletion helpers
+  by installation and tenant. Before starting Agents on an upgraded deployment,
+  stop existing FC OSS Workers and move each prior `<root>/<agent_uid>` prefix
+  to `<root>/ankole-<installation>-<agent-hash>`, where `agent-hash` is
+  `ProviderKind.agent_hash(tenant_id, agent_uid)`. The control plane does not
+  migrate OSS objects automatically.
+
+- Stop automatic route retries for video and music creation after ambiguous
+  upstream failures, avoiding duplicate billable generations. Credential
+  recovery after 401/429 responses, status polling, and downloads retain their
+  retry behavior.
+- Fix saving connection changes in Console Signals, including switching back
+  to manual credentials, and hide stored-secret hints from the old connection.
+- Return comment summaries and allow marking comments as read on Applet and
+  Base Pages, so opening these Pages succeeds and their unread badges clear.
+- Keep completed Word page renders across scrolling, preventing overlapping
+  visible pages from staying blank while reusing cached pages when scrolling back.
+
+- Require Applet idempotency completions and releases to carry their execution
+  claim, and honor configured execution timeouts. Report Action Card `executing`,
+  `execution_uncertain`, and `failed` statuses in the API and Pod Chat instead of
+  marking interrupted or failed Connector executions as executed, preserve
+  execution leases across cancellation, and recover expired claims with one
+  bounded recovery action. Connection renames do not invalidate approvals;
+  interrupted writes direct Agents to verify upstream state before retrying.
+- Discard stale database catalog scans when their connection configuration has
+  changed, preserving current sensitive-column masking.
+- Preserve confirmed DingTalk and WeCom reply progress when fallback messages
+  or final cards have an uncertain delivery result. Distinguish unsent queued
+  WeCom frames from frames sent before a connection drop.
+- Recalculate spreadsheet formulas when row visibility changes through filters
+  or hide/unhide actions. Clear stale Brain timeline search results after empty
+  extraction, reconcile timeline batches once, and reject fact consolidation
+  when its source facts became invalid while embeddings were generated.
+- Wait for workspace deletion before reopening its path, stop pending Codex
+  continuations after cancellation, and
+  retire Function Runtime isolates whose invocation was cancelled during startup.
+- Recover Office, Spreadsheet, and Applet channels after an initial join
+  failure. Preserve link-editor targets through collaborative edits; report a
+  changed target without discarding the draft. Stop polling terminal ChatGPT
+  device-login errors and allow requesting another code, and expire email login
+  cooldowns by elapsed time even while the browser is in the background.
+- Hide Workflow and Background Agent Job stop controls without operation
+  permission, and show an error when permission changes before a stop request.
+
+- Withdraw extracted Brain timelines, timeline chunks, and extraction links alongside
+  claims when learned conversation messages are edited or removed, support
+  atomic custom `title` values on `POST /api/v2/pod/conversations` without
+  emitting spurious rename notices while keeping group creation retries
+  idempotent, and preserve in-progress drafts across Pod settings, Base chart
+  auto-save, and Job execution composers while locking one-shot admin dialogs
+  during submission.
+
+- Prevent delayed Base queries from inserting a chart after its picker is closed,
+  and let failed background Chat read updates retry on the next visibility or
+  reading-position change without showing an error toast.
+
+- Add Applet data-slot bindings, draft previews pinned to concrete IDs, and a
+  100-version publication history with rollback. Document embeds accept live
+  JSON props without resetting the Applet. Applet and Base Pages support native
+  discussions; Applet element selection carries source locations into comments
+  and Page Chat. Add read-only browser diagnostics through `ankole-pod applet inspect`
+  and on-demand UIKit icon imports. Run `mix ecto.migrate` when upgrading.
+
+- Sync `@ankole/block-editor`'s Wordgard editing core to upstream `2d2d213`
+  (`ChangeSet.clip` boundary checks, `PointSet`/`RangeSet` chunk immutability and
+  cursor rewinding, `TableMap.cellsOverlapRectangle` bottom-edge spans, and
+  synchronous focus-reset restoration), collapse stale native DOM `::selection`
+  highlights when the caret moves elsewhere after an uncommitted
+  `compositionstart`, a missed `compositionend`, or a focus transition, and
+  refine Mermaid/Infographic blocks with Kirari Mermaid syntax highlighting,
+  empty-only template buttons, natural-width `pele` diagram scaling, and
+  unconstrained height in diagram-only view.
+- Add a right-edge scroll-spy section outline rail on desktop Document and
+  Knowledge Pages (collapsing to depth-scaled tick marks at rest and expanding
+  into a ceramic table-of-contents card on hover, focus, or click), split-URL
+  `host`/`path` copy rows with miniature live Page preview cards in Page and
+  Chat sharing popovers, scroll-aware edge fade masks (`ScrollFade`,
+  `scroll-fade-x`, `scroll-fade-y`) with cross-axis shadow bleed across
+  sidebars, settings tabs, spreadsheet sheet tabs, carousels, and presentation
+  slide rails, and a compact bottom-right `/` trigger button in narrow editors
+  (`<= 640px` or `slashTrigger="always"`) that morphs into and out of the slash
+  menu.
+- Unify the default Pod home (`/`) across conversations and Pages: open `/` on
+  the `Home` sidebar tree by default (while preserving `Chat` when starting New
+  Chat from the `Chat` tab), add a one-click **New document** action beside the
+  greeting, aggregate decision-waiting Agent rooms, unread Page comments, and
+  attention Jobs under **Needs your input**, and render horizontally scrollable
+  miniature preview cards for **Continue working** (interleaving recent Pages
+  and Conversations) alongside **Next steps** and **Favorites**.
+- Add optional Pod-level Feishu and Lark link previews (`linkPreview` in the Pod
+  **Connections** `/connectors` Feishu/Lark editor dialog, with copyable
+  `<pod-host>/pages/*` and `<pod-host>/meta/brain/*` URL rules and long-connection
+  `url.preview.get` setup instructions) so shared Pod collaboration Pages and
+  Brain knowledge Pages render inline titles and `plain_text` summary cards
+  directly inside Feishu and Lark chats.
+- Add per-Applet continuity service accounts (`svc_applet_<page_id>`) with
+  one-click ownership claim after creator offboarding, two-layer Applet mutation
+  idempotency (`Idempotency-Key` headers and `AnkoleRuntime.idempotent`),
+  Composio-style shared vs. restricted connector access (`access_mode`),
+  `POST /api/v2/agents/:uid/disable` (requiring disabled status before `DELETE
+  /api/v2/agents/:uid`), `POST /api/v2/agent-workers/:agent_uid/force-reset-generation`,
+  cursor-paginated cross-tenant Site Console views (`/api/v2/site/*`) with
+  single-tenant auto-binding and zero-reload SPA tenant switching, recycled
+  email onboarding handle disambiguation, Brain Source default-scope trash
+  protection (`409 brain_source_scope_in_use` with `?force=true`), external IM
+  bot admission policies (`external_bot_policy`), Auth SPA OIDC error and 404
+  screens, floating spreadsheet picture ID preservation across `.xlsx`
+  compaction, and incremental `pod` CLI `pages.append` / `pages.patch` rebasing.
+- Add cursor-paginated virtualized Base views (`useInfiniteBaseRecords` across
+  table, kanban, gallery, and list views without truncation past 1,000 rows),
+  `REPEATABLE READ, READ ONLY` snapshot reads on `inline` Base tables (eliminating
+  `FOR SHARE` / `FOR NO KEY UPDATE` read-write lock contention) with 500-row
+  chunked inline-to-physical promotion, zero-LLM `brain.writeFact` /
+  `admin.brain.writeFact` (with structured `recordRef` provenance deduplication
+  and superseding), `"shared"` scope support on `pod_list_pages`, and Composio-grade
+  three-value connector write-approval policies (`approval: "annotations" | "all" | "none"`
+  and `approval_tools`, pausing destructive or selected tool calls in conversations
+  with a SHA-256-locked `connectors.tool.call` Action Card and single-use execution
+  receipt), and a token-level read-only `SELECT`/`WITH` dialect fallback in
+  `sql_inspect` for engine-specific database connector queries inside read-only
+  sessions. Run `mix ecto.migrate` when upgrading.
+- Consolidate tenant organization writes into Pod Settings (`/settings`, adding
+  IdP directory snapshot review/approval and disabled-member work-cleanup
+  inspection/retry while making `pod.allow_external_guests`, `i18n.default_locale`,
+  tenant SSO providers, and tenant Worker environment variables read-only audit
+  views in Site Console with deep links to Pod Settings and break-glass
+  `restore_human_access` / `recover_human_pod_admin` recovery), allow explicit
+  administrator account restoration to clear IdP restrictions without waiting for
+  a fresh directory sync, surface standalone `pod_job` `incomplete` status badges
+  and `/drive` deliverable cards with structured Drive flush verification,
+  classify Worker provider kinds into Core vs. Cloud Sandbox tiers, slim the
+  general Worker container image with a `/usr/local/bin/node` Bun compatibility
+  wrapper (removing build-only `cargo`/`rustc`, `psql`, `mysql`,
+  `clickhouse-client`, `kubectl`, and `aws` CLIs while keeping operator CLIs in
+  the derived SaaS operations image), and move 1.x upgrade routines out of
+  boot/migration hot paths into explicit `/app/bin/upgrade_from_1x` and
+  `--profile upgrade-1x` commands.
+- Add cross-turn upstream WebSocket session pooling and connection-scoped
+  `previous_response_id` delta `input` continuation for OpenAI-family Responses
+  streams (`upstream_websocket_continuation`, enabled by default on
+  `api.openai.com` for `openai` and opt-in on `openai_compatible`), transparent
+  Anthropic Claude Message Threads (`message-threads-2026-08-12`, configurable
+  via `message_threads: "auto" | "enabled" | "disabled"`) across streaming and
+  non-streaming requests with automatic pre-first-event fallback to full
+  history, unified `response.incomplete` (`reason: "content_filter"`) safety
+  refusal normalization across OpenAI, Anthropic, and Bedrock, and public
+  `http://` URL support alongside `https://` in AIGateway `/v1/web_fetch` under
+  the SSRF filter.
+- Refine Pod document editing statistics to walk the semantic `<page>` tree:
+  exclude `<mermaid>` and `<infographic>` diagram source (across all view modes),
+  `<pre>` code blocks, and LaTeX math source from prose word, character, and
+  paragraph counts, count populated tables as single structural blocks, and
+  estimate reading time across word-spaced prose (238 WPM), CJK characters (350
+  chars/min), code and math tokens (50 tokens/min), and rendered diagrams or
+  preview images (15s each).
+- Remove the per-document visit-hiding toggle (`hide_visits`) from Pod Document
+  Insights and `/api/v2/pod/pages/:id/user-state` so document editors always see
+  recorded viewers.
+
 ## Version 2.0.0-alpha.163 (2026-11-17)
 
 - Notify people in the browser when an Agent replies, a task finishes, someone
@@ -132,12 +297,8 @@
 
 ## Version 2.0.0-alpha.156 (2026-11-15)
 
-- Support an optional SaaS static CDN host (`ANKOLE_SAAS_CDN_HOST`, backed by
-  origin `cdn.<domain>`) so browser shells, relative CSS/JS/WASM/Worker bundles,
-  UI and `/fonts/office/` fonts, favicons, and PWA manifest icons load from
-  `//<cdn_host>` with anonymous CORS headers while `cdn.<domain>` and
-  `<cdn_host>` serve only static files and return `404` for `/` and all dynamic
-  routes.
+- Serve static assets from an optional host selected by the host policy,
+  with anonymous CORS and static-only admission for asset requests.
 - Reflow Word Pages and previews automatically once dynamically loaded site
   fonts arrive instead of retaining stale missing-glyph boxes, wait for pending
   Office font downloads before initial page display and PDF export, and unify
@@ -1851,7 +2012,7 @@
 - Keep standalone Applet `@ankole/uikit` stylesheets out of host browser pages,
   load entry stylesheets after their imported base styles, and avoid circular
   vendor chunk splits in production frontend builds, restoring the multi-column
-  SaaS landing layout and preventing startup module-order errors.
+  host-page layout and preventing startup module-order errors.
 - Complete keyboard focus loops across document resource blocks, whole-block
   selections, and Page titles: inserting or editing an external `embed`,
   `media`, or `bookmark` block focuses its address field, ignores IME
@@ -1897,11 +2058,6 @@
 - Show who is in an assistant task or colleague DM when its participant avatars
   are clicked: they open the summary panel's member list instead of the
   **Start a group** dialog, which stays on its own button.
-- Open the Console's Signals, new Signal, Signal detail, and Webhooks pages
-  directly on the dedicated SaaS Console host. Only inbound CloudEvents under
-  `/signals/v1/` and provider webhooks below `/webhooks/<segment>` stay with
-  their endpoints, so these pages no longer return 404 on a direct link or
-  reload.
 
 ## Version 2.0.0-alpha.67 (2026-11-05)
 
@@ -2105,7 +2261,7 @@
   and Composio trigger reconciliation.
 - Serve the Site Admin Console from a dedicated `site-admin-console` origin when
   the active host policy defines one, and route Worker Drive DAV requests before
-  browser host classification on SaaS control-plane pods.
+  browser host classification on control-plane pods.
 - Allow fresh-install database migrations to run under a non-superuser role when
   `pg_search` and `vector` are pre-installed by the database administrator.
 - Reuse an index for cached Page lookups and preserve unchanged Base record
@@ -2577,7 +2733,7 @@
 
 - Keep the shared email verification form’s resend countdown in the public auth catalogs.
 - Disable Agent, model-provider, Signal Binding, tenant, group, permission-grant,
-  Worker environment-variable, and SaaS invitation-code fields until their initial
+  and Worker environment-variable fields until their initial
   drafts load, so arriving data cannot overwrite operator input. Apply the same
   initialization gate to the setup company profile and business selection.
 - Keep temporary Response IDs consistent across HTTP, streamed events, and
@@ -3101,11 +3257,6 @@
   login-transaction writes. Keep outbound enterprise SSO state in
   `browser_oidc_states`, keep email OTP ceremony state in `authn_challenges`,
   and isolate relying-party OIDC authorization requests in `Ankole.OIDC`.
-- Use the SaaS `accounts` host for sign-in and registration. The root host opens
-  the most recently used tenant account when signed in.
-- Combine SaaS sign-in and registration through email verification. Use a
-  separate space selection step for enterprise SSO, and remove invitation-code
-  forms from the sign-in and account pages.
 - Keep an existing email verification code usable when a replacement email
   fails to send; activate the replacement before invalidating the old code.
 - Keep verification codes for different email accounts independent. Allow a
@@ -3568,7 +3719,7 @@
 - Use packaged application fonts without a public font service. Reject
   Automation Job IDs below 1000 at the API boundary and show blank schedule
   fields as validation errors.
-- Include private SaaS frontend utility styles in packaged assets.
+- Include edition frontend utility styles in packaged assets.
 - Run the one-time Agent Home drive import with
   `Ankole.Upgrade202610.import_agent_home("/agents")`.
 - Reject non-Agent Principals in Pod Space Agent grants, skip deleted
@@ -3865,19 +4016,10 @@
 
 ## Version 2.0.0-alpha.9 (2026-10-17)
 
-- Add the private SaaS account flow: email sign-in, independent accounts that
-  can share an email, Pod creation, verified identity connections, account
-  selection, and separate sign-out. SaaS deployments must set
-  `ANKOLE_SAAS_DOMAIN`, run their migrations, and configure `saas.email.mail`.
 - Send site login codes through Bamboo and verified SMTP TLS. Keep earlier
   codes valid after resends, consume each code once, and update protection
   counters atomically during concurrent cleanup. Keep clear retry results
   and encrypted transport settings.
-- Route SaaS console and Pod hosts from one bootstrap domain. Use one-use
-  handoffs and independent host cookies, retain pinned page identities, and
-  reuse the existing OIDC Client policy and Human access checks. Keep file
-  relay URLs on the issuing node, with one-time token checks before browser
-  host admission.
 - Require explicit Console login admission for site authentication. Keep
   siteadmin checks and FOSS single-host behavior. Load edition runtime
   settings from the compiled configuration owner.

@@ -7,17 +7,17 @@ defmodule Ankole.Sessions.Tools.Pod do
     [
       declaration(
         "pod_get_page",
-        "Read a Pod page at L0 (summary), L1 (outline), or L2 (full content). Knowledge pages return OKF Markdown. Brain pages apply conversation disclosure; other pages use your Pod permissions.",
+        "Read a Pod page at L0 (summary), L1 (outline), or L2 (full content). Doc and knowledge pages return Markdown with their current revision. Brain pages apply conversation disclosure; other pages use your Pod permissions.",
         %{"id" => id(), "level" => %{"type" => "string", "enum" => ["L0", "L1", "L2"]}},
         ["id"],
         true
       ),
       declaration(
         "pod_list_pages",
-        "Inspect Pod pages and directory structure. Omit id to inspect root pages in the shared Space (scope: \"space\", default), your Private section (scope: \"private\"), or both trees together (scope: \"all\"); pass depth (up to 5) to view nested subdirectories. Use brain to discover organizational knowledge.",
+        "Inspect Pod pages and directory structure. Omit id to inspect root pages in the shared Space (scope: \"space\", default), your Private section (scope: \"private\"), pages directly shared with you from other people's Private sections (scope: \"shared\"), or Space and Private together (scope: \"all\"); pass depth (up to 5) to view nested subdirectories. Use brain to discover organizational knowledge.",
         %{
           "id" => id(),
-          "scope" => %{"type" => "string", "enum" => ["space", "private", "all"]},
+          "scope" => %{"type" => "string", "enum" => ["space", "private", "shared", "all"]},
           "depth" => %{"type" => "integer", "minimum" => 1, "maximum" => 5}
         },
         [],
@@ -25,7 +25,7 @@ defmodule Ankole.Sessions.Tools.Pod do
       ),
       declaration(
         "pod_save_page",
-        "Save the complete OKF Markdown and frontmatter of a knowledge page using the revision from pod_get_page. Shared rules belong on the shared page. If edit access is missing, propose a pod.knowledge.save action card in a native Pod room; in external IM provide the draft and ask an authorized owner to confirm it in Pod.",
+        "Save the complete Markdown of an existing editable Pod document (type doc) or Brain knowledge page (type knowledge) using the revision from pod_get_page. Shared rules belong on the shared page. If edit access is missing, propose a pod.knowledge.save action card in a native Pod room; in external IM provide the draft and ask an authorized owner to confirm it in Pod.",
         %{
           "id" => id(),
           "base_revision" => %{"type" => "integer", "minimum" => 0},
@@ -36,13 +36,15 @@ defmodule Ankole.Sessions.Tools.Pod do
       ),
       declaration(
         "pod_create_page",
-        "Create a Brain knowledge object under a visible editable ontology category or knowledge object. Use ankole-pod pages.create with type doc and markdown for collaboration documents. Skills and Agent instructions are managed by humans in Meta Ankole.",
+        "Create a Pod collaboration document (type \"doc\", default) in the shared Space, Private section (scope: \"private\"), or under parent_id, or create a Brain knowledge object (type \"knowledge\") under an editable Brain ontology category or knowledge parent_id. Omit type when unsure: parents inside Brain default to knowledge and all other destinations default to doc. Skills and Agent instructions are managed by humans in Meta Ankole.",
         %{
           "parent_id" => id(),
           "title" => %{"type" => "string"},
-          "markdown" => %{"type" => "string"}
+          "markdown" => %{"type" => "string"},
+          "type" => %{"type" => "string", "enum" => ["doc", "knowledge"]},
+          "scope" => %{"type" => "string", "enum" => ["space", "private"]}
         },
-        ["parent_id", "title", "markdown"],
+        ["title", "markdown"],
         false
       )
     ]
@@ -68,7 +70,76 @@ defmodule Ankole.Sessions.Tools.Pod do
     }
   end
 
+  def normalize(name, args) when is_map(args) do
+    args
+    |> normalize_key_alias("page_id", "id")
+    |> normalize_content_alias()
+    |> normalize_page_args(name)
+  end
+
   def normalize(_name, args), do: args
+
+  defp normalize_key_alias(args, from, to) do
+    case Map.pop(args, from) do
+      {nil, rest} -> rest
+      {val, rest} -> Map.put_new(rest, to, val)
+    end
+  end
+
+  defp normalize_content_alias(args) do
+    args
+    |> normalize_key_alias("content", "markdown")
+    |> normalize_key_alias("body", "markdown")
+  end
+
+  defp normalize_page_args(args, "pod_get_page"),
+    do: normalize_level_arg(args)
+
+  defp normalize_page_args(args, "pod_save_page"),
+    do: normalize_revision_arg(args)
+
+  defp normalize_page_args(args, "pod_create_page") do
+    args
+    |> normalize_key_alias("page_type", "type")
+    |> normalize_type_arg()
+  end
+
+  defp normalize_page_args(args, _name), do: args
+
+  defp normalize_level_arg(%{"level" => level} = args) when is_integer(level) and level in 0..2,
+    do: Map.put(args, "level", "L#{level}")
+
+  defp normalize_level_arg(%{"level" => level} = args) when is_binary(level) do
+    case String.upcase(String.trim(level)) do
+      normalized when normalized in ["L0", "L1", "L2"] -> Map.put(args, "level", normalized)
+      digit when digit in ["0", "1", "2"] -> Map.put(args, "level", "L#{digit}")
+      _other -> args
+    end
+  end
+
+  defp normalize_level_arg(args), do: args
+
+  defp normalize_revision_arg(%{"base_revision" => rev} = args) when is_binary(rev) do
+    case Integer.parse(String.trim(rev)) do
+      {num, ""} -> Map.put(args, "base_revision", num)
+      _other -> args
+    end
+  end
+
+  defp normalize_revision_arg(args), do: args
+
+  defp normalize_type_arg(%{"type" => type} = args) when is_binary(type) do
+    normalized =
+      case type |> String.trim() |> String.downcase() do
+        t when t in ["doc", "document", "markdown", "page"] -> "doc"
+        t when t in ["knowledge", "wiki", "kb", "brain"] -> "knowledge"
+        other -> other
+      end
+
+    Map.put(args, "type", normalized)
+  end
+
+  defp normalize_type_arg(args), do: args
 
   def execute(run, call, args) do
     with {:ok, actor, context} <- request_context(run),
@@ -83,7 +154,8 @@ defmodule Ankole.Sessions.Tools.Pod do
     with {:ok, actor, context} <- request_context(run) do
       if call["name"] == "pod_create_page" do
         Ankole.Pod.lock_tree_in_tx()
-        Ankole.Pod.lock_root_ids_in_tx(Ankole.Pod.root_ids([args["parent_id"]]))
+        destination_attrs = AgentPages.create_destination_attrs(actor, args)
+        Ankole.Pod.lock_root_ids_in_tx(Pages.destination_root_ids(actor, destination_attrs))
       end
 
       {:ok, [],
@@ -105,9 +177,21 @@ defmodule Ankole.Sessions.Tools.Pod do
     do:
       "No Page with this id is visible under your Pod permissions and conversation disclosure. Use an id from pod_list_pages or from a page link in this conversation."
 
+  defp page_error(:forbidden),
+    do:
+      "You do not have edit permission for this Page or destination. Do not retry the write: in a native Pod room propose an action card if appropriate, or in external IM provide the draft in your reply and ask an authorized owner to save it in Pod."
+
+  defp page_error({:revision_conflict, rev}),
+    do:
+      "Page revision conflict (current revision is #{rev}). Call pod_get_page to read the latest content and revision before saving again."
+
+  defp page_error(:ontology_owned_category),
+    do:
+      "Cannot create a Page directly at a protected Brain root. Call pod_list_pages to choose an ontology category or knowledge object parent_id inside the Brain."
+
   defp page_error(:invalid_page_domain),
     do:
-      "pod_create_page creates Brain knowledge objects, so its parent must be an ontology category or knowledge object in the Brain. Create a collaboration document in a Pod space with ankole-pod pages.create and type doc."
+      "Page type does not match the parent domain: Brain parents accept only type \"knowledge\", while Pod Space and Private parents accept type \"doc\". Pass a matching parent_id from pod_list_pages or omit type to match the parent automatically."
 
   defp page_error(:unknown_brain_category),
     do:
@@ -115,7 +199,7 @@ defmodule Ankole.Sessions.Tools.Pod do
 
   defp page_error(:invalid_page_type),
     do:
-      "pod_save_page saves Brain knowledge pages only. Change a Pod document with ankole-pod pages.write."
+      "Only Pod document (doc) and Brain knowledge pages support Markdown reads/writes. Use Base or Applet tools for structured tables or applets."
 
   defp page_error(reason), do: reason
 
@@ -139,26 +223,16 @@ defmodule Ankole.Sessions.Tools.Pod do
     do: AgentPages.children(actor, context, args["id"], Map.take(args, ["scope", "depth"]))
 
   defp write_in_tx("pod_save_page", actor, context, args) do
-    with {:ok, %{page: page}} <-
-           AgentPages.save_in_tx(
-             actor,
-             context,
-             args["id"],
-             args["base_revision"],
-             args["markdown"]
-           ),
-         do: {:ok, page, fn -> Pages.committed_page(page) end}
+    AgentPages.save_page_in_tx(
+      actor,
+      context,
+      args["id"],
+      args["base_revision"],
+      args["markdown"]
+    )
   end
 
   defp write_in_tx("pod_create_page", actor, context, args) do
-    with {:ok, page} <-
-           AgentPages.create_in_tx(
-             actor,
-             context,
-             args["parent_id"],
-             args["title"],
-             args["markdown"]
-           ),
-         do: {:ok, page, fn -> Pages.committed_tree(page) end}
+    AgentPages.create_page_in_tx(actor, context, args)
   end
 end

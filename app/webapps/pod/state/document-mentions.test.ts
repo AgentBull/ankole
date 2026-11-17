@@ -146,7 +146,7 @@ describe('MentionStore and internal Pod URL matching', () => {
           kind: 'human',
           membership: 'member',
           name: 'Boris Ding',
-          email: 'boris@agentbull.com',
+          email: 'boris@example.test',
           job_title: 'Architect'
         }))
       }

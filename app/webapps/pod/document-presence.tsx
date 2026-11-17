@@ -35,17 +35,14 @@ export function DocumentPresence({
   const { t } = useTranslation()
   const members = model.members.value
   const status = model.connection.value
-  const label = manualSaving
-    ? 'saving'
-    : status === 'disconnected'
-      ? 'offline'
-      : error
-        ? 'error'
-        : status === 'connecting'
-          ? 'connecting'
-          : pending
-            ? 'saving'
-            : 'saved'
+  const resolvePresenceLabel = () => {
+    if (manualSaving) return 'saving'
+    if (status === 'disconnected') return 'offline'
+    if (error) return 'error'
+    if (status === 'connecting') return 'connecting'
+    return pending ? 'saving' : 'saved'
+  }
+  const label = resolvePresenceLabel()
   const Icon = manualSaving
     ? Spinner
     : status === 'disconnected' || error

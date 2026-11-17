@@ -9,8 +9,9 @@ use tokio_tungstenite::tungstenite::error::CapacityError;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
 
-use super::core::{EventSink, StreamCommand, StreamEvent};
-use super::delivery::{Delivery, finish_after_ready_error, ingest_resolver_event, summary};
+use super::core::{ChunkOrigin, EventSink, StreamCommand, StreamEvent};
+use super::delivery::{Delivery, finish_after_ready_error, ingest_resolver_event};
+use super::websocket_session::{ParkedWebSocket, WebSocketSession, WebSocketSessionLease};
 use crate::universal_ai_client::downstream::DownstreamEncoder;
 use crate::universal_ai_client::error::{PROVIDER_BODY_EXCERPT_LIMIT, StreamError};
 use crate::universal_ai_client::spec::{StreamSpec, UpstreamKind};
@@ -21,6 +22,7 @@ use crate::universal_ai_client::{
 
 pub(super) async fn run_stream(
     spec: StreamSpec,
+    session: Option<Arc<WebSocketSession>>,
     command_rx: mpsc::Receiver<StreamCommand>,
     sink: EventSink,
     aborted_sent: Arc<AtomicBool>,
@@ -43,7 +45,7 @@ pub(super) async fn run_stream(
             run_http_stream(spec, command_rx, sink, aborted_sent).await;
         }
         UpstreamKind::WebSocketText => {
-            run_websocket_stream(spec, command_rx, sink, aborted_sent).await;
+            run_websocket_stream(spec, session, command_rx, sink, aborted_sent).await;
         }
     }
 }
@@ -73,8 +75,12 @@ async fn run_http_stream(
     }
 
     let encoder = DownstreamEncoder;
-    let mut resolver =
-        api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
+    let resolver_context = request_builder::context_with_header_anthropic_version(
+        &spec.api_resolver,
+        &spec.response_context,
+        &spec.upstream,
+    );
+    let mut resolver = api_resolver::APIResolver::new(spec.api_resolver, resolver_context);
     let mut delivery = Delivery::new(
         command_rx,
         sink.clone(),
@@ -88,6 +94,7 @@ async fn run_http_stream(
         "headers": transport::safe_response_headers(&http_stream.headers),
         "upstream_kind": spec.upstream.kind.as_str(),
         "api_resolver": spec.api_resolver.as_str(),
+        "request_bytes": spec.upstream.payload_bytes().len(),
     })));
 
     match spec.upstream.kind {
@@ -132,7 +139,9 @@ async fn run_http_stream(
                                         return;
                                     }
                                 }
-                                delivery.finish_done(summary("provider_done")).await;
+                                delivery
+                                    .finish_done(json!({ "reason": "provider_done" }))
+                                    .await;
                                 return;
                             }
 
@@ -194,7 +203,9 @@ async fn run_http_stream(
                         } else {
                             "upstream_closed"
                         };
-                        delivery.finish_done(summary(finish_reason)).await;
+                        delivery
+                            .finish_done(json!({ "reason": finish_reason }))
+                            .await;
                         return;
                     }
                     Err(_) => {
@@ -285,7 +296,9 @@ async fn run_http_stream(
                                 return;
                             }
                         }
-                        delivery.finish_done(summary("upstream_closed")).await;
+                        delivery
+                            .finish_done(json!({ "reason": "upstream_closed" }))
+                            .await;
                         return;
                     }
                     Err(_) => {
@@ -306,22 +319,43 @@ async fn run_http_stream(
 
 async fn run_websocket_stream(
     spec: StreamSpec,
+    session: Option<Arc<WebSocketSession>>,
     command_rx: mpsc::Receiver<StreamCommand>,
     sink: EventSink,
     aborted_sent: Arc<AtomicBool>,
 ) {
-    let opened =
-        wait_for_open_websocket(&spec, command_rx, sink.clone(), aborted_sent.clone()).await;
-    let (mut websocket, response_headers, command_rx) = match opened {
-        WebSocketOpenResult::Opened {
-            websocket,
-            headers,
-            command_rx,
-        } => (websocket, headers, command_rx),
-        WebSocketOpenResult::Finished => return,
+    let mut lease = match &session {
+        Some(session) => match WebSocketSession::checkout(session) {
+            Ok(lease) => Some(lease),
+            Err(error) => {
+                sink(StreamEvent::Error(error.to_json()));
+                return;
+            }
+        },
+        None => None,
     };
 
+    let (mut websocket, response_headers, command_rx, websocket_reused) =
+        if let Some(ParkedWebSocket { websocket, headers }) =
+            lease.as_mut().and_then(WebSocketSessionLease::take_parked)
+        {
+            (websocket, headers, command_rx, true)
+        } else {
+            let opened =
+                wait_for_open_websocket(&spec, command_rx, sink.clone(), aborted_sent.clone())
+                    .await;
+            match opened {
+                WebSocketOpenResult::Opened {
+                    websocket,
+                    headers,
+                    command_rx,
+                } => (websocket, headers, command_rx, false),
+                WebSocketOpenResult::Finished => return,
+            }
+        };
+
     let websocket_initial_messages = websocket_initial_messages(&spec);
+    let request_bytes: usize = websocket_initial_messages.iter().map(String::len).sum();
     for payload in &websocket_initial_messages {
         if payload.len() > spec.limits.max_websocket_text_bytes {
             sink(StreamEvent::Error(
@@ -368,22 +402,29 @@ async fn run_websocket_stream(
         "headers": response_headers,
         "upstream_kind": spec.upstream.kind.as_str(),
         "api_resolver": spec.api_resolver.as_str(),
-        "websocket_initial_messages": websocket_initial_messages.len()
+        "websocket_initial_messages": websocket_initial_messages.len(),
+        "websocket_reused": websocket_reused,
+        "request_bytes": request_bytes
     })));
 
+    let mut websocket = Some(websocket);
     let mut idle = SemanticIdle::new(spec.upstream.timeout.idle_duration());
     loop {
         if !delivery.wait_for_read_capacity().await {
             return;
         }
 
-        let Some(next) = delivery.wait_upstream(idle.wait(websocket.next())).await else {
+        let Some(active_ws) = websocket.as_mut() else {
+            return;
+        };
+        let Some(next) = delivery.wait_upstream(idle.wait(active_ws.next())).await else {
             return;
         };
         match next {
             Ok(Some(Ok(Message::Text(text)))) => {
                 idle.progressed();
                 if text.len() > spec.limits.max_websocket_text_bytes {
+                    drop(websocket.take());
                     let error = StreamError::new(
                         "websocket_message_too_large",
                         "wire",
@@ -398,6 +439,7 @@ async fn run_websocket_stream(
                 }
 
                 if text == "[DONE]" {
+                    drop(websocket.take());
                     if let Err(error) = resolver.on_done_sentinel() {
                         finish_after_ready_error(delivery, &mut resolver, error).await;
                         return;
@@ -409,22 +451,72 @@ async fn run_websocket_stream(
                             return;
                         }
                     }
-                    delivery.finish_done(summary("provider_done")).await;
+                    delivery
+                        .finish_done(json!({ "reason": "provider_done" }))
+                        .await;
                     return;
                 }
 
                 match sonic_rs::from_str::<Value>(&text) {
                     Ok(value) => {
-                        match ingest_resolver_event(&mut delivery, &mut resolver, value).await {
-                            Ok(true) => {}
-                            Ok(false) => return,
+                        if value.get("type").and_then(Value::as_str) == Some("error") {
+                            let error = websocket_provider_error(&resolver, &value, &text);
+                            if delivery.has_response_events() {
+                                let _ = resolver.ingest(value);
+                            }
+                            drop(websocket.take());
+                            finish_after_ready_error(delivery, &mut resolver, error).await;
+                            return;
+                        }
+
+                        match resolver.ingest(value) {
+                            Ok(events) => {
+                                if resolver.is_terminal() {
+                                    let failed_terminal = events.iter().any(|event| {
+                                        event.get("type").and_then(Value::as_str)
+                                            == Some("response.failed")
+                                    });
+                                    if !failed_terminal
+                                        && let (Some(lease), Some(ws)) =
+                                            (lease.as_mut(), websocket.take())
+                                    {
+                                        lease.park(ws, response_headers.clone());
+                                    } else {
+                                        drop(websocket.take());
+                                    }
+                                    delivery.push_events(events);
+                                    let done_summary = json!({ "reason": "provider_terminal" });
+                                    if !delivery.finish_done_pending(done_summary).await
+                                        && let Some(session) = &session
+                                    {
+                                        session.close();
+                                    }
+                                    return;
+                                }
+
+                                match delivery
+                                    .push_events_bounded(events, ChunkOrigin::Provider)
+                                    .await
+                                {
+                                    Ok(true) => {}
+                                    Ok(false) => return,
+                                    Err(error) => {
+                                        drop(websocket.take());
+                                        finish_after_ready_error(delivery, &mut resolver, error)
+                                            .await;
+                                        return;
+                                    }
+                                }
+                            }
                             Err(error) => {
+                                drop(websocket.take());
                                 finish_after_ready_error(delivery, &mut resolver, error).await;
                                 return;
                             }
                         }
                     }
                     Err(reason) => {
+                        drop(websocket.take());
                         let error = StreamError::new(
                             "invalid_provider_event",
                             "api_resolver",
@@ -436,6 +528,7 @@ async fn run_websocket_stream(
                 }
             }
             Ok(Some(Ok(Message::Close(Some(frame))))) if frame.code == CloseCode::Size => {
+                drop(websocket.take());
                 let error = StreamError::new(
                     "websocket_message_too_large",
                     "wire",
@@ -446,6 +539,7 @@ async fn run_websocket_stream(
                 return;
             }
             Ok(Some(Ok(Message::Close(_)))) | Ok(None) => {
+                drop(websocket.take());
                 match resolver.finish() {
                     Ok(events) => delivery.push_events(events),
                     Err(error) => {
@@ -453,11 +547,14 @@ async fn run_websocket_stream(
                         return;
                     }
                 }
-                delivery.finish_done(summary("upstream_closed")).await;
+                delivery
+                    .finish_done(json!({ "reason": "upstream_closed" }))
+                    .await;
                 return;
             }
             Ok(Some(Ok(Message::Ping(_)))) | Ok(Some(Ok(Message::Pong(_)))) => {}
             Ok(Some(Ok(Message::Binary(bytes)))) => {
+                drop(websocket.take());
                 let error = StreamError::new(
                     "unsupported_websocket_frame",
                     "wire",
@@ -471,11 +568,13 @@ async fn run_websocket_stream(
             }
             Ok(Some(Ok(Message::Frame(_)))) => {}
             Ok(Some(Err(reason))) => {
+                drop(websocket.take());
                 let error = websocket_read_error(reason);
                 finish_after_ready_error(delivery, &mut resolver, error).await;
                 return;
             }
             Err(_) => {
+                drop(websocket.take());
                 let error =
                     StreamError::new("idle_timeout", "read", "upstream WebSocket idle timeout");
                 finish_after_ready_error(delivery, &mut resolver, error).await;
@@ -483,6 +582,92 @@ async fn run_websocket_stream(
             }
         }
     }
+}
+
+pub(super) fn websocket_provider_error(
+    resolver: &api_resolver::APIResolver,
+    event: &Value,
+    raw_text: &str,
+) -> StreamError {
+    let err_obj = event
+        .get("error")
+        .filter(|value| value.is_object())
+        .unwrap_or(event);
+    let error_type = err_obj
+        .get("type")
+        .and_then(Value::as_str)
+        .filter(|value| *value != "error");
+    let error_code = err_obj.get("code").and_then(Value::as_str);
+    let message = err_obj
+        .get("message")
+        .and_then(Value::as_str)
+        .or(error_code)
+        .or(error_type)
+        .unwrap_or("upstream WebSocket error");
+    let explicit_status = event
+        .get("status")
+        .and_then(Value::as_u64)
+        .or_else(|| err_obj.get("status").and_then(Value::as_u64))
+        .filter(|status| (100..=599).contains(status))
+        .map(|status| status as u16);
+    let status = explicit_status.or_else(|| websocket_error_status(error_type, error_code));
+
+    let mut error = status
+        .and_then(|status| resolver.classify_provider_rejection(status, raw_text.as_bytes()))
+        .unwrap_or_else(|| StreamError::new("provider_status_rejected", "api_resolver", message))
+        .provider_body_excerpt(raw_text.as_bytes());
+    if let Some(status) = status {
+        error = error.provider_status(status);
+    }
+    if let Some(provider_type) = error_type.or(error_code) {
+        error = error.provider_error_type(provider_type);
+    }
+    error
+}
+
+fn websocket_error_status(error_type: Option<&str>, error_code: Option<&str>) -> Option<u16> {
+    if matches!(
+        error_code,
+        Some(
+            "previous_response_not_found"
+                | "websocket_connection_limit_reached"
+                | "bad_request"
+                | "invalid_request"
+                | "invalid_request_error"
+                | "context_length_exceeded"
+        )
+    ) || matches!(
+        error_type,
+        Some("invalid_request" | "invalid_request_error")
+    ) {
+        return Some(400);
+    }
+    if error_type == Some("authentication_error") || error_code == Some("invalid_api_key") {
+        return Some(401);
+    }
+    if error_type == Some("permission_error") {
+        return Some(403);
+    }
+    if error_type == Some("not_found_error") {
+        return Some(404);
+    }
+    if error_type == Some("rate_limit_error")
+        || matches!(
+            error_code,
+            Some("rate_limit_exceeded" | "insufficient_quota" | "usage_limit_reached")
+        )
+    {
+        return Some(429);
+    }
+    if error_type == Some("overloaded_error") || error_code == Some("server_is_overloaded") {
+        return Some(529);
+    }
+    if matches!(error_type, Some("server_error" | "api_error"))
+        || error_code == Some("server_error")
+    {
+        return Some(500);
+    }
+    None
 }
 
 pub(super) fn websocket_read_error(reason: WebSocketError) -> StreamError {

@@ -47,7 +47,8 @@ import { requestErrorMessage } from '../../common/request-errors'
 import { blankToNull } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
 import { ConfirmDeleteButton, EditorNotFound, LabeledField, ResourceEditorPage } from '../console-form'
-import { ResourceListPage, ResourceSearch, useCreateActionVariant } from '../console-list-page'
+import { ResourceListPage, ResourceSearch } from '../console-list-page'
+import { PodSettingsLinkBanner } from '../pod-settings-banner'
 import { WorkerEnvEditorModel } from '../state/worker-env-editor-model'
 import { workerEnvValueText } from '../state/worker-env-visibility'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
@@ -125,7 +126,6 @@ export function WorkerEnvPlaintextConfirmDialog({
 
 export function WorkerEnvsListPage() {
   const { t } = useTranslation()
-  const createVariant = useCreateActionVariant()
   const globalList = useBaseQuery(listSiteWorkerEnvsOptions())
   const tenantList = useQuery(listWorkerEnvsOptions())
   const globalItems = new Map((globalList.data?.worker_envs ?? []).map(item => [item.name, item]))
@@ -162,14 +162,9 @@ export function WorkerEnvsListPage() {
           <Link to="new" search={{ scope: 'global' }} className={buttonVariants({ size: 'sm', variant: 'outline' })}>
             {t('console.worker_envs.new_global')}
           </Link>
-          <Link
-            to="new"
-            search={{ scope: 'tenant' }}
-            className={buttonVariants({ size: 'sm', variant: createVariant })}>
-            {t('console.worker_envs.new_tenant')}
-          </Link>
         </div>
       }
+      subNav={<PodSettingsLinkBanner section="environment" />}
       columns={[t('console.worker_envs.name'), t('console.settings.scope_global'), t('console.settings.scope_tenant')]}
       isLoading={globalList.isLoading || tenantList.isLoading}
       isEmpty={items.length === 0}
@@ -221,8 +216,8 @@ function WorkerEnvValueCell({ item, scope }: { item?: WorkerEnvItem; scope: 'glo
           className="link shrink-0 text-xs"
           to={encodeURIComponent(item.name)}
           search={{ scope }}
-          aria-label={`${t('common.edit')} ${item.name}`}>
-          {t('common.edit')}
+          aria-label={`${t(scope === 'tenant' ? 'common.view_details' : 'common.edit')} ${item.name}`}>
+          {t(scope === 'tenant' ? 'common.view_details' : 'common.edit')}
         </Link>
       </div>
     </TableCell>
@@ -346,44 +341,47 @@ export function WorkerEnvEditorPage() {
   }
 
   const submitDisabled = mode === 'edit' && !model.dirty.value
+  const tenantReadOnly = scope === 'tenant'
 
-  if (draftStatus === 'absent') {
+  if (draftStatus === 'absent' || (tenantReadOnly && mode === 'new')) {
     return <EditorNotFound backTo="/worker-envs" message={t('console.worker_envs.not_found', { name: name ?? '' })} />
   }
+
+  const editorProps = tenantReadOnly
+    ? { readOnly: true as const }
+    : {
+        onSubmit: submit,
+        submitting: update.isPending,
+        submitDisabled,
+        submitUnavailable: draftStatus !== 'ready'
+      }
 
   return (
     <>
       <ResourceEditorPage
-        fieldsDisabled={draftStatus !== 'ready'}
+        fieldsDisabled={draftStatus !== 'ready' || tenantReadOnly}
         title={mode === 'new' ? t('console.worker_envs.new') : (name ?? '')}
         description={item?.description ?? t('console.worker_envs.editor_description')}
         backTo="/worker-envs"
-        dirty={model.dirty.value && !remove.isPending}
-        supplementaryDirty={model.dirty.value && !remove.isPending}
+        dirty={!tenantReadOnly && model.dirty.value && !remove.isPending}
+        supplementaryDirty={!tenantReadOnly && model.dirty.value && !remove.isPending}
         validationError={model.validationError.value}
         error={update.error ?? decrypt.error ?? list.error}
-        submitting={update.isPending}
-        submitDisabled={submitDisabled}
-        submitUnavailable={draftStatus !== 'ready'}
-        onSubmit={submit}
+        {...editorProps}
         secondary={
-          mode === 'edit' && item && item.source === scope ? (
+          !tenantReadOnly && mode === 'edit' && item && item.source === scope ? (
             <ConfirmDeleteButton
               pending={remove.isPending}
               confirm={{
                 title: t('console.worker_envs.delete_title'),
-                description: t(
-                  scope === 'tenant'
-                    ? 'console.worker_envs.reset_tenant_description'
-                    : 'console.worker_envs.delete_description',
-                  { name: item.name }
-                ),
+                description: t('console.worker_envs.delete_description', { name: item.name }),
                 confirmLabel: t('common.delete')
               }}
               onConfirm={() => remove.mutate({ path: { name: item.name } })}
             />
           ) : null
         }>
+        {tenantReadOnly ? <PodSettingsLinkBanner section="environment" /> : null}
         <Badge variant="secondary" className="w-fit">
           {t(`console.settings.scope_${scope}`)}
         </Badge>

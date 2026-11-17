@@ -1,7 +1,7 @@
 defmodule Ankole.Pod.Documents.Insights do
   @moduledoc "Document readership and daily activity, committed alongside their owning operation."
   require Ash.Query
-  alias Ankole.{AuthZ, Repo}
+  alias Ankole.Repo
   alias Ankole.Pod.Access
   alias Ankole.Pod.{PageDailyActivity, Pages, PageUserState, Serialization}
 
@@ -21,16 +21,13 @@ defmodule Ankole.Pod.Documents.Insights do
           |> Ash.Query.sort(day: :asc)
           |> Ankole.Ash.read!()
 
-        state = user_state_in_tx(AuthZ.Actor.uid(actor), id)
-
         {:ok,
          %{
            created_at: page.created_at,
            updated_at: page.updated_at,
            contributors: Enum.map(authors, &contributor(&1, page, content, profiles)),
            daily: Enum.map(daily, &Map.take(&1, [:day, :views, :edits, :comments])),
-           can_view_readers: match?({:ok, _}, Access.authorize(actor, page, "node_edit")),
-           hide_visits: (state && state.hide_visits) || false
+           can_view_readers: match?({:ok, _}, Access.authorize(actor, page, "node_edit"))
          }}
       end
     end)
@@ -44,7 +41,7 @@ defmodule Ankole.Pod.Documents.Insights do
         query =
           PageUserState
           |> Ash.Query.for_read(:viewers)
-          |> Ash.Query.filter(page_id == ^id and not is_nil(visited_at) and not hide_visits)
+          |> Ash.Query.filter(page_id == ^id and not is_nil(visited_at))
           |> Ash.Query.sort(visited_at: :desc, principal_uid: :asc)
 
         limit = Ankole.Attrs.get(opts, :limit, 25)

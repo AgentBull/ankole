@@ -23,6 +23,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Spinner,
   TabsTrigger,
   toast
 } from '@ankole/uikit'
@@ -71,16 +72,12 @@ import type {
   PodAdminMembersResponse,
   PodAdminSettingsResponse
 } from './api/generated/types.gen'
-import {
-  PodSettingsModel,
-  parseAllowedDomains,
-  resolveInvitationExpiryISO,
-  type InvitationExpiryPreset
-} from './state/pod-settings'
+import { PodSettingsModel, resolveInvitationExpiryISO, type InvitationExpiryPreset } from './state/pod-settings'
 import { SlotBoundary, SlotGate } from '../common/slots'
-import { Link } from '@tanstack/react-router'
-import { usePodSlots, podSettingsSections, type PodSettingsTabSlot } from './slots'
+import { Link, useSearch } from '@tanstack/react-router'
+import { usePodSlots, isPodSettingsSection, podSettingsSections, type PodSettingsTabSlot } from './slots'
 import { ProfileAvatarUpload } from './profile-avatar-upload'
+import { PodMemberAccessCleanup, PodProviderDirectoryReview } from './pod-settings-directory'
 import { SettingsLayout, SettingsPanel, SettingsSection } from './settings-layout'
 
 type Model = InstanceType<typeof PodSettingsModel>
@@ -117,6 +114,13 @@ export function PodSettings() {
     })),
     { value: 'connectors', label: t('pod.connectors.title'), icon: navigationIcons.connectors }
   ]
+  const search = useSearch({ strict: false })
+  const requestedSection = typeof search.section === 'string' ? search.section : undefined
+  useEffect(() => {
+    if (requestedSection && (isPodSettingsSection(requestedSection) || requestedSection === 'connectors')) {
+      model.section.value = requestedSection
+    }
+  }, [model, requestedSection])
   return (
     <SettingsLayout
       title={t('pod.settings.title')}
@@ -388,23 +392,19 @@ function GeneralSettings({ model }: { model: Model }) {
   }, [settings.data, model])
   const save = useMutation({
     mutationFn: () => {
-      const payload = {
-        displayName: model.displayName.value.trim(),
-        defaultLocale: model.defaultLocale.value,
-        allowExternalGuests: model.guests.value,
-        loginPolicy: {
-          ...model.policy.value,
-          allowed_email_domains: parseAllowedDomains(model.domains.value)
-        }
-      }
-      return api.updatePodAdminSettings({ body: { data: payload } }).then(() => payload)
+      const captured = model.captureSave()
+      return api.updatePodAdminSettings({ body: { data: captured.payload } }).then(() => captured)
     },
-    onSuccess: async payload => {
-      model.commitSaved(payload)
-      if (i18n.language !== payload.defaultLocale) {
-        await loadLocale(payload.defaultLocale)
-        document.documentElement.lang = payload.defaultLocale
-        await i18n.changeLanguage(payload.defaultLocale)
+    onSuccess: async captured => {
+      const applied = captured.acknowledge()
+      if (
+        applied &&
+        model.defaultLocale.value === captured.payload.defaultLocale &&
+        i18n.language !== captured.payload.defaultLocale
+      ) {
+        await loadLocale(captured.payload.defaultLocale)
+        document.documentElement.lang = captured.payload.defaultLocale
+        await i18n.changeLanguage(captured.payload.defaultLocale)
       }
       toast.success(i18n.t('pod.settings.saved'))
       void refreshSpaceProfileQueries(client)
@@ -421,7 +421,7 @@ function GeneralSettings({ model }: { model: Model }) {
       className="grid gap-7"
       onSubmit={event => {
         event.preventDefault()
-        save.mutate()
+        if (!save.isPending) save.mutate()
       }}>
       <ContentError error={settings.error ?? save.error} />
       <SettingsSection
@@ -442,7 +442,7 @@ function GeneralSettings({ model }: { model: Model }) {
               required
               value={model.displayName.value}
               onChange={event => {
-                save.reset()
+                if (!save.isPending) save.reset()
                 model.displayName.value = event.target.value
               }}
             />
@@ -453,7 +453,7 @@ function GeneralSettings({ model }: { model: Model }) {
               value={model.defaultLocale.value}
               onValueChange={locale => {
                 if (!locale) return
-                save.reset()
+                if (!save.isPending) save.reset()
                 model.defaultLocale.value = locale
               }}>
               <SelectTrigger id="space-default-locale" className="w-full">
@@ -475,7 +475,7 @@ function GeneralSettings({ model }: { model: Model }) {
             <Checkbox
               checked={model.guests.value}
               onCheckedChange={value => {
-                save.reset()
+                if (!save.isPending) save.reset()
                 model.guests.value = value === true
               }}
             />
@@ -503,7 +503,7 @@ function GeneralSettings({ model }: { model: Model }) {
               aria-describedby="domains-hint"
               value={model.domains.value}
               onChange={event => {
-                save.reset()
+                if (!save.isPending) save.reset()
                 model.domains.value = event.target.value
               }}
             />
@@ -525,7 +525,7 @@ function GeneralSettings({ model }: { model: Model }) {
                     ['allow_email_otp', 'allow_member_credential_change'].includes(key)
                   }
                   onCheckedChange={value => {
-                    save.reset()
+                    if (!save.isPending) save.reset()
                     model.policy.value = { ...model.policy.value, [key]: value === true }
                   }}
                 />
@@ -541,7 +541,11 @@ function GeneralSettings({ model }: { model: Model }) {
       {(model.dirty.value || save.isPending) && (
         <div className="sticky bottom-3 z-10 flex items-center justify-between gap-3 rounded-xl border border-border-subtle bg-page/95 px-4 py-3 shadow-sm backdrop-blur">
           <p className="text-sm text-fg-secondary">{t('pod.settings.unsaved_changes')}</p>
-          <Button type="submit" disabled={!model.displayName.value.trim() || save.isPending || !settings.data}>
+          <Button
+            type="submit"
+            disabled={!model.displayName.value.trim() || save.isPending || !settings.data}
+            aria-busy={save.isPending}>
+            {save.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
             {t('pod.settings.save_changes')}
           </Button>
         </div>
@@ -672,36 +676,39 @@ function Members({ model }: { model: Model }) {
               className="grid gap-3"
               onSubmit={event => {
                 event.preventDefault()
-                create.mutate()
+                if (!create.isPending) create.mutate()
               }}>
-              <Label htmlFor="member-name">{t('auth.member_name')}</Label>
-              <Input
-                id="member-name"
-                required
-                value={model.memberName.value}
-                onChange={event => {
-                  create.reset()
-                  model.memberName.value = event.target.value
-                }}
-              />
-              <Label htmlFor="member-email">{t('auth.email')}</Label>
-              <Input
-                id="member-email"
-                type="email"
-                required
-                value={model.memberEmail.value}
-                onChange={event => {
-                  create.reset()
-                  model.memberEmail.value = event.target.value
-                }}
-              />
-              <RoleSelect
-                value={model.membership.value}
-                onChange={value => {
-                  create.reset()
-                  model.membership.value = value
-                }}
-              />
+              <fieldset disabled={create.isPending} className="contents">
+                <Label htmlFor="member-name">{t('auth.member_name')}</Label>
+                <Input
+                  id="member-name"
+                  required
+                  value={model.memberName.value}
+                  onChange={event => {
+                    if (!create.isPending) create.reset()
+                    model.memberName.value = event.target.value
+                  }}
+                />
+                <Label htmlFor="member-email">{t('auth.email')}</Label>
+                <Input
+                  id="member-email"
+                  type="email"
+                  required
+                  value={model.memberEmail.value}
+                  onChange={event => {
+                    if (!create.isPending) create.reset()
+                    model.memberEmail.value = event.target.value
+                  }}
+                />
+                <RoleSelect
+                  disabled={create.isPending}
+                  value={model.membership.value}
+                  onChange={value => {
+                    if (!create.isPending) create.reset()
+                    model.membership.value = value
+                  }}
+                />
+              </fieldset>
               <div className="flex flex-wrap gap-2">
                 <Button type="submit" disabled={create.isPending}>
                   {t('pod.settings.precreate_member')}
@@ -799,6 +806,7 @@ function Members({ model }: { model: Model }) {
                   </Button>
                 </div>
               ))}
+              {member.status !== 'active' && <PodMemberAccessCleanup uid={member.uid} />}
             </CardContent>
           </Card>
         )
@@ -871,8 +879,10 @@ function Members({ model }: { model: Model }) {
             <Input
               id="access-reason"
               required
+              disabled={change.isPending}
               value={model.reason.value}
               onChange={event => {
+                if (!change.isPending && change.error) change.reset()
                 model.reason.value = event.target.value
               }}
             />
@@ -901,10 +911,18 @@ function Members({ model }: { model: Model }) {
   )
 }
 
-function RoleSelect({ value, onChange }: { value: 'member' | 'guest'; onChange(value: 'member' | 'guest'): void }) {
+function RoleSelect({
+  value,
+  onChange,
+  disabled = false
+}: {
+  value: 'member' | 'guest'
+  onChange(value: 'member' | 'guest'): void
+  disabled?: boolean
+}) {
   const { t } = useTranslation()
   return (
-    <Select value={value} onValueChange={value => onChange(value as 'member' | 'guest')}>
+    <Select disabled={disabled} value={value} onValueChange={value => onChange(value as 'member' | 'guest')}>
       <SelectTrigger aria-label={t('pod.settings.membership')}>
         <SelectValue />
       </SelectTrigger>
@@ -959,76 +977,85 @@ function Invitations({ model }: { model: Model }) {
             className="grid gap-4"
             onSubmit={event => {
               event.preventDefault()
-              create.mutate()
+              if (!create.isPending) create.mutate()
             }}>
-            <div className="grid gap-2">
-              <Label htmlFor="invite-email">{t('pod.settings.invitation_email')}</Label>
-              <Input
-                id="invite-email"
-                type="email"
-                disabled={!settings.data?.emailAvailable}
-                value={model.invitationEmail.value}
-                onChange={event => {
-                  model.setInvitationEmail(event.target.value)
-                }}
-              />
-              {settings.data && !settings.data.emailAvailable && (
-                <p className="text-xs text-fg-secondary">{t('pod.settings.smtp_required')}</p>
-              )}
-            </div>
-            <div className="grid gap-2">
-              <Label>{t('pod.settings.membership')}</Label>
-              <RoleSelect
-                value={model.invitationRole.value}
-                onChange={value => {
-                  model.invitationRole.value = value
-                }}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="invite-expiry-preset">{t('pod.settings.expires')}</Label>
-              <Select
-                value={model.expiryPreset.value}
-                onValueChange={value => {
-                  if (value) model.expiryPreset.value = value as InvitationExpiryPreset
-                }}>
-                <SelectTrigger id="invite-expiry-preset" aria-label={t('pod.settings.expires')}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="24h">{t('pod.settings.expires_24h', { defaultValue: '24 hours' })}</SelectItem>
-                  <SelectItem value="7d">{t('pod.settings.expires_7d', { defaultValue: '7 days' })}</SelectItem>
-                  <SelectItem value="30d">{t('pod.settings.expires_30d', { defaultValue: '30 days' })}</SelectItem>
-                  <SelectItem value="custom">
-                    {t('pod.settings.expires_custom', { defaultValue: 'Custom date and time' })}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              {model.expiryPreset.value === 'custom' && (
+            <fieldset disabled={create.isPending} className="contents">
+              <div className="grid gap-2">
+                <Label htmlFor="invite-email">{t('pod.settings.invitation_email')}</Label>
                 <Input
-                  id="invite-expiry"
-                  type="datetime-local"
-                  required
-                  aria-label={t('pod.settings.expires')}
-                  value={model.expiresAt.value}
+                  id="invite-email"
+                  type="email"
+                  disabled={create.isPending || !settings.data?.emailAvailable}
+                  value={model.invitationEmail.value}
                   onChange={event => {
-                    model.expiresAt.value = event.target.value
+                    if (!create.isPending) create.reset()
+                    model.setInvitationEmail(event.target.value)
                   }}
                 />
-              )}
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="invite-uses">{t('pod.settings.max_uses')}</Label>
-              <Input
-                id="invite-uses"
-                type="number"
-                min={1}
-                value={model.maxUses.value}
-                onChange={event => {
-                  model.setMaxUses(event.target.value)
-                }}
-              />
-            </div>
+                {settings.data && !settings.data.emailAvailable && (
+                  <p className="text-xs text-fg-secondary">{t('pod.settings.smtp_required')}</p>
+                )}
+              </div>
+              <div className="grid gap-2">
+                <Label>{t('pod.settings.membership')}</Label>
+                <RoleSelect
+                  disabled={create.isPending}
+                  value={model.invitationRole.value}
+                  onChange={value => {
+                    if (!create.isPending) create.reset()
+                    model.invitationRole.value = value
+                  }}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="invite-expiry-preset">{t('pod.settings.expires')}</Label>
+                <Select
+                  disabled={create.isPending}
+                  value={model.expiryPreset.value}
+                  onValueChange={value => {
+                    if (!create.isPending) create.reset()
+                    if (value) model.expiryPreset.value = value as InvitationExpiryPreset
+                  }}>
+                  <SelectTrigger id="invite-expiry-preset" aria-label={t('pod.settings.expires')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="24h">{t('pod.settings.expires_24h', { defaultValue: '24 hours' })}</SelectItem>
+                    <SelectItem value="7d">{t('pod.settings.expires_7d', { defaultValue: '7 days' })}</SelectItem>
+                    <SelectItem value="30d">{t('pod.settings.expires_30d', { defaultValue: '30 days' })}</SelectItem>
+                    <SelectItem value="custom">
+                      {t('pod.settings.expires_custom', { defaultValue: 'Custom date and time' })}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {model.expiryPreset.value === 'custom' && (
+                  <Input
+                    id="invite-expiry"
+                    type="datetime-local"
+                    required
+                    aria-label={t('pod.settings.expires')}
+                    value={model.expiresAt.value}
+                    onChange={event => {
+                      if (!create.isPending) create.reset()
+                      model.expiresAt.value = event.target.value
+                    }}
+                  />
+                )}
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="invite-uses">{t('pod.settings.max_uses')}</Label>
+                <Input
+                  id="invite-uses"
+                  type="number"
+                  min={1}
+                  value={model.maxUses.value}
+                  onChange={event => {
+                    if (!create.isPending) create.reset()
+                    model.setMaxUses(event.target.value)
+                  }}
+                />
+              </div>
+            </fieldset>
             <div className="flex">
               <Button type="submit" disabled={create.isPending}>
                 {t('pod.settings.create_invitation')}
@@ -1115,6 +1142,7 @@ function Providers({ model }: { model: Model }) {
   const [customizeCallback, setCustomizeCallback] = useState(false)
 
   const providers = useQuery({ queryKey: keys.providers, queryFn: () => api.podAdminIdentityProviders() })
+  const members = useQuery({ queryKey: keys.members, queryFn: () => api.podAdminMembers() })
   const connectorCatalog = useQuery({
     queryKey: connectorKeys.catalog,
     queryFn: () => api.podConnectorsCatalog()
@@ -1149,7 +1177,13 @@ function Providers({ model }: { model: Model }) {
   })
   const sync = useMutation({
     mutationFn: (provider_id: string) => api.syncPodDirectory({ path: { provider_id } }),
-    onSuccess: () => toast.success(t('console.identity.sync_started'))
+    onSuccess: (_result, provider_id) => {
+      toast.success(t('console.identity.sync_started'))
+      return Promise.all([
+        client.invalidateQueries({ queryKey: ['pod-admin-directory', provider_id] }),
+        client.invalidateQueries({ queryKey: keys.members })
+      ])
+    }
   })
   const selectAdapter = (value: string) => {
     const item = adapters.find(item => item.adapter_id === value)
@@ -1191,42 +1225,51 @@ function Providers({ model }: { model: Model }) {
         const isEnabled = provider.enabled === true
         return (
           <Card className="rounded-xl" key={provider.provider_id}>
-            <CardContent className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="font-medium">{displayName}</span>
-                <Badge variant={isEnabled ? 'success' : 'secondary'}>
-                  {isEnabled
-                    ? t('console.identity.enabled')
-                    : t('pod.settings.status_disabled', { defaultValue: 'Disabled' })}
-                </Badge>
-                {provider.provider_id !== providerAdapter?.default_provider_id && (
-                  <span className="font-mono text-xs text-fg-secondary">{provider.provider_id}</span>
-                )}
+            <CardContent className="grid gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="font-medium">{displayName}</span>
+                  <Badge variant={isEnabled ? 'success' : 'secondary'}>
+                    {isEnabled
+                      ? t('console.identity.enabled')
+                      : t('pod.settings.status_disabled', { defaultValue: 'Disabled' })}
+                  </Badge>
+                  {provider.provider_id !== providerAdapter?.default_provider_id && (
+                    <span className="font-mono text-xs text-fg-secondary">{provider.provider_id}</span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={save.isPending}
+                    onClick={() => {
+                      model.adapterID.value = provider.adapter_id
+                      model.editingProviderID.value = provider.provider_id
+                      model.providerID.value = provider.provider_id
+                      model.config.value = provider.config
+                      model.enabled.value = provider.enabled === true
+                      model.preservedSecrets.value = provider.stored_secret_paths
+                      resetCallbackCopied()
+                      setCustomizeCallback(false)
+                      save.reset()
+                    }}>
+                    {t('common.edit')}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={sync.isPending || !isEnabled}
+                    onClick={() => sync.mutate(provider.provider_id)}>
+                    {t('pod.settings.sync_directory')}
+                  </Button>
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  disabled={save.isPending}
-                  onClick={() => {
-                    model.adapterID.value = provider.adapter_id
-                    model.editingProviderID.value = provider.provider_id
-                    model.providerID.value = provider.provider_id
-                    model.config.value = provider.config
-                    model.enabled.value = provider.enabled === true
-                    model.preservedSecrets.value = provider.stored_secret_paths
-                    resetCallbackCopied()
-                    setCustomizeCallback(false)
-                    save.reset()
-                  }}>
-                  {t('common.edit')}
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={sync.isPending || !isEnabled}
-                  onClick={() => sync.mutate(provider.provider_id)}>
-                  {t('pod.settings.sync_directory')}
-                </Button>
-              </div>
+              {isEnabled && (
+                <PodProviderDirectoryReview
+                  providerID={provider.provider_id}
+                  members={members.data?.members}
+                  membersLoading={members.isPending}
+                />
+              )}
             </CardContent>
           </Card>
         )
@@ -1284,89 +1327,100 @@ function Providers({ model }: { model: Model }) {
               className="grid gap-4"
               onSubmit={event => {
                 event.preventDefault()
-                save.mutate()
+                if (!save.isPending) save.mutate()
               }}>
-              <div className="grid gap-2">
-                <p className="text-sm font-medium">{t('setup.oidc_callback_url')}</p>
-                <div className="flex min-w-0 flex-col gap-3 border border-border-subtle/70 bg-layer-03/30 p-3 sm:flex-row sm:items-center">
-                  <code className="min-w-0 flex-1 break-all font-mono text-sm">{callbackURL}</code>
-                  <Button type="button" size="sm" variant="outline" onClick={copyCallbackURL}>
-                    {callbackCopied ? t('setup.oidc_callback_url_copied') : t('setup.oidc_callback_url_copy')}
-                    {callbackCopied ? (
-                      <CheckmarkRegular aria-hidden data-icon="inline-end" />
-                    ) : (
-                      <CopyRegular aria-hidden data-icon="inline-end" />
-                    )}
-                  </Button>
+              <fieldset disabled={save.isPending} className="contents">
+                <div className="grid gap-2">
+                  <p className="text-sm font-medium">{t('setup.oidc_callback_url')}</p>
+                  <div className="flex min-w-0 flex-col gap-3 border border-border-subtle/70 bg-layer-03/30 p-3 sm:flex-row sm:items-center">
+                    <code className="min-w-0 flex-1 break-all font-mono text-sm">{callbackURL}</code>
+                    <Button type="button" size="sm" variant="outline" onClick={copyCallbackURL}>
+                      {callbackCopied ? t('setup.oidc_callback_url_copied') : t('setup.oidc_callback_url_copy')}
+                      {callbackCopied ? (
+                        <CheckmarkRegular aria-hidden data-icon="inline-end" />
+                      ) : (
+                        <CopyRegular aria-hidden data-icon="inline-end" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-              <Collapsible className="grid gap-3" open={customizeCallback} onOpenChange={setCustomizeCallback}>
-                <CollapsibleTrigger className="text-left text-sm text-fg-secondary underline underline-offset-4">
-                  {t('setup.customize_callback_url')}
-                </CollapsibleTrigger>
-                <CollapsibleContent className="grid gap-2 pt-2">
-                  <Label htmlFor="provider-id">{t('setup.provider_id')}</Label>
-                  <Input
-                    id="provider-id"
-                    disabled={save.isPending}
-                    required
-                    readOnly={Boolean(model.editingProviderID.value)}
-                    pattern={'[a-z][a-z0-9_\\-]*'}
-                    value={model.providerID.value}
-                    onChange={event => {
-                      save.reset()
-                      resetCallbackCopied()
-                      model.providerID.value = event.target.value
-                    }}
-                  />
-                  <p className="text-xs text-fg-secondary">{t('setup.provider_id_hint')}</p>
-                </CollapsibleContent>
-              </Collapsible>
-              <ConnectorConfigFields
-                pluginId={adapter.plugin_id ?? adapter.adapter_id}
-                catalog={connectorCatalog.data?.connectors}
-                connections={connections.data?.connections ?? []}
-                onConnectionChange={config => {
-                  save.reset()
-                  model.config.value = config
-                }}
-                fields={adapter.fields}
-                config={model.config.value}
-                locale={i18n.language}
-                preservedSecretPaths={model.preservedSecrets.value}
-                preservedSecretPlaceholder={t('common.secret_saved_placeholder')}
-                onChange={(path, value) => {
-                  save.reset()
-                  model.config.value = setPath(model.config.value, path, value)
-                }}
-              />
-              <label className="flex items-center gap-3 text-sm">
-                <Checkbox
-                  checked={model.enabled.value}
-                  onCheckedChange={value => {
-                    save.reset()
-                    model.enabled.value = value === true
+                <Collapsible className="grid gap-3" open={customizeCallback} onOpenChange={setCustomizeCallback}>
+                  <CollapsibleTrigger className="text-left text-sm text-fg-secondary underline underline-offset-4">
+                    {t('setup.customize_callback_url')}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="grid gap-2 pt-2">
+                    <Label htmlFor="provider-id">{t('setup.provider_id')}</Label>
+                    <Input
+                      id="provider-id"
+                      required
+                      readOnly={Boolean(model.editingProviderID.value)}
+                      pattern={'[a-z][a-z0-9_\\-]*'}
+                      value={model.providerID.value}
+                      onChange={event => {
+                        if (!save.isPending) save.reset()
+                        resetCallbackCopied()
+                        model.providerID.value = event.target.value
+                      }}
+                    />
+                    <p className="text-xs text-fg-secondary">{t('setup.provider_id_hint')}</p>
+                  </CollapsibleContent>
+                </Collapsible>
+                <ConnectorConfigFields
+                  disabled={save.isPending}
+                  loading={connectorCatalog.isPending || connections.isPending}
+                  initialAuthConfigId={
+                    model.editingProviderID.value
+                      ? typeof editingProvider?.config.authConfigId === 'string'
+                        ? editingProvider.config.authConfigId
+                        : null
+                      : undefined
+                  }
+                  pluginId={adapter.plugin_id ?? adapter.adapter_id}
+                  catalog={connectorCatalog.data?.connectors}
+                  connections={connections.data?.connections ?? []}
+                  onConnectionChange={config => {
+                    if (!save.isPending) save.reset()
+                    model.config.value = config
+                  }}
+                  fields={adapter.fields}
+                  config={model.config.value}
+                  locale={i18n.language}
+                  preservedSecretPaths={model.preservedSecrets.value}
+                  preservedSecretPlaceholder={t('common.secret_saved_placeholder')}
+                  onChange={(path, value) => {
+                    if (!save.isPending) save.reset()
+                    model.config.value = setPath(model.config.value, path, value)
                   }}
                 />
-                <span>{t('pod.settings.provider_enabled')}</span>
-              </label>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button type="submit" disabled={save.isPending}>
-                  {t(model.editingProviderID.value ? 'common.save' : 'console.identity.new')}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={save.isPending}
-                  onClick={() => {
-                    save.reset()
-                    resetCallbackCopied()
-                    setCustomizeCallback(false)
-                    model.closeProviderEditor()
-                  }}>
-                  {t('common.cancel')}
-                </Button>
-              </div>
+                <label className="flex items-center gap-3 text-sm">
+                  <Checkbox
+                    disabled={save.isPending}
+                    checked={model.enabled.value}
+                    onCheckedChange={value => {
+                      if (!save.isPending) save.reset()
+                      model.enabled.value = value === true
+                    }}
+                  />
+                  <span>{t('pod.settings.provider_enabled')}</span>
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="submit" disabled={save.isPending}>
+                    {t(model.editingProviderID.value ? 'common.save' : 'console.identity.new')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={save.isPending}
+                    onClick={() => {
+                      save.reset()
+                      resetCallbackCopied()
+                      setCustomizeCallback(false)
+                      model.closeProviderEditor()
+                    }}>
+                    {t('common.cancel')}
+                  </Button>
+                </div>
+              </fieldset>
             </form>
           </CardContent>
         </Card>

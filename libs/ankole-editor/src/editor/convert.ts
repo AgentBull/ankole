@@ -9,7 +9,7 @@ import { Leaf, Mark, type Node, type Plot } from '../core/doc'
 import type { GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { normalizeTree } from '../document/normalize'
-import { element, removeInvalidCharacters, text, type Element, type Node as PageNode } from '../document/tree'
+import { element, removeInvalidCharacters, text, textOf, type Element, type Node as PageNode } from '../document/tree'
 import { blocks as blockDefinitions } from '../blocks'
 import {
   codeNodes,
@@ -217,6 +217,19 @@ function inline(
           ])
         )
       )
+    } else if (node.name === 'inline-math') {
+      out.push(
+        S.InlineMath.of(
+          textOf(node),
+          markSet([
+            ...context.formats,
+            context.style && S.TextStyle.of(context.style),
+            context.link && S.Link.of(context.link),
+            context.comments.length > 0 && S.Comment.of(context.comments),
+            extra(node.attrs)
+          ])
+        )
+      )
     } else if (node.name === 'mention') {
       const target: S.MentionTarget =
         node.attrs.page !== undefined ? { page: node.attrs.page } : { principal: node.attrs.principal! }
@@ -379,6 +392,9 @@ function inlineBack(nodes: readonly Node[]): PageNode[] {
         ...(alt !== undefined ? { alt } : {}),
         ...(title !== undefined ? { title } : {})
       })
+    } else if (is(node, S.InlineMath)) {
+      const value = (node as Leaf).param as string
+      result = element('inline-math', attrsBack(node), value ? [text(value)] : [])
     } else if (is(node, S.Mention)) {
       const target = (node as Leaf).param as S.MentionTarget
       result = element('mention', {

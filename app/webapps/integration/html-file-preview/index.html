@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en-US">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="base-uri 'self'" />
+    <title>HTML file preview browser fixture</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import React from 'react'
+      import { createRoot } from 'react-dom/client'
+      import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+      import '@ankole/uikit/styles.css'
+      import { loadLocale } from '../../common/i18n'
+      import { HtmlFilePreview } from '../../pod/html-file-preview'
+
+      await loadLocale('en-US')
+      const html = `<!doctype html><html><head><title>Interactive report</title>
+        <style>
+          body { margin: 0; }
+          nav { position: fixed; top: 0; background: white; }
+          section { padding-top: 80px; height: 1000px; }
+        </style></head><body onload="document.addEventListener('click', function(event) { if (event.target.closest('[data-custom]')) { event.preventDefault(); document.getElementById('custom-status').textContent = 'Handled by report' } })">
+        <nav>
+          <a href="#applet-source-link">Source section</a>
+          <a href="#%E4%B8%AD%E6%96%87" target="_self">Chinese section</a>
+          <a href="#" target="">Back to top</a>
+          <a href="#custom" data-custom>Custom action</a>
+          <a href="${location.origin}/integration/html-file-preview/index.html?external">External report</a>
+        </nav>
+        <section><h1>Interactive report</h1><output id="custom-status"></output></section>
+        <section id="applet-source-link"><h2>Source section content</h2></section>
+        <section id="中文"><h2>Chinese section content</h2></section>
+        </body></html>`
+      const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+      createRoot(document.getElementById('root')).render(
+        React.createElement(
+          QueryClientProvider,
+          { client: new QueryClient() },
+          React.createElement(HtmlFilePreview, {
+            cacheKey: ['html-preview-browser'],
+            url,
+            local: true,
+            name: 'report.html',
+            canComment: false
+          })
+        )
+      )
+    </script>
+  </body>
+</html>

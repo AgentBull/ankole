@@ -36,6 +36,8 @@ import { settingFocus, settingMatches, settingsScope, settingsSearch } from '../
 import { requestErrorMessage } from '../../common/request-errors'
 import { settingDecryptedDraft } from '../state/setting-editor-model'
 import { DURATION_SWITCHES, settingDurationParts } from '../state/setting-value-editor'
+import { useConsoleSlots } from '../slots'
+import { PodSettingsLinkBanner } from '../pod-settings-banner'
 
 function useSettingsTenantName() {
   const context = useConsoleTenant()
@@ -52,6 +54,7 @@ export function SettingsTenantContext() {
 }
 
 export function SettingsList() {
+  const { settingGroups, settingOwners } = useConsoleSlots()
   const { t } = useTranslation()
   const router = useRouter()
   const [params, setParams] = useSearchParams()
@@ -67,7 +70,7 @@ export function SettingsList() {
   const current = scope === 'global' ? globalItems : tenantItems
   const all = new Map([...globalItems, ...tenantItems, ...current])
   const items = [...all.values()].filter(item => {
-    const group = settingGroupID(item.key)
+    const group = settingGroupID(item.key, settingGroups)
     const labels = [
       settingDescription(t, item),
       t(`console.settings.task_${item.key.replaceAll('.', '_')}`, { defaultValue: '' }),
@@ -76,7 +79,7 @@ export function SettingsList() {
     ].join(' ')
     return (current.has(item.key) || Boolean(deferredQuery.trim())) && settingMatches(item, deferredQuery, labels)
   })
-  const rows = settingRows(items)
+  const rows = settingRows(items, settingGroups)
   const update = (key: string, value: string) =>
     setParams(
       previous => {
@@ -117,31 +120,29 @@ export function SettingsList() {
     </div>
   )
 
+  const ownerLinkLabel = (key: string) => {
+    if (key === 'plugins.enabled_ids') return 'owner_control_plane_plugins'
+    if (key.startsWith('ai_gateway.')) return 'owner_model_profiles'
+    if (key.startsWith('ai_agent.library.')) return 'owner_library'
+    if (key.startsWith('signals.')) return 'owner_signals'
+    return 'owner_identity'
+  }
+
   const ownerLink = (item: AppConfigurationItem) => {
-    const route = settingOwnerRoute(item.key, scope)
+    const route = settingOwnerRoute(item.key, scope, settingOwners)
     if (!route) return null
     const label =
-      item.key === 'saas.require_invitation_code'
-        ? 'owner_invitations'
-        : item.key === 'plugins.enabled_ids'
-          ? 'owner_control_plane_plugins'
-          : item.key.startsWith('ai_gateway.')
-            ? 'owner_model_profiles'
-            : item.key.startsWith('ai_agent.library.')
-              ? 'owner_library'
-              : item.key.startsWith('signals.')
-                ? 'owner_signals'
-                : 'owner_identity'
+      settingOwners?.find(owner => owner.key === item.key)?.label ?? `console.settings.${ownerLinkLabel(item.key)}`
     return (
       <Link className="link text-xs" {...linkTarget(route)}>
-        {t(`console.settings.${label}`)}
+        {t(label)}
       </Link>
     )
   }
 
   const singleRow = (summary: AppConfigurationItem) => {
     const item = current.get(summary.key) ?? summary
-    const editable = current.has(item.key) && item.editable && !settingOwnerRoute(item.key)
+    const editable = current.has(item.key) && item.editable && !settingOwnerRoute(item.key, undefined, settingOwners)
     return (
       <TableRow key={item.key}>
         <TableCell className="max-w-lg whitespace-normal">
@@ -156,7 +157,7 @@ export function SettingsList() {
             {registry && !item.editable ? (
               <span className="text-xs">
                 {t(
-                  `console.settings.${item.kind === 'pattern' ? 'reason_pattern' : scope === 'tenant' && item.scope === 'global' ? 'reason_site_only' : settingOwnerRoute(item.key) ? 'reason_owner' : 'reason_system'}`
+                  `console.settings.${item.kind === 'pattern' ? 'reason_pattern' : scope === 'tenant' && item.scope === 'global' ? 'reason_site_only' : settingOwnerRoute(item.key, undefined, settingOwners) ? 'reason_owner' : 'reason_system'}`
                 )}
               </span>
             ) : null}
@@ -196,10 +197,10 @@ export function SettingsList() {
                       : 'common.edit'
                 )}
               </Link>
-            ) : registry && settingGroupID(item.key) ? (
+            ) : registry && settingGroupID(item.key, settingGroups) ? (
               <Link
                 className="link text-xs"
-                to={`/settings/group/${settingGroupID(item.key)}`}
+                to={`/settings/group/${settingGroupID(item.key, settingGroups)}`}
                 search={settingsSearch(params, { scope: item.scope === 'global' ? 'global' : scope, focus: item.key })}>
                 {t('console.settings.open_task')}
               </Link>
@@ -213,7 +214,7 @@ export function SettingsList() {
 
   const groupRow = (group: SettingGroup) => {
     const members = [...all.values()]
-      .filter(item => settingGroupID(item.key) === group.id)
+      .filter(item => settingGroupID(item.key, settingGroups) === group.id)
       .map(item => current.get(item.key) ?? item)
     const targetScope = members.some(item => current.has(item.key) && item.editable)
       ? scope
@@ -289,7 +290,9 @@ export function SettingsList() {
 
   const taskSingles = [
     ...rows.singles,
-    ...rows.managed.filter(item => (item.kind === 'exact' && settingOwnerRoute(item.key)) || query.trim())
+    ...rows.managed.filter(
+      item => (item.kind === 'exact' && settingOwnerRoute(item.key, undefined, settingOwners)) || query.trim()
+    )
   ]
   const count = registry ? items.length : rows.groups.length + taskSingles.length
   return (
@@ -314,6 +317,7 @@ export function SettingsList() {
       error={global.error ?? tenant.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => update('q', '')}
+      subNav={scope === 'tenant' ? <PodSettingsLinkBanner section="general" /> : undefined}
       toolbar={
         <>
           <Select

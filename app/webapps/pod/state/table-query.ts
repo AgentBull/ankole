@@ -88,18 +88,13 @@ function compareValues(a: Value, b: Value): number {
 
 /** JSONB compares container size before elements, and stores object keys by UTF-8 byte length. */
 function compareJSONB(a: unknown, b: unknown): number {
-  const rank = (value: unknown) =>
-    value === null
-      ? 0
-      : typeof value === 'string'
-        ? 1
-        : typeof value === 'number'
-          ? 2
-          : typeof value === 'boolean'
-            ? 3
-            : Array.isArray(value)
-              ? 4
-              : 5
+  const rank = (value: unknown) => {
+    if (value === null) return 0
+    if (typeof value === 'string') return 1
+    if (typeof value === 'number') return 2
+    if (typeof value === 'boolean') return 3
+    return Array.isArray(value) ? 4 : 5
+  }
   const type = rank(a) - rank(b)
   if (type) return type
   if (a === b) return 0
@@ -327,19 +322,14 @@ export function aggregateLocalRecords(
             ? group.records.map(record => fieldValue(record, field)).filter(value => value !== null)
             : []
           const numeric = values.filter(value => typeof value === 'number') as number[]
-          const value =
-            metric.operation === 'count'
-              ? metric.field_id
-                ? values.length
-                : group.records.length
-              : !values.length
-                ? null
-                : metric.operation === 'sum'
-                  ? numeric.reduce((sum, value) => sum + value, 0)
-                  : metric.operation === 'avg'
-                    ? numeric.reduce((sum, value) => sum + value, 0) / numeric.length
-                    : [...values].sort(compareValues)[metric.operation === 'min' ? 0 : values.length - 1]!
-          return [metric.alias, value]
+          const computeMetricValue = () => {
+            if (metric.operation === 'count') return metric.field_id ? values.length : group.records.length
+            if (!values.length) return null
+            if (metric.operation === 'sum') return numeric.reduce((sum, value) => sum + value, 0)
+            if (metric.operation === 'avg') return numeric.reduce((sum, value) => sum + value, 0) / numeric.length
+            return [...values].sort(compareValues)[metric.operation === 'min' ? 0 : values.length - 1]!
+          }
+          return [metric.alias, computeMetricValue()]
         })
       )
     }))

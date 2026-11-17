@@ -113,6 +113,14 @@ export class ActiveTurns {
     return this.turns.size
   }
 
+  activeJobIds(): ReadonlySet<string> {
+    const ids = new Set<string>()
+    for (const active of this.turns.values()) {
+      ids.add(String(active.turnStart.turn.job_id))
+    }
+    return ids
+  }
+
   /**
    * Accepts and launches one Turn if this Worker has capacity.
    *

@@ -75,8 +75,8 @@ defmodule AnkoleWeb.JSONAPI.AIGatewayUsageTest do
     %{principal: agent} = agent_fixture()
     record!(agent.uid, :agent, nil, 100, 20)
 
-    # Deleting first disables the Agent and then removes it.
-    assert {:ok, _disabled} = Ankole.Principals.delete_agent(agent.uid)
+    # Deleting requires disabling the Agent first and then removing it.
+    assert {:ok, _disabled} = Ankole.Principals.disable_agent(agent.uid)
     assert {:ok, _deleted} = Ankole.Principals.delete_agent(agent.uid)
 
     assert %{"total" => %{"rounds" => 1}, "by_agent" => [row]} =

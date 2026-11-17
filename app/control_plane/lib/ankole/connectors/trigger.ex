@@ -30,6 +30,8 @@ defmodule Ankole.Connectors.Trigger do
     attribute(:sealed_secret, :string, sensitive?: true)
     attribute(:status, :string, allow_nil?: false, default: "provisioning")
     attribute(:lease_expires_at, :utc_datetime_usec)
+    attribute(:last_verified_at, :utc_datetime_usec)
+    attribute(:consecutive_failures, :integer, allow_nil?: false, default: 0)
     attribute(:last_error, Ankole.Ash.Types.JSONMap)
     timestamps(type: :utc_datetime_usec)
   end
@@ -55,6 +57,8 @@ defmodule Ankole.Connectors.Trigger do
             :sealed_secret,
             :status,
             :lease_expires_at,
+            :last_verified_at,
+            :consecutive_failures,
             :last_error
           ]
       ])
@@ -72,6 +76,8 @@ defmodule Ankole.Connectors.Trigger do
         :sealed_secret,
         :status,
         :lease_expires_at,
+        :last_verified_at,
+        :consecutive_failures,
         :last_error
       ])
 

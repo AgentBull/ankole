@@ -5,6 +5,7 @@
     "tsconfig.base.json",
     "turbo.json",
     ".oxlintrc.json",
+    "tools/devkit/src/oxlint/**",
     ".oxfmtrc.json",
     "bunfig.toml"
   ],

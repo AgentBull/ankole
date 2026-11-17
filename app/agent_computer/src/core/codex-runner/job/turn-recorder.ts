@@ -10,21 +10,23 @@ import { boundedBackgroundAgentJobPaths } from '../../background-agent-job-hando
 import type { WorkerTurnTrace } from '../../../observability/turn-tracing'
 import { CodexTurnTrace } from './turn-tracing'
 import { projectCodexToolItem, sameToolIdentity, type CodexToolItem } from './tool-item'
-import type { DriveView } from '../../../drive/mounts'
+import type { DriveFlushedFile, DriveFlushResult, DriveView } from '../../../drive/mounts'
 import {
   agentMessagePayload,
   arrayValue,
-  buildTurnUpsertRequest,
   collaborationToolName,
   collaborationToolOutcome,
   errorType,
   fallbackCollaborationTool,
   fileChangePaths,
+  flushRecorderDriveWindow,
   itemKey,
+  mergeDriveWindows,
   now,
   parseJSONValue,
-  persistTurnCheckpointWithRetry,
   planStatus,
+  prepareTurnUpsertCheckpoint,
+  recordFlushedDriveDeliverables,
   sameUserContent,
   shouldRecordItem,
   terminal,
@@ -38,6 +40,7 @@ import {
   type PendingCollaborationCall,
   type RuntimeTurn
 } from './turn-recorder-helpers'
+import { TurnCheckpointSpooler } from './turn-recorder-spool'
 
 // Coalesce event bursts before a progress checkpoint. flush() still bypasses
 // this delay at every durability boundary.
@@ -52,6 +55,8 @@ const maxUnmatchedChildInputs = 8
  */
 export class BackgroundAgentJobTurnRecorder {
   private driveWindow?: Map<string, number>
+  private readonly driveDeliverables = new Map<string, DriveFlushedFile>()
+  private readonly pendingDrivePaths = new Set<string>()
   private readonly turns = new Map<string, RuntimeTurn>()
   private readonly pendingCollaborationCalls = new Map<string, PendingCollaborationCall>()
   /** Activity-only calls per child thread, in arrival order, waiting for that thread's next input. */
@@ -60,8 +65,7 @@ export class BackgroundAgentJobTurnRecorder {
   private readonly unmatchedChildInputs = new Map<string, string[]>()
   private leadThreadID: string | undefined
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
-  private tail: Promise<void> = Promise.resolve()
-  private checkpointError: unknown
+  private readonly spooler: TurnCheckpointSpooler
 
   constructor(
     private readonly input: {
@@ -72,19 +76,54 @@ export class BackgroundAgentJobTurnRecorder {
         request: RPCRequestInit<'background_agent_job.turn.upsert'>
       ) => Promise<BackgroundAgentJobTurnUpsertResponse>
       checkpointDelayMs?: number
+      spoolRoot?: string
+      spoolRetryBaseDelayMs?: number
+      spoolRetryMaxDelayMs?: number
+      spoolMaxBytes?: number
+      spoolMaxAgeMs?: number
+      nowMs?: () => number
       turnTrace?: WorkerTurnTrace
       driveView?: DriveView
     }
-  ) {}
-
-  async startDriveWindow(): Promise<void> {
-    this.driveWindow = await this.input.driveView?.sequence()
+  ) {
+    this.spooler = new TurnCheckpointSpooler({
+      upsert: input.upsert,
+      lookupTurn: runtimeTurnID => this.turns.get(runtimeTurnID),
+      spoolRoot: input.spoolRoot,
+      spoolRetryBaseDelayMs: input.spoolRetryBaseDelayMs,
+      spoolRetryMaxDelayMs: input.spoolRetryMaxDelayMs,
+      spoolMaxBytes: input.spoolMaxBytes,
+      spoolMaxAgeMs: input.spoolMaxAgeMs,
+      nowMs: input.nowMs
+    })
   }
 
-  async flushDriveWindow(): Promise<string> {
+  async startDriveWindow(): Promise<void> {
+    const current = await this.input.driveView?.sequence()
+    this.driveWindow = mergeDriveWindows(this.driveWindow, current)
+  }
+
+  recordDriveDeliverables(files: readonly DriveFlushedFile[]): void {
+    recordFlushedDriveDeliverables(this.pendingDrivePaths, this.driveDeliverables, files)
+  }
+
+  async flushDriveWindow(): Promise<DriveFlushResult> {
     const window = this.driveWindow
-    this.driveWindow = undefined
-    return window ? this.input.driveView!.flush(window) : ''
+    const result = await flushRecorderDriveWindow(
+      this.input.driveView,
+      window,
+      this.pendingDrivePaths,
+      this.driveDeliverables
+    )
+    const retainWindow = result.status === 'failed' || (result.status === 'pending' && result.flush_incomplete === true)
+    if (!retainWindow) {
+      this.driveWindow = undefined
+    }
+    return result
+  }
+
+  getDriveDeliverables(): DriveFlushedFile[] {
+    return [...this.driveDeliverables.values()]
   }
 
   /**
@@ -273,8 +312,13 @@ export class BackgroundAgentJobTurnRecorder {
       if (turn) this.enqueueCheckpoint(turn)
     }
     for (const turn of this.turns.values()) this.enqueueCheckpoint(turn)
-    await this.tail
-    if (this.checkpointError) throw this.checkpointError
+    await this.spooler.flush()
+  }
+
+  close(): void {
+    for (const timer of this.timers.values()) clearTimeout(timer)
+    this.timers.clear()
+    this.spooler.close()
   }
 
   private completeTurn(params: JSONObject): void {
@@ -706,14 +750,7 @@ export class BackgroundAgentJobTurnRecorder {
     if (!turn.dirty) return
     turn.dirty = false
     turn.revision += 1
-    const request = buildTurnUpsertRequest(this.input.jobID, this.input.attempt, turn)
-    this.tail = this.tail
-      .then(async () => {
-        if (this.checkpointError) return
-        await persistTurnCheckpointWithRetry(this.input.upsert, request)
-      })
-      .catch(error => {
-        this.checkpointError ??= error
-      })
+    const prepared = prepareTurnUpsertCheckpoint(this.input.jobID, this.input.attempt, turn)
+    this.spooler.enqueue(turn.runtimeTurnID, prepared.itemKeys, prepared.request)
   }
 }

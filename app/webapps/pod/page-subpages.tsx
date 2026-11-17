@@ -474,72 +474,76 @@ export function DocumentSubpages({
 
       <ContentError error={subpages.error} retry={() => void subpages.refetch()} />
 
-      {subpages.isPending ? (
-        <ContentSkeleton variant="list" rows={3} className="py-4" />
-      ) : sortedPages.length === 0 ? (
-        <p className="py-4 text-sm text-fg-tertiary">{t('pod.content.no_pages_yet')}</p>
-      ) : view === 'table' ? (
-        <KnowledgeTable pages={rawPages} />
-      ) : view === 'list' ? (
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <SortableTableHead
-                label={t('pod.subpages.field_name')}
-                field="title"
-                sort={sort}
-                onSort={field => model.cycleSort(field)}
-                className="w-full min-w-[220px] pl-1.5"
-              />
-              {visibleFields.map(field =>
-                field === 'created_by' ? (
-                  <TableHead key={field} className="min-w-[112px]">
-                    {fieldLabel(field)}
-                  </TableHead>
-                ) : (
+      {(() => {
+        if (subpages.isPending) return <ContentSkeleton variant="list" rows={3} className="py-4" />
+        if (sortedPages.length === 0) {
+          return <p className="py-4 text-sm text-fg-tertiary">{t('pod.content.no_pages_yet')}</p>
+        }
+        if (view === 'table') return <KnowledgeTable pages={rawPages} />
+        if (view === 'list') {
+          return (
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
                   <SortableTableHead
-                    key={field}
-                    label={fieldLabel(field)}
-                    field={field}
+                    label={t('pod.subpages.field_name')}
+                    field="title"
                     sort={sort}
-                    onSort={target => model.cycleSort(target)}
-                    className="min-w-[116px]"
+                    onSort={field => model.cycleSort(field)}
+                    className="w-full min-w-[220px] pl-1.5"
                   />
-                )
-              )}
-              <TableHead className="w-9 px-1 text-right">
-                <span className="sr-only">{t('common.more_actions')}</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+                  {visibleFields.map(field =>
+                    field === 'created_by' ? (
+                      <TableHead key={field} className="min-w-[112px]">
+                        {fieldLabel(field)}
+                      </TableHead>
+                    ) : (
+                      <SortableTableHead
+                        key={field}
+                        label={fieldLabel(field)}
+                        field={field}
+                        sort={sort}
+                        onSort={target => model.cycleSort(target)}
+                        className="min-w-[116px]"
+                      />
+                    )
+                  )}
+                  <TableHead className="w-9 px-1 text-right">
+                    <span className="sr-only">{t('common.more_actions')}</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedPages.map(item => (
+                  <SubpageListRow
+                    key={item.id}
+                    item={item}
+                    siblings={sort ? [item] : rawPages}
+                    visibleFields={visibleFields}
+                    favorited={favoriteIDs.has(item.id)}
+                    locale={i18n.language}
+                    actions={actions}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          )
+        }
+        return (
+          <div className="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-2">
             {sortedPages.map(item => (
-              <SubpageListRow
+              <SubpageGridCard
                 key={item.id}
                 item={item}
                 siblings={sort ? [item] : rawPages}
-                visibleFields={visibleFields}
                 favorited={favoriteIDs.has(item.id)}
                 locale={i18n.language}
                 actions={actions}
               />
             ))}
-          </TableBody>
-        </Table>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-2">
-          {sortedPages.map(item => (
-            <SubpageGridCard
-              key={item.id}
-              item={item}
-              siblings={sort ? [item] : rawPages}
-              favorited={favoriteIDs.has(item.id)}
-              locale={i18n.language}
-              actions={actions}
-            />
-          ))}
-        </div>
-      )}
+          </div>
+        )
+      })()}
 
       {subpages.hasNextPage && (
         <div className="mt-3">

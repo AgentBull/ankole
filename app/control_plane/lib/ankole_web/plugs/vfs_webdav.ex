@@ -359,7 +359,20 @@ defmodule AnkoleWeb.Plugs.VfsWebdav do
   end
 
   defp segments(path) do
-    decoded = Enum.map(path, &URI.decode/1) |> Enum.reject(&(&1 == ""))
+    decoded =
+      path
+      |> Enum.map(&URI.decode/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.map(fn part ->
+        if String.valid?(part) do
+          case :unicode.characters_to_nfc_binary(part) do
+            normalized when is_binary(normalized) -> normalized
+            _ -> part
+          end
+        else
+          part
+        end
+      end)
 
     if Enum.all?(decoded, fn part ->
          part not in [".", ".."] && String.valid?(part) && !String.contains?(part, ["/", <<0>>])

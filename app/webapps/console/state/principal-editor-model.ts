@@ -1,37 +1,62 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { z } from 'zod'
-import type { CreateMemberData, UpdateHumanData } from '../api/v2/generated/types.gen'
+import { requestErrorCode, requestErrorDetailList } from '../../common/request-errors'
+import type { UpdateHumanData } from '../api/v2/generated/types.gen'
 
-type PrincipalCreateRequest = CreateMemberData['body']['data']
 type PrincipalUpdateRequest = NonNullable<NonNullable<UpdateHumanData['body']>['data']['attributes']>
 
-export type PrincipalEditorDraft = {
+type PrincipalEditorDraft = {
   displayName: string
   email: string
-  membership?: 'member' | 'guest'
 }
 
-/** Client-side draft problems; the pages translate the code at render. */
-export type PrincipalDraftError = 'display_name_required' | 'email_invalid'
+/** Client-side draft problems; the edit page translates the code at render. */
+type PrincipalDraftError = 'display_name_required' | 'email_invalid'
+
+type Translate = {
+  (key: string): string
+  (key: string, values: Record<string, unknown>): string
+}
 
 const emailSchema = z.email()
 
-/** Shared draft for the create and edit pages of a Pod human member. */
+export function principalDraftErrorText(error: PrincipalDraftError, t: Translate): string {
+  switch (error) {
+    case 'display_name_required':
+      return t('common.field_required', { field: t('console.principals.display_name') })
+    case 'email_invalid':
+      return t('common.email_invalid')
+  }
+}
+
+/** Localizes the write-endpoint failures this page can trigger: a taken email is a field error. */
+export function principalRequestError(error: unknown, t: Translate): unknown {
+  const code = requestErrorCode(error)
+  const emailTaken =
+    code === 'email_taken' ||
+    requestErrorDetailList(error).some(
+      detail =>
+        detail.code === 'email_taken' ||
+        (detail.path === 'email' &&
+          (detail.code === 'taken' ||
+            detail.kind === 'taken' ||
+            (typeof detail.message === 'string' && detail.message.includes('taken'))))
+    )
+  return emailTaken ? t('console.principals.email_taken') : (error ?? undefined)
+}
+
+/** Draft model for editing a human Principal's profile in Site Console. */
 function createPrincipalEditor() {
   let source = Symbol()
   const sourceKey = signal<string>()
   const displayName = signal('')
   const email = signal('')
-  const membership = signal<'member' | 'guest'>('member')
   const initialDraft = signal<PrincipalEditorDraft>()
   const validationError = signal<PrincipalDraftError>()
   const dirty = computed(() => {
-    const source = initialDraft.value
+    const currentSource = initialDraft.value
     return Boolean(
-      source &&
-      (displayName.value !== source.displayName ||
-        email.value !== source.email ||
-        membership.value !== (source.membership ?? 'member'))
+      currentSource && (displayName.value !== currentSource.displayName || email.value !== currentSource.email)
     )
   })
 
@@ -39,7 +64,6 @@ function createPrincipalEditor() {
     sourceKey,
     displayName,
     email,
-    membership,
     dirty,
     validationError,
     initialize(nextSourceKey: string, draft: PrincipalEditorDraft) {
@@ -49,14 +73,13 @@ function createPrincipalEditor() {
         sourceKey.value = nextSourceKey
         displayName.value = draft.displayName
         email.value = draft.email
-        membership.value = draft.membership ?? 'member'
         initialDraft.value = { ...draft }
         validationError.value = undefined
       })
     },
     async save(request: () => Promise<unknown>, onSaved: (clean: boolean) => void) {
       const requestedSource = source
-      const sentDraft = { displayName: displayName.value, email: email.value, membership: membership.value }
+      const sentDraft = { displayName: displayName.value, email: email.value }
       await request()
       if (source !== requestedSource) return
       initialDraft.value = sentDraft
@@ -69,26 +92,23 @@ function createPrincipalEditor() {
     clearValidation() {
       validationError.value = undefined
     },
-    draftError(requireEmail = false): PrincipalDraftError | undefined {
+    draftError(): PrincipalDraftError | undefined {
       if (!displayName.value.trim()) return 'display_name_required'
       const trimmedEmail = email.value.trim()
-      if (!trimmedEmail) return requireEmail ? 'email_invalid' : undefined
+      if (!trimmedEmail) return undefined
       if (!emailSchema.safeParse(trimmedEmail).success) return 'email_invalid'
       return undefined
     },
-    createBody(): PrincipalCreateRequest {
-      return {
-        display_name: displayName.value.trim(),
-        email: email.value.trim(),
-        membership: membership.value
-      }
-    },
     /** Sends only the fields the operator changed. */
     updateBody(): PrincipalUpdateRequest {
-      const source = initialDraft.value
+      const currentSource = initialDraft.value
       const body: PrincipalUpdateRequest = {}
-      if (!source || displayName.value !== source.displayName) body.display_name = displayName.value.trim()
-      if (!source || email.value !== source.email) body.email = email.value.trim()
+      if (!currentSource || displayName.value !== currentSource.displayName) {
+        body.display_name = displayName.value.trim()
+      }
+      if (!currentSource || email.value !== currentSource.email) {
+        body.email = email.value.trim()
+      }
       return body
     }
   }

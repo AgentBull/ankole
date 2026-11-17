@@ -81,6 +81,64 @@ describe('PointSet', () => {
     )
   })
 
+  it("doesn't append to reused chunks and converts cross-chunk coordinates", () => {
+    const set = PointSet.create([
+      [V.a, 0],
+      [V.a, 0],
+      [V.a, 0]
+    ])
+    const modified = set.modify({
+      add: [
+        [new V('b', 1), 0],
+        [new V('c', -1), 0]
+      ]
+    })
+    ist(str(modified), 'c@0 a@0 a@0 a@0 b@0')
+    ist(str(set), 'a@0 a@0 a@0')
+
+    const nonZero = PointSet.create([
+      [V.a, 0],
+      [V.b, 10]
+    ])
+    const nonZeroModified = nonZero.modify({ add: [[new V('c', -1), 10]] })
+    ist(str(nonZeroModified), 'a@0 c@10 b@10')
+    ist(str(nonZero), 'a@0 b@10')
+    ist(nonZeroModified.at(10)?.name, 'c')
+
+    const shiftedOrigin = PointSet.create([
+      [V.a, 5],
+      [V.b, 10]
+    ])
+    const rebased = shiftedOrigin.modify({
+      add: [
+        [new V('d', 2), 10],
+        [new V('e', 1), 10],
+        [new V('c', 0), 2]
+      ]
+    })
+    ist(str(rebased), 'c@2 a@5 b@10 e@10 d@10')
+    ist(str(shiftedOrigin), 'a@5 b@10')
+    ist(rebased.at(2)?.name, 'c')
+    ist(rebased.at(5)?.name, 'a')
+    ist(rebased.at(10)?.name, 'b')
+  })
+
+  it('rewinds cursor across equal-side points at the current position including zero', () => {
+    for (const pos of [0, 2]) {
+      const set = PointSet.create([
+        [new V('x', -1), pos],
+        [new V('a', 0), pos],
+        [new V('b', 0), pos]
+      ])
+      const cursor = set.cursor(pos, 0)
+      ist(cursor.value?.name, 'a')
+      cursor.next()
+      ist(cursor.value?.name, 'b')
+      cursor.goto(pos, 0)
+      ist(cursor.value?.name, 'a')
+    }
+  })
+
   it('can be mapped', () => {
     let ps = PointSet.create<V>(add => {
       for (let i = 0; i < 12; i += 2) add(new V(`v${i / 2}`, 1), i)

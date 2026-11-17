@@ -192,11 +192,13 @@ defmodule Ankole.Connectors.Store do
              is_default: attrs["is_default"] || false,
              platform_application: attrs["platform_application"],
              platform_client_id: platform_client_id(attrs["plugin_id"], secret),
-             public_metadata: attrs["public_metadata"] || %{},
+             public_metadata:
+               merge_access_metadata(attrs["public_metadata"] || %{}, attrs["access"]),
              sealed_secret: sealed,
              created_by_uid: actor_uid
            }),
          :ok <- Accounts.sync_installation_in_tx(row),
+         :ok <- Ankole.Connectors.ConnectionAccess.put_in_tx(row, attrs["access"]),
          :ok <- Databases.saved_in_tx(row, attrs["access"], true) do
       {:ok, row}
     else
@@ -214,8 +216,11 @@ defmodule Ankole.Connectors.Store do
           with :ok <- select_default_in_tx(original.plugin_id, id, changes["is_default"] == true),
                %AuthConfig{} = row <- lock(id),
                true <- row.secret_version == original.secret_version,
+               access = Ankole.Attrs.get(attrs, :access),
+               changes = maybe_merge_access_change(row, changes, access),
                {:ok, updated} <- update_in_tx(row, changes),
-               :ok <- Databases.saved_in_tx(updated, Ankole.Attrs.get(attrs, :access), false) do
+               :ok <- Ankole.Connectors.ConnectionAccess.put_in_tx(updated, access),
+               :ok <- Databases.saved_in_tx(updated, access, false) do
             {:ok, updated}
           else
             nil -> {:error, :not_found}
@@ -241,12 +246,14 @@ defmodule Ankole.Connectors.Store do
   def update_in_tx(row, changes) do
     credentials_changed? =
       Enum.any?(
-        [:sealed_secret, :platform_application, :platform_client_id, :public_metadata, :status],
+        [:sealed_secret, :platform_application, :platform_client_id, :status],
         fn field ->
           key = Atom.to_string(field)
           Map.has_key?(changes, key) && changes[key] != Map.fetch!(row, field)
         end
-      )
+      ) or
+        (Map.has_key?(changes, "public_metadata") and
+           identity_metadata(changes["public_metadata"]) != identity_metadata(row.public_metadata))
 
     changes =
       if credentials_changed?,
@@ -330,8 +337,11 @@ defmodule Ankole.Connectors.Store do
          patch = credential_patch(row.plugin_id, previous, canonical_secret(patch, row.plugin_id)),
          secret = Map.merge(previous, patch),
          metadata = Map.get(changes, "public_metadata", row.public_metadata),
+         :ok <- validate_approval_metadata(metadata),
          {:ok, application} <-
-           if(secret == previous && metadata == row.public_metadata,
+           if(
+             secret == previous &&
+               identity_metadata(metadata) == identity_metadata(row.public_metadata),
              do: {:ok, row.platform_application},
              else: application_identity(row.plugin_id, Map.merge(metadata, secret))
            ),
@@ -453,7 +463,7 @@ defmodule Ankole.Connectors.Store do
     |> Map.put(:public_metadata, metadata)
     |> Map.put(:configured_credential_fields, configured_fields)
     |> Map.put(:platform_name, platform_name(row.plugin_id, metadata))
-    |> Map.put(:access, Databases.access(row))
+    |> Map.put(:access, Ankole.Connectors.ConnectionAccess.project(row))
     |> Map.put(:catalog, Databases.catalog(row))
   end
 
@@ -472,8 +482,23 @@ defmodule Ankole.Connectors.Store do
   def member(%{uid: uid, tenant_id: tenant}) do
     if tenant == Repo.tenant_id!() do
       case Ankole.Principals.get_principal(uid) do
-        {:ok, %{status: :active}} -> :ok
-        _ -> {:error, :principal_inactive}
+        {:ok, %{status: :active, type: :agent}} ->
+          :ok
+
+        {:ok, %{status: :active, type: :human, membership: :member}} ->
+          :ok
+
+        {:ok, %{status: :active, type: :human}} ->
+          {:error, :forbidden}
+
+        {:ok, %{status: :active, type: :system}} ->
+          if Ankole.Principals.ServiceAccounts.applet_service_uid?(uid) or
+               Ankole.Principals.SystemServices.registered?(uid),
+             do: :ok,
+             else: {:error, :forbidden}
+
+        _ ->
+          {:error, :principal_inactive}
       end
     else
       {:error, :forbidden}
@@ -481,6 +506,21 @@ defmodule Ankole.Connectors.Store do
   end
 
   def member(_), do: {:error, :forbidden}
+
+  defp merge_access_metadata(metadata, %{"mode" => "restricted"}),
+    do: Map.put(metadata, "access_mode", "restricted")
+
+  defp merge_access_metadata(metadata, %{"mode" => "members"}),
+    do: Map.put(metadata, "access_mode", "members")
+
+  defp merge_access_metadata(metadata, _), do: metadata
+
+  defp maybe_merge_access_change(_row, changes, nil), do: changes
+
+  defp maybe_merge_access_change(row, changes, access) do
+    base = Map.get(changes, "public_metadata", row.public_metadata || %{})
+    Map.put(changes, "public_metadata", merge_access_metadata(base, access))
+  end
 
   def admin(%Ankole.AuthZ.Actor{principal: actor}), do: admin(actor)
 
@@ -575,7 +615,36 @@ defmodule Ankole.Connectors.Store do
         {:error, :invalid_credentials}
 
       true ->
+        validate_approval_metadata(attrs["public_metadata"] || %{})
+    end
+  end
+
+  defp identity_metadata(metadata) when is_map(metadata) do
+    Map.drop(metadata, ["approval", "approval_tools", "access_mode", "linkPreview"])
+  end
+
+  defp identity_metadata(_), do: %{}
+
+  defp validate_approval_metadata(metadata) when is_map(metadata) do
+    policy = Map.get(metadata, "approval")
+    tools = Map.get(metadata, "approval_tools")
+    link_preview = Map.get(metadata, "linkPreview")
+
+    cond do
+      not is_nil(policy) and policy not in ["annotations", "all", "none"] ->
+        {:error, :invalid_connection}
+
+      not is_nil(tools) and
+          (not is_list(tools) or not Enum.all?(tools, &(is_binary(&1) and String.trim(&1) != ""))) ->
+        {:error, :invalid_connection}
+
+      not is_nil(link_preview) and not is_boolean(link_preview) ->
+        {:error, :invalid_connection}
+
+      true ->
         :ok
     end
   end
+
+  defp validate_approval_metadata(_), do: {:error, :invalid_connection}
 end

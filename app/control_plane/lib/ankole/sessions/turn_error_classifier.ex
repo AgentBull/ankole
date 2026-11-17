@@ -64,12 +64,37 @@ defmodule Ankole.Sessions.TurnErrorClassifier do
   @job_execution [60, 600, 1_800, 3_600, 7_200]
   @job_infrastructure [15, 30, 60, 120, 300]
   @conversation_capacity [30, 120, 300, 750]
+  @max_infrastructure_retries 12
+  @max_capacity_age_seconds 86_400
+
+  @doc "Classifies a conversation turn retry into `:provider_capacity`, `:infrastructure`, or `:execution` with its next 1-based attempt."
+  def classify_conversation_retry(event, error, now) do
+    cond do
+      Ankole.AIGateway.FailureDiagnostics.provider_capacity?(error) and
+          DateTime.diff(now, event.occurred_at, :second) < @max_capacity_age_seconds ->
+        {:provider_capacity, event.provider_capacity_attempt_count + 1}
+
+      is_map(error) and classify(error) == :infrastructure and
+          event.infrastructure_attempt_count < @max_infrastructure_retries ->
+        {:infrastructure, event.infrastructure_attempt_count + 1}
+
+      true ->
+        execution_attempt =
+          event.attempt_count - event.provider_capacity_attempt_count -
+            event.infrastructure_attempt_count
+
+        {:execution, max(execution_attempt, 1)}
+    end
+  end
 
   def delay_seconds(:job, attempt, :infrastructure), do: ladder(@job_infrastructure, attempt)
   def delay_seconds(:job, attempt, _class), do: ladder(@job_execution, attempt)
 
   def delay_seconds(:conversation, attempt, :provider_capacity),
     do: ladder(@conversation_capacity, attempt)
+
+  def delay_seconds(:conversation, attempt, :infrastructure),
+    do: min(5 * Integer.pow(2, min(max(attempt - 1, 0), 6)), 300)
 
   def delay_seconds(:conversation, attempt, _class),
     do: min(5 * Integer.pow(2, min(max(attempt - 1, 0), 5)), 120)

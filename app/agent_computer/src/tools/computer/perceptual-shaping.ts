@@ -1,16 +1,15 @@
-import { basename, extname } from 'node:path'
+import { basename } from 'node:path'
 import { stripAnsi } from './format'
 import {
   normalizeCarriageReturns,
   shapeCurlJsonOutput,
   shapePackageManagerOutput,
-  shapeSourceCatOutput,
   shapeTestOrBuildOutput
 } from './perceptual-shapers'
 
 export const PERCEPTUAL_SHIM_DIR = '/usr/local/libexec/ankole-cli-shims'
 
-export type PerceptualFamily = 'test_runner' | 'build_check' | 'package_manager' | 'curl_json' | 'git_log' | 'shell_cat'
+export type PerceptualFamily = 'test_runner' | 'build_check' | 'package_manager' | 'curl_json' | 'git_log'
 
 export interface PerceptualShapingMetrics {
   applied: boolean
@@ -26,7 +25,6 @@ export interface PerceptualArgvPlan {
   executable: string
   args: string[]
   envPatch: Record<string, string>
-  sourceFilePath?: string
 }
 
 export interface PerceptualBypassPlan {
@@ -41,29 +39,6 @@ export interface ShellCommandShapingPlan {
   envPatch: Record<string, string>
   plan: PerceptualPlan
 }
-
-const SOURCE_FILE_EXTENSIONS = new Set([
-  '.ts',
-  '.tsx',
-  '.js',
-  '.jsx',
-  '.mjs',
-  '.cjs',
-  '.py',
-  '.ex',
-  '.exs',
-  '.rs',
-  '.go',
-  '.java',
-  '.kt',
-  '.c',
-  '.cc',
-  '.cpp',
-  '.h',
-  '.hpp',
-  '.rb',
-  '.sh'
-])
 
 const ENV_ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/
 
@@ -203,11 +178,6 @@ export function planArgvShaping(
 
   if (bin === 'git') {
     const planned = planGit(args)
-    return planned.bypassed ? planned : { ...planned, executable }
-  }
-
-  if (bin === 'cat') {
-    const planned = planShellCat(args)
     return planned.bypassed ? planned : { ...planned, executable }
   }
 
@@ -424,26 +394,6 @@ function planGit(args: string[]): PerceptualPlan {
   }
 }
 
-function planShellCat(args: string[]): PerceptualPlan {
-  if (args.length !== 1) return { bypassed: true, bypassReason: 'cat_non_single_file' }
-  const target = args[0]!
-  if (target === '-' || target.startsWith('-')) {
-    return { bypassed: true, bypassReason: 'cat_flags_or_stdin' }
-  }
-  const ext = extname(target).toLowerCase()
-  if (!SOURCE_FILE_EXTENSIONS.has(ext)) {
-    return { bypassed: true, bypassReason: 'cat_non_source_extension' }
-  }
-  return {
-    bypassed: false,
-    family: 'shell_cat',
-    executable: 'cat',
-    args: [...args],
-    envPatch: {},
-    sourceFilePath: target
-  }
-}
-
 export function shapeCommandOutput(
   plan: PerceptualPlan,
   input: { exitCode: number; output: string }
@@ -472,12 +422,6 @@ export function shapeCommandOutput(
       break
     case 'git_log':
       shaped = cleaned
-      break
-    case 'shell_cat':
-      shaped =
-        input.exitCode === 0 && plan.sourceFilePath
-          ? shapeSourceCatOutput(input.output, plan.sourceFilePath)
-          : input.output
       break
   }
 

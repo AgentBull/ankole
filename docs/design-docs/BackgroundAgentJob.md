@@ -516,6 +516,11 @@ contending starter immediately reports a retryable busy status). Stopping a
 `queued` Job finalizes and frees its Worker slot immediately because Jobs have
 no per-Job Plugin setup phase.
 
+Stopping a Job prevents its pending flush, retry-backoff, and compaction
+continuations from starting another Codex Turn. If Codex acknowledges an
+in-flight `turn/start` after the stop, the Worker interrupts that Turn
+immediately. Cancellation also rejects an outstanding compaction handshake.
+
 Inside that shared `app-server`, each Job owns one root thread and any child
 threads assigned via `subAgentActivity`:
 
@@ -943,6 +948,11 @@ session resumption is unavailable or incompatible:
   tier override on `respawn_background_job` or an operator profile edit between
   terminal completion and respawn), preventing cross-provider or cross-model
   replay of provider-opaque reasoning items on the old Codex thread.
+- **`workspace_evicted`**: the inherited `/workspace/jobs/<workspace-owner-job-id>`
+  directory was pruned by workspace eviction or lost across cold sandbox
+  hibernation before a persisted thread resumed or continued; `CodexRunner`
+  recreates the Workspace, re-materializes Agent Plugins and any selected
+  workspace template, and replaces the thread from the durable execution log.
 
 Before starting the replacement thread, `CodexJobSession` requests the
 workspace execution log from the control plane over the turn-fenced
@@ -1011,15 +1021,21 @@ idempotency key:
   explicit validated delegation profile override (automatic steer successors
   always inherit `source.model_profile`). Successors never copy
   `runtime_projection`, `result`, `error`, `attempts`, or
-  `managed_background_agent_job_root`, and Agent Computer never re-materializes
-  the workspace template once a thread exists. Console Job detail surfaces both
-  `continued_from_job_id` and `workspace_owner_job_id`.
-- Both Agent Computer (pre-RPC) and CodexRunner (pre-run) verify that the
-  inherited Workspace exists on persistent Home without creating one if missing,
-  then resume the stored thread with `message` as the new `task` when the
-  frozen model binding matches the source Job, or transition to a
-  [replacement thread](#replacement-threads) in that Workspace when the frozen
-  binding changed or Codex cannot resume the session file.
+  `managed_background_agent_job_root`, and Agent Computer skips workspace-template
+  materialization while the inherited Workspace still exists on disk. Console Job
+  detail surfaces both `continued_from_job_id` and `workspace_owner_job_id`.
+- Before resuming a persisted thread, `CodexRunner` verifies that any existing
+  Workspace path on persistent Home is a real directory rather than a symbolic
+  link. When the inherited Workspace is still present, `CodexRunner` resumes the
+  stored thread with `message` as the new `task` if the frozen model binding
+  matches the source Job, or transitions to a
+  [replacement thread](#replacement-threads) in that Workspace if the frozen
+  binding changed or Codex cannot resume the session file. If workspace eviction
+  or cold sandbox hibernation removed `/workspace/jobs/<workspace-owner-job-id>`,
+  `CodexRunner` recreates the Workspace directory, re-materializes Agent Plugins
+  and any selected workspace template, and starts a `workspace_evicted`
+  [replacement thread](#replacement-threads) seeded from the durable execution
+  log.
 
 ## Send a Message and Wait for Its Turn
 

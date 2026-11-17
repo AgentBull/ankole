@@ -2,11 +2,118 @@ defmodule Ankole.FunctionRuntime.AppletClient do
   @moduledoc "Connects one Applet call to a function replica without replaying executed code."
   alias Ankole.FunctionRuntime.{EndpointPool, HTTP}
 
-  def inspect(source, limits, env \\ %{}, contexts \\ []) do
+  @inspect_cache_table :ankole_applet_inspect_cache
+  @inspect_cache_max 512
+
+  def inspect(source, limits, env \\ %{}, contexts \\ [], bindings \\ %{}) do
+    if contexts == [] do
+      cached_inspect(source, limits, env, bindings)
+    else
+      uncached_inspect(source, limits, env, contexts, bindings)
+    end
+  end
+
+  @doc false
+  def init_inspect_cache do
+    case :ets.whereis(@inspect_cache_table) do
+      :undefined ->
+        :ets.new(@inspect_cache_table, [
+          :named_table,
+          :public,
+          :set,
+          read_concurrency: true,
+          write_concurrency: true
+        ])
+
+      _tid ->
+        @inspect_cache_table
+    end
+
+    :ok
+  end
+
+  @doc false
+  def clear_inspect_cache do
+    case :ets.whereis(@inspect_cache_table) do
+      :undefined -> :ok
+      table -> :ets.delete_all_objects(table) && :ok
+    end
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp cached_inspect(source, limits, env, bindings) do
+    key = :crypto.hash(:sha256, :erlang.term_to_binary({source, env, bindings}, [:deterministic]))
+    now = System.monotonic_time()
+
+    case lookup_inspect_cache(key, now) do
+      {:hit, decoded} ->
+        {:ok, decoded}
+
+      :miss ->
+        case uncached_inspect(source, limits, env, [], bindings) do
+          {:ok, decoded} = ok ->
+            put_inspect_cache(key, decoded, now)
+            ok
+
+          other ->
+            other
+        end
+    end
+  end
+
+  defp lookup_inspect_cache(key, now) do
+    case :ets.whereis(@inspect_cache_table) do
+      :undefined ->
+        :miss
+
+      table ->
+        case :ets.lookup(table, key) do
+          [{^key, decoded, _at}] ->
+            :ets.insert(table, {key, decoded, now})
+            {:hit, decoded}
+
+          [] ->
+            :miss
+        end
+    end
+  rescue
+    ArgumentError -> :miss
+  end
+
+  defp put_inspect_cache(key, decoded, now) do
+    case :ets.whereis(@inspect_cache_table) do
+      :undefined ->
+        :ok
+
+      table ->
+        maybe_evict_inspect_cache(table)
+        :ets.insert(table, {key, decoded, now})
+        :ok
+    end
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp maybe_evict_inspect_cache(table) do
+    if :ets.info(table, :size) >= @inspect_cache_max do
+      case :ets.tab2list(table) do
+        [] ->
+          :ok
+
+        entries ->
+          {oldest_key, _, _} = Enum.min_by(entries, &elem(&1, 2))
+          :ets.delete(table, oldest_key)
+      end
+    end
+  end
+
+  defp uncached_inspect(source, limits, env, contexts, bindings) do
     result =
       HTTP.request(:post, "/v1/applet/inspect", %{
         source: source,
         env: env,
+        bindings: bindings,
         contexts: contexts,
         timeout_ms: Keyword.get(limits, :timeout_ms, 5_000),
         memory_mb: Keyword.get(limits, :heap_mb, 64)
@@ -146,7 +253,12 @@ defmodule Ankole.FunctionRuntime.AppletClient do
                    endpoint,
                    :put,
                    "/v1/applet/code/" <> package.sha256,
-                   %{source: package.source, env: package.env},
+                   %{
+                     source: package.source,
+                     env: package.env,
+                     bindings: package.bindings,
+                     bindings_digest: package.bindings_digest
+                   },
                    remaining_timeout(deadline, 10_000)
                  ) do
               {:ok, 204, _} ->

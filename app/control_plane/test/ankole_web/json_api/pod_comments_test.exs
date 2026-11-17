@@ -69,53 +69,56 @@ defmodule AnkoleWeb.JSONAPI.PodCommentsTest do
              owner |> recycle_json() |> get(url, %{status: "all"}) |> json_response(200)
   end
 
-  test "the browser summarizes activity and acknowledges exactly the supplied watermark", %{
-    conn: conn
-  } do
-    {owner, uid} = console_conn_with_principal(conn)
-    actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
+  for type <- [:doc, :applet, :base] do
+    test "the browser summarizes #{type} activity and acknowledges exactly the supplied watermark",
+         %{
+           conn: conn
+         } do
+      {owner, uid} = console_conn_with_principal(conn)
+      actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
 
-    other =
-      Ankole.PrincipalsFixtures.human_fixture().principal
-      |> Ankole.PrincipalsFixtures.actor_fixture()
+      other =
+        Ankole.PrincipalsFixtures.human_fixture().principal
+        |> Ankole.PrincipalsFixtures.actor_fixture()
 
-    {:ok, page} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: uid})
+      {:ok, page} = Ankole.Pod.Pages.create(actor, %{type: unquote(type), private_owner_uid: uid})
 
-    {:ok, _} =
-      Ankole.Pod.PagesFixtures.set_sharing(uid, page.id, %{
-        grants: [%{principal_uid: other.principal.uid, role: "contribute"}]
-      })
+      {:ok, _} =
+        Ankole.Pod.PagesFixtures.set_sharing(uid, page.id, %{
+          grants: [%{principal_uid: other.principal.uid, role: "contribute"}]
+        })
 
-    {:ok, %{comment: comment}} =
-      Ankole.Pod.Comments.create(other, page.id, %{body: "Please review"})
+      {:ok, %{comment: comment}} =
+        Ankole.Pod.Comments.create(other, page.id, %{body: "Please review"})
 
-    url = "/api/v2/pod/pages/#{page.id}/comments"
-    summary = owner |> recycle_json() |> get(url <> "/summary") |> json_response(200)
-    assert summary["unread_count"] == 1
-    assert summary["resolved_ids"] == []
-    assert summary["open_count"] == 1
+      url = "/api/v2/pod/pages/#{page.id}/comments"
+      summary = owner |> recycle_json() |> get(url <> "/summary") |> json_response(200)
+      assert summary["unread_count"] == 1
+      assert summary["resolved_ids"] == []
+      assert summary["open_count"] == 1
 
-    assert %{"thread" => %{"id" => thread_id, "unread" => true}} =
-             owner |> recycle_json() |> get(url <> "/#{comment.id}") |> json_response(200)
+      assert %{"thread" => %{"id" => thread_id, "unread" => true}} =
+               owner |> recycle_json() |> get(url <> "/#{comment.id}") |> json_response(200)
 
-    assert thread_id == comment.id
+      assert thread_id == comment.id
 
-    assert %{"threads" => [_]} =
-             owner |> recycle_json() |> get(url, %{status: "unread"}) |> json_response(200)
+      assert %{"threads" => [_]} =
+               owner |> recycle_json() |> get(url, %{status: "unread"}) |> json_response(200)
 
-    acknowledged =
-      owner
-      |> recycle_json()
-      |> put(url <> "/read", %{data: %{through: summary["activity_at"]}})
-      |> json_response(200)
+      acknowledged =
+        owner
+        |> recycle_json()
+        |> put(url <> "/read", %{data: %{through: summary["activity_at"]}})
+        |> json_response(200)
 
-    assert acknowledged["unread_count"] == 0
+      assert acknowledged["unread_count"] == 0
 
-    assert %{"threads" => []} =
-             owner |> recycle_json() |> get(url, %{status: "unread"}) |> json_response(200)
+      assert %{"threads" => []} =
+               owner |> recycle_json() |> get(url, %{status: "unread"}) |> json_response(200)
 
-    assert %{"unread_count" => 0} =
-             owner |> recycle_json() |> get(url <> "/summary") |> json_response(200)
+      assert %{"unread_count" => 0} =
+               owner |> recycle_json() |> get(url <> "/summary") |> json_response(200)
+    end
   end
 
   defp recycle_json(conn) do

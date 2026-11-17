@@ -2,13 +2,25 @@ import * as React from 'react'
 import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area'
 
 import { cn } from '../lib/utils'
+import { useScrollFadeRef, type ScrollFadeAxis } from './scroll-fade'
 
-function ScrollArea({ className, children, ...props }: ScrollAreaPrimitive.Root.Props) {
+function ScrollArea({
+  className,
+  fade,
+  children,
+  ...props
+}: ScrollAreaPrimitive.Root.Props & { fade?: ScrollFadeAxis }) {
+  const viewportRef = useScrollFadeRef<HTMLDivElement>(fade ?? 'y', undefined, Boolean(fade))
   return (
     <ScrollAreaPrimitive.Root data-slot="scroll-area" className={cn('relative', className)} {...props}>
       <ScrollAreaPrimitive.Viewport
+        ref={viewportRef}
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] transition-[color,box-shadow] focus-visible:-outline-offset-2">
+        className={cn(
+          'size-full rounded-[inherit] transition-[color,box-shadow] focus-visible:-outline-offset-2',
+          fade === 'x' && 'scroll-fade-x',
+          fade === 'y' && 'scroll-fade-y'
+        )}>
         {children}
       </ScrollAreaPrimitive.Viewport>
       <ScrollBar />

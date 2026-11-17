@@ -19,6 +19,10 @@ export type BrainSource = {
     /**
      * Field included by default.
      */
+    attention_reason?: string | null
+    /**
+     * Field included by default.
+     */
     default_source_node_id?: string | null
     /**
      * Field included by default.
@@ -86,6 +90,10 @@ export type SignalBindingType = {
    * Field included by default.
    */
   enabled: boolean
+  /**
+   * Field included by default.
+   */
+  external_bot_policy: 'ignore' | 'record_only' | 'allow'
   /**
    * Field included by default.
    */
@@ -1026,6 +1034,10 @@ export type SignalBinding = {
     /**
      * Field included by default.
      */
+    external_bot_policy: 'ignore' | 'record_only' | 'allow'
+    /**
+     * Field included by default.
+     */
     filters: {
       [key: string]: unknown
     }
@@ -1639,6 +1651,10 @@ export type BrainSourceType = {
    * Field included by default.
    */
   archived_at?: string | null
+  /**
+   * Field included by default.
+   */
+  attention_reason?: string | null
   /**
    * Field included by default.
    */
@@ -2990,6 +3006,9 @@ export type Agent = {
      * Field included by default.
      */
     status?: 'active' | 'disabled' | null
+    /**
+     * Field included by default.
+     */
     type: 'ai_colleague' | 'personal_assistant'
     /**
      * Field included by default.
@@ -3170,6 +3189,10 @@ export type AgentType = {
    * Field included by default.
    */
   status?: 'active' | 'disabled' | null
+  /**
+   * Field included by default.
+   */
+  type: 'ai_colleague' | 'personal_assistant'
   /**
    * Field included by default.
    */
@@ -3684,6 +3707,7 @@ export type SetGlobalLibraryPluginResponses = {
         description: string
         effective_enabled: boolean
         enabled_for_all: boolean
+        has_upstream_update: boolean
         id: string
         name: string
         revision: number
@@ -3697,6 +3721,7 @@ export type SetGlobalLibraryPluginResponses = {
       description: string
       effective_enabled: boolean
       enabled_for_all: boolean
+      has_upstream_update: boolean
       id: string
       name: string
       revision: number
@@ -3940,6 +3965,89 @@ export type CreateWebhookEndpointResponses = {
 }
 
 export type CreateWebhookEndpointResponse = CreateWebhookEndpointResponses[keyof CreateWebhookEndpointResponses]
+
+export type RecoverHumanPodAdminData = {
+  /**
+   * Request body for the recover_human_pod_admin operation on human_access resource
+   */
+  body: {
+    data: {
+      operation_id: string
+      reason: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/pod-admin-recoveries'
+}
+
+export type RecoverHumanPodAdminErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RecoverHumanPodAdminError = RecoverHumanPodAdminErrors[keyof RecoverHumanPodAdminErrors]
+
+export type RecoverHumanPodAdminResponses = {
+  /**
+   * Success
+   */
+  201: {
+    access_revoked_at?: string | null
+    access_version: number
+    cleanup_jobs: Array<{
+      attempt: number
+      completed_at?: string | null
+      discarded_at?: string | null
+      id: number
+      max_attempts: number
+      scheduled_at?: string | null
+      state: string
+    }>
+    history: Array<{
+      access_version: number
+      action: string
+      actor?: {
+        tenant_id: string
+        uid: string
+      } | null
+      details?: unknown | null
+      id: string
+      inserted_at: string
+      reason: string
+      source: string
+    }>
+    restrictions: Array<{
+      cleared_at?: string | null
+      disposition: string
+      id: string
+      inserted_at: string
+      provider_time?: string | null
+      reason: string
+      recovery_verified_at?: string | null
+      source: string
+    }>
+    status: string
+    uid: string
+    work: Array<{
+      agent_uid?: string | null
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type RecoverHumanPodAdminResponse = RecoverHumanPodAdminResponses[keyof RecoverHumanPodAdminResponses]
 
 export type CreatePermissionGrantData = {
   /**
@@ -5300,6 +5408,7 @@ export type SetAgentLibrarySkillResponses = {
         description: string
         effective_enabled: boolean
         enabled_for_all: boolean
+        has_upstream_update: boolean
         id: string
         name: string
         revision: number
@@ -5313,6 +5422,7 @@ export type SetAgentLibrarySkillResponses = {
       description: string
       effective_enabled: boolean
       enabled_for_all: boolean
+      has_upstream_update: boolean
       id: string
       name: string
       revision: number
@@ -5645,6 +5755,7 @@ export type SetGlobalLibrarySkillResponses = {
         description: string
         effective_enabled: boolean
         enabled_for_all: boolean
+        has_upstream_update: boolean
         id: string
         name: string
         revision: number
@@ -5658,6 +5769,7 @@ export type SetGlobalLibrarySkillResponses = {
       description: string
       effective_enabled: boolean
       enabled_for_all: boolean
+      has_upstream_update: boolean
       id: string
       name: string
       revision: number
@@ -6401,6 +6513,132 @@ export type DisableHumanAccessResponses = {
 }
 
 export type DisableHumanAccessResponse = DisableHumanAccessResponses[keyof DisableHumanAccessResponses]
+
+export type DeleteSystemTokenQuotaData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/system-principals/{uid}/token-quota'
+}
+
+export type DeleteSystemTokenQuotaErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteSystemTokenQuotaError = DeleteSystemTokenQuotaErrors[keyof DeleteSystemTokenQuotaErrors]
+
+export type DeleteSystemTokenQuotaResponses = {
+  /**
+   * Success
+   */
+  200: {
+    token_quota?: {
+      limit_tokens: number
+      period_days: number
+      period_start_at: string
+    } | null
+    usage?: {
+      exceeded: boolean
+      used_tokens: number
+      window_ends_at: string
+      window_started_at: string
+    } | null
+  }
+}
+
+export type DeleteSystemTokenQuotaResponse = DeleteSystemTokenQuotaResponses[keyof DeleteSystemTokenQuotaResponses]
+
+export type GetSystemTokenQuotaData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/system-principals/{uid}/token-quota'
+}
+
+export type GetSystemTokenQuotaErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetSystemTokenQuotaError = GetSystemTokenQuotaErrors[keyof GetSystemTokenQuotaErrors]
+
+export type GetSystemTokenQuotaResponses = {
+  /**
+   * Success
+   */
+  200: {
+    token_quota?: {
+      limit_tokens: number
+      period_days: number
+      period_start_at: string
+    } | null
+    usage?: {
+      exceeded: boolean
+      used_tokens: number
+      window_ends_at: string
+      window_started_at: string
+    } | null
+  }
+}
+
+export type GetSystemTokenQuotaResponse = GetSystemTokenQuotaResponses[keyof GetSystemTokenQuotaResponses]
+
+export type PutSystemTokenQuotaData = {
+  /**
+   * Request body for the put_system_token_quota operation on agent_model_configuration resource
+   */
+  body: {
+    data: {
+      limit_tokens: number
+      period_days: number
+      period_start_at?: string | null
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/system-principals/{uid}/token-quota'
+}
+
+export type PutSystemTokenQuotaErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutSystemTokenQuotaError = PutSystemTokenQuotaErrors[keyof PutSystemTokenQuotaErrors]
+
+export type PutSystemTokenQuotaResponses = {
+  /**
+   * Success
+   */
+  200: {
+    token_quota?: {
+      limit_tokens: number
+      period_days: number
+      period_start_at: string
+    } | null
+    usage?: {
+      exceeded: boolean
+      used_tokens: number
+      window_ends_at: string
+      window_started_at: string
+    } | null
+  }
+}
+
+export type PutSystemTokenQuotaResponse = PutSystemTokenQuotaResponses[keyof PutSystemTokenQuotaResponses]
 
 export type GetPrincipalData = {
   body?: never
@@ -8013,6 +8251,7 @@ export type GetAgentLibraryCapabilitiesResponses = {
         description: string
         effective_enabled: boolean
         enabled_for_all: boolean
+        has_upstream_update: boolean
         id: string
         name: string
         revision: number
@@ -8026,6 +8265,7 @@ export type GetAgentLibraryCapabilitiesResponses = {
       description: string
       effective_enabled: boolean
       enabled_for_all: boolean
+      has_upstream_update: boolean
       id: string
       name: string
       revision: number
@@ -8509,6 +8749,45 @@ export type PutDefaultProviderHostedResponses = {
 export type PutDefaultProviderHostedResponse =
   PutDefaultProviderHostedResponses[keyof PutDefaultProviderHostedResponses]
 
+export type ResetSystemTokenQuotaData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/system-principals/{uid}/token-quota/reset'
+}
+
+export type ResetSystemTokenQuotaErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResetSystemTokenQuotaError = ResetSystemTokenQuotaErrors[keyof ResetSystemTokenQuotaErrors]
+
+export type ResetSystemTokenQuotaResponses = {
+  /**
+   * Success
+   */
+  201: {
+    token_quota?: {
+      limit_tokens: number
+      period_days: number
+      period_start_at: string
+    } | null
+    usage?: {
+      exceeded: boolean
+      used_tokens: number
+      window_ends_at: string
+      window_started_at: string
+    } | null
+  }
+}
+
+export type ResetSystemTokenQuotaResponse = ResetSystemTokenQuotaResponses[keyof ResetSystemTokenQuotaResponses]
+
 export type RunCronScheduleData = {
   /**
    * Request body for the run_cron_schedule operation on cron_schedule resource
@@ -8733,6 +9012,7 @@ export type SetAgentLibraryPluginResponses = {
         description: string
         effective_enabled: boolean
         enabled_for_all: boolean
+        has_upstream_update: boolean
         id: string
         name: string
         revision: number
@@ -8746,6 +9026,7 @@ export type SetAgentLibraryPluginResponses = {
       description: string
       effective_enabled: boolean
       enabled_for_all: boolean
+      has_upstream_update: boolean
       id: string
       name: string
       revision: number
@@ -8755,6 +9036,33 @@ export type SetAgentLibraryPluginResponses = {
 }
 
 export type SetAgentLibraryPluginResponse = SetAgentLibraryPluginResponses[keyof SetAgentLibraryPluginResponses]
+
+export type DisableAgentData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{uid}/disable'
+}
+
+export type DisableAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DisableAgentError = DisableAgentErrors[keyof DisableAgentErrors]
+
+export type DisableAgentResponses = {
+  /**
+   * Success
+   */
+  201: AgentType
+}
+
+export type DisableAgentResponse = DisableAgentResponses[keyof DisableAgentResponses]
 
 export type GetAutomationJobData = {
   body?: never
@@ -10360,6 +10668,7 @@ export type GetGlobalLibraryCapabilitiesResponses = {
         description: string
         effective_enabled: boolean
         enabled_for_all: boolean
+        has_upstream_update: boolean
         id: string
         name: string
         revision: number
@@ -10373,6 +10682,7 @@ export type GetGlobalLibraryCapabilitiesResponses = {
       description: string
       effective_enabled: boolean
       enabled_for_all: boolean
+      has_upstream_update: boolean
       id: string
       name: string
       revision: number
@@ -10678,6 +10988,35 @@ export type CancelWebhookEndpointResponses = {
 }
 
 export type CancelWebhookEndpointResponse = CancelWebhookEndpointResponses[keyof CancelWebhookEndpointResponses]
+
+export type ForceResetAgentWorkerGenerationData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agent-workers/{agent_uid}/force-reset-generation'
+}
+
+export type ForceResetAgentWorkerGenerationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ForceResetAgentWorkerGenerationError =
+  ForceResetAgentWorkerGenerationErrors[keyof ForceResetAgentWorkerGenerationErrors]
+
+export type ForceResetAgentWorkerGenerationResponses = {
+  /**
+   * Success
+   */
+  201: AgentWorkerType
+}
+
+export type ForceResetAgentWorkerGenerationResponse =
+  ForceResetAgentWorkerGenerationResponses[keyof ForceResetAgentWorkerGenerationResponses]
 
 export type RejectBrainMergeSuggestionData = {
   body?: never

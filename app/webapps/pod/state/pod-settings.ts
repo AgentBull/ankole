@@ -1,5 +1,5 @@
 import { dateTimeLocalValue } from '../../common/date-time'
-import { type JsonObject } from '@agentbull/active-support'
+import { equal, type JsonObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { PodAdminSettingsResponse } from '../api/generated/types.gen'
 
@@ -61,6 +61,7 @@ function defaultLocalExpiry(now = Date.now()): string {
 }
 
 export const PodSettingsModel = createModel(() => {
+  let generation = Symbol()
   const source = signal<string>()
   const savedSettings = signal<{
     displayName: string
@@ -140,8 +141,53 @@ export const PodSettingsModel = createModel(() => {
     domains,
     dirty,
     commitSaved,
+    captureSave() {
+      const requestedGeneration = generation
+      const submitted = {
+        displayName: displayName.value.trim(),
+        defaultLocale: defaultLocale.value,
+        allowExternalGuests: guests.value,
+        loginPolicy: normalizeLoginPolicy(policy.value),
+        domains: domains.value
+      }
+      const payload = {
+        displayName: submitted.displayName,
+        defaultLocale: submitted.defaultLocale,
+        allowExternalGuests: submitted.allowExternalGuests,
+        loginPolicy: {
+          ...policy.value,
+          allowed_email_domains: parseAllowedDomains(submitted.domains)
+        }
+      }
+      return {
+        payload,
+        acknowledge: () => {
+          if (generation !== requestedGeneration) return false
+          const normalized = normalizeLoginPolicy(payload.loginPolicy)
+          batch(() => {
+            savedSettings.value = {
+              displayName: payload.displayName,
+              defaultLocale: payload.defaultLocale,
+              allowExternalGuests: Boolean(payload.allowExternalGuests),
+              loginPolicy: normalized
+            }
+            if (displayName.value.trim() === submitted.displayName) displayName.value = payload.displayName
+            if (defaultLocale.value === submitted.defaultLocale) defaultLocale.value = payload.defaultLocale
+            if (guests.value === submitted.allowExternalGuests) guests.value = Boolean(payload.allowExternalGuests)
+            if (equal(normalizeLoginPolicy(policy.value), submitted.loginPolicy)) {
+              policy.value = { ...payload.loginPolicy, ...normalized }
+            }
+            if (domains.value === submitted.domains) {
+              domains.value = normalized.allowed_email_domains.join(', ')
+            }
+          })
+          return true
+        }
+      }
+    },
     initialize(key: string, data: PodAdminSettingsResponse) {
       if (source.value === key) return
+      generation = Symbol()
       batch(() => {
         source.value = key
         commitSaved(data)

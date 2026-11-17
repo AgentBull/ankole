@@ -139,20 +139,18 @@ const methods = {
   }
 }
 
-const scope = self as unknown as {
-  onmessage: ((event: MessageEvent<EngineRequest>) => void) | null
-  postMessage(message: EngineResponse): void
-}
 // Requests run one at a time in arrival order, after the module has loaded.
 let queue: Promise<void> = Promise.resolve()
-scope.onmessage = ({ data }) => {
+addEventListener('message', ({ data }: MessageEvent<EngineRequest>) => {
   queue = queue.then(async () => {
     try {
       await ready
       const method = methods[data.method] as (...args: unknown[]) => unknown
-      scope.postMessage({ id: data.id, ok: method(...data.args) })
+      const response: EngineResponse = { id: data.id, ok: method(...data.args) }
+      postMessage(response)
     } catch (error) {
-      scope.postMessage({ id: data.id, error: { message: message(error) } })
+      const response: EngineResponse = { id: data.id, error: { message: message(error) } }
+      postMessage(response)
     }
   })
-}
+})

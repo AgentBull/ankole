@@ -37,7 +37,8 @@ export function StandaloneActionCardDialog({ cardID, onClose }: { cardID: string
     },
     onError: error => {
       void client.invalidateQueries({ queryKey: podKeys.actionCard(cardID) })
-      if (requestErrorCode(error) !== 'action_card_not_pending') {
+      const code = requestErrorCode(error)
+      if (code !== 'action_card_not_pending' && code !== 'conflict') {
         toast.error(requestErrorMessage(contentError(chatError(error))))
       }
     }
@@ -89,8 +90,6 @@ export function StandaloneActionCardDialog({ cardID, onClose }: { cardID: string
 }
 
 function toActionCardState(card: StandaloneActionCard): ActionCardState {
-  const status =
-    card.status === 'executed' || card.status === 'stale' || card.status === 'cancelled' ? card.status : 'prepared'
   return {
     card_id: card.card_id,
     interaction_id: card.interaction_id,
@@ -98,7 +97,8 @@ function toActionCardState(card: StandaloneActionCard): ActionCardState {
     summary: card.summary,
     target_node_id: card.target_node_id,
     payload: card.payload,
-    status,
+    status: card.status,
+    can_recover: card.can_recover,
     resolved_by_uid: card.resolved_by_uid,
     resolved_by_name: card.resolved_by_name,
     resolved_at: card.resolved_at,

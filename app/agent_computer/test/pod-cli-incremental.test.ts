@@ -8,7 +8,7 @@ import { buildApplet, commandFromArgs, initializeApplet } from '../src/cli/pod/p
 import { requestSocketLineBridge } from '../src/core/socket-line-bridge'
 import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope-proto'
 import { JSONPassthroughResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { RPCRequester } from '../src/lanes/rpc-lane'
+import { RPCRejectedError, type RPCRequester } from '../src/lanes/rpc-lane'
 import type { RPCRequestInit } from '../src/lanes/rpc-contract'
 import { FakeDrive } from './support/fake-drive'
 import { AGENT_UID, isRootWorker } from '../src/common/agent-user'
@@ -63,13 +63,164 @@ describe('Pod incremental and source commands', () => {
         'did not match'
       )
       await expect(
-        command('pages.patch', { base_revision: 6, edits: [{ old_text: 'Old', new_text: 'New' }] })
+        command('pages.patch', { base_revision: 6, edits: [{ old_text: 'Repeated', new_text: 'New' }] })
+      ).rejects.toThrow('revision changed')
+      await expect(
+        command('pages.patch', { base_revision: 6, edits: [{ old_text: 'Missing', new_text: 'New' }] })
       ).rejects.toThrow('revision changed')
       expect(writes).toHaveLength(2)
+      await command('pages.patch', { base_revision: 6, edits: [{ old_text: 'Old name', new_text: 'Rebased name' }] })
+      expect(writes[2]).toEqual({
+        operation: 'pages.write',
+        revision: 7,
+        markdown: 'Rebased name 🧑‍💻\n\nRepeated Repeated'
+      })
       markdown = 'Repeated Repeated'
       await command('pages.patch', { edits: [{ old_text: 'Repeated', new_text: '$&', replace_all: true }] })
-      expect(writes[2]!.markdown).toBe('$& $&')
+      expect(writes[3]!.markdown).toBe('$& $&')
       expect(await readdir(join(root, '.ankole/pod-content'))).toEqual([])
+    } finally {
+      bridge.close()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('automatically rereads and rebases pages.patch on revision_conflict up to 3 retries while keeping pages.write strict', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pod-patch-rebase-'))
+    const frame = { run: { session: { session_id: 'conversation:pod' }, signal_id: 'signal' } }
+    let serverRevision = 10
+    let serverMarkdown = '# Shared Doc\n\nSection A: alpha\n\nSection B: beta\n'
+    let conflictsToInject = 2
+    const writeAttempts: { operation: string; baseRevision: unknown; markdown: string }[] = []
+
+    const rpc = (async (method, raw) => {
+      const payload = raw as RPCRequestInit<'pod.read'>
+      const params = jsonObjectFromBytes(payload.paramsJson as Uint8Array, 'params')!
+      const local = join(root, params.markdown_home_relative_path as string)
+      if (method === 'pod.read') {
+        await writeFile(local, serverMarkdown)
+        return respond({ page: { revision: serverRevision, type: 'doc' }, content: { markdown_file: true } })
+      }
+      const nextMarkdown = await readFile(local, 'utf8')
+      writeAttempts.push({
+        operation: payload.operation!,
+        baseRevision: params.base_revision,
+        markdown: nextMarkdown
+      })
+      if (conflictsToInject > 0) {
+        conflictsToInject -= 1
+        serverRevision += 1
+        serverMarkdown = `${serverMarkdown}\nCollab note rev ${serverRevision}\n`
+        throw new RPCRejectedError('pod.write', {
+          code: 'revision_conflict',
+          message: 'revision_conflict',
+          details: { revision: serverRevision }
+        })
+      }
+      if (params.base_revision !== serverRevision) {
+        throw new RPCRejectedError('pod.write', {
+          code: 'revision_conflict',
+          message: 'revision_conflict',
+          details: { revision: serverRevision }
+        })
+      }
+      serverRevision += 1
+      serverMarkdown = nextMarkdown
+      return respond({ page: { revision: serverRevision } })
+    }) as RPCRequester
+
+    const bridge = startPodCLIBridge({
+      rpc,
+      frame,
+      drive: new FakeDrive(root).drive(),
+      socketRoot: root
+    })
+    try {
+      // 1. Concurrent collaborator edits advance rev 10 -> 11 -> 12 while Section A still matches uniquely.
+      const patched = await requestSocketLineBridge(
+        bridge.socketPath,
+        JSON.stringify({
+          operation: 'pages.patch',
+          params: {
+            id: 'page-1',
+            base_revision: 10,
+            edits: [{ old_text: 'Section A: alpha', new_text: 'Section A: updated' }]
+          },
+          cwd: root
+        }),
+        'invalid'
+      )
+      expect(patched).toEqual({ page: { revision: 13 } })
+      expect(writeAttempts.map(a => a.baseRevision)).toEqual([10, 11, 12])
+      expect(serverMarkdown).toContain('Section A: updated')
+      expect(serverMarkdown).toContain('Collab note rev 11')
+      expect(serverMarkdown).toContain('Collab note rev 12')
+
+      // 2. If collaborator change duplicates or removes old_text, rebase stops immediately without guessing.
+      conflictsToInject = 0
+      const startWrites = writeAttempts.length
+      let conflictTriggered = false
+      const conflictBridge = startPodCLIBridge({
+        rpc: (async (method, raw) => {
+          const payload = raw as RPCRequestInit<'pod.read'>
+          const params = jsonObjectFromBytes(payload.paramsJson as Uint8Array, 'params')!
+          const local = join(root, params.markdown_home_relative_path as string)
+          if (method === 'pod.read') {
+            const md = conflictTriggered
+              ? '# Shared Doc\n\nSection B: beta\n\nSection B: beta\n'
+              : '# Shared Doc\n\nSection B: beta\n'
+            await writeFile(local, md)
+            return respond({
+              page: { revision: conflictTriggered ? 21 : 20, type: 'doc' },
+              content: { markdown_file: true }
+            })
+          }
+          conflictTriggered = true
+          throw new RPCRejectedError('pod.write', {
+            code: 'revision_conflict',
+            message: 'revision_conflict',
+            details: { revision: 21 }
+          })
+        }) as RPCRequester,
+        frame,
+        drive: new FakeDrive(root).drive(),
+        socketRoot: root
+      })
+      try {
+        await expect(
+          requestSocketLineBridge(
+            conflictBridge.socketPath,
+            JSON.stringify({
+              operation: 'pages.patch',
+              params: {
+                id: 'page-2',
+                base_revision: 20,
+                edits: [{ old_text: 'Section B: beta', new_text: 'Section B: gamma' }]
+              },
+              cwd: root
+            }),
+            'invalid'
+          )
+        ).rejects.toThrow('revision_conflict')
+      } finally {
+        conflictBridge.close()
+      }
+      expect(writeAttempts).toHaveLength(startWrites)
+
+      // 3. pages.write remains strict and never auto-overwrites on revision_conflict.
+      conflictsToInject = 1
+      await expect(
+        requestSocketLineBridge(
+          bridge.socketPath,
+          JSON.stringify({
+            operation: 'pages.write',
+            params: { id: 'page-1', base_revision: 13, markdown: '# Overwrite attempt\n' },
+            cwd: root
+          }),
+          'invalid'
+        )
+      ).rejects.toThrow('revision_conflict')
+      expect(writeAttempts).toHaveLength(startWrites + 1)
     } finally {
       bridge.close()
       await rm(root, { recursive: true, force: true })

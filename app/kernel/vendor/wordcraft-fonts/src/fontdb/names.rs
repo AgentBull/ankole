@@ -1,6 +1,10 @@
 #[cfg(not(target_arch = "wasm32"))]
+use super::face::BUNDLED;
+#[cfg(not(target_arch = "wasm32"))]
+use super::face::FALLBACK_FAMILY;
+#[cfg(not(target_arch = "wasm32"))]
 use super::face::HINT_STRIKE;
-use super::face::{BUNDLED, FALLBACK_FAMILY, FontBytes, FontFace, NEXT_ID};
+use super::face::{FontBytes, FontFace, NEXT_ID};
 use super::{Arc, FileRef, Location, MetadataProvider, Ordering, Size, StringId};
 
 /// Is `f` an East Asian (Chinese, Japanese or Korean) font: do its OS/2 code pages say so
@@ -474,25 +478,31 @@ pub(super) fn enumerate_faces(data: &[u8], limit: usize) -> Vec<Found> {
         .collect()
 }
 
-/// The compiled-in Source Sans 3 Regular, for a database that somehow has no faces at all.
+/// The compiled-in Source Sans 3 Regular on native targets, or a minimal placeholder SFNT on
+/// `wasm32` before site fonts arrive via `addFonts`, for a database that has no loaded faces yet.
 pub(crate) fn last_resort_face() -> Arc<FontFace> {
     static FACE: std::sync::OnceLock<Arc<FontFace>> = std::sync::OnceLock::new();
     FACE.get_or_init(|| {
-        // The font is compiled in (`include_bytes!`), so parsing it can't depend on input; the
-        // `last_resort_face_parses` test proves it on every run.
+        #[cfg(not(target_arch = "wasm32"))]
+        let (bytes, family): (&'static [u8], &str) = (BUNDLED[0], FALLBACK_FAMILY);
+        #[cfg(target_arch = "wasm32")]
+        let (bytes, family): (&'static [u8], &str) = (
+            include_bytes!("../../assets/fonts/last-resort.ttf"),
+            "__last_resort__",
+        );
         #[allow(
             clippy::expect_used,
-            reason = "Source Sans 3 Regular is compiled in via include_bytes!"
+            reason = "the last-resort SFNT is compiled in via include_bytes!"
         )]
         let face = make_face(
-            FontBytes::Static(BUNDLED[0]),
+            FontBytes::Static(bytes),
             0,
-            FALLBACK_FAMILY.into(),
+            family.into(),
             "Regular".into(),
-            FALLBACK_FAMILY.into(),
+            family.into(),
             Vec::new(),
         )
-        .expect("the compiled-in Source Sans 3 Regular parses");
+        .expect("the compiled-in last-resort font parses");
         Arc::new(face)
     })
     .clone()

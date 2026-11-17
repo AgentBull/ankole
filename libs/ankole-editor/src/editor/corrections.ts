@@ -178,12 +178,34 @@ export const flattenColumns = Correction.onChildList([S.Columns, S.Column], (nod
   return changes.length ? changes : null
 })
 
+/** Inline formulas live on a single line; source line breaks become spaces, matching `N`. */
+export const singleLineInlineMath = Correction.onContent(Node.Group.All, block => {
+  if (!block.node.inlineContent) return null
+  const changes: ChangeSet.Spec[] = []
+  let pos = block.start
+  for (const child of block.node.content) {
+    if (child.type === S.InlineMath) {
+      const value = (child as Leaf<string>).param
+      if (value.includes('\n') || value.includes('\r')) {
+        changes.push({
+          from: pos,
+          to: pos + child.length,
+          insert: [S.InlineMath.of(value.replace(/\r\n?|\n/g, ' '), child.marks)]
+        })
+      }
+    }
+    pos += child.length
+  }
+  return changes.length ? changes : null
+})
+
 export const pageCorrections = [
   mergeAdjacentLists,
   dropDefaultSpans,
   vocabularyValues,
   plainCode,
   plainCodeMarks,
+  singleLineInlineMath,
   flattenChildlessBlocks,
   flattenColumns
 ]

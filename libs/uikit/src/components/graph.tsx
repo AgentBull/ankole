@@ -16,6 +16,7 @@ import { useReducedMotion } from '../hooks/use-reduced-motion'
 import { cn } from '../lib/utils'
 import { useCanvasThemePalette } from './lazy-graph'
 import {
+  INCREMENTAL_FORCE_ALPHA,
   buildG6GraphSpec,
   computeGraphTopology,
   projectGraphAnchors,
@@ -34,6 +35,7 @@ import {
 } from '../viz/graph-layout'
 
 export {
+  INCREMENTAL_FORCE_ALPHA,
   computeGraphTopology,
   projectGraphAnchors,
   resolveCanvasThemePalette,
@@ -101,6 +103,27 @@ function measureStage(stage: HTMLElement): { width: number; height: number } {
   return { width: Math.max(320, Math.round(rect.width)), height: Math.max(260, Math.round(rect.height)) }
 }
 
+function readForcePositionSnapshot(
+  graph: Graph | null,
+  previousPositions: ReadonlyMap<string, { x: number; y: number }>
+): Map<string, { x: number; y: number }> {
+  const snapshot = new Map(previousPositions)
+  if (graph && !graph.destroyed && graph.rendered) {
+    for (const id of snapshot.keys()) {
+      if (!graph.hasNode(id)) continue
+      try {
+        const pos = graph.getElementPosition(id)
+        if (Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
+          snapshot.set(id, { x: pos[0], y: pos[1] })
+        }
+      } catch {
+        // Keep last settled position if G6 has not committed the element yet.
+      }
+    }
+  }
+  return snapshot
+}
+
 export function AnkoleGraph({
   nodes,
   edges,
@@ -141,14 +164,26 @@ export function AnkoleGraph({
   // Only the radial layout arranges itself around a focus node. Elsewhere a new focus, such as the node a click
   // selects, restyles the graph without laying it out again.
   const focusCenterNodeId = layout === 'radial' ? requestedFocusCenterNodeId : null
+  const previousPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
 
   // A resize keeps the drawn node positions and only resizes the canvas, so the layout reads the stage size when
   // the graph's structure changes and does not settle the force simulation again on every resize frame.
-  const topology = useMemo(
-    () => computeGraphTopology(nodes, edges, layout, stageSize.width, stageSize.height, focusCenterNodeId),
+  const topology = useMemo(() => {
+    if (layout !== 'force' || nodes.length === 0) {
+      return computeGraphTopology(nodes, edges, layout, stageSize.width, stageSize.height, focusCenterNodeId)
+    }
+    const snapshot = readForcePositionSnapshot(graphRef.current, previousPositionsRef.current)
+    return computeGraphTopology(nodes, edges, layout, stageSize.width, stageSize.height, focusCenterNodeId, snapshot)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [nodes, edges, layout, focusCenterNodeId]
-  )
+  }, [nodes, edges, layout, focusCenterNodeId])
+
+  useEffect(() => {
+    if (layout !== 'force' || nodes.length === 0) {
+      previousPositionsRef.current = new Map()
+      return
+    }
+    previousPositionsRef.current = new Map(topology.initialPositions)
+  }, [layout, nodes.length, topology])
 
   const linkableNodes = useMemo(() => nodes.filter(node => Boolean(node.href)), [nodes])
 
@@ -374,6 +409,7 @@ export function AnkoleGraph({
     return () => {
       cancelHoverTimer()
       prevStructureKeyRef.current = ''
+      previousPositionsRef.current = new Map()
       graphRef.current = null
       // A render of the destroyed graph may never settle, so the next graph starts a fresh chain.
       pendingDrawRef.current = Promise.resolve()
@@ -389,12 +425,20 @@ export function AnkoleGraph({
 
     if (nodes.length === 0) {
       prevStructureKeyRef.current = structureKey
+      previousPositionsRef.current = new Map()
       void graph.clear().catch(() => {})
       return
     }
 
     const structureChanged = prevStructureKeyRef.current !== structureKey
     prevStructureKeyRef.current = structureKey
+
+    const commitForceSnapshot = () => {
+      if (layout === 'force' && !graph.destroyed) {
+        previousPositionsRef.current = readForcePositionSnapshot(graph, previousPositionsRef.current)
+      }
+      latestSyncRef.current()
+    }
 
     if (structureChanged) {
       graph.setOptions({
@@ -404,10 +448,7 @@ export function AnkoleGraph({
         transforms: graphSpec.transforms,
         behaviors: graphSpec.behaviors
       })
-      const rendered = graph.render().then(
-        () => latestSyncRef.current(),
-        () => {}
-      )
+      const rendered = graph.render().then(commitForceSnapshot, () => {})
       pendingDrawRef.current = Promise.all([pendingDrawRef.current, rendered])
     } else {
       // Style-only change (hover spotlight, selection, edge-label toggle, or theme switch): preserve settled
@@ -440,17 +481,14 @@ export function AnkoleGraph({
       graph.setOptions({ animation: false })
       const drawn = graph
         .draw()
-        .then(
-          () => latestSyncRef.current(),
-          () => {}
-        )
+        .then(commitForceSnapshot, () => {})
         .finally(() => {
           if (!graph.destroyed) graph.setOptions({ animation: animated })
         })
       // A quick redraw must not stand in for a slower render that is still running.
       pendingDrawRef.current = Promise.all([pendingDrawRef.current, drawn])
     }
-  }, [animated, graphSpec, nodes.length, structureKey])
+  }, [animated, graphSpec, layout, nodes.length, structureKey])
 
   const forwardWheelToCanvas = useCallback((event: React.WheelEvent<HTMLAnchorElement>) => {
     const host = canvasHostRef.current

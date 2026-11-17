@@ -193,24 +193,7 @@ defmodule Ankole.Conversations.Native do
   @doc "Creates a native conversation and returns publication facts to its transaction owner."
   def create_in_tx(%Ankole.AuthZ.Actor{} = actor, attrs) when is_map(attrs) do
     human_uid = Ankole.AuthZ.Actor.uid(actor)
-
-    initial_agents =
-      (Ankole.Attrs.get(attrs, :agent_uids) || List.wrap(Ankole.Attrs.get(attrs, :agent_uid)))
-      |> Enum.uniq()
-
-    assistant? =
-      Enum.any?(initial_agents, fn uid ->
-        case Ankole.Principals.get_agent_record!(uid) do
-          %{type: :personal_assistant} -> true
-          _ -> false
-        end
-      end)
-
-    initial_agents =
-      if assistant?,
-        do: initial_agents,
-        else: Enum.uniq(initial_agents ++ NativeRoom.explicit_agents(attrs))
-
+    {initial_agents, assistant?} = resolve_initial_agents(attrs)
     invited = Ankole.Attrs.get(attrs, :participant_uids) || []
 
     with :ok <- Repo.require_transaction(),
@@ -229,6 +212,7 @@ defmodule Ankole.Conversations.Native do
          {:ok, agent} <- if(first, do: active_agent_in_tx(first), else: {:ok, nil}),
          :ok <- if(first, do: authorize_agent(actor, first), else: :ok),
          {:ok, room_mode} <- room_mode(attrs, initial_agents, invited, assistant?),
+         {:ok, requested_title} <- optional_title(Ankole.Attrs.get(attrs, :title)),
          dm? =
            room_mode == :dm and not assistant? and
              Ankole.Attrs.get(attrs, :access_scope) in [nil, :participants, "participants"],
@@ -245,15 +229,18 @@ defmodule Ankole.Conversations.Native do
          skip_page_authz? =
            redirected_dm? or (not is_nil(existing_dm) and existing_dm.page_id == page_id),
          :ok <- if(skip_page_authz?, do: :ok, else: authorize_page(actor, page_id)),
+         custom_title = if(not redirected_dm? and not dm?, do: requested_title),
+         initial_title = custom_title || conversation_title(text, attachments),
          {:ok, conversation} <-
            ensure_conversation_in_tx(
              actor,
              agent,
              id,
-             conversation_title(text, attachments),
+             initial_title,
              page_id,
              room_mode,
-             if(dm?, do: first)
+             if(dm?, do: first),
+             not is_nil(custom_title)
            ),
          true <-
            conversation.sequence_high_water == 0 or redirected_dm? or
@@ -300,6 +287,24 @@ defmodule Ankole.Conversations.Native do
   end
 
   def create_in_tx(_human_uid, _attrs), do: {:error, :invalid_request}
+
+  defp resolve_initial_agents(attrs) do
+    requested =
+      (Ankole.Attrs.get(attrs, :agent_uids) || List.wrap(Ankole.Attrs.get(attrs, :agent_uid)))
+      |> Enum.uniq()
+
+    assistant? =
+      Enum.any?(requested, fn uid ->
+        match?(%{type: :personal_assistant}, Ankole.Principals.get_agent_record!(uid))
+      end)
+
+    agents =
+      if assistant?,
+        do: requested,
+        else: Enum.uniq(requested ++ NativeRoom.explicit_agents(attrs))
+
+    {agents, assistant?}
+  end
 
   defp existing_direct_conversation(true, human_uid, agent_uid) do
     case Map.get(NativeRoom.direct_conversations(human_uid), agent_uid) do
@@ -629,6 +634,18 @@ defmodule Ankole.Conversations.Native do
 
   @doc "Commits a statement to its native host or external Delivery destination."
   def post_in_tx(
+        %StatementTarget{} = target,
+        %Ankole.Conversations.Statement{
+          notice: nil,
+          signal: %Ankole.Signals.Signal{},
+          completion: %{} = completion
+        } = statement
+      )
+      when not is_map_key(completion, :action_card_attached) do
+    post_in_tx(target, Ankole.Conversations.ActionCards.attach_prepared_prompt(statement))
+  end
+
+  def post_in_tx(
         %StatementTarget{kind: :external} = target,
         %Ankole.Conversations.Statement{} = statement
       ),
@@ -657,9 +674,17 @@ defmodule Ankole.Conversations.Native do
       ReplyPresentation.new(state: "awaiting_input")
       |> ReplyPresentation.interaction_request(event.id, prompt)
 
-    final = %{statement | completion: Map.put(statement.completion, :clarify_prompt, nil)}
+    final =
+      %{
+        statement
+        | completion:
+            statement.completion
+            |> Map.put(:clarify_prompt, nil)
+            |> Map.put(:settled_action_card, true)
+      }
 
-    with {:ok, posted} <- Ankole.Conversations.post_in_tx(target, final),
+    with :ok <- Ankole.Conversations.ActionCards.cancel_unattached_prepared_in_tx(event.id, nil),
+         {:ok, posted} <- Ankole.Conversations.post_in_tx(target, final),
          {:ok, message} <-
            Native.post_native_in_tx(target.conversation_id, event, prompt["body"], :message, [],
              delivery_key: prompt["interaction_id"],
@@ -693,9 +718,17 @@ defmodule Ankole.Conversations.Native do
       ReplyPresentation.new(state: "awaiting_input")
       |> ReplyPresentation.interaction_request(event.id, output)
 
-    final = %{statement | completion: Map.put(statement.completion, :action_card_prompt, nil)}
+    final =
+      %{
+        statement
+        | completion:
+            statement.completion
+            |> Map.put(:action_card_prompt, nil)
+            |> Map.put(:settled_action_card, true)
+      }
 
     with {:ok, card} <- ActionCards.commit_prepared_in_tx(event, target.conversation_id, prompt),
+         :ok <- ActionCards.cancel_unattached_prepared_in_tx(event.id, card.id),
          {:ok, posted} <- Ankole.Conversations.post_in_tx(target, final),
          card_json = ActionCards.client_card_state(card, nil),
          {:ok, message} <-
@@ -733,20 +766,10 @@ defmodule Ankole.Conversations.Native do
         else: []
 
     with {:ok, attachments} <-
-           Ankole.Conversations.Delivery.Attachment.normalize_attachments(attachments) do
-      wait =
-        if is_nil(statement.notice) and is_struct(statement.signal, Ankole.Signals.Signal),
-          do: Ankole.Connectors.AuthWaits.active_wait_for_signal(statement.signal.id),
-          else: nil
-
-      blocked_page_wait =
-        if is_nil(wait) and is_nil(statement.notice) and
-             is_struct(statement.signal, Ankole.Signals.Signal),
-           do: Ankole.Pod.Access.BlockedWaits.ungranted_wait_for_signal(statement.signal.id),
-           else: nil
-
-      cond do
-        not is_nil(wait) ->
+           Ankole.Conversations.Delivery.Attachment.normalize_attachments(attachments),
+         :ok <- maybe_cancel_unattached_prepared_in_tx(statement) do
+      case resolve_native_turn_wait(statement) do
+        {:auth_wait, wait} ->
           alias Ankole.Connectors.AuthWaits
           alias Ankole.Conversations.Delivery.Interactions
           event = statement.signal
@@ -784,7 +807,7 @@ defmodule Ankole.Conversations.Native do
             {:ok, %Ankole.Conversations.PostResult{messages: [message], signals: woken_signals}}
           end
 
-        not is_nil(blocked_page_wait) ->
+        {:blocked_page_wait, blocked_page_wait} ->
           alias Ankole.Conversations.Delivery.Interactions
           alias Ankole.Pod.Access.BlockedWaits
           event = statement.signal
@@ -819,10 +842,10 @@ defmodule Ankole.Conversations.Native do
             {:ok, %Ankole.Conversations.PostResult{messages: [message]}}
           end
 
-        text in [nil, ""] and attachments == [] ->
+        :none when text in [nil, ""] and attachments == [] ->
           {:ok, %Ankole.Conversations.PostResult{}}
 
-        true ->
+        :none ->
           with {:ok, message} <-
                  post_native_in_tx(
                    target.conversation_id,
@@ -838,6 +861,37 @@ defmodule Ankole.Conversations.Native do
       end
     end
   end
+
+  defp maybe_cancel_unattached_prepared_in_tx(
+         %Ankole.Conversations.Statement{
+           notice: nil,
+           signal: %Ankole.Signals.Signal{id: signal_id}
+         } = statement
+       ) do
+    if Map.get(statement.completion || %{}, :settled_action_card, false),
+      do: :ok,
+      else: Ankole.Conversations.ActionCards.cancel_unattached_prepared_in_tx(signal_id, nil)
+  end
+
+  defp maybe_cancel_unattached_prepared_in_tx(_statement), do: :ok
+
+  defp resolve_native_turn_wait(%Ankole.Conversations.Statement{
+         notice: nil,
+         signal: %Ankole.Signals.Signal{id: signal_id}
+       }) do
+    cond do
+      wait = Ankole.Connectors.AuthWaits.active_wait_for_signal(signal_id) ->
+        {:auth_wait, wait}
+
+      blocked = Ankole.Pod.Access.BlockedWaits.ungranted_wait_for_signal(signal_id) ->
+        {:blocked_page_wait, blocked}
+
+      true ->
+        :none
+    end
+  end
+
+  defp resolve_native_turn_wait(_statement), do: :none
 
   def post_native_in_tx(id, event, text, kind, attachments, opts \\ []) do
     delivery_key = Keyword.get(opts, :delivery_key, "final")
@@ -933,13 +987,15 @@ defmodule Ankole.Conversations.Native do
          text,
          page_id,
          room_mode,
-         colleague_uid
+         colleague_uid,
+         title_customized \\ false
        ) do
     human_uid = Ankole.AuthZ.Actor.uid(actor)
 
     attrs = %{
       id: id,
       title: text,
+      title_customized: title_customized,
       created_by: human_uid,
       room_mode: room_mode,
       dm_human_uid: if(colleague_uid, do: human_uid),
@@ -1001,6 +1057,19 @@ defmodule Ankole.Conversations.Native do
 
   defp optional_page_id(nil), do: {:ok, nil}
   defp optional_page_id(id), do: Queries.cast_id(id)
+
+  defp optional_title(nil), do: {:ok, nil}
+
+  defp optional_title(title) when is_binary(title) do
+    if String.valid?(title) and not String.contains?(title, <<0>>) do
+      trimmed = String.trim(title)
+      {:ok, if(trimmed == "", do: nil, else: trimmed)}
+    else
+      {:error, :invalid_request}
+    end
+  end
+
+  defp optional_title(_), do: {:error, :invalid_request}
 
   @doc false
   def authorize_page(_uid, nil), do: :ok

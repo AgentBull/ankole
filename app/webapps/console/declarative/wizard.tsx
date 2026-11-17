@@ -291,7 +291,7 @@ export function DeclarativeWizardModal({
                 <li
                   key={item.id}
                   aria-current={idx === stepIndex ? 'step' : undefined}
-                  className={idx === stepIndex ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
+                  className={idx === stepIndex ? 'font-semibold text-fg-primary' : 'text-fg-secondary'}>
                   {idx + 1}. {t(item.labelKey, { defaultValue: formatIdentifierLabel(item.id) })}
                 </li>
               ))}
@@ -306,9 +306,10 @@ export function DeclarativeWizardModal({
             void handleAdvance()
           }}
           className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1">
-          {step ? (
-            <>
-              {step.kind === 'oauth_pkce' && step.oauthConfig ? (
+          {(() => {
+            if (!step) return null
+            if (step.kind === 'oauth_pkce' && step.oauthConfig) {
+              return (
                 <div className="grid gap-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
@@ -338,7 +339,10 @@ export function DeclarativeWizardModal({
                   {pkce ? <Input aria-label="Authorization URL" readOnly value={pkce.authorizeUrl} /> : null}
                   <DeclarativeFields draft={draft} fields={step.fields} i18nPrefix={i18nPrefix} onChange={setDraft} />
                 </div>
-              ) : step.kind === 'batch_lines' && step.batchLinesConfig ? (
+              )
+            }
+            if (step.kind === 'batch_lines' && step.batchLinesConfig) {
+              return (
                 <div className="grid gap-3">
                   <LabeledField label={t(`${i18nPrefix}.ui.default_scheme`, { defaultValue: 'Default scheme' })}>
                     <DeclarativeSelect
@@ -361,8 +365,11 @@ export function DeclarativeWizardModal({
                     />
                   </LabeledField>
                 </div>
-              ) : step.kind === 'preview_items' && batchStep ? (
-                <div className="overflow-x-auto border border-border">
+              )
+            }
+            if ((step.kind === 'preview_items' || step.kind === 'confirm') && batchStep) {
+              return (
+                <div className="overflow-x-auto border border-border-subtle">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -384,52 +391,29 @@ export function DeclarativeWizardModal({
                     </TableBody>
                   </Table>
                 </div>
-              ) : step.kind === 'confirm' ? (
-                batchStep ? (
-                  <div className="overflow-x-auto border border-border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Protocol</TableHead>
-                          <TableHead>Endpoint</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(previewItems.length > 0 ? previewItems : batchPreview).map((item, idx) => (
-                          <TableRow key={`${item[batchStep.nameField]}-${idx}`}>
-                            <TableCell>{item[batchStep.nameField]}</TableCell>
-                            <TableCell>{item[batchStep.schemeField]}</TableCell>
-                            <TableCell className="font-mono text-xs">
-                              {redactUrlCredentials(item[batchStep.urlField]!)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                ) : (
-                  <dl className="grid gap-x-4 gap-y-2 border border-border p-3 text-sm sm:grid-cols-[10rem_1fr]">
-                    {Object.entries(asRecord(draft))
-                      .filter(([key]) => {
-                        if (oauthStep && (key === oauthStep.callbackField || key === oauthStep.verifierField)) {
-                          return false
-                        }
-                        return !secretFieldNames.has(key)
-                      })
-                      .map(([key, val]) => (
-                        <div key={key} className="contents">
-                          <dt className="text-muted-foreground">{formatIdentifierLabel(key)}</dt>
-                          <dd className="break-all font-mono text-xs">{sanitizeConfirmValue(val)}</dd>
-                        </div>
-                      ))}
-                  </dl>
-                )
-              ) : (
-                <DeclarativeFields draft={draft} fields={step.fields} i18nPrefix={i18nPrefix} onChange={setDraft} />
-              )}
-            </>
-          ) : null}
+              )
+            }
+            if (step.kind === 'confirm') {
+              return (
+                <dl className="grid gap-x-4 gap-y-2 border border-border-subtle p-3 text-sm sm:grid-cols-[10rem_1fr]">
+                  {Object.entries(asRecord(draft))
+                    .filter(([key]) => {
+                      if (oauthStep && (key === oauthStep.callbackField || key === oauthStep.verifierField)) {
+                        return false
+                      }
+                      return !secretFieldNames.has(key)
+                    })
+                    .map(([key, val]) => (
+                      <div key={key} className="contents">
+                        <dt className="text-fg-secondary">{formatIdentifierLabel(key)}</dt>
+                        <dd className="break-all font-mono text-xs">{sanitizeConfirmValue(val)}</dd>
+                      </div>
+                    ))}
+                </dl>
+              )
+            }
+            return <DeclarativeFields draft={draft} fields={step.fields} i18nPrefix={i18nPrefix} onChange={setDraft} />
+          })()}
 
           {error ? (
             <p className="text-sm text-destructive" role="alert">

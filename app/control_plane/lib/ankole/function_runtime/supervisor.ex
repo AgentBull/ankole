@@ -6,6 +6,8 @@ defmodule Ankole.FunctionRuntime.Supervisor do
 
   @impl true
   def init(_opts) do
+    :ok = Ankole.FunctionRuntime.AppletClient.init_inspect_cache()
+
     Supervisor.init(
       [
         {Finch,

@@ -6,7 +6,9 @@ import {
   closeCode,
   closeFields,
   createPhoenixSocket,
+  DEFAULT_INBOUND_MESSAGE_DEDUP_LIMIT,
   inboundBytes,
+  InboundMessageDedup,
   newStreamState,
   reconnectDelayMs,
   replyReason,
@@ -26,7 +28,7 @@ import {
   type RuntimeFabricReceiveOutcome
 } from './fabric'
 
-export { createPhoenixSocket, runtimeFabricStream }
+export { createPhoenixSocket, DEFAULT_INBOUND_MESSAGE_DEDUP_LIMIT, InboundMessageDedup, runtimeFabricStream }
 
 /**
  * Phoenix Channel client for the RuntimeFabric worker connection.
@@ -105,6 +107,7 @@ export type ChannelTransportOptions = {
   flowControlBackoffMs?: { initial: number; max: number }
   inboundQueueLimit?: number
   inboundByteLimit?: number
+  inboundMessageDedupLimit?: number
   ackDelayMs?: number
   /** Delay before the transport reconnects after a normal close, by attempt. */
   reconnectDelayMs?: (tries: number) => number
@@ -170,6 +173,7 @@ class ChannelTransport implements RuntimeFabricHost {
   private readonly flowControlBackoffMs: { initial: number; max: number }
   private readonly inboundQueueLimit: number
   private readonly inboundByteLimit: number
+  private readonly inboundDedup: InboundMessageDedup
   private readonly ackDelayMs: number
   private readonly inbound: Array<{ outcome: RuntimeFabricReceiveOutcome; bytes: number }> = []
   private inboundBytes = 0
@@ -207,6 +211,7 @@ class ChannelTransport implements RuntimeFabricHost {
     this.flowControlBackoffMs = options.flowControlBackoffMs ?? defaultFlowControlBackoffMs
     this.inboundQueueLimit = options.inboundQueueLimit ?? defaultInboundQueueLimit
     this.inboundByteLimit = options.inboundByteLimit ?? defaultInboundByteLimit
+    this.inboundDedup = new InboundMessageDedup(options.inboundMessageDedupLimit ?? DEFAULT_INBOUND_MESSAGE_DEDUP_LIMIT)
     this.ackDelayMs = options.ackDelayMs ?? defaultAckDelayMs
     this.windows = {
       control: new StreamWindow(options.windows?.control ?? defaultWindows.control),
@@ -665,8 +670,20 @@ class ChannelTransport implements RuntimeFabricHost {
       return
     }
     this.inboundNextSeq = seq + 1
+    if (this.inboundDedup.hasAndTouch(envelope.messageId)) {
+      workerLogger.debug('worker.fabric_duplicate_ignored', 'runtime fabric duplicate inbound envelope ignored', {
+        event,
+        message_id: envelope.messageId,
+        seq
+      })
+      if (this.stopped) return
+      this.inboundAckedSeq = seq
+      this.scheduleAck()
+      return
+    }
     this.enqueue(envelope, bytes)
     if (this.stopped) return
+    this.inboundDedup.record(envelope.messageId)
     this.inboundAckedSeq = seq
     this.scheduleAck()
   }

@@ -422,7 +422,7 @@ function AlertRow({ alert }: { alert: Alert }) {
   )
 }
 
-function MetricTile({
+export function MetricTile({
   detail,
   icon: Icon,
   label,

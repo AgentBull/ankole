@@ -123,16 +123,21 @@ defmodule Ankole.Brain.ContextPack do
           |> Ash.Query.filter(from_page_id == ^card.id)
           |> Access.filter_links(visibility)
           |> Ash.Query.sort(link_type: :asc, to_page_id: :asc, id: :asc)
-          |> Ash.Query.limit(10)
+          |> Ash.Query.limit(30)
           |> Ash.Query.select([:link_type, :to_page_id])
           |> Ankole.Ash.read!()
+          |> Enum.uniq_by(&{&1.link_type, &1.to_page_id})
+          |> Enum.take(10)
           |> Enum.map(&%{link_type: &1.link_type, to: &1.to_page_id})
 
         backlinks =
           Link
           |> Ash.Query.filter(to_page_id == ^card.id)
           |> Access.filter_links(visibility)
-          |> Ankole.Ash.count!()
+          |> Ash.Query.select([:from_page_id, :link_type])
+          |> Ankole.Ash.read!()
+          |> Enum.uniq_by(&{&1.from_page_id, &1.link_type})
+          |> length()
 
         Map.merge(card, %{aka: aka, edges: outgoing, backlink_count: backlinks})
     end

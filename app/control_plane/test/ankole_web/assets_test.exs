@@ -84,7 +84,8 @@ defmodule AnkoleWeb.AssetsTest do
     Application.put_env(:ankole, Assets, dev_server: "http://vite.test/")
     html = tags("/pages/a-page", "pod")
 
-    assert html =~ "http://vite.test/entrypoints/pod.tsx"
+    source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!("pod")
+    assert html =~ "http://vite.test/#{String.trim_leading(source, "/")}"
     refute html =~ "modulepreload"
   end
 
@@ -96,6 +97,9 @@ defmodule AnkoleWeb.AssetsTest do
     assert importmap < preload
 
     assert html =~ ~s("@ankole/uikit":"/assets/js/applet-uikit.js")
+    assert html =~ ~s("@ankole/uikit/icons":"/assets/js/applet-uikit-icons.js")
+    refute "/assets/js/applet-uikit-icons.js" in preloads(html)
+    refute "/assets/js/icons-only.js" in preloads(html)
     assert html =~ ~s("react/jsx-dev-runtime":"/assets/js/applet-react-jsx-dev-runtime.js")
     assert length(Regex.scan(~r|href="/assets/css/uikit.css"|, html)) == 1
 
@@ -112,7 +116,7 @@ defmodule AnkoleWeb.AssetsTest do
 
     conn =
       :get
-      |> Plug.Test.conn("/assets/js/vendor-react.js")
+      |> Plug.Test.conn(AnkoleWeb.Endpoint.url() <> "/assets/js/vendor-react.js")
       |> AnkoleWeb.Endpoint.call(AnkoleWeb.Endpoint.init([]))
 
     assert conn.status == 200
@@ -125,48 +129,48 @@ defmodule AnkoleWeb.AssetsTest do
   end
 
   test "static_url_base prefixes entry tags, locale preloads, Applet import maps, and static_path" do
-    Application.put_env(:ankole, :static_url_base, "//ankole-static-files.cdn.agentbull.net")
+    Application.put_env(:ankole, :static_url_base, "//cdn.example.com")
 
     html = tags("/pages/a-page", "pod")
 
     assert stylesheets(html) == [
-             "//ankole-static-files.cdn.agentbull.net/assets/css/shared.css",
-             "//ankole-static-files.cdn.agentbull.net/assets/css/pod.css",
-             "//ankole-static-files.cdn.agentbull.net/assets/css/page.css",
-             "//ankole-static-files.cdn.agentbull.net/assets/css/helper.css"
+             "//cdn.example.com/assets/css/shared.css",
+             "//cdn.example.com/assets/css/pod.css",
+             "//cdn.example.com/assets/css/page.css",
+             "//cdn.example.com/assets/css/helper.css"
            ]
 
     assert html =~
-             ~s(<link rel="stylesheet" crossorigin="anonymous" href="//ankole-static-files.cdn.agentbull.net/assets/css/pod.css">)
+             ~s(<link rel="stylesheet" crossorigin="anonymous" href="//cdn.example.com/assets/css/pod.css">)
 
     assert html =~
-             ~s(<script type="module" crossorigin="anonymous" src="//ankole-static-files.cdn.agentbull.net/assets/js/pod.js"></script>)
+             ~s(<script type="module" crossorigin="anonymous" src="//cdn.example.com/assets/js/pod.js"></script>)
 
     assert preloads(html) |> Enum.sort() == [
-             "//ankole-static-files.cdn.agentbull.net/assets/js/helper.js",
-             "//ankole-static-files.cdn.agentbull.net/assets/js/page.js",
-             "//ankole-static-files.cdn.agentbull.net/assets/js/shared.js"
+             "//cdn.example.com/assets/js/helper.js",
+             "//cdn.example.com/assets/js/page.js",
+             "//cdn.example.com/assets/js/shared.js"
            ]
 
     locale_html = Assets.locale_preload_tags("zh-Hans-CN") |> IO.iodata_to_binary()
 
     assert preloads(locale_html) == [
-             "//ankole-static-files.cdn.agentbull.net/assets/js/zh-Hans-CN.js",
-             "//ankole-static-files.cdn.agentbull.net/assets/js/en-US.js"
+             "//cdn.example.com/assets/js/zh-Hans-CN.js",
+             "//cdn.example.com/assets/js/en-US.js"
            ]
 
     applet_html = Assets.applet_frame_tags() |> IO.iodata_to_binary()
 
     assert applet_html =~
-             ~s("@ankole/uikit":"//ankole-static-files.cdn.agentbull.net/assets/js/applet-uikit.js")
+             ~s("@ankole/uikit":"//cdn.example.com/assets/js/applet-uikit.js")
 
     assert stylesheets(applet_html) == [
-             "//ankole-static-files.cdn.agentbull.net/assets/css/shared.css",
-             "//ankole-static-files.cdn.agentbull.net/assets/css/uikit.css"
+             "//cdn.example.com/assets/css/shared.css",
+             "//cdn.example.com/assets/css/uikit.css"
            ]
 
     assert Assets.static_path("/images/logo.svg") ==
-             "//ankole-static-files.cdn.agentbull.net/images/logo.svg"
+             "//cdn.example.com/images/logo.svg"
   end
 
   test "development Applet frames initialize their own React refresh runtime" do
@@ -268,6 +272,11 @@ defmodule AnkoleWeb.AssetsTest do
       "entrypoints/applet-vendor/applet-sdk.ts" => %{
         "file" => "js/applet-sdk.js",
         "imports" => ["vendor-react"]
+      },
+      "icons-only" => %{"file" => "js/icons-only.js"},
+      "entrypoints/applet-vendor/uikit-icons.ts" => %{
+        "file" => "js/applet-uikit-icons.js",
+        "imports" => ["vendor-react", "icons-only"]
       },
       "entrypoints/applet-vendor/uikit.ts" => %{
         "file" => "js/applet-uikit.js",

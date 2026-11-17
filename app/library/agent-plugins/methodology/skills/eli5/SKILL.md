@@ -7,6 +7,7 @@ tags:
   - 用大白话
   - 通俗地解释
 ankole-runtime: main
+default_enabled: true
 ---
 
 Explain this as if I know nothing about the topic—and when necessary, explain it like I'm five years old.

@@ -70,7 +70,7 @@ export function resolveActiveMermaidTheme(doc: Document | undefined = globalThis
   return doc?.documentElement?.dataset?.theme === 'dark' ? 'dark' : 'light'
 }
 
-function resolveChatMermaidPalette(theme: MermaidThemeMode): VizThemePalette {
+export function resolveChatMermaidPalette(theme: MermaidThemeMode): VizThemePalette {
   const p = MERMAID_PALETTES[theme]
   return resolveVizTheme(null, {
     theme,

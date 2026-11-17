@@ -296,6 +296,14 @@ message BackgroundAgentJobTurnUpsertResponse {
   BackgroundAgentJobTurn turn = 2;
 }
 
+message BackgroundAgentJobRetainedWorkspacesRequest {
+  repeated string candidate_job_ids = 1;
+}
+
+message BackgroundAgentJobRetainedWorkspacesResponse {
+  repeated string retained_job_ids = 1;
+}
+
 // webhook endpoint (requests typed, responses model-facing passthrough)
 
 message WebhookEndpointCreateRequest {

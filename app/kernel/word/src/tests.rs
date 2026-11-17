@@ -1716,7 +1716,9 @@ fn to_document_converts_all_mapping_table_features_and_counts_omitted_and_downgr
     let expected_inline_latex =
         wordcraft_doc::math_latex::to_latex(&wordcraft_doc::math::parse_linear("x^2+1"));
     assert!(xml.contains(&format!("<math>{expected_display_latex}</math>")));
-    assert!(xml.contains(&format!("<code>{expected_inline_latex}</code>")));
+    assert!(xml.contains(&format!(
+        "<inline-math>{expected_inline_latex}</inline-math>"
+    )));
 
     // Footnotes & endnotes appended at end after `<hr />`.
     assert!(xml.contains(
@@ -1734,10 +1736,7 @@ fn to_document_converts_all_mapping_table_features_and_counts_omitted_and_downgr
         converted.report.downgraded.get("custom_image_sizes"),
         Some(&1)
     );
-    assert_eq!(
-        converted.report.downgraded.get("inline_equations"),
-        Some(&1)
-    );
+    assert_eq!(converted.report.downgraded.get("inline_equations"), None);
 
     // Blank document conversion produces empty report maps (zero-count keys omitted).
     let (clean_blank, _) = create_blank("Clean").unwrap();
@@ -2073,4 +2072,546 @@ fn editor_supports_ime_undo_redo_gestures_and_collaborative_rebase() {
         serde_json::from_str(&bob.missing_pictures().unwrap()).unwrap();
     assert_eq!(missing, json!([]));
     assert_eq!(bob.load_embedded_fonts(), 0);
+}
+
+#[test]
+fn golden_page_tree_exports_rich_docx_and_pdf_within_layout_bounds() {
+    use crate::from_page::{ROOT_CONTENT_WIDTH_PT, from_page_tree, report_font_needs};
+    use crate::{export_docx, export_pdf, render_page_rgba};
+    use std::collections::BTreeMap;
+    use std::io::Read as _;
+    use wordcraft_doc::props::VMerge;
+
+    let png_diagram = make_png_bytes(320, 160, [37, 99, 235, 255]);
+    let png_emoji = make_png_bytes(32, 32, [22, 163, 74, 255]);
+    let mut assets = BTreeMap::new();
+    assets.insert("diagram_col1".to_string(), png_diagram.clone());
+    assets.insert("emoji_rocket".to_string(), png_emoji.clone());
+    assets.insert("title_icon".to_string(), png_emoji);
+
+    // Build a 20-column ultra-wide table row to verify Tier-3 floor relaxation keeps total width <= ROOT_CONTENT_WIDTH_PT.
+    let wide_headers: Vec<serde_json::Value> = (1..=20)
+        .map(|i| {
+            json!({
+                "type": "element",
+                "name": "th",
+                "children": [{
+                    "type": "element",
+                    "name": "p",
+                    "children": [{ "type": "text", "value": format!("M{i}") }]
+                }]
+            })
+        })
+        .collect();
+    let wide_values: Vec<serde_json::Value> = (1..=20)
+        .map(|i| {
+            json!({
+                "type": "element",
+                "name": "td",
+                "children": [{
+                    "type": "element",
+                    "name": "p",
+                    "children": [{ "type": "text", "value": format!("{}", i * 100) }]
+                }]
+            })
+        })
+        .collect();
+
+    let block_section = json!({
+        "type": "element",
+        "name": "block",
+        "children": [
+            {
+                "type": "element",
+                "name": "p",
+                "children": [
+                    { "type": "text", "value": "Lead author: " },
+                    { "type": "element", "name": "mention", "attrs": { "principal": "alice" } },
+                    { "type": "text", "value": " referencing " },
+                    { "type": "element", "name": "mention", "attrs": { "page": "01900000-0000-7000-8000-000000000001" } },
+                    { "type": "text", "value": " — 日本語テスト・한국어 테스트." }
+                ]
+            },
+            {
+                "type": "element",
+                "name": "callout",
+                "attrs": { "tone": "warning", "icon": "!" },
+                "children": [
+                    {
+                        "type": "element",
+                        "name": "p",
+                        "children": [
+                            { "type": "element", "name": "strong", "children": [{ "type": "text", "value": "Nested Callout:" }] },
+                            { "type": "text", "value": " Indented under parent block without double-subtracting width." }
+                        ]
+                    }
+                ]
+            }
+        ]
+    });
+
+    let columns_section = json!({
+        "type": "element",
+        "name": "columns",
+        "children": [
+            {
+                "type": "element",
+                "name": "column",
+                "attrs": { "width": "1000" },
+                "children": [
+                    {
+                        "type": "element",
+                        "name": "mermaid",
+                        "attrs": {
+                            "view": "diagram",
+                            "_export_asset": "diagram_col1",
+                            "_export_w_pt": "180",
+                            "_export_h_pt": "90"
+                        },
+                        "children": [{ "type": "text", "value": "graph TD; A-->B" }]
+                    }
+                ]
+            },
+            {
+                "type": "element",
+                "name": "column",
+                "attrs": { "width": "1000" },
+                "children": [
+                    {
+                        "type": "element",
+                        "name": "ul",
+                        "children": [
+                            {
+                                "type": "element",
+                                "name": "li",
+                                "attrs": { "task": "done" },
+                                "children": [{ "type": "element", "name": "p", "children": [{ "type": "text", "value": "Verify A4 margins" }] }]
+                            },
+                            {
+                                "type": "element",
+                                "name": "li",
+                                "attrs": { "task": "todo" },
+                                "children": [{ "type": "element", "name": "p", "children": [{ "type": "text", "value": "Verify PDF outlines" }] }]
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "type": "element",
+                "name": "column",
+                "attrs": { "width": "1000" },
+                "children": [
+                    {
+                        "type": "element",
+                        "name": "p",
+                        "children": [
+                            {
+                                "type": "element",
+                                "name": "span",
+                                "attrs": { "style": "color: #2563eb; text-transform: uppercase" },
+                                "children": [{ "type": "text", "value": "column three" }]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    });
+
+    let merged_table = json!({
+        "type": "element",
+        "name": "table",
+        "attrs": { "widths": "160,160,160" },
+        "children": [
+            {
+                "type": "element",
+                "name": "tr",
+                "children": [
+                    { "type": "element", "name": "th", "children": [{ "type": "element", "name": "p", "children": [{ "type": "text", "value": "Region" }] }] },
+                    { "type": "element", "name": "th", "attrs": { "colspan": "2" }, "children": [{ "type": "element", "name": "p", "children": [{ "type": "text", "value": "Metrics" }] }] }
+                ]
+            },
+            {
+                "type": "element",
+                "name": "tr",
+                "children": [
+                    { "type": "element", "name": "td", "attrs": { "rowspan": "2", "background": "#f0fdf4" }, "children": [{ "type": "element", "name": "p", "children": [{ "type": "text", "value": "APAC" }] }] },
+                    { "type": "element", "name": "td", "children": [{ "type": "element", "name": "p", "children": [{ "type": "text", "value": "Latency" }] }] },
+                    { "type": "element", "name": "td", "children": [{ "type": "element", "name": "p", "children": [{ "type": "text", "value": "12 ms" }] }] }
+                ]
+            },
+            {
+                "type": "element",
+                "name": "tr",
+                "children": [
+                    { "type": "element", "name": "td", "children": [{ "type": "element", "name": "p", "children": [{ "type": "text", "value": "Availability" }] }] },
+                    { "type": "element", "name": "td", "children": [{ "type": "element", "name": "p", "children": [{ "type": "text", "value": "99.99%" }] }] }
+                ]
+            }
+        ]
+    });
+
+    let wide_table = json!({
+        "type": "element",
+        "name": "table",
+        "attrs": { "widths": "100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100" },
+        "children": [
+            { "type": "element", "name": "tr", "children": wide_headers },
+            { "type": "element", "name": "tr", "children": wide_values }
+        ]
+    });
+
+    let body_children = vec![
+        json!({
+            "type": "element",
+            "name": "h1",
+            "children": [
+                { "type": "text", "value": "1. 概览与多栏图表 Overview " },
+                { "type": "emojiImage", "asset_key": "emoji_rocket", "alt": "🚀" }
+            ]
+        }),
+        block_section,
+        columns_section,
+        json!({
+            "type": "element",
+            "name": "h2",
+            "children": [{ "type": "text", "value": "2. Equations & Highlighted Code" }]
+        }),
+        json!({
+            "type": "element",
+            "name": "math",
+            "children": [{
+                "type": "text",
+                "value": r"\begin{aligned} \mathbf{A} &= \begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix} \\ f(x) &= \frac{-b \pm \sqrt{b^2 - 4ac}}{2a} \end{aligned}"
+            }]
+        }),
+        json!({
+            "type": "element",
+            "name": "pre",
+            "attrs": { "lang": "rust", "meta": "src/main.rs" },
+            "children": [
+                {
+                    "type": "codeLine",
+                    "runs": [
+                        { "text": "fn ", "color": "#cf222e", "bold": true },
+                        { "text": "main", "color": "#8250df" },
+                        { "text": "() { println!(\"ok\"); }" }
+                    ]
+                }
+            ]
+        }),
+        json!({
+            "type": "element",
+            "name": "h3",
+            "children": [{ "type": "text", "value": "3. Merged & Ultra-Wide Tables" }]
+        }),
+        merged_table,
+        wide_table,
+    ];
+
+    let request = json!({
+        "title": "Q4 架构评审与发布报告 Architecture Review",
+        "iconAssetKey": "title_icon",
+        "metadataRows": [
+            { "key": "owner", "value": "Platform Team" },
+            { "key": "status", "value": "Approved" }
+        ],
+        "references": {
+            "01900000-0000-7000-8000-000000000001": {
+                "title": "Service SLA Spec",
+                "href": "https://pod.example.com/pages/service-sla-01900000-0000-7000-8000-000000000001",
+                "restricted": false
+            }
+        },
+        "principals": {
+            "alice": { "name": "Alice Chen", "restricted": false }
+        },
+        "root": {
+            "type": "element",
+            "name": "page",
+            "children": body_children
+        }
+    });
+
+    let doc = from_page_tree(&request.to_string(), &assets).expect("compile golden page");
+
+    // Verify font needs reporting detects CJK scripts before site CJK fonts load.
+    let needs = report_font_needs(&doc);
+    assert!(
+        !needs.missing_glyph_families.is_empty(),
+        "expected CJK fallback font requests for Han/Kana/Hangul: {needs:?}"
+    );
+
+    // Check every top-level table fits strictly within ROOT_CONTENT_WIDTH_PT (including 20-col table).
+    for blk in &doc.document().body {
+        if let Block::Table(tbl) = blk.as_ref() {
+            let sum_w: f32 = tbl.grid.iter().sum();
+            let indent = tbl.props.indent.unwrap_or(0.0);
+            assert!(
+                indent + sum_w <= ROOT_CONTENT_WIDTH_PT + 0.5,
+                "table overflowed A4 content width: indent={indent}, sum_w={sum_w}, limit={ROOT_CONTENT_WIDTH_PT}"
+            );
+        }
+    }
+
+    // Export DOCX, inspect OOXML ZIP parts, and reopen via `wordcraft_docx::read`.
+    let docx_bytes = export_docx(&doc).expect("export golden docx");
+    assert!(docx_bytes.starts_with(b"PK\x03\x04"));
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(&docx_bytes)).expect("open docx zip");
+    let mut doc_xml = String::new();
+    archive
+        .by_name("word/document.xml")
+        .expect("word/document.xml present")
+        .read_to_string(&mut doc_xml)
+        .unwrap();
+    assert!(
+        doc_xml.contains("w:gridSpan"),
+        "expected horizontal merge in OOXML"
+    );
+    assert!(
+        doc_xml.contains("w:vMerge"),
+        "expected vertical merge in OOXML"
+    );
+    assert!(
+        doc_xml.contains("m:oMath"),
+        "expected native OMML equation in OOXML"
+    );
+    assert!(archive.by_name("word/styles.xml").is_ok());
+
+    let reopened = wordcraft_docx::read(&docx_bytes).expect("reopen exported docx");
+    // Locate the 3-col merged table and verify VMerge::Restart + VMerge::Continue survived round-trip.
+    let merged_tbl = reopened
+        .body
+        .iter()
+        .filter_map(|b| match b.as_ref() {
+            Block::Table(t) if t.grid.len() == 3 && t.rows.len() == 3 => Some(t),
+            _ => None,
+        })
+        .next()
+        .expect("3x3 merged table present");
+    assert!(merged_tbl.rows[0].props.header);
+    assert_eq!(merged_tbl.rows[0].cells[1].span(), 2);
+    assert_eq!(merged_tbl.rows[1].cells[0].props.vmerge, VMerge::Restart);
+    assert_eq!(merged_tbl.rows[2].cells[0].props.vmerge, VMerge::Continue);
+
+    // Export PDF and verify valid structure, outlines, and raster rendering.
+    let pdf_bytes = export_pdf(&doc).expect("export golden pdf");
+    assert!(pdf_bytes.starts_with(b"%PDF-"));
+    let pdf_ascii = String::from_utf8_lossy(&pdf_bytes);
+    assert!(
+        pdf_ascii.contains("/Outlines"),
+        "expected PDF bookmark outline dictionary from H1-H3 headings"
+    );
+    let (w_px, h_px, rgba) = render_page_rgba(&doc, 0, 1.0).expect("render page 0");
+    assert!(w_px > 500 && h_px > 700);
+    assert_eq!(rgba.len(), (w_px as usize) * (h_px as usize) * 4);
+}
+
+#[test]
+fn page_export_redacts_restricted_targets_and_strips_authentication_ref_in_artifacts() {
+    use crate::from_page::from_page_tree;
+    use crate::{export_docx, export_pdf};
+    use std::collections::BTreeMap;
+    use std::io::Read as _;
+
+    let secret_page_title = "TOP_SECRET_M_AND_A_PROJECT";
+    let secret_user_name = "GhostSpyUser";
+    let secret_auth_token = "auth_tok_9988776655_never_leak";
+
+    // The caller supplies already access-checked entries (restricted=true with placeholder labels),
+    // and we also pass raw URLs containing `authentication_ref` to verify defense-in-depth scrubbing.
+    let request = json!({
+        "title": "Public Spec",
+        "references": {
+            "01900000-0000-7000-8000-000000000099": {
+                "title": "Restricted page",
+                "href": format!("https://pod.example.com/pages/01900000-0000-7000-8000-000000000099?authentication_ref={secret_auth_token}"),
+                "restricted": true
+            },
+            "01900000-0000-7000-8000-000000000002": {
+                "title": "Readable Page",
+                "href": format!("https://pod.example.com/pages/readable?authentication_ref={secret_auth_token}&tab=overview#sec1"),
+                "restricted": false
+            }
+        },
+        "principals": {
+            "secret_uid_42": {
+                "name": "Restricted user",
+                "restricted": true
+            }
+        },
+        "root": {
+            "type": "element",
+            "name": "page",
+            "children": [
+                {
+                    "type": "element",
+                    "name": "p",
+                    "children": [
+                        { "type": "element", "name": "mention", "attrs": { "page": "01900000-0000-7000-8000-000000000099" } },
+                        { "type": "text", "value": " " },
+                        { "type": "element", "name": "mention", "attrs": { "principal": "secret_uid_42" } },
+                        { "type": "text", "value": " " },
+                        {
+                            "type": "element",
+                            "name": "a",
+                            "attrs": { "href": format!("https://pod.example.com/files/report.pdf?authentication_ref={secret_auth_token}") },
+                            "children": [{ "type": "text", "value": "Download Report" }]
+                        },
+                        { "type": "text", "value": " " },
+                        {
+                            "type": "element",
+                            "name": "a",
+                            "attrs": { "href": "ankole:page/01900000-0000-7000-8000-000000000099" },
+                            "children": [{ "type": "text", "value": "Link to restricted page" }]
+                        },
+                        { "type": "text", "value": " " },
+                        {
+                            "type": "element",
+                            "name": "a",
+                            "attrs": { "href": "ankole:page/01900000-0000-7000-8000-000000000002" },
+                            "children": [{ "type": "text", "value": "Link to readable page" }]
+                        }
+                    ]
+                },
+                {
+                    "type": "element",
+                    "name": "embed",
+                    "attrs": { "ref": "01900000-0000-7000-8000-000000000099" }
+                }
+            ]
+        }
+    });
+
+    let doc = from_page_tree(&request.to_string(), &BTreeMap::new()).unwrap();
+    let docx_bytes = export_docx(&doc).unwrap();
+    let pdf_bytes = export_pdf(&doc).unwrap();
+
+    // 1. Inspect every entry inside the DOCX zip archive.
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&docx_bytes)).unwrap();
+    let mut saw_clean_readable_link = false;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).unwrap();
+        let entry_name = entry.name().unwrap().into_owned();
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf).unwrap();
+        let text = String::from_utf8_lossy(&buf);
+        assert!(
+            !text.contains(secret_page_title),
+            "leaked restricted title in {entry_name}"
+        );
+        assert!(
+            !text.contains(secret_user_name),
+            "leaked restricted user in {entry_name}"
+        );
+        assert!(
+            !text.contains("secret_uid_42"),
+            "leaked raw principal uid in {entry_name}"
+        );
+        assert!(
+            !text.contains("01900000-0000-7000-8000-000000000099"),
+            "leaked restricted page UUID link in {entry_name}"
+        );
+        assert!(
+            !text.contains("authentication_ref"),
+            "leaked authentication_ref key in {entry_name}"
+        );
+        assert!(
+            !text.contains(secret_auth_token),
+            "leaked authentication_ref token in {entry_name}"
+        );
+        if text.contains("https://pod.example.com/pages/readable?tab=overview#sec1") {
+            saw_clean_readable_link = true;
+        }
+    }
+    assert!(
+        saw_clean_readable_link,
+        "expected clean query/hash parameters to be preserved on accessible links"
+    );
+
+    // 2. Inspect final PDF bytes (including URI link annotations).
+    let pdf_text = String::from_utf8_lossy(&pdf_bytes);
+    assert!(!pdf_text.contains(secret_page_title));
+    assert!(!pdf_text.contains(secret_user_name));
+    assert!(!pdf_text.contains("secret_uid_42"));
+    assert!(!pdf_text.contains("01900000-0000-7000-8000-000000000099"));
+    assert!(!pdf_text.contains("authentication_ref"));
+    assert!(!pdf_text.contains(secret_auth_token));
+    assert!(pdf_text.contains("https://pod.example.com/pages/readable?tab=overview#sec1"));
+}
+
+#[test]
+fn page_export_handles_math_cjk_font_needs_list_headings_hr_and_extreme_columns() {
+    use std::collections::BTreeMap;
+
+    let columns_node = json!({
+        "type": "element",
+        "name": "columns",
+        "children": [
+            { "type": "element", "name": "column", "attrs": { "width": "1" }, "children": [{ "type": "element", "name": "p", "children": [{ "type": "text", "value": "Tiny" }] }] },
+            { "type": "element", "name": "column", "attrs": { "width": "9999" }, "children": [{ "type": "element", "name": "p", "children": [{ "type": "text", "value": "Wide" }] }] }
+        ]
+    });
+    let list_node = json!({
+        "type": "element",
+        "name": "ul",
+        "children": [
+            { "type": "element", "name": "li", "children": [{ "type": "element", "name": "h3", "children": [{ "type": "text", "value": "List Heading" }] }] },
+            { "type": "element", "name": "li", "children": [{ "type": "element", "name": "hr" }, { "type": "element", "name": "p", "children": [{ "type": "text", "value": "After Rule" }] }] }
+        ]
+    });
+    let math_node = json!({
+        "type": "element",
+        "name": "math",
+        "children": [{ "type": "text", "value": "\\text{净现值} = \\sum_{t=1}^{n} CF_t" }]
+    });
+    let req = json!({
+        "title": "Edge Case Verification",
+        "root": {
+            "type": "element",
+            "name": "page",
+            "children": [columns_node, list_node, math_node]
+        }
+    });
+
+    let doc =
+        crate::from_page_tree(&req.to_string(), &BTreeMap::new()).expect("compile edge cases");
+    for block in &doc.document().body {
+        if let wordcraft_doc::Block::Table(tbl) = block.as_ref() {
+            let sum_w: f32 = tbl.grid.iter().sum();
+            assert!(
+                sum_w <= crate::from_page::ROOT_CONTENT_WIDTH_PT + 0.1,
+                "extreme column weights overflowed root content width: {sum_w}"
+            );
+        }
+    }
+
+    let needs = crate::report_font_needs(&doc);
+    assert!(
+        needs
+            .missing_glyph_families
+            .iter()
+            .any(|fam| fam == "IBM Plex Sans SC")
+            || wordcraft_fonts::FontDb::global().is_loaded("IBM Plex Sans SC"),
+        "expected CJK inside <math> equation to be detected by report_font_needs: {needs:?}"
+    );
+
+    let docx = crate::export_docx(&doc).expect("export docx");
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&docx)).unwrap();
+    let mut doc_xml = String::new();
+    std::io::Read::read_to_string(
+        &mut archive.by_name("word/document.xml").unwrap(),
+        &mut doc_xml,
+    )
+    .unwrap();
+    assert!(
+        doc_xml.contains("Heading3"),
+        "expected <h3> inside <li> to retain Heading3 style"
+    );
+    assert!(
+        doc_xml.contains("w:bottom"),
+        "expected <hr/> inside <li> to retain bottom border rule"
+    );
 }

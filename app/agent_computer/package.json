@@ -30,6 +30,7 @@
     "@agentbull/active-support": "^1.6.0",
     "@ankole/browser": "workspace:*",
     "@ankole/uikit": "workspace:*",
+    "@babel/parser": "8.1.2",
     "@bufbuild/protobuf": "2.17.0",
     "@ff-labs/fff-bun": "0.11.0",
     "@opentelemetry/api": "^1.10.0",
@@ -39,6 +40,7 @@
     "pele": "1.13.0",
     "phoenix": "1.8.16",
     "pino": "^10.4.0",
+    "xstate": "5.33.4",
     "zod": "^4.6.7"
   },
   "devDependencies": {

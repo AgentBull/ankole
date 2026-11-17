@@ -472,14 +472,11 @@ defmodule Ankole.BackgroundAgentJobs do
   def request_stop(job_id, attrs) when is_integer(job_id) and is_map(attrs),
     do: Repo.transact_top_level(fn -> Control.request_stop_in_tx(job_id, attrs) end)
 
-  @doc """
-  Lists live Job ids whose owner session is one of the given sessions.
-
-  Workflow terminal cleanup uses this to stop the Jobs its task sessions
-  delegated. The owner session is the creation-time parent link, so no extra
-  binding storage exists.
-  """
+  @doc "Lists live Job ids whose owner session is one of the given sessions."
   defdelegate live_job_ids_for_owner_sessions(session_ids, agent_uid), to: Queries
+
+  @doc "Returns the subset of candidate Job workspace IDs still needed by live Jobs of `agent_uid`."
+  defdelegate retained_workspace_job_ids(agent_uid, candidate_ids), to: Queries
 
   @doc "Commits an externally verified completion with the caller's result summary."
   def request_complete(job_id, attrs) when is_integer(job_id) and is_map(attrs),

@@ -350,10 +350,11 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
     }
   })
 
-  const chart: IChartApiBase<HorzItem> =
-    chartMode === 'yield_curve'
-      ? (createYieldCurveChart(host, buildChartOptions(initialSpec, palette)) as unknown as IChartApiBase<HorzItem>)
-      : (createChart(host, buildChartOptions(initialSpec, palette)) as unknown as IChartApiBase<HorzItem>)
+  const baseChart: Omit<IChartApiBase<any>, 'addSeries' | 'addCustomSeries' | 'removeSeries' | 'panes'> = chartMode ===
+  'yield_curve'
+    ? createYieldCurveChart(host, buildChartOptions(initialSpec, palette))
+    : createChart(host, buildChartOptions(initialSpec, palette))
+  const chart = baseChart as IChartApiBase<HorzItem>
 
   let mainSeries: ISeriesApi<SeriesType, HorzItem> | null = null
   let volumeSeries: ISeriesApi<'Histogram', HorzItem> | null = null

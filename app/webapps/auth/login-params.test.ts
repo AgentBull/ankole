@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { loginContextKey, readLoginSearch, signInReturnTo } from './login-params'
+import { resolveSessionScreenView } from './session-screen'
 
 test('readLoginSearch returns empty query, context, and authorizationParams on plain /sessions/new', () => {
   const parsed = readLoginSearch('')
@@ -64,4 +65,46 @@ test('post-logout sign-in preserves the local destination, query, and fragment',
   expect(signInReturnTo('/site-admin-console/tenants?sort=name#active', origin)).toBe(
     '/site-admin-console/tenants?sort=name#active'
   )
+})
+
+test('resolveSessionScreenView distinguishes non-expired auth errors from expired sessions', () => {
+  for (const [authError, descriptionKey] of [
+    ['account_disabled', 'auth.account_disabled'],
+    ['tenant_suspended', 'auth.tenant_suspended'],
+    ['login_subject_mismatch', 'auth.login_subject_mismatch']
+  ] as const) {
+    expect(
+      resolveSessionScreenView({
+        authError,
+        cancelled: false,
+        confirm: false,
+        failed: true,
+        isNotFound: false,
+        returnTo: '/sessions/new'
+      })
+    ).toEqual({
+      kind: 'failed',
+      titleKey: 'common.error',
+      descriptionKey,
+      actionLabelKey: 'auth.back_to_sign_in',
+      actionHref: '/sessions/new'
+    })
+  }
+
+  expect(
+    resolveSessionScreenView({
+      authError: 'login_expired',
+      cancelled: false,
+      confirm: false,
+      failed: true,
+      isNotFound: false,
+      returnTo: '/sessions/new'
+    })
+  ).toEqual({
+    kind: 'failed',
+    titleKey: 'auth.session_expired_title',
+    descriptionKey: 'auth.session_expired_description',
+    actionLabelKey: 'auth.back_to_sign_in',
+    actionHref: '/sessions/new'
+  })
 })

@@ -407,4 +407,102 @@ defmodule Ankole.Conversations.IdentityAdmission do
         held_silently(fact, :human_access_revoked)
     end
   end
+
+  @bot_rate_limit 6
+  @bot_rate_window_seconds 60
+
+  @doc "Drops inbound messages from external platform bots when the binding's policy is `:ignore`."
+  def check_external_bot_gate(%Binding{external_bot_policy: :ignore}, fact) do
+    if external_bot_author?(fact.author),
+      do: {:ignored, :ignored_external_bot},
+      else: :ok
+  end
+
+  def check_external_bot_gate(_binding, _fact), do: :ok
+
+  @doc "Returns whether normalized author metadata identifies an external platform bot/app."
+  def external_bot_author?(author) when is_map(author) do
+    author["is_bot"] == true or
+      get_in(author, ["metadata", "is_bot"]) == true or
+      get_in(author, ["metadata", "member_type"]) == "app"
+  end
+
+  def external_bot_author?(_author), do: false
+
+  @doc """
+  Assigns the deterministic `:external_bot` Principal UID and evaluates the
+  supervised node-local turn rate limit before entering the entry transaction.
+  """
+  def prepare_external_bot_entry(
+        %Binding{external_bot_policy: policy} = binding,
+        fact,
+        wake_candidate?
+      ) do
+    author = fact.author || %{}
+    ext_id = author["platform_subject"] || author["display_name"] || "bot"
+    bot_uid = Ankole.Principals.ServiceAccounts.bot_uid(binding.adapter, to_string(ext_id))
+
+    display_name =
+      case author["display_name"] do
+        name when is_binary(name) and name != "" ->
+          if String.ends_with?(name, "[Bot]"), do: name, else: name <> " [Bot]"
+
+        _ ->
+          bot_uid <> " [Bot]"
+      end
+
+    mirror_only? =
+      policy == :record_only or
+        (wake_candidate? and
+           not allow_bot_turn?(
+             Ankole.Repo.tenant_id!(),
+             binding.id,
+             fact.provider_conversation_id
+           ))
+
+    fact =
+      fact
+      |> FactNormalizer.put_author_principal(bot_uid)
+      |> Map.put(
+        :author,
+        Map.merge(author, %{"display_name" => display_name, "external_bot_uid" => bot_uid})
+      )
+
+    {:ok, if(mirror_only?, do: %{fact | mirror_only?: true}, else: fact)}
+  end
+
+  @doc "Ensures the `:external_bot` ServiceAccount inside the caller's entry transaction."
+  def ensure_external_bot_in_tx(%{author: %{"external_bot_uid" => bot_uid} = author})
+      when is_binary(bot_uid) do
+    case Ankole.Principals.ServiceAccounts.ensure_in_tx(%{
+           uid: bot_uid,
+           kind: :external_bot,
+           display_name: author["display_name"] || bot_uid <> " [Bot]"
+         }) do
+      {:ok, _} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  def ensure_external_bot_in_tx(_fact), do: :ok
+
+  defp allow_bot_turn?(tenant_id, binding_id, channel_id) do
+    target = "#{tenant_id}:#{binding_id}:#{channel_id}"
+
+    case Ankole.Authn.RateLimiter.take([
+           {"external_bot_turn", target, @bot_rate_limit, @bot_rate_window_seconds}
+         ]) do
+      :ok ->
+        true
+
+      {:error, {:rate_limited, _retry_after}} ->
+        Logging.warning(
+          "conversations.observe.external_bot_rate_limited",
+          "External bot turn rate limit reached; recording message without waking Agent",
+          %{tenant_id: tenant_id, binding_id: binding_id, channel: channel_id}
+        )
+
+        false
+    end
+  end
 end

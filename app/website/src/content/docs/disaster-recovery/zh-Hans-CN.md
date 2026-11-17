@@ -7,7 +7,7 @@ order: 320
 
 灾难恢复时，必须将控制面 PostgreSQL 主库、独立 Pod Base 分片数据库、文件存储、Agent 持久 Home、无状态 `ankole-function-runtime` 服务以及原部署密钥作为一个整体协同还原。需要保留的数据范围与一致性备份流程见[备份指南](../backup-and-restore/)。
 
-恢复前先列出实际 Base 数据库拓扑。未设置 `BASE_DB_URLS` 时，dev/test 自动配置 4 个 Base 分片，SaaS production 自动配置 8 个，FOSS production 则共用 `DATABASE_URL`。所有独立分片都须纳入恢复，包括按这些默认值配置的分片。
+恢复前先列出实际 Base 数据库拓扑。未设置 `BASE_DB_URLS` 时，dev/test 自动配置 4 个 Base 分片，FOSS production 则共用 `DATABASE_URL`。所有独立分片都须纳入恢复，包括按这些默认值配置的分片。
 
 ## 恢复前
 

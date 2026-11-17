@@ -644,6 +644,114 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert_receive {:rich_sync, "first second"}, 1_500
   end
 
+  test "CardKit preview shows tool and StreamLoop activity within 1s throttle, keeps running sibling status, and preserves status across response rounds" do
+    %{subject: subject, signal: signal} = addressed_signal("rich-tool-progress")
+    %{response: response, pid: pid} = start_dispatched_preview(subject.uid, signal)
+    owner = self()
+
+    adapter = %PreviewAdapter{
+      surface_ids_fun: &MockReplyPreview.surface_ids/1,
+      surface_open_fun: &MockReplyPreview.surface_open?/1,
+      update_fun: fn request ->
+        send(owner, {:rich_presentation, request.presentation})
+        {:ok, %{}}
+      end,
+      finalize_fun: fn _request -> {:ok, %{}} end
+    }
+
+    :sys.replace_state(pid, fn state ->
+      %{state | preview_adapter: adapter, silent_rich_pending: false}
+    end)
+
+    stream_state =
+      Ankole.AIGateway.ResponseStream.State.new(
+        subject.uid,
+        %{},
+        %{"api_resolver" => "openai_responses"},
+        stateful: %{message: response}
+      )
+
+    # StreamLoop items without an explicit "name" field must normalize consistently
+    # across start (`*_call`) and completion (`*_output`) events.
+    {:ok, stream_state, _, :continue} =
+      Ankole.AIGateway.ResponseStream.State.observe(
+        stream_state,
+        %{
+          "type" => "response.output_item.done",
+          "sequence_number" => 1,
+          "output_index" => 0,
+          "item" => %{"type" => "tool_search_call", "call_id" => "call_search_1"}
+        },
+        1
+      )
+
+    {:ok, stream_state, _, :continue} =
+      Ankole.AIGateway.ResponseStream.State.observe(
+        stream_state,
+        %{
+          "type" => "response.output_item.done",
+          "sequence_number" => 2,
+          "output_index" => 1,
+          "item" => %{"type" => "brain_call", "call_id" => "call_brain_1"}
+        },
+        2
+      )
+
+    send(pid, :flush_edit)
+    assert_receive {:rich_presentation, started_presentation}
+    assert started_presentation["state"] == "working"
+    assert get_in(started_presentation, ["meta", "status"]) =~ "brain"
+    assert get_in(started_presentation, ["activities", "call_search_1", "phase"]) == "running"
+    assert get_in(started_presentation, ["activities", "call_brain_1", "phase"]) == "running"
+
+    # Completing brain while tool_search is still running preserves tool_search's running phase label.
+    {:ok, stream_state, _, :continue} =
+      Ankole.AIGateway.ResponseStream.State.observe(
+        stream_state,
+        %{
+          "type" => "response.output_item.done",
+          "sequence_number" => 3,
+          "output_index" => 2,
+          "item" => %{"type" => "brain_output", "call_id" => "call_brain_1", "output" => "ok"}
+        },
+        3
+      )
+
+    assert :ok = Events.publish(response, :response_started, %{})
+    refute_receive {:rich_presentation, _}, 400
+    assert_receive {:rich_presentation, parallel_presentation}, 1_500
+    assert parallel_presentation["state"] == "working"
+    assert get_in(parallel_presentation, ["activities", "call_brain_1", "phase"]) == "completed"
+    assert get_in(parallel_presentation, ["activities", "call_search_1", "phase"]) == "running"
+    assert get_in(parallel_presentation, ["meta", "status"]) =~ "Calling tool: tool_search"
+
+    # Completing the remaining running tool transitions status cleanly to finished across rounds.
+    {:ok, _stream_state, _, :continue} =
+      Ankole.AIGateway.ResponseStream.State.observe(
+        stream_state,
+        %{
+          "type" => "response.output_item.done",
+          "sequence_number" => 4,
+          "output_index" => 3,
+          "item" => %{
+            "type" => "tool_search_output",
+            "call_id" => "call_search_1",
+            "output" => "ok"
+          }
+        },
+        4
+      )
+
+    assert :ok = Events.publish(response, :response_started, %{})
+    assert_receive {:rich_presentation, next_round_presentation}, 1_500
+    assert next_round_presentation["state"] == "working"
+
+    assert get_in(next_round_presentation, ["activities", "call_search_1", "phase"]) ==
+             "completed"
+
+    assert get_in(next_round_presentation, ["meta", "status"]) =~ "tool_search"
+  end
+
   test "steer freezes the old card before switching the presentation owner" do
     %{subject: subject, signal: signal} = addressed_signal("steer-handoff")
     %{response: response, pid: pid} = start_dispatched_preview(subject.uid, signal)

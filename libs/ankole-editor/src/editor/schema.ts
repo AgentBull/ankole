@@ -14,8 +14,11 @@ import { Elt, Leaf, Mark, Node, parse, Plot, Schema, ValidationError } from '../
 import * as T from '../core/types'
 import { blocks } from '../blocks'
 import { embedCard } from '../blocks/embed'
+import { InlineMath } from '../blocks/math/leaf'
 import { Attrs, checkPairs, type Pairs } from './attributes'
 import { commentIDPattern } from '../document/comments'
+
+export { InlineMath }
 
 const G = Node.Group
 
@@ -96,6 +99,9 @@ function view(frozen: Frozen, inline: boolean): Elt<string> {
   const attr = (name: string) => frozen.attrs.find(pair => pair[0] === name)?.[1]
   if (frozen.name === 'img') return Elt.mk('img', { src: attr('src') ?? '', alt: attr('alt') ?? '' })
   if (frozen.name === 'mention') return Elt.mk('span', { class: 'editor-mention editor-mention-readonly' }, ['@'])
+  if (frozen.name === 'inline-math') {
+    return Elt.mk('span', { class: 'math-inline', 'data-inline-math': frozenText(frozen) }, children)
+  }
   if (frozen.name === 'a') return Elt.mk('span', { class: 'read-only-link', title: attr('href') ?? '' }, children)
   if (frozen.name === 'li' && attr('task')) {
     return Elt.mk('li', { class: 'read-only-task', 'data-task': attr('task') ?? '' }, children)
@@ -310,7 +316,7 @@ export const TextStyle = Mark.Type.define<string>('TextStyle', {
 export const Comment = Mark.Type.define<readonly string[]>('Comment', {
   rank: 5,
   inclusive: false,
-  target: [Leaf.Text, InlineElement, Mention, T.Image, T.LineBreak],
+  target: [Leaf.Text, InlineElement, InlineMath, Mention, T.Image, T.LineBreak],
   set: { compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0) },
   validate: value => {
     if (
@@ -337,7 +343,7 @@ export const Link = Mark.Type.define<Pairs>('Link', {
   rank: 20,
   inclusive: false,
   validate: value => checkPairs(value, 'href'),
-  target: [Leaf.Text, InlineElement, T.Image, T.LineBreak],
+  target: [Leaf.Text, InlineElement, InlineMath, T.Image, T.LineBreak],
   shape: {
     element: 'a',
     attributes: pairs => {
@@ -575,8 +581,8 @@ export const schemaElements: readonly Schema.Element[] = [
   Schema.Override.plotContent(T.BulletList, ListItem),
   Schema.Override.plotContent(T.OrderedList, ListItem),
   // N gives `br` and `img` only a link, never a format or style.
-  ...formatMarks.map(mark => Schema.Override.markTarget(mark, [Leaf.Text, InlineElement, Mention])),
-  Schema.Override.markTarget(TextStyle, [Leaf.Text, InlineElement, Mention])
+  ...formatMarks.map(mark => Schema.Override.markTarget(mark, [Leaf.Text, InlineElement, InlineMath, Mention])),
+  Schema.Override.markTarget(TextStyle, [Leaf.Text, InlineElement, InlineMath, Mention])
 ]
 
 export const schema = Schema.define(schemaElements)

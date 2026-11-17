@@ -13,6 +13,41 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
   alias Ankole.Principals
   alias Ankole.Principals.HumanAccess
 
+  @doc "Approves a directory snapshot and returns the refreshed view."
+  def approve_directory_view(
+        provider_id,
+        snapshot_fingerprint,
+        actor_ref,
+        reason,
+        confirm_removals
+      ) do
+    with {:ok, _} <-
+           approve_snapshot(
+             provider_id,
+             snapshot_fingerprint,
+             actor_ref,
+             reason,
+             confirm_removals
+           ) do
+      {:ok, console_view(provider_id)}
+    end
+  end
+
+  @doc "Reviews a directory event belonging to `provider_id` and returns the refreshed view."
+  def review_event_view(provider_id, event_id, actor_ref, reason, action) do
+    case get_event(event_id) do
+      %{provider_id: ^provider_id} ->
+        case review_event(event_id, actor_ref, reason, action) do
+          :ok -> {:ok, console_view(provider_id)}
+          {:ok, _} -> {:ok, console_view(provider_id)}
+          error -> error
+        end
+
+      _ ->
+        {:error, :not_found}
+    end
+  end
+
   @doc "Returns the directory snapshot and the recent event evidence."
   def console_view(id) do
     snapshot =
@@ -76,23 +111,6 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
     DirectoryState
     |> Ash.Query.filter(provider_id == ^provider_id)
     |> update_states(:configuration_changed_in_tx, %{})
-  end
-
-  def recovery_current?(provider_id, uid, verified_at) do
-    case state(provider_id) do
-      %DirectoryState{
-        status: :healthy,
-        last_started_at: started,
-        last_success_at: completed,
-        member_uids: members
-      }
-      when not is_nil(completed) ->
-        uid in members and DateTime.diff(DateTime.utc_now(), completed) < 30 * 60 and
-          DateTime.compare(verified_at, started) != :lt
-
-      _ ->
-        false
-    end
   end
 
   def events(provider_id),

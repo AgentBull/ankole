@@ -39,7 +39,7 @@ export function replySuggestionTarget(
   if (
     detail.messages.some(message => {
       const card = (message as TimelineMessage).richContent?.action_card
-      return card != null && (card.status ?? 'prepared') === 'prepared'
+      return card != null && ((card.status ?? 'prepared') === 'prepared' || card.status === 'executing')
     })
   ) {
     return undefined

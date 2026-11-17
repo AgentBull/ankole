@@ -93,6 +93,7 @@ defmodule Ankole.Pod do
 
   defdelegate vfs_properties(ids), to: Ankole.Pod.Pages
   defdelegate vfs_property_in_tx(node, property), to: Ankole.Pod.Pages
+  defdelegate link_preview(page_id), to: Ankole.Pod.Pages.PagePreview
   defdelegate vfs_markdown(node), to: Ankole.Pod.Documents
   defdelegate write_vfs_markdown_in_tx(actor, id, markdown), to: Ankole.Pod.Documents
 
@@ -123,6 +124,7 @@ defmodule Ankole.Pod do
     resource(Ankole.Brain.Browser)
     resource(Ankole.Pod.Pages.Browser)
     resource(Ankole.Pod.Applets.Browser)
+    resource(Ankole.Pod.Applets.Workspace)
     resource(Ankole.Pod.Bases.Browser)
     resource(Ankole.Pod.Files.Browser)
     resource(Ankole.Pod.OfficeFiles.Browser)
@@ -132,12 +134,17 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.WebPushSubscription)
 
     resource Ankole.Pod.Page do
+      define(:get_page_record, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_page_records, action: :read)
     end
 
     resource(Ankole.Pod.PodFile)
     resource(Ankole.Pod.AppletApproval)
     resource(Ankole.Pod.AppletEnv)
+    resource(Ankole.Pod.AppletBinding)
+    resource(Ankole.Pod.AppletRevision)
+    resource(Ankole.Pod.AppletRevisionFile)
+    resource(Ankole.Pod.AppletIdempotencyKey)
     resource(Ankole.Pod.PageContent)
     resource(Ankole.Pod.PageChange)
     resource(Ankole.Pod.PageDailyActivity)
@@ -291,6 +298,49 @@ defmodule Ankole.Pod do
       base_route "/pages/:page_id", Ankole.Pod.Pages.Browser do
         route(:put, "/applet-owner", :transfer_owner,
           name: "podAppletOwner",
+          wrap_in_result?: false
+        )
+      end
+
+      base_route "/pages/:page_id", Ankole.Pod.Applets.Workspace do
+        route(:get, "/applet-bindings", :bindings,
+          name: "podAppletBindings",
+          wrap_in_result?: false
+        )
+
+        route(:put, "/applet-bindings/:slot_key", :put_binding,
+          name: "podAppletBindingPut",
+          wrap_in_result?: false
+        )
+
+        route(:delete, "/applet-bindings/:slot_key", :delete_binding,
+          name: "podAppletBindingDelete",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/applet-revisions", :revisions,
+          name: "podAppletRevisions",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/applet-draft/:draft_id", :draft,
+          name: "podAppletDraft",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/applet-draft/promote", :promote,
+          name: "podAppletPromoteDraft",
+          wrap_in_result?: false
+        )
+
+        route(:delete, "/applet-draft", :discard,
+          name: "podAppletDiscardDraft",
+          query_params: [:expected_draft_id, :base_revision],
+          wrap_in_result?: false
+        )
+
+        route(:post, "/applet-rollback", :rollback,
+          name: "podAppletRollback",
           wrap_in_result?: false
         )
       end
@@ -512,6 +562,11 @@ defmodule Ankole.Pod do
         route(:put, "/members/:uid/administrator", :set_admin, name: "setPodAdministrator")
         route(:post, "/members/:uid/restrictions", :disable_member, name: "disablePodMember")
         route(:post, "/members/:uid/restorations", :restore_member, name: "restorePodMember")
+        route(:get, "/members/:uid/access", :member_access, name: "podAdminMemberAccess")
+
+        route(:post, "/members/:uid/work-cleanup-retries", :retry_member_cleanup,
+          name: "retryPodMemberWorkCleanup"
+        )
 
         route(:delete, "/members/:uid/credentials/:credential_id", :unbind_credential,
           name: "unbindPodMemberCredential"
@@ -532,6 +587,24 @@ defmodule Ankole.Pod do
 
         route(:post, "/identity-providers/:provider_id/syncs", :sync_directory,
           name: "syncPodDirectory"
+        )
+
+        route(:get, "/identity-providers/:provider_id/directory", :provider_directory,
+          name: "podAdminIdentityDirectory"
+        )
+
+        route(
+          :post,
+          "/identity-providers/:provider_id/directory-reviews",
+          :approve_provider_directory,
+          name: "approvePodIdentityDirectory"
+        )
+
+        route(
+          :post,
+          "/identity-providers/:provider_id/directory-events/:event_id/reviews",
+          :review_provider_directory_event,
+          name: "reviewPodIdentityDirectoryEvent"
         )
 
         route(:get, "/worker-envs", :worker_envs, name: "podAdminWorkerEnvs")
@@ -788,6 +861,7 @@ defmodule Ankole.Pod do
 
         route :delete, "/pages/:id", :delete do
           name("podPageDelete")
+          query_params([:force])
         end
 
         route :post, "/pages/:id/move", :move do

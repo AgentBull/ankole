@@ -1,6 +1,6 @@
 import { formatDateTime } from '../common/date-time'
-import { Badge, Button, Dialog, DialogContent, DialogTitle, SwitchRow } from '@ankole/uikit'
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Badge, Button, Dialog, DialogContent, DialogTitle } from '@ankole/uikit'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import type { RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ErrorBoundary } from '../common/error-boundary'
@@ -21,17 +21,7 @@ export function DocumentInsights({
   returnFocus: RefObject<HTMLButtonElement | null>
 }) {
   const { t, i18n } = useTranslation()
-  const client = useQueryClient()
   const insights = useQuery(pageInsightsQuery(detail.page.id))
-  const privacy = useMutation({
-    mutationFn: (hidden: boolean) => pageAPI.state(detail.page.id, { hide_visits: hidden }),
-    onSuccess: async () => {
-      await Promise.all([
-        client.invalidateQueries({ queryKey: pageInsightsQuery(detail.page.id).queryKey }),
-        client.invalidateQueries({ queryKey: pageViewersQuery(detail.page.id).queryKey })
-      ])
-    }
-  })
   const date = (value: string) => formatDateTime(value, i18n.language)
   return (
     <Dialog open onOpenChange={open => !open && close()}>
@@ -48,20 +38,6 @@ export function DocumentInsights({
               <DocumentActivity daily={insights.data.daily} />
               <section className="space-y-3">
                 <h3 className="text-sm font-semibold">{t('pod.document.viewers')}</h3>
-                <SwitchRow
-                  rowClassName="flex items-center justify-between gap-4 rounded border border-border-subtle p-3 text-sm"
-                  label={
-                    <span>
-                      <span className="block font-medium">{t('pod.document.show_my_visits')}</span>
-                      <span className="mt-1 block text-xs text-fg-secondary">{t('pod.document.visit_visibility')}</span>
-                    </span>
-                  }
-                  labelFirst
-                  checked={!(privacy.isPending ? privacy.variables : insights.data.hide_visits)}
-                  disabled={privacy.isPending}
-                  onCheckedChange={checked => privacy.mutate(!checked)}
-                />
-                <ContentError error={privacy.error} />
                 {insights.data.can_view_readers ? (
                   <DocumentViewers pageID={detail.page.id} />
                 ) : (
@@ -110,7 +86,7 @@ function DocumentViewers({ pageID }: { pageID: string }) {
       {query.data && !query.error && (
         <>
           <p className="text-xs text-fg-secondary">
-            {t('pod.document.visible_viewers', { count: query.data.pages[0]?.total ?? 0 })}
+            {t('pod.document.viewer_count', { count: query.data.pages[0]?.total ?? 0 })}
           </p>
           <ul className="m-0 flex list-none flex-col gap-3 p-0" aria-label={t('pod.document.viewers')}>
             {viewers.map(({ person, visited_at }) => (
@@ -124,7 +100,7 @@ function DocumentViewers({ pageID }: { pageID: string }) {
               </li>
             ))}
           </ul>
-          {!viewers.length && <p className="text-sm text-fg-secondary">{t('pod.document.no_visible_viewers')}</p>}
+          {!viewers.length && <p className="text-sm text-fg-secondary">{t('pod.document.no_viewers')}</p>}
           {query.hasNextPage && (
             <Button variant="ghost" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>
               {t('pod.document.load_more')}

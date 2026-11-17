@@ -24,6 +24,7 @@ or add your Agent to the space.
   ankole-pod office apply [<page-id>] '<JSON>' | --input <JSON file>
   ankole-pod office to-document <page-id> [--parent <parent-id>]
   ankole-pod pages.search [<query>] [--domain all|pages|brain] [--type <types>] [--scope all|private|space|shared|conversation] [--ancestor <id>] [--title-only] [--sort best|updated_desc|updated_asc|created_desc|created_asc] [--limit <n>]
+  ankole-pod pages.append '<JSON parameters>' [--idempotency-key <key>]
   ankole-pod <operation> '<JSON parameters>'
   ankole-pod <operation> --input <JSON file>
   ankole-pod applet init <directory>
@@ -31,6 +32,12 @@ or add your Agent to the space.
   ankole-pod applet pull <directory> '<{"id":"page-id"}>'
   ankole-pod applet call '<{"id":"page-id","method":"GET","path":"/orders","query":{}}>'
   ankole-pod applet publish <directory> '<{"id":"page-id","base_revision":0}>'
+  ankole-pod applet publish <directory> '<{"id":"page-id","base_revision":1,"draft":true,"summary":"Review changes"}>'
+  ankole-pod applet inspect <page-id> [--draft-id <UUID>] [--props <JSON>] [--screenshot <PNG path>] [--wait-ms <0..10000>]
+  ankole-pod applet revisions <page-id>
+  ankole-pod applet promote <page-id> '<{"expected_draft_id":"UUID","base_revision":1}>'
+  ankole-pod applet discard <page-id> '<{"expected_draft_id":"UUID","base_revision":1}>'
+  ankole-pod applet rollback <page-id> '<{"target_revision":1,"base_revision":2}>'
   ankole-pod page set-sharing <page-id> '<{"sharing_version":"...","inherit_permissions":false,"grants":[]}>'
 
 Read operations:
@@ -59,6 +66,8 @@ Read operations:
   jobs.runs {page_id, job_id} — list the latest 100 Runs
   jobs.get_run {page_id, run_id} — read authorized Run status and progress
   bindings.list {config_ref}
+  applets.bindings.list {id: page_id} — read declared Applet table slots, resolved mappings, and overrides
+  applets.revisions {id: page_id} — list retained Applet publications and any active draft
 
 Write operations:
   pages.update_sharing {id, upserts?, removes?} — incrementally change sharing; use target_scope: "self" for one page
@@ -75,9 +84,9 @@ Write operations:
   pages.move       {id, parent_id?, private_owner_uid?} — omit both to move to Space root, or pass parent_id or private_owner_uid
   pages.delete     {id} — moves the subtree into the trash
   pages.restore    {id}
-  pages.write      {id, base_revision, markdown} — stale writes are rejected
-  pages.append     {id, base_revision, markdown}
-  pages.patch      {id, base_revision, edits:[{old_text,new_text,replace_all?}]}
+  pages.write      {id, base_revision, markdown} — replaces the full document; stale writes are rejected
+  pages.append     {id, base_revision, markdown, idempotency_key?} [--idempotency-key <key>] — appends Markdown idempotently
+  pages.patch      {id, base_revision, edits:[{old_text,new_text,replace_all?}]} — rebases automatically when every hunk matches uniquely
   comments.reply   {id, root_id, body} — replies to an existing root comment thread (requires comment access)
   comments.resolve {id, comment_id, version, resolved?: boolean} — resolves or reopens a root thread
   files.upload     {id, local_path, role: file|asset|attachment, base_object_id?}
@@ -107,6 +116,8 @@ Write operations:
   jobs.delete {page_id, id}
   bindings.put {id?, config_ref, automation_job_id?, agent_uid?, target?, filters?, watched_field_ids?, enabled?}
   applets.transfer_owner {id: page_id, owner_uid} — current owner or Pod administrator
+  applets.bindings.put {id: page_id, slot_key, table_id?, field_overrides?} — override a declared Applet table slot
+  applets.bindings.delete {id: page_id, slot_key} — reset a declared Applet table slot to source defaults
   applets.call      {id, method: GET|POST|PUT|PATCH|DELETE, path, query?, body?}
     Returns {status, body?, logs?}, including handler errors. Never replay a
     write after a disconnect: first read its saved result.
@@ -217,6 +228,7 @@ Import runtime APIs (including usePod, usePrincipals, usePrincipal, and pod.navi
 and visualization data helpers (recordsToFinancialSeries, densifyTimeBuckets,
 formatMetricValue) from "@ankole/applet-sdk".
 Do not import their runtime subpaths or UIKit styles; the Pod host supplies styles.
+Import icons from "@ankole/uikit/icons"; the host loads the icon catalogue only when imported.
 SDK type subpaths remain available through "import type".
 Worker entries use src/**/*.worker.ts or .worker.js and build to matching
 relative dist/**/*.worker.js paths. Import a Worker URL with
@@ -229,7 +241,7 @@ exports a default route table typed with import type { Routes } from
 The runtime provides Node builtins, temporary /tmp files, fetch, process.env merged from
 Site -> Pod -> applet.env.json defaults -> Applet environment overrides (applet.env.json accepts
 flat string defaults or {default?, required?, secret?, description?} declarations), and
-AnkoleRuntime base, file, ai ({generateText, generateImage, generateSpeech, transcribe, ocr, decide}),
+AnkoleRuntime idempotent(key, fn, {ttlSeconds?}), base, file, ai ({generateText, generateImage, generateSpeech, transcribe, ocr, decide}),
 web ({search, fetch}), mcp, signals and HttpError. GET handlers cannot write or call
 ai.generateImage or ai.generateSpeech. Use file.read(path, {sha256})
 to read the listed version or receive a manifest_changed conflict.

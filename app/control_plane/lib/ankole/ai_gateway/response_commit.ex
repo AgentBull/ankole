@@ -1,6 +1,7 @@
 defmodule Ankole.AIGateway.ResponseCommit do
   @moduledoc "Response liveness and terminal commits; PostgreSQL owns the final status."
   require Ash.Query
+  import Ecto.Query, only: [from: 2]
   import Ankole.AIGateway.ResponseChain, only: [decode_response_id: 1]
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.Schemas.Message
@@ -197,7 +198,11 @@ defmodule Ankole.AIGateway.ResponseCommit do
          {:ok, message_id} <- decode_response_id(response_id) do
       case lock_response_for_subject(subject_uid, message_id) do
         %Message{status: :generating} = message ->
-          Ankole.Ash.update(message, action, %{now: now, metadata: %{key => value}})
+          with {:ok, updated} <-
+                 Ankole.Ash.update(message, action, %{now: now, metadata: %{key => value}}) do
+            cancel_orphan_reconciliation(updated.id)
+            {:ok, updated}
+          end
 
         %Message{} ->
           {:ok, :already_terminal}
@@ -341,6 +346,7 @@ defmodule Ankole.AIGateway.ResponseCommit do
       current ->
         with {:ok, updated} <-
                Ankole.Ash.update(current, action, Map.take(arguments, [:output, :metadata])) do
+          cancel_orphan_reconciliation(updated.id)
           {:ok, terminal_event(updated, action, arguments.metadata)}
         end
     end
@@ -393,6 +399,22 @@ defmodule Ankole.AIGateway.ResponseCommit do
       %{message_id: message.id},
       ai_message_orphan_at(message)
     )
+  end
+
+  defp cancel_orphan_reconciliation(message_id) when is_binary(message_id) do
+    tenant_id = Repo.tenant_id!()
+
+    query =
+      from(j in Oban.Job,
+        where:
+          j.worker == "Ankole.AIGateway.Jobs.ReconcileOrphanedResponse" and
+            j.state in ["available", "scheduled", "retryable"] and
+            fragment("?->>'tenant_id' = ?", j.args, ^tenant_id) and
+            fragment("?->>'message_id' = ?", j.args, ^message_id)
+      )
+
+    _ = Oban.cancel_all_jobs(query)
+    :ok
   end
 
   defp ai_message_orphan_at(%Message{} = message) do

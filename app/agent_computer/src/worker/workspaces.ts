@@ -44,7 +44,7 @@ import { errorMessage } from '../common/errors'
 import type { WorkerConfig } from './config'
 import type { WorkerDrainState } from './drain'
 import { throwingRPCRequester } from './rpc-requests'
-import { prepareActorWorkspace } from './workspace'
+import { acquireSessionWorkspace } from './workspace'
 import { workerLogger } from './logging'
 
 type Result = {
@@ -55,6 +55,8 @@ type Result = {
 }
 type Call = { abort: AbortController; result?: Result; promise: Promise<void> }
 type Workspace = {
+  workspaceId: number
+  releaseWorkspaceRef?: () => void
   driveView?: DriveView
   run: RunRefMessage
   ready: Promise<void>
@@ -84,6 +86,14 @@ export class Workspaces {
   ) {}
   get size(): number {
     return this.spaces.size
+  }
+
+  activeWorkspaceIds(): ReadonlySet<string> {
+    const ids = new Set<string>()
+    for (const space of this.spaces.values()) {
+      ids.add(String(space.workspaceId))
+    }
+    return ids
   }
 
   beginDrain(): void {
@@ -136,12 +146,21 @@ export class Workspaces {
       }
       return
     }
-    if (!this.drain.acceptsTurns || !this.slots.reserve()) {
-      void this.ready(
-        input.run!,
-        'Worker has no available workspace slot.',
-        this.drain.acceptsTurns ? WorkspaceReady_Reason.CAPACITY : WorkspaceReady_Reason.DRAINING
-      )
+    if (!this.drain.acceptsTurns) {
+      void this.ready(input.run!, 'Worker has no available workspace slot.', WorkspaceReady_Reason.DRAINING)
+      return
+    }
+    let workspaceId: number
+    let idleMs: number
+    try {
+      workspaceId = safeNumberFromBigInt(input.workspaceId, 'workspace_open.workspace_id')
+      idleMs = safeNumberFromBigInt(input.idleTimeoutMs, 'workspace_open.idle_timeout_ms')
+    } catch (error) {
+      void this.ready(input.run!, errorMessage(error))
+      return
+    }
+    if (!this.slots.reserve()) {
+      void this.ready(input.run!, 'Worker has no available workspace slot.', WorkspaceReady_Reason.CAPACITY)
       return
     }
     let finish!: () => void
@@ -151,11 +170,12 @@ export class Workspaces {
       })
     )
     const space: Workspace = {
+      workspaceId,
       run: input.run!,
       ready: Promise.resolve(),
       tools: [],
       calls: new Map(),
-      idleMs: safeNumberFromBigInt(input.idleTimeoutMs, 'workspace_open.idle_timeout_ms'),
+      idleMs,
       closing: false,
       closed,
       finish
@@ -245,13 +265,20 @@ export class Workspaces {
     try {
       await Promise.allSettled([...space.calls.values()].map(call => call.promise))
       await space.ready.catch(() => undefined)
-      space.closeBridge?.()
-      await space.materials?.cleanup()
-      await space.cleanupSkills?.()
+      try {
+        space.closeBridge?.()
+      } finally {
+        try {
+          await space.materials?.cleanup()
+        } finally {
+          await space.cleanupSkills?.()
+        }
+      }
     } finally {
       try {
         await space.driveView?.release()
       } finally {
+        space.releaseWorkspaceRef?.()
         this.spaces.delete(run.session.session_id)
         this.slots.release()
         space.finish()
@@ -263,10 +290,9 @@ export class Workspaces {
   private async prepare(input: WorkspaceOpen, space: Workspace): Promise<void> {
     const started = performance.now()
     const run = runRefFromProto(input.run)
-    const workspace = prepareActorWorkspace(
-      this.config,
-      safeNumberFromBigInt(input.workspaceId, 'workspace_open.workspace_id')
-    )
+    const acquired = await acquireSessionWorkspace(this.config, space.workspaceId)
+    space.releaseWorkspaceRef = acquired.release
+    const workspace = acquired.path
     const paths = agentHomePaths(this.config.agentHomeRoot)
     const rpc = throwingRPCRequester(this.rpcClient)
     const drive = new Drive({ agentHome: paths.home, rpc })

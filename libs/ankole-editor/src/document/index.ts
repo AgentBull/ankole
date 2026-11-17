@@ -1,5 +1,7 @@
 export { parseMarkdown, printMarkdown } from './markdown'
 export { importMarkdownDocument } from './markdown-paste'
+export { unwrapMathDelimiters } from './math-delimiters'
+export { DocumentError, TreeError, type DocumentErrorCode } from './tree'
 export { parseXml, printXml } from './xml'
 export { resourceContent, resourceText } from './resources'
 export { validateKnowledge } from './knowledge'

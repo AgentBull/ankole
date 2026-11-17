@@ -450,7 +450,7 @@ defmodule Ankole.AgentWorkers.VercelTest do
 
           {"DELETE", path} ->
             assert status == "stopped"
-            assert path == "/v2/sandboxes/" <> object.sandbox_name
+            assert path == "/v2/sandboxes/" <> object.provider_metadata["sandbox_name"]
             send(self(), :metadata_deleted)
             Req.Test.json(conn, %{"sandbox" => fixture("create_response")["sandbox"]})
         end
@@ -560,8 +560,9 @@ defmodule Ankole.AgentWorkers.VercelTest do
     assert {:ok, nil} = Vercel.delete_storage(provider, @uid, nil)
     assert :ok = Vercel.delete_cache(provider, @uid)
     assert {:ok, nil, nil} = Vercel.current_storage_ref(provider, @uid)
-    assert {:error, :pause_not_supported} = Vercel.pause_instance(provider, object(@ref))
-    assert {:error, :pause_not_supported} = Vercel.resume_instance(provider, object(@ref))
+    assert Vercel.definition().support_tier == :cloud_extension
+    refute function_exported?(Vercel, :pause_instance, 2)
+    refute function_exported?(Vercel, :resume_instance, 2)
   end
 
   test "schema keeps storage and location immutable and CPU in the replacement digest" do
@@ -627,7 +628,7 @@ defmodule Ankole.AgentWorkers.VercelTest do
       agent_uid: @uid,
       generation: "gen0000001",
       instance_ref: id,
-      sandbox_name: fixture("create_response")["sandbox"]["name"]
+      provider_metadata: %{"sandbox_name" => fixture("create_response")["sandbox"]["name"]}
     }
 
   defp stub(fun),

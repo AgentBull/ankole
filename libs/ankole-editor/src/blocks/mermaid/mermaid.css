@@ -54,6 +54,10 @@
   outline-offset: 1px;
 }
 
+:where(.ankole-editor) .editor-content .mermaid-toolbar button[hidden] {
+  display: none;
+}
+
 :where(.ankole-editor) .editor-content .mermaid-gutter {
   grid-column: 1;
   grid-row: 2;
@@ -90,8 +94,8 @@
   grid-column: 3;
   grid-row: 2;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: safe center;
+  justify-content: safe center;
   min-width: 0;
   min-height: 120px;
   max-height: 100%;
@@ -126,8 +130,9 @@
 :where(.ankole-editor-overlay).mermaid-expanded .mermaid-preview-layer,
 :where(.ankole-editor-overlay).mermaid-expanded .infographic-diagram {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: safe center;
+  justify-content: safe center;
+  min-width: 0;
   max-width: 100%;
 }
 
@@ -160,6 +165,7 @@
 
 :where(.ankole-editor) .editor-content .mermaid-block[data-view='diagram'] {
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 36px auto;
 }
 
 :where(.ankole-editor) .editor-content .mermaid-block[data-view='diagram'] .mermaid-gutter,

@@ -1,5 +1,5 @@
 import { uuidV4 } from '@agentbull/active-support'
-import { Button } from '@ankole/uikit'
+import { Button, toast } from '@ankole/uikit'
 import { ChevronRightRegular, RecordStopRegular } from '@ankole/uikit/icons'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
@@ -75,26 +75,33 @@ export function LinkedExecutionCard({
       }),
     onSuccess: () => {
       refreshConversationQueries(client, conversationID)
+    },
+    onError: error => {
+      refreshConversationQueries(client, conversationID)
+      toast.error(requestErrorMessage(chatError(error)))
     }
   })
 
   const sendMutation = useMutation({
-    mutationFn: (text: string) =>
+    mutationFn: ({ text }: { text: string; source: 'composer' | 'questions' }) =>
       messageConversationExecution({
         path: { id: conversationID, run_id: Number(run.id) },
         body: { data: { requestID: uuidV4(), text } }
       }),
-    onSuccess: () => {
-      setDraft('')
-      setSelectedChoices({})
+    onSuccess: (_result, variables) => {
+      if (variables.source === 'composer') {
+        setDraft(current => (current.trim() === variables.text ? '' : current))
+      } else {
+        setSelectedChoices({})
+      }
       refreshConversationQueries(client, conversationID)
     }
   })
 
-  const submitAnswer = (raw: string) => {
+  const submitAnswer = (raw: string, source: 'composer' | 'questions' = 'composer') => {
     const text = raw.trim()
     if (!text || sendMutation.isPending) return
-    sendMutation.mutate(text)
+    sendMutation.mutate({ text, source })
   }
 
   const tone = executionStatusTone(run.status)
@@ -191,7 +198,7 @@ export function LinkedExecutionCard({
               selectedChoices={selectedChoices}
               onSelectChoice={(questionID, label) => {
                 if (pendingQuestions.length === 1) {
-                  submitAnswer(label)
+                  submitAnswer(label, 'questions')
                 } else {
                   setSelectedChoices(prev => ({ ...prev, [questionID]: label }))
                 }
@@ -203,14 +210,17 @@ export function LinkedExecutionCard({
                     return value ? `${q.header || q.question}: ${value}` : null
                   })
                   .filter((line): line is string => Boolean(line))
-                if (lines.length > 0) submitAnswer(lines.join('\n'))
+                if (lines.length > 0) submitAnswer(lines.join('\n'), 'questions')
               }}
               submitting={sendMutation.isPending}
             />
           )}
           <JobQuickReplyComposer
             value={draft}
-            onChange={setDraft}
+            onChange={value => {
+              if (!sendMutation.isPending && sendMutation.error) sendMutation.reset()
+              setDraft(value)
+            }}
             onSubmit={submitAnswer}
             placeholder={t('pod.chat_timeline.execution_answer_placeholder')}
             submitting={sendMutation.isPending}

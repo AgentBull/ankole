@@ -71,6 +71,24 @@ const TARGETS: WasmTarget[] = [
       if (!Array.isArray(matches) || matches.length !== 1) {
         throw new Error(`word WebAssembly smoke check find returned ${JSON.stringify(matches)}`)
       }
+      const assets = new module.ExportAssets()
+      const exportSession = module.PageExportSession.from_page(
+        JSON.stringify({
+          title: 'Smoke Export',
+          root: {
+            type: 'element',
+            name: 'page',
+            children: [{ type: 'element', name: 'p', children: [{ type: 'text', value: 'Hello WASM export' }] }]
+          }
+        }),
+        assets
+      )
+      const docx = exportSession.export_docx() as Uint8Array
+      const pdf = exportSession.export_pdf() as Uint8Array
+      if (docx.byteLength < 64 || pdf.byteLength < 64) {
+        throw new Error('word WebAssembly smoke check produced empty PageExportSession artifacts')
+      }
+      exportSession.free()
     }
   }
 ]

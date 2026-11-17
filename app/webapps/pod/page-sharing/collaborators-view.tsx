@@ -1,32 +1,35 @@
 import { useTranslation } from 'react-i18next'
 import { Button, Tabs, TabsContent, TabsList, TabsTrigger, TooltipProvider } from '@ankole/uikit'
-import { LinkRegular, PersonAddRegular } from '@ankole/uikit/icons'
+import { PersonAddRegular } from '@ankole/uikit/icons'
 import { useSignals } from '@preact/signals-react/runtime'
 import type { PageRole, PageSharingDetail } from '../content-api'
 import { ContentError } from '../content-primitives'
 import { subjectKey, type PageSharingModel, type SharingGrant, type SharingScopeTab } from '../state/page-sharing'
 import { CollaboratorRow } from './collaborator-row'
+import { PageShareLinkField } from './share-preview'
 import { SubviewHeader } from './sharing-primitives'
 import type { PageSharingMutations } from './use-page-sharing'
 
 export function CollaboratorsView({
+  pageID,
+  pageTitle,
   model,
   sharing,
   ordinaryGrants,
   roles,
   canManage,
   mutations,
-  copyLink,
   onBack,
   onOpenInvite
 }: {
+  pageID: string
+  pageTitle?: string | null
   model: InstanceType<typeof PageSharingModel>
   sharing: PageSharingDetail
   ordinaryGrants: readonly SharingGrant[]
   roles: Partial<Record<PageRole, string>>
   canManage: boolean
   mutations: PageSharingMutations
-  copyLink(): Promise<void>
   onBack(): void
   onOpenInvite(scope: SharingScopeTab): void
 }) {
@@ -118,7 +121,7 @@ export function CollaboratorsView({
           </div>
         )}
 
-        <div className="flex items-center justify-between border-t border-border-subtle px-4 py-2.5">
+        <div className="flex items-center justify-between gap-2 border-t border-border-subtle px-4 py-2.5">
           {canManage ? (
             <Button
               variant="ghost"
@@ -129,10 +132,7 @@ export function CollaboratorsView({
               {t('pod.sharing.add_collaborators')}
             </Button>
           ) : (
-            <Button variant="outline" size="sm" onClick={() => void copyLink()}>
-              <LinkRegular aria-hidden className="size-4" />
-              {t('pod.content.copy_link')}
-            </Button>
+            <PageShareLinkField pageID={pageID} title={pageTitle} className="flex-1" />
           )}
         </div>
       </div>

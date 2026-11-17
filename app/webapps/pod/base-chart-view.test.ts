@@ -317,7 +317,7 @@ describe('buildDrilldownGroupSlices & buildAggregateQueryFromSpec', () => {
   })
 })
 
-describe('Notion-parity UX contracts: naming, lossless display serialization, sorting, omit_zero & donut total', () => {
+describe('Base chart view contracts: naming, lossless display serialization, sorting, omit_zero and donut total', () => {
   test('nextViewName generates non-colliding sequential view names', () => {
     expect(nextViewName([], 'Chart')).toBe('Chart')
     expect(nextViewName([{ name: 'Chart' }], 'Chart')).toBe('Chart 2')

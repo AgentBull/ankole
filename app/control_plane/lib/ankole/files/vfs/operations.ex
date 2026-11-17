@@ -165,27 +165,37 @@ defmodule Ankole.Files.Vfs.Operations do
          when not is_nil(source_node) and kind not in [:virtual_file, :virtual_directory] <-
            Namespace.resolve(scope, source),
          {:ok, prepared} <- prepare_move(scope, source_node, destination) do
-      write(scope, [source, destination], true, fn scope ->
-        with {:ok, %{node: node} = source_entry} <- Namespace.resolve(scope, source),
-             true <- node.object_id == source_node.object_id,
-             {:ok, _} <- Namespace.authorize(scope, node, "node_edit"),
-             {:ok, result} <-
-               move_target_in_tx(scope, source_entry, destination, prepared, headers) do
-          result =
-            if node.parent_id && node.parent_id != result.node.parent_id,
-              do:
-                update_in(
-                  result.commit_meta,
-                  &Map.put(&1, :previous_parent_id, node.parent_id)
-                ),
-              else: result
+      write(
+        scope,
+        [source, destination],
+        true,
+        fn scope ->
+          with {:ok, %{node: node} = source_entry} <- Namespace.resolve(scope, source),
+               true <- node.object_id == source_node.object_id,
+               {:ok, _} <- Namespace.authorize(scope, node, "node_edit"),
+               {:ok, result} <-
+                 move_target_in_tx(scope, source_entry, destination, prepared, headers) do
+            result =
+              if node.parent_id && node.parent_id != result.node.parent_id,
+                do:
+                  update_in(
+                    result.commit_meta,
+                    &Map.put(&1, :previous_parent_id, node.parent_id)
+                  ),
+                else: result
 
-          {:ok, result}
-        else
-          false -> {:error, :precondition_failed}
-          error -> error
+            {:ok, result}
+          else
+            false -> {:error, :precondition_failed}
+            error -> error
+          end
+        end,
+        before_turn: fn ->
+          if source_node.type == :applet,
+            do: Ankole.Principals.ServiceAccounts.lock_applet_in_tx(source_node.id),
+            else: :ok
         end
-      end)
+      )
     else
       {:ok, _} -> {:error, :forbidden}
       {:error, :not_found} -> replay_move(scope, destination, headers)
@@ -487,7 +497,7 @@ defmodule Ankole.Files.Vfs.Operations do
 
   defp prepare_move(_scope, _source, _destination), do: {:ok, nil}
 
-  defp write(scope, paths, topology?, fun) do
+  defp write(scope, paths, topology?, fun, opts \\ []) do
     writer = if topology?, do: &Access.write_tree/3, else: &Access.write/3
 
     writer.(
@@ -499,6 +509,7 @@ defmodule Ankole.Files.Vfs.Operations do
       end,
       shared_tree: !topology?,
       root_ids: fn -> path_root_ids(scope, paths) end,
+      before_turn: opts[:before_turn],
       after_commit: fn result ->
         {node, meta} =
           case result do

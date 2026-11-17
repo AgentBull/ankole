@@ -4,6 +4,7 @@ defmodule Ankole.Pod.Pages.Lifecycle do
 
   alias Ankole.Pod.{
     AppletEnv,
+    AppletIdempotencyKey,
     FileCache,
     OfficeCheckpoint,
     OfficeOp,
@@ -49,14 +50,33 @@ defmodule Ankole.Pod.Pages.Lifecycle do
 
   def purge_root_jobs_in_tx(root_ids) do
     ids = root_ids |> Enum.flat_map(&Ankole.Pod.Pages.Tree.descendants/1) |> Enum.uniq()
-    Ankole.AutomationJobs.purge_pages_in_tx(ids)
+
+    with :ok <- Ankole.Principals.ServiceAccounts.delete_applets_in_tx(ids),
+         do: Ankole.AutomationJobs.purge_pages_in_tx(ids)
   end
 
   def purge_nodes(ids) do
-    with :ok <- Ankole.Pod.Bases.Delete.purge_pages(ids),
+    with :ok <- Ankole.Brain.Sources.detach_purged_defaults(ids),
+         :ok <- purge_applet_service_accounts(ids),
+         :ok <- Ankole.Pod.Bases.Delete.purge_pages(ids),
          :ok <- Ankole.AutomationJobs.purge_pages(ids),
          :ok <- Ankole.Conversations.detach_pages(ids),
          do: delete_page_resources(ids)
+  end
+
+  defp purge_applet_service_accounts([]), do: :ok
+
+  defp purge_applet_service_accounts(ids) do
+    ids
+    |> Enum.chunk_every(@batch_size)
+    |> Enum.reduce_while(:ok, fn batch, :ok ->
+      case Ankole.Repo.transact_top_level(fn ->
+             {:ok, Ankole.Principals.ServiceAccounts.delete_applets_in_tx(batch)}
+           end) do
+        {:ok, :ok} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   def purge_nodes_in_tx(ids) do
@@ -90,6 +110,9 @@ defmodule Ankole.Pod.Pages.Lifecycle do
       Enum.reduce_while(
         [
           {AppletEnv, :purge},
+          {Ankole.Pod.AppletBinding, :purge},
+          {Ankole.Pod.AppletRevision, :purge},
+          {AppletIdempotencyKey, :purge},
           {PageUserState, :purge},
           {PageChange, :prune},
           {OfficeOp, :prune},

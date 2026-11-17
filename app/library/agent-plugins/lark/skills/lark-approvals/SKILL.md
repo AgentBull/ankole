@@ -1,6 +1,7 @@
 ---
 name: lark-approvals
 description: "Read, submit, and process Feishu or Lark approvals, including attachments and comments."
+default_enabled: false
 ---
 
 # lark-approvals

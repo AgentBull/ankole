@@ -15,35 +15,69 @@ export const element = (name: string, attrs: Record<string, string> = {}, childr
 
 export const limits = { source: 8 * 1024 * 1024, depth: 128, nodes: 100_000 }
 
+export type DocumentErrorCode =
+  | 'source_too_large'
+  | 'limit_exceeded'
+  | 'invalid_character'
+  | 'invalid_element_name'
+  | 'invalid_attribute_name'
+  | 'unclosed_tag'
+  | 'mismatched_closing_tag'
+  | 'unexpected_closing_tag'
+  | 'misaligned_closing_tag'
+  | 'invalid_tag_syntax'
+  | 'expression_attribute'
+  | 'duplicate_attribute'
+  | 'unsupported_syntax'
+  | 'unsupported_xml_version'
+  | 'invalid_encoding'
+  | 'missing_root'
+  | 'invalid_root'
+  | 'invalid_parent'
+  | 'invalid_content'
+  | 'invalid_attribute'
+  | 'missing_attribute'
+  | 'conflicting_list_attribute'
+  | 'nested_link'
+
 /** A tree rule violation. The parser that built `node` reports its source range. */
 export class TreeError extends Error {
+  readonly code: DocumentErrorCode
   constructor(
     message: string,
-    public node?: Node,
-    public fix = ''
+    public node: Node | undefined,
+    public fix: string,
+    code: DocumentErrorCode
   ) {
     super(message)
+    this.name = 'TreeError'
+    this.code = code
   }
 }
 
-/** A rejected source with its position, the reason and a concrete repair. */
+/** A rejected source with its position, stable error code, reason, and a concrete repair. */
 export class DocumentError extends Error {
   readonly line: number
   readonly column: number
+  readonly code: DocumentErrorCode
   constructor(
     public format: SourceFormat,
     public reason: string,
     public start: number,
     public end: number,
     public fix: string,
-    source = ''
+    source: string,
+    code: DocumentErrorCode
   ) {
     const before = source.slice(0, start)
     const line = before.split(/\r\n|\r|\n/).length
     const column = start - Math.max(before.lastIndexOf('\n'), before.lastIndexOf('\r'))
-    super(`${format === 'xml' ? 'XML' : 'Markdown'} 第 ${line} 行第 ${column} 列：${reason}。${fix}`)
+    const suffix = fix ? ` ${fix}` : ''
+    super(`[${code}] ${format === 'xml' ? 'XML' : 'Markdown'}, line ${line}, column ${column}: ${reason}.${suffix}`)
+    this.name = 'DocumentError'
     this.line = line
     this.column = column
+    this.code = code
   }
 }
 
@@ -57,24 +91,38 @@ export const removeInvalidCharacters = (value: string) => value.replace(invalidC
 
 export function checkSource(source: string, format: SourceFormat) {
   if (source.length > limits.source) {
-    throw new DocumentError(format, `源码超过 ${limits.source} 个 UTF-16 单元`, 0, 0, '请把页面拆小后再写入。')
+    throw new DocumentError(
+      format,
+      `The source exceeds ${limits.source} UTF-16 code units`,
+      0,
+      0,
+      'Split the page into smaller pages before writing.',
+      '',
+      'source_too_large'
+    )
   }
   const match = invalidCharacter.exec(source)
   if (match) {
     throw new DocumentError(
       format,
-      `含有 XML 1.0 不允许的字符 U+${match[0].codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`,
+      `The source contains U+${match[0].codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}, which XML 1.0 does not allow`,
       match.index,
       match.index + match[0].length,
-      '请删除这个字符。',
-      source
+      'Remove this character.',
+      source,
+      'invalid_character'
     )
   }
 }
 
 export function checkCharacters(value: string, node: Node) {
   if (invalidCharacter.test(value)) {
-    throw new TreeError('含有 XML 1.0 不允许的字符或孤立代理项', node, '请删除这个字符。')
+    throw new TreeError(
+      'The content contains a character not allowed in XML 1.0 or a lone surrogate',
+      node,
+      'Remove this character.',
+      'invalid_character'
+    )
   }
 }
 
@@ -84,16 +132,22 @@ const attributeName = /^[\p{L}_][\p{L}\p{N}_-]*$/u
 
 export function checkElementName(name: string, node: Node) {
   if (!elementName.test(name) || !NAME_RE.test(name)) {
-    throw new TreeError(`元素名 ${JSON.stringify(name)} 不合法`, node, '元素名以字母开头，只能包含字母、数字、- 和 _。')
+    throw new TreeError(
+      `The element name ${JSON.stringify(name)} is not valid`,
+      node,
+      'Start the element name with a letter and use only letters, digits, -, and _.',
+      'invalid_element_name'
+    )
   }
 }
 
 export function checkAttributeName(name: string, node: Node) {
   if (!attributeName.test(name) || !NAME_RE.test(name) || name === 'xmlns') {
     throw new TreeError(
-      `属性名 ${JSON.stringify(name)} 不合法`,
+      `The attribute name ${JSON.stringify(name)} is not valid`,
       node,
-      '属性名以字母或 _ 开头，只能包含字母、数字、- 和 _，不能是 xmlns。'
+      'Start the attribute name with a letter or _, use only letters, digits, -, and _, and do not use xmlns.',
+      'invalid_attribute_name'
     )
   }
 }

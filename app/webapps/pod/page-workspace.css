@@ -481,3 +481,37 @@ textarea.pod-page-title:focus-visible {
     width: auto;
   }
 }
+
+.pod-document-outline {
+  position: absolute;
+  z-index: 20;
+  inset-inline-end: 8px;
+  top: 50%;
+  translate: 0 -50%;
+  display: grid;
+  align-items: center;
+  justify-items: end;
+}
+
+.pod-document-outline > * {
+  grid-area: 1 / 1;
+}
+
+@keyframes pod-outline-card-in {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pod-document-outline-card {
+    animation: pod-outline-card-in 180ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+}
+
+@media (max-width: 760px), print {
+  .pod-document-outline {
+    display: none;
+  }
+}

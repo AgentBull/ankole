@@ -244,10 +244,15 @@ defmodule Ankole.Pod.AppletWebAndImageTest do
     assert shell_res["truncated"] == false
     assert shell_res["renderWarning"] == "script_shell"
 
-    # Reject non-HTTPS and >5 URLs
+    # Reject non-HTTP(S) schemes, SSRF metadata hosts, and >5 URLs while allowing public HTTP
     assert {:error, %{status: 400, code: "invalid_request"}} =
              Capabilities.call(ctx, actor, "web.fetch", [
-               %{"urls" => ["http://example.com/plain"]}
+               %{"urls" => ["ftp://example.com/plain"]}
+             ])
+
+    assert {:error, %{status: 400, code: "invalid_request"}} =
+             Capabilities.call(ctx, actor, "web.fetch", [
+               %{"urls" => ["http://169.254.169.254/latest/meta-data/"]}
              ])
 
     assert {:error, %{status: 400, code: "invalid_request"}} =

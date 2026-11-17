@@ -27,7 +27,7 @@ import {
 } from './content-api'
 import { ContentError, ContentSkeleton } from './content-primitives'
 import { CommentThread, CommentComposer } from './comment-thread'
-import { formatFileAnchorLabel, type FileCommentAnchor } from './file-comment-anchors'
+import { formatPageElementAnchor, type PageElementAnchor } from './page-comment-anchors'
 import { isRealtimeAccessDenied } from './realtime'
 import type { PageCommentsModel } from './state/page-comments'
 import type { ReadonlySignal } from '@preact/signals-react'
@@ -35,7 +35,7 @@ import { PodPanelSurface, type PanelInputEvent } from './panel-motion'
 
 type CommentContent =
   | { kind: 'page' }
-  | { kind: 'file' }
+  | { kind: 'file' | 'applet' }
   | { kind: 'document'; editor: EditorHandle | null; revision: ReadonlySignal<number>; ready: ReadonlySignal<boolean> }
 
 type Comments = InstanceType<typeof PageCommentsModel>
@@ -67,12 +67,12 @@ export function PageComments({
   close(event?: PanelInputEvent): void
   returnFocus: RefObject<HTMLButtonElement | null>
   selectAnchor(threadID?: string): void
-  reveal(id: string, fileAnchor?: FileCommentAnchor | null): HTMLElement | null
+  reveal(id: string, elementAnchor?: PageElementAnchor | null): HTMLElement | null
 }) {
   useSignals()
   const { t } = useTranslation()
   const client = useQueryClient()
-  const isFile = capabilities.kind === 'file'
+  const isFile = capabilities.kind === 'file' || capabilities.kind === 'applet'
   const editor = capabilities.kind === 'document' ? capabilities.editor : null
   const bodyReady = capabilities.kind === 'document' && capabilities.ready.value
   const [status, setStatus] = useState<'open' | 'resolved' | 'all' | 'unread'>('open')
@@ -96,10 +96,10 @@ export function PageComments({
   const listedRevision = revisions.length ? Math.min(...revisions) : undefined
   const documentRevision = capabilities.kind === 'document' ? capabilities.revision.value : detail.page.revision
   useEffect(() => {
-    if (!isFile && listedRevision !== undefined && listedRevision < documentRevision) {
+    if (listedRevision !== undefined && listedRevision < documentRevision) {
       void client.invalidateQueries({ queryKey: contentKeys.comments(detail.page.id) })
     }
-  }, [isFile, listedRevision, documentRevision, client, detail.page.id])
+  }, [listedRevision, documentRevision, client, detail.page.id])
   const loading = (!selectedThreads.length && query.isPending) || requested.some(result => result.isPending)
   const error = requested.find(result => result.error)?.error ?? (!selectedThreads.length ? query.error : null)
   const retry = () => {
@@ -114,15 +114,19 @@ export function PageComments({
     () => (!isFile && editorState ? (anchor?.read?.(editorState) ?? null) : null),
     [isFile, anchor, editorState]
   )
-  const fileSelection = isFile ? (anchor?.fileAnchor ?? null) : null
+  const rawElementSelection = isFile ? (anchor?.elementAnchor ?? null) : null
+  const fileSelection =
+    rawElementSelection?.kind === 'applet_element' && rawElementSelection.revision !== detail.page.revision
+      ? null
+      : rawElementSelection
   const hasSelection = isFile ? Boolean(fileSelection) : Boolean(docSelection)
   const content = useRef<HTMLDivElement>(null)
-  const revealOnClose = useRef<{ id: string; fileAnchor?: FileCommentAnchor | null } | null>(null)
-  const locate = (id: string, fileAnchor?: FileCommentAnchor | null) => {
+  const revealOnClose = useRef<{ id: string; elementAnchor?: PageElementAnchor | null } | null>(null)
+  const locate = (id: string, elementAnchor?: PageElementAnchor | null) => {
     if (mobile) {
-      revealOnClose.current = { id, fileAnchor }
+      revealOnClose.current = { id, elementAnchor }
       close()
-    } else reveal(id, fileAnchor)
+    } else reveal(id, elementAnchor)
   }
   const refresh = () => client.invalidateQueries({ queryKey: contentKeys.page(detail.page.id) })
   const acknowledge = useMutation({
@@ -151,8 +155,11 @@ export function PageComments({
   }
   const confirmedFileSelection = () => {
     const current = model.anchor.value
-    if (!current?.fileAnchor) throw new Error(t('pod.document.reselect_quote'))
-    return { anchor: current.fileAnchor, ...(current.quote ? { quote: current.quote } : {}) }
+    if (!current?.elementAnchor) throw new Error(t('pod.document.reselect_quote'))
+    if (current.elementAnchor.kind === 'applet_element' && current.elementAnchor.revision !== detail.page.revision) {
+      throw new Error(t('pod.document.reselect_quote'))
+    }
+    return { anchor: current.elementAnchor, ...(current.quote ? { quote: current.quote } : {}) }
   }
   const add = async (body: string, mentionedAgentUIDs: string[]) => {
     const currentAnchor = model.anchor.value
@@ -246,7 +253,7 @@ export function PageComments({
                   hasSelection={hasSelection}
                   anchorPending={!isFile && !!docSelection && !bodyReady}
                   refresh={refresh}
-                  reveal={fileAnchor => locate(thread.id, fileAnchor)}
+                  reveal={elementAnchor => locate(thread.id, elementAnchor)}
                   selectAnchor={() => selectAnchor(thread.id)}
                   reanchor={async () => {
                     const current = model.anchor.value
@@ -269,9 +276,9 @@ export function PageComments({
         <div className="pod-comments-compose max-h-[45%] shrink-0 overflow-auto border-t border-border-subtle px-4 py-3">
           {model.anchor.value && (
             <div className="pod-comment-draft-quote">
-              {model.anchor.value.fileAnchor && (
+              {model.anchor.value.elementAnchor && (
                 <div className="mb-1.5">
-                  <Badge variant="outline">{formatFileAnchorLabel(model.anchor.value.fileAnchor, t)}</Badge>
+                  <Badge variant="outline">{formatPageElementAnchor(model.anchor.value.elementAnchor, t)}</Badge>
                 </div>
               )}
               {(docSelection?.quote ?? model.anchor.value.quote) && (
@@ -322,7 +329,7 @@ export function PageComments({
           finalFocus={() => {
             const pending = revealOnClose.current
             revealOnClose.current = null
-            return (pending && reveal(pending.id, pending.fileAnchor)) || returnFocus.current
+            return (pending && reveal(pending.id, pending.elementAnchor)) || returnFocus.current
           }}>
           <SheetTitle className="sr-only">{t('pod.document.comments')}</SheetTitle>
           {body}

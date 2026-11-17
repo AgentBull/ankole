@@ -96,6 +96,12 @@ defmodule Ankole.Brain.Schemas.Link do
       define_attribute?(false)
       attribute_type(Ankole.Ash.Types.UUIDv7)
     end
+
+    belongs_to :origin_page, Ankole.Pod.Page do
+      source_attribute(:origin_page_id)
+      define_attribute?(false)
+      attribute_type(Ankole.Ash.Types.UUIDv7)
+    end
   end
 
   @type t :: %__MODULE__{}

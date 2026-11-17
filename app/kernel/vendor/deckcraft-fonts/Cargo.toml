@@ -16,5 +16,7 @@ skrifa = "0.47"
 harfrust = "0.13"
 unicode-bidi = "0.3"
 log = "0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Last-resort face only (Ubuntu Light); no UI code.
 epaint_default_fonts = "0.37"

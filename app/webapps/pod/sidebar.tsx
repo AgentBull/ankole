@@ -54,6 +54,7 @@ export type PodSidebarTab = 'home' | 'chat'
 export function routeSidebarTab(pathname: string, state?: PodSidebarNavigationState | null): PodSidebarTab | undefined {
   if (state?.keepSidebarTab) return state.keepSidebarTab
   if (
+    pathname === '/' ||
     pathname === '/jobs' ||
     pathname === '/meta' ||
     pathname.startsWith('/meta/') ||
@@ -62,7 +63,7 @@ export function routeSidebarTab(pathname: string, state?: PodSidebarNavigationSt
   ) {
     return 'home'
   }
-  if (pathname === '/' || pathname.startsWith('/dm/') || pathname.startsWith('/conversations/')) return 'chat'
+  if (pathname.startsWith('/dm/') || pathname.startsWith('/conversations/')) return 'chat'
   return undefined
 }
 
@@ -86,7 +87,7 @@ export function PodSidebar({
     select: location => routeSidebarTab(location.pathname, location.state as PodSidebarNavigationState | null)
   })
   const { isMobile, state, setOpenMobile } = useSidebar()
-  const [tab, setTab] = useState<PodSidebarTab>(() => routeTab ?? 'chat')
+  const [tab, setTab] = useState<PodSidebarTab>(() => routeTab ?? 'home')
   // New Chat sits above both tabs, so it opens the composer without switching away from the open tab.
   useEffect(() => {
     if (!agents.data?.personalAssistantAvailable) return

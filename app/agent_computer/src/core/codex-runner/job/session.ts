@@ -1,9 +1,10 @@
+import { join } from 'node:path'
 import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { toError } from '../../../common/errors'
 import { compareCodePointStrings } from '../../../common/ordering'
 import { jsonBytes, jsonObjectFromBytes } from '../../../fabric/envelope-proto'
 import type { BackgroundAgentJobResponse } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { TurnStart, TurnSteerUpdate } from '../../../lanes/session-lane'
+import type { TurnStart } from '../../../lanes/session-lane'
 import { workerTurnTrace } from '../../../observability/turn-tracing'
 import type {
   BackgroundAgentJobStatus,
@@ -34,9 +35,9 @@ import type { ThreadRecreateReason } from './execution-logfile'
 import {
   commitJobStatusWithAck,
   dispatchRuntimeServerRequest,
-  persistRuntimeThreadAnchor,
   prepareReplacementCodexRootThread,
   publishRunningJobStatus,
+  replaceCodexThreadAndStartTurn,
   resumeExistingCodexRootThread,
   startCodexTurnOnThread,
   startNewCodexRootThread,
@@ -44,7 +45,10 @@ import {
 } from './session-runtime-ops'
 import {
   abortReason,
+  declareSessionTurnKind,
   recreatedThreadInput,
+  runSessionThreadCompaction,
+  settleSessionCompaction,
   snapshotJobWorkspace,
   turnClientUserMessageID,
   turnInput,
@@ -58,6 +62,8 @@ import {
   startFirstProgressDeadlineTimer,
   startSessionActiveTurnUpdatePoll
 } from './session-turn-lifecycle'
+import { createCodexSessionLifecycle, type CodexSessionLifecycle } from './session-lifecycle-machine'
+import { formatDriveFlushSummary, type DriveFlushResult } from '../../../drive/mounts'
 import type { PreparedCodexJobExecution } from './setup'
 import { CodexSkillUsageTracker } from './skill-usage'
 import { BackgroundAgentJobTurnRecorder } from './turn-recorder'
@@ -93,7 +99,7 @@ export async function runCodexJobSession(
  * A terminal Worker result follows the Turn-record flush and durable Job-status
  * commit.
  */
-class CodexJobSession implements AgentCodexRuntimeSession {
+export class CodexJobSession implements AgentCodexRuntimeSession {
   private readonly appliedEventIDs = new Set<string>()
   private readonly turnRecorder: BackgroundAgentJobTurnRecorder
   private readonly modelProfile: CodexAIGatewayModelProfile
@@ -114,25 +120,20 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private activeFilesChanged: BackgroundAgentJobPathHandoff = emptyBackgroundAgentJobPathHandoff()
   /** Workspace files before the attempt's first Turn; the result diffs the final state against it. */
   private workspaceSnapshot: WorkspaceSnapshot | undefined
-  private waitingOnUserInput = false
-  private recoveryInFlight = false
-  private completionPending = false
+  private readonly lifecycle: CodexSessionLifecycle
   private turnCompletionTail: Promise<void> = Promise.resolve()
+  private activeTurnUpdateTail: Promise<void> = Promise.resolve()
+  private turnStartPromise: Promise<void> | undefined
   private readonly completedTurns = new Set<string>()
   private recoveryState: CodexRecoveryState = initialCodexRecoveryState
   private pendingCredentialPoolExhaustion: CodexCredentialPoolExhaustion | undefined
   private emptyReportRetries = 0
+  private pendingDriveRetries = 0
   private recreatedThreadOnResume = false
   private recreatedThreadReason: ThreadRecreateReason | undefined
-  private finalizing = false
-  private closing = false
-  private acceptingServerRequests = true
-  private durableJobStatusCommitted = false
-  private readonly toolAbortController = new AbortController()
   private activeTurnUpdateTimer: ReturnType<typeof setInterval> | undefined
   private firstProgressTimer: ReturnType<typeof setTimeout> | undefined
   private leadRuntimeProgressVersion = 0
-  private activeTurnUpdateInFlight = false
   private compaction: CompactionHandshake | undefined
   private compactionSeq = 0
   private readonly initialJobMetadata: JSONObject | undefined
@@ -144,6 +145,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     private readonly job: BackgroundAgentJobResponse,
     private readonly prepared: PreparedCodexJobExecution
   ) {
+    this.lifecycle = createCodexSessionLifecycle(opts.abortSignal)
     this.appliedEventIDs.add(turnStart.signal.signal_id)
     this.runtimeThreadID = job.runtimeThreadId || undefined
     this.originalHumanRequest = stringValue(turnStart.request_context?.original_human_request)
@@ -161,6 +163,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       jobID,
       attempt: job.attempts,
       actorTurn: turnStart.turn,
+      spoolRoot: join(prepared.project.root, '.ankole'),
       turnTrace: workerTurnTrace(turnStart, job.agentUid),
       driveView: prepared.driveView,
       upsert: request => opts.rpc('background_agent_job.turn.upsert', request, { jobTurn: turnStart.turn })
@@ -169,6 +172,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       this.resolveDone = resolve
       this.rejectDone = reject
     })
+    void this.done.catch(() => undefined)
   }
 
   async run(): Promise<void> {
@@ -181,19 +185,20 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       prepared: this.prepared,
       turnRecorder: this.turnRecorder,
       session: this,
-      isFinalizing: () => this.finalizing,
-      markFinalizing: () => {
-        this.finalizing = true
-      },
+      isFinalizing: () => this.lifecycle.isFinalizing(),
+      markFinalizing: () => this.lifecycle.markUnhandledFailure(),
       codexTurnID: () => this.codexTurnID,
       stopTimersAndListeners: () => {
         if (this.activeTurnUpdateTimer) clearInterval(this.activeTurnUpdateTimer)
         this.clearFirstProgressDeadline()
         this.opts.abortSignal?.removeEventListener('abort', this.onAbort)
-        this.closing = true
+        this.lifecycle.enterCleanup()
       },
+      onClosed: () => this.lifecycle.close(),
+      waitForTurnCompletionTail: () => this.turnCompletionTail,
+      waitForActiveTurnUpdateTail: () => this.activeTurnUpdateTail,
       runtimeLease: () => this.runtimeLease,
-      durableJobStatusCommitted: () => this.durableJobStatusCommitted
+      durableJobStatusCommitted: () => this.lifecycle.isDurableStatusCommitted()
     })
   }
 
@@ -259,9 +264,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       model: this.modelProfile.model,
       recoveryState: this.recoveryState,
       opts: this.opts,
-      setRecoveryState: state => {
-        this.recoveryState = state
-      },
+      setRecoveryState: state => void (this.recoveryState = state),
       publishCliContextId: () => this.publishCliContextId(),
       replaceLostThread: (reason, retireThreadID) => this.replaceThreadAndPrepareHistory(reason, retireThreadID)
     })
@@ -290,27 +293,22 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   }
 
   private async replaceThreadAndStartTurn(reason: ThreadRecreateReason, continuationPrompt: string): Promise<void> {
-    await this.turnRecorder.flush()
-    const previousThreadID = this.runtimeThreadID
-    const { source, logfile } = await this.replaceThreadAndPrepareHistory(reason, previousThreadID)
-    if (!this.runtimeThreadID) throw new Error('codex thread is not available for persistence')
-    const newThreadID = this.runtimeThreadID
-    await persistRuntimeThreadAnchor({
+    await replaceCodexThreadAndStartTurn({
+      isStopping: () => this.isStopping(),
+      flushTurnRecorder: () => this.turnRecorder.flush(),
+      previousThreadID: this.runtimeThreadID,
+      replaceThreadAndPrepareHistory: (r, prev) => this.replaceThreadAndPrepareHistory(r, prev),
+      currentThreadID: () => this.runtimeThreadID,
       rpc: this.opts.rpc,
       jobTurn: this.turnStart.turn,
       jobID: this.jobID,
-      runtimeThreadID: newThreadID,
       reason,
-      recovery: 'new_thread_from_logfile'
-    })
-    try {
-      await this.startCodexTurn(recreatedThreadInput(this.job, continuationPrompt, source, logfile))
-    } catch (error) {
-      if (this.runtimeLease) {
-        await this.runtimeLease.runtime.retireRoot(newThreadID, this).catch(() => undefined)
+      buildPrompt: (source, logfile) => recreatedThreadInput(this.job, continuationPrompt, source, logfile),
+      startCodexTurn: prompt => this.startCodexTurn(prompt),
+      retireFailedReplacement: async threadID => {
+        if (this.runtimeLease) await this.runtimeLease.runtime.retireRoot(threadID, this).catch(() => undefined)
       }
-      throw error
-    }
+    })
   }
 
   private async publishRunningStatus(initializeResponse: JSONObject): Promise<void> {
@@ -334,14 +332,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     status: BackgroundAgentJobStatus,
     details: { result?: JSONObject; error?: JSONObject; metadata?: JSONObject } = {}
   ): Promise<void> {
-    if (!this.claimFinalization()) return
+    if (!this.lifecycle.claimFinalization()) return
     await this.commitClaimed(status, details)
-  }
-
-  private claimFinalization(): boolean {
-    if (this.finalizing) return false
-    this.finalizing = true
-    return true
   }
 
   private async commitClaimed(
@@ -349,6 +341,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     details: { result?: JSONObject; error?: JSONObject; metadata?: JSONObject } = {}
   ): Promise<void> {
     try {
+      await this.activeTurnUpdateTail.catch(() => undefined)
       if (status === 'waiting_on_user') {
         this.turnRecorder.interruptTurn(this.codexTurnID, {
           code: 'request_user_input',
@@ -371,7 +364,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         },
         this.turnStart.turn
       )
-      this.durableJobStatusCommitted = true
+      this.lifecycle.markDurableStatusCommitted()
       this.resolveDone()
     } catch (error) {
       this.rejectDone(toError(error))
@@ -392,6 +385,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   }
 
   private async startNewThread(): Promise<void> {
+    if (this.isStopping()) return
     if (!this.client || !this.runtimeLease) throw new Error('codex app-server is not available')
     this.runtimeThreadID = await startNewCodexRootThread({
       runtimeLease: this.runtimeLease,
@@ -400,6 +394,10 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       prepared: this.prepared,
       model: this.modelProfile.model
     })
+    if (this.isStopping()) {
+      await this.runtimeLease.runtime.retireRoot(this.runtimeThreadID, this).catch(() => undefined)
+      return
+    }
     this.compactionSeq = 0
     this.publishCliContextId()
   }
@@ -409,9 +407,20 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     this.prepared.updateCliContextId(`${this.jobID}:thread:${this.runtimeThreadID}:cmp:${this.compactionSeq}`)
   }
 
-  private async startCodexTurn(input: string): Promise<void> {
+  private startCodexTurn(input: string): Promise<void> {
+    const run = this.runCodexTurnStart(input).finally(() => {
+      if (this.turnStartPromise === run) this.turnStartPromise = undefined
+    })
+    this.turnStartPromise = run
+    return run
+  }
+
+  private async runCodexTurnStart(input: string): Promise<void> {
+    if (this.isStopping()) return
     if (!this.client || !this.runtimeThreadID) throw new Error('codex thread is not available')
+    this.lifecycle.beginTurnStart()
     await this.turnRecorder.startDriveWindow()
+    if (this.isStopping()) return
     this.outputText = ''
     const clientUserMessageID = turnClientUserMessageID(this.turnStart)
     const progressVersion = this.leadRuntimeProgressVersion
@@ -426,6 +435,11 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     })
     this.codexTurnID = stringValue(turn.id)
     if (!this.codexTurnID) throw new Error('codex app-server did not return a turn id')
+    if (this.isStopping()) {
+      await this.interruptCodexTurn(this.runtimeThreadID, this.codexTurnID).catch(() => undefined)
+      return
+    }
+    this.lifecycle.markTurnStarted()
     this.turnRecorder.recordTurnStarted({ threadId: this.runtimeThreadID, turn }, 'agent', input, clientUserMessageID)
     if (this.leadRuntimeProgressVersion === progressVersion) this.armFirstProgressDeadline()
   }
@@ -436,10 +450,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       jobID: this.jobID,
       runtimeThreadID: () => this.runtimeThreadID,
       codexTurnID: () => this.codexTurnID,
-      isStopped: () => this.finalizing || this.closing,
-      onClearTimer: () => {
-        this.firstProgressTimer = undefined
-      },
+      isStopped: () => this.isStopping(),
+      onClearTimer: () => void (this.firstProgressTimer = undefined),
       onTimeout: error => this.rejectDone(error)
     })
   }
@@ -450,30 +462,17 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   }
 
   private clearFirstProgressDeadline(): void {
-    if (!this.firstProgressTimer) return
-    clearTimeout(this.firstProgressTimer)
+    if (this.firstProgressTimer) clearTimeout(this.firstProgressTimer)
     this.firstProgressTimer = undefined
   }
 
-  /**
-   * Codex accepts the next input only after the compaction Turn has finished:
-   * its `contextCompaction` item completes while the Compact task is still
-   * active, and a `turn/start` sent in that gap is rejected as not steerable.
-   * The handshake therefore ends on the compaction Turn's `turn/completed`.
-   */
   private async compactThread(): Promise<void> {
-    const client = this.client
-    const threadID = this.runtimeThreadID
-    if (!client || !threadID) throw new Error('codex thread is not available for compaction')
-    const compacted = new Promise<void>((resolve, reject) => {
-      this.compaction = { threadID, resolve, reject }
+    await runSessionThreadCompaction({
+      isStopping: () => this.isStopping(),
+      client: this.client,
+      runtimeThreadID: this.runtimeThreadID,
+      setCompaction: compaction => void (this.compaction = compaction)
     })
-    try {
-      await client.request('thread/compact/start', { ['threadId']: threadID })
-      await compacted
-    } finally {
-      this.compaction = undefined
-    }
   }
 
   private async handleTurnCompleted(
@@ -481,64 +480,82 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     codexTurnStatus: string,
     error: JSONObject
   ): Promise<void> {
-    if (this.finalizing || this.waitingOnUserInput || this.recoveryInFlight || this.completionPending) return
+    await this.turnStartPromise?.catch(() => undefined)
+    if (!this.lifecycle.canBeginTurnCompletion()) return
 
     if (status === 'succeeded' && this.runtimeLease) {
       // The lead Turn can finish before child threads. Commit success only
       // after all threads owned by this Job session are idle.
-      this.completionPending = true
+      this.lifecycle.beginAwaitChildrenIdle()
       try {
         await this.runtimeLease.runtime.waitForSessionTurnsIdle(this)
       } finally {
-        this.completionPending = false
+        this.lifecycle.endAwaitChildrenIdle()
       }
-      if (this.finalizing || this.waitingOnUserInput || this.recoveryInFlight) return
+      if (!this.lifecycle.canBeginTurnCompletion()) return
     }
 
-    const driveSummary = await this.turnRecorder
-      .flushDriveWindow()
-      .catch(flushError => `Drive synchronization is still pending: ${String(flushError)}`)
-    if (status === 'succeeded') {
-      await completeSucceededCodexTurn({
-        driveSummary,
-        outputText: this.outputText,
-        emptyReportRetries: this.emptyReportRetries,
-        root: this.prepared.project.root,
-        jobID: this.jobID,
-        attempt: this.job.attempts,
-        runtimeThreadID: this.runtimeThreadID,
-        codexTurnStatus,
-        latestTokenUsage: this.latestTokenUsage,
-        completedFilesChanged: this.completedFilesChanged,
-        workspaceSnapshot: this.workspaceSnapshot,
-        logger: this.opts.logger,
-        appendOutputText: suffix => {
-          this.outputText += suffix
-          return this.outputText
-        },
-        incrementEmptyReportRetries: () => {
-          this.emptyReportRetries += 1
-        },
-        startCodexTurn: prompt => this.startCodexTurn(prompt),
-        commit: (nextStatus, details) => this.commit(nextStatus, details)
-      })
-      return
+    let driveSummary: string | undefined
+    this.lifecycle.beginSettlingTurn()
+    try {
+      await this.activeTurnUpdateTail
+      if (this.isStopping()) return
+      const driveFlush: DriveFlushResult = await this.turnRecorder.flushDriveWindow().catch(flushError => ({
+        status: 'pending',
+        paths: [],
+        files: [],
+        flush_incomplete: true,
+        reason: String(flushError)
+      }))
+      if (this.isStopping()) return
+      driveSummary = formatDriveFlushSummary(driveFlush)
+      if (status === 'succeeded') {
+        await completeSucceededCodexTurn({
+          abortSignal: this.lifecycle.sessionAbortSignal,
+          isStopping: () => this.isStopping(),
+          driveFlush,
+          driveDeliverables: this.turnRecorder.getDriveDeliverables(),
+          driveView: this.prepared.driveView,
+          recordDriveDeliverables: files => this.turnRecorder.recordDriveDeliverables(files),
+          pendingDriveRetries: this.pendingDriveRetries,
+          outputText: this.outputText,
+          emptyReportRetries: this.emptyReportRetries,
+          root: this.prepared.project.root,
+          jobID: this.jobID,
+          attempt: this.job.attempts,
+          runtimeThreadID: this.runtimeThreadID,
+          codexTurnStatus,
+          latestTokenUsage: this.latestTokenUsage,
+          completedFilesChanged: this.completedFilesChanged,
+          workspaceSnapshot: this.workspaceSnapshot,
+          logger: this.opts.logger,
+          incrementEmptyReportRetries: () => void (this.emptyReportRetries += 1),
+          incrementPendingDriveRetries: () => void (this.pendingDriveRetries += 1),
+          startCodexTurn: prompt => this.startCodexTurn(prompt),
+          commit: (nextStatus, details) => this.commit(nextStatus, details)
+        })
+        return
+      }
+
+      if (status === 'stopped') {
+        await this.commit('stopped', {
+          metadata: {
+            stop_reason: stringValue(error.message) ?? 'codex_turn_interrupted',
+            ...(driveSummary ? { drive_sync: driveSummary } : {})
+          }
+        })
+        return
+      }
+    } finally {
+      this.lifecycle.endSettlingTurn()
     }
 
-    if (status === 'stopped') {
-      await this.commit('stopped', {
-        metadata: {
-          stop_reason: stringValue(error.message) ?? 'codex_turn_interrupted',
-          ...(driveSummary ? { drive_sync: driveSummary } : {})
-        }
-      })
-      return
-    }
-
-    this.recoveryInFlight = true
+    this.lifecycle.beginRecoveringTurn()
     if (driveSummary) this.outputText += `\n\n${driveSummary}`
     try {
       await recoverOrCommitFailedCodexTurn({
+        abortSignal: this.lifecycle.sessionAbortSignal,
+        isStopping: () => this.isStopping(),
         error,
         codexTurnStatus,
         outputText: this.outputText,
@@ -555,14 +572,14 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         commit: (nextStatus, details) => this.commit(nextStatus, details)
       })
     } catch (recoveryError) {
-      this.rejectDone(toError(recoveryError))
+      if (!this.isStopping()) this.rejectDone(toError(recoveryError))
     } finally {
-      this.recoveryInFlight = false
+      this.lifecycle.endRecoveringTurn()
     }
   }
 
   handleRuntimeNotification(message: JSONRPCMessage): void {
-    if (this.finalizing) return
+    if (this.lifecycle.isFinalizingOrClosing()) return
     const projection = projectCodexNotification(message)
     if (projection.type === 'turn_started') {
       this.turnRecorder.recordTurnStarted(jsonObject(message.params), this.declareTurnKind(projection))
@@ -601,6 +618,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       this.pendingCredentialPoolExhaustion = undefined
       this.rollActiveFilesChanged()
       this.codexTurnID = projection.turnID ?? this.codexTurnID
+      this.lifecycle.markTurnStarted()
     } else if (projection.type === 'agent_completed') {
       // Codex permits a missing phase for legacy models. Intermediate messages
       // remain in the trajectory but cannot satisfy the final-report contract.
@@ -612,7 +630,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     } else if (projection.type === 'compaction_completed' && !this.compaction) {
       this.compactionSeq += 1
       this.publishCliContextId()
-    } else if (projection.type === 'turn_completed' && !this.finalizing && !this.waitingOnUserInput) {
+    } else if (projection.type === 'turn_completed' && this.lifecycle.canQueueTurnCompleted()) {
       const threadID = projection.threadID ?? this.runtimeThreadID
       if (threadID && projection.turnID) {
         const key = JSON.stringify([threadID, projection.turnID])
@@ -630,41 +648,15 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     }
   }
 
-  /**
-   * Only the Turn that answers this session's `thread/compact/start` is a
-   * compaction Turn. Codex returns no turn id from that request and reports
-   * the Turn through `turn/started` before its contextCompaction item
-   * completes, so the first Turn started on the compacting thread is that
-   * Turn. Every other Turn is an agent Turn, including one that Codex compacts
-   * automatically part-way through.
-   */
   private declareTurnKind(projection: { threadID?: string; turnID?: string }): BackgroundAgentJobTurnKind {
-    const compaction = this.compaction
-    if (!compaction || projection.threadID !== compaction.threadID || compaction.turnID !== undefined) {
-      return 'agent'
-    }
-    compaction.turnID = projection.turnID
-    return 'compaction'
+    return declareSessionTurnKind(this.compaction, projection)
   }
 
-  /**
-   * Ends the compaction handshake when its own Turn completes. A Turn that
-   * completes on the compacting thread before Codex reported the compaction
-   * Turn can only be that Turn. Every other completion belongs to the Job.
-   */
   private settleCompaction(projection: { turnID?: string; codexTurnStatus: string; error: JSONObject }): boolean {
-    const compaction = this.compaction
-    if (!compaction || (compaction.turnID !== undefined && projection.turnID !== compaction.turnID)) return false
-    if (projection.codexTurnStatus === 'completed') {
+    return settleSessionCompaction(this.compaction, projection, () => {
       this.compactionSeq += 1
       this.publishCliContextId()
-      compaction.resolve()
-    } else {
-      compaction.reject(
-        new Error(stringValue(projection.error.message) ?? `Codex compaction turn ${projection.codexTurnStatus}`)
-      )
-    }
-    return true
+    })
   }
 
   /** Folds the running Turn's diff into the Job-wide total and starts a fresh one. */
@@ -680,8 +672,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     await dispatchRuntimeServerRequest({
       message,
       appServer,
-      acceptingServerRequests: this.acceptingServerRequests,
-      finalizing: this.finalizing,
+      acceptingServerRequests: this.lifecycle.isAcceptingServerRequests(),
+      finalizing: this.lifecycle.isFinalizingOrClosing(),
       runtimeThreadID: this.runtimeThreadID,
       codexTurnID: this.codexTurnID,
       compactionSeq: this.compactionSeq,
@@ -689,62 +681,56 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       prepared: this.prepared,
       skillUsage: this.skillUsage,
       turnRecorder: this.turnRecorder,
-      toolAbortSignal: this.toolAbortController.signal,
+      toolAbortSignal: this.lifecycle.toolAbortSignal,
       noteLeadRuntimeProgress: () => this.noteLeadRuntimeProgress(),
       recordUsedSkills: names => this.recordUsedSkills(names),
-      setWaitingOnUserInput: waiting => {
-        this.waitingOnUserInput = waiting
-      },
-      claimFinalization: () => this.claimFinalization(),
+      setWaitingOnUserInput: waiting => this.lifecycle.setWaitingOnUserInput(waiting),
+      claimFinalization: () => this.lifecycle.claimFinalization('waiting_on_user'),
       interruptTurn: (threadID, turnID) =>
         threadID && turnID ? this.interruptCodexTurn(threadID, turnID) : this.interrupt(),
-      scheduleClaimedCommit: (status, details) => this.scheduleClaimedCommit(status, details),
+      // Defer commit until server-request handler returns so runtime cleanup never waits for itself.
+      scheduleClaimedCommit: (status, details) => void setTimeout(() => void this.commitClaimed(status, details), 0),
       rejectDone: error => this.rejectDone(error)
     })
   }
 
   private readonly onAbort = (): void => {
-    if (!this.claimFinalization()) return
+    const reason = abortReason(this.opts.abortSignal)
+    const activeCompactionTurnID = this.compaction?.turnID
+    this.lifecycle.abortSession(reason)
+    this.compaction?.reject(new DOMException(reason, 'AbortError'))
+    if (!this.lifecycle.claimFinalization(reason)) return
+    if (this.runtimeThreadID && activeCompactionTurnID) {
+      void this.interruptCodexTurn(this.runtimeThreadID, activeCompactionTurnID).catch(() => undefined)
+    }
     void this.interrupt().catch(() => undefined)
-    void this.commitClaimed('stopped', {
-      metadata: { stop_reason: abortReason(this.opts.abortSignal) }
-    })
+    void this.commitClaimed('stopped', { metadata: { stop_reason: reason } })
   }
 
-  private scheduleClaimedCommit(
-    status: BackgroundAgentJobStatus,
-    details: { result?: JSONObject; error?: JSONObject; metadata?: JSONObject }
-  ): void {
-    // Defer this commit until the server-request handler returns. Runtime
-    // cleanup waits for all handlers and would otherwise wait for itself.
-    setTimeout(() => void this.commitClaimed(status, details), 0)
+  private isStopping(): boolean {
+    return this.lifecycle.isStopping()
   }
 
   private async finishClaimedFinalization(): Promise<boolean> {
-    if (!this.finalizing) return false
+    if (!this.lifecycle.isFinalizing()) return false
     await this.done
     return true
   }
 
   prepareForRuntimeCleanup(): void {
-    this.acceptingServerRequests = false
-    if (!this.toolAbortController.signal.aborted) {
-      this.toolAbortController.abort(new DOMException('Background agent Job is cleaning up', 'AbortError'))
-    }
+    this.compaction?.reject(new DOMException('Background agent Job is cleaning up', 'AbortError'))
+    this.lifecycle.prepareForRuntimeCleanup()
   }
 
   handleRuntimeLost(error: AgentCodexRuntimeLostError): void {
-    if (this.closing) return
+    this.compaction?.reject(error)
+    if (this.lifecycle.isFinalizingOrClosing()) {
+      this.prepareForRuntimeCleanup()
+      return
+    }
+    this.lifecycle.abortSession('runtime_lost')
     this.prepareForRuntimeCleanup()
     this.rejectDone(error)
-  }
-
-  private applyOriginalHumanRequest(update: TurnSteerUpdate): void {
-    const instructions = stringValue(this.prepared.threadConfig.developer_instructions) ?? ''
-    const updated = updateOriginalHumanRequestInstructions(instructions, this.originalHumanRequest, update)
-    if (!updated) return
-    this.prepared.threadConfig.developer_instructions = updated.instructions
-    this.originalHumanRequest = updated.originalHumanRequest
   }
 
   private startActiveTurnUpdatePoll(): void {
@@ -755,20 +741,23 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       turnRecorder: this.turnRecorder,
       appliedEventIDs: this.appliedEventIDs,
       state: () => ({
-        blocked: this.activeTurnUpdateInFlight || this.finalizing || this.completionPending || this.recoveryInFlight,
+        blocked: !this.lifecycle.canSteerActiveTurn(),
         client: this.client,
         runtimeThreadID: this.runtimeThreadID,
         codexTurnID: this.codexTurnID
       }),
-      isFinalizing: () => this.finalizing,
-      setInFlight: inFlight => {
-        this.activeTurnUpdateInFlight = inFlight
+      isFinalizing: () => this.lifecycle.isFinalizingOrClosing(),
+      setInFlight: inFlight => this.lifecycle.setSteeringInFlight(inFlight),
+      trackInFlight: promise => void (this.activeTurnUpdateTail = promise),
+      applyOriginalHumanRequest: update => {
+        const instructions = stringValue(this.prepared.threadConfig.developer_instructions) ?? ''
+        const updated = updateOriginalHumanRequestInstructions(instructions, this.originalHumanRequest, update)
+        if (!updated) return
+        this.prepared.threadConfig.developer_instructions = updated.instructions
+        this.originalHumanRequest = updated.originalHumanRequest
       },
-      applyOriginalHumanRequest: update => this.applyOriginalHumanRequest(update),
       onFatalError: error => {
-        if (this.finalizing) return
-        this.finalizing = true
-        this.rejectDone(error)
+        if (this.lifecycle.claimFinalization('steer_fatal_error')) this.rejectDone(error)
       }
     })
   }

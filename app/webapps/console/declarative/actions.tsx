@@ -96,13 +96,13 @@ export function DeclarativeActionTrigger({
                     {t(`${i18nPrefix}.ui.secret_created`, { defaultValue: 'Store this secret now' })}
                   </AlertTitle>
                   <AlertDescription>
-                    <p className="mb-2 text-xs text-muted-foreground">
+                    <p className="mb-2 text-xs text-fg-secondary">
                       {t(`${i18nPrefix}.ui.secret_once`, {
                         defaultValue: 'This secret is displayed only once and cannot be retrieved again.'
                       })}
                     </p>
                     <div className="flex items-center gap-2">
-                      <code className="flex-1 overflow-x-auto rounded-control border border-border bg-muted px-2.5 py-1.5 font-mono text-xs">
+                      <code className="flex-1 overflow-x-auto rounded-control border border-border-subtle bg-layer-03 px-2.5 py-1.5 font-mono text-xs">
                         {revealedSecret}
                       </code>
                       <CopyButton
@@ -113,7 +113,7 @@ export function DeclarativeActionTrigger({
                     </div>
                   </AlertDescription>
                 </Alert>
-                <div className="flex justify-end border-t border-border pt-3">
+                <div className="flex justify-end border-t border-border-subtle pt-3">
                   <Button
                     size="sm"
                     type="button"
@@ -156,7 +156,7 @@ export function DeclarativeActionTrigger({
                 }}>
                 <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                   {surface.method === 'DELETE' && visibleFields.every(field => field.readOnly) ? (
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm text-fg-secondary">
                       {t(`${i18nPrefix}.ui.confirm_delete`, {
                         defaultValue: 'Are you sure you want to delete this item?'
                       })}
@@ -180,7 +180,7 @@ export function DeclarativeActionTrigger({
                   </p>
                 ) : null}
 
-                <div className="flex justify-end gap-2 border-t border-border pt-3">
+                <div className="flex justify-end gap-2 border-t border-border-subtle pt-3">
                   <Button
                     disabled={pending}
                     size="sm"

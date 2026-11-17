@@ -11,6 +11,9 @@ defmodule AnkoleWeb.JSONAPI.Router do
 
     * `:scope` - the API scope and OpenAPI title. Console and site scopes
       use `AnkoleWeb.JSONAPI.Context`; other scopes supply `:before_dispatch`.
+    * `:title` - an OpenAPI title for an extension scope.
+    * `:context_scope` - the shared request context, defaulting to `:scope`.
+      Use `:site` for tenant-free extension routes.
     * `:before_dispatch` - the scope's request context callback.
     * `:domains` - the Ash domains of the router.
     * `:prefix` - the mount path, for example `"/api/v2"`.
@@ -18,6 +21,8 @@ defmodule AnkoleWeb.JSONAPI.Router do
 
   defmacro __using__(opts) do
     {scope, opts} = Keyword.pop!(opts, :scope)
+    {title, opts} = Keyword.pop(opts, :title, scope)
+    {context_scope, opts} = Keyword.pop(opts, :context_scope, scope)
     {before_dispatch, opts} = Keyword.pop(opts, :before_dispatch)
 
     # `AshJsonApi.Router` expands its options in the module body, so each
@@ -33,7 +38,7 @@ defmodule AnkoleWeb.JSONAPI.Router do
     before_dispatch =
       if before_dispatch,
         do: expand.(before_dispatch),
-        else: quote(do: {unquote(context), :before_dispatch, [unquote(scope)]})
+        else: quote(do: {unquote(context), :before_dispatch, [unquote(context_scope)]})
 
     configured_domains =
       :ankole
@@ -52,7 +57,7 @@ defmodule AnkoleWeb.JSONAPI.Router do
       |> Keyword.merge(
         open_api: "/openapi.json",
         phoenix_endpoint: expand.(quote(do: AnkoleWeb.Endpoint)),
-        modify_open_api: quote(do: {unquote(open_api), :modify, [unquote(scope)]}),
+        modify_open_api: quote(do: {unquote(open_api), :modify, [unquote(title)]}),
         before_dispatch: before_dispatch
       )
 
@@ -61,8 +66,8 @@ defmodule AnkoleWeb.JSONAPI.Router do
       use AshJsonApi.Router, unquote(opts)
 
       def call(conn, opts) do
-        case unquote(scope) do
-          scope when scope in [:site, :saas_site] ->
+        case unquote(context_scope) do
+          :site ->
             Ankole.Repo.without_tenant(fn -> super(conn, opts) end)
 
           _ ->

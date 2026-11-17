@@ -25,6 +25,7 @@ defmodule Ankole.AgentWorkers.Docker do
       kind: "docker",
       credentials: %{},
       pause: false,
+      support_tier: :core,
       schema:
         C.object(
           Map.merge(C.common("15m"), %{
@@ -155,11 +156,6 @@ defmodule Ankole.AgentWorkers.Docker do
       other -> error(other)
     end
   end
-
-  @impl true
-  def pause_instance(_provider, _instance), do: {:error, :pause_not_supported}
-  @impl true
-  def resume_instance(_provider, _instance), do: {:error, :pause_not_supported}
 
   @impl true
   def list_instances(provider, agent_uid_or_all) do

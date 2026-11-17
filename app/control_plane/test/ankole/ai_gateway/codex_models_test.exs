@@ -54,7 +54,7 @@ defmodule Ankole.AIGateway.CodexModelsTest do
   end
 
   test "cards keep the configured search tool on standard Responses" do
-    for slug <- ~w(gpt-5.6-sol gpt-5.6-terra gpt-5.6-luna) do
+    for slug <- ~w(custom-primary custom-reasoning custom-light) do
       refute CodexModels.card(slug, ["text"])["use_responses_lite"]
     end
 

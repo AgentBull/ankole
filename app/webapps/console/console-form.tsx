@@ -43,9 +43,11 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useBlocker } from '@tanstack/react-router'
+import { dataTenantID } from '../common/browser-session'
 import { BackLink, DocumentTitle, PageStack } from './console-page'
 import { ErrorBlock } from '../common/error-block'
 import { formatJSONDraft, inspectJSONDraft } from './state/json-editor'
+import { peekActiveHistoryTenant } from './tenant-context'
 
 /**
  * Editor-page frame: back link, header, error surface, the form body, and a
@@ -240,15 +242,61 @@ function useBeforeUnloadGuard(blocked: boolean) {
   }, [blocked])
 }
 
+export function shouldBlockEditorNavigation({
+  action,
+  activeTenantID = dataTenantID(),
+  blocked,
+  current,
+  next,
+  resolvePopTenant
+}: {
+  action?: 'PUSH' | 'REPLACE' | 'FORWARD' | 'BACK' | 'GO'
+  activeTenantID?: string | null
+  blocked: boolean
+  current: { pathname: string; search?: unknown }
+  next: { pathname: string; search?: unknown }
+  resolvePopTenant?: () => string | null | undefined
+}): boolean {
+  if (!blocked) return false
+  if (current.pathname !== next.pathname) return true
+  const currentSearch = (current.search ?? {}) as Record<string, unknown>
+  const nextSearch = (next.search ?? {}) as Record<string, unknown>
+  const currentHasParam = Object.hasOwn(currentSearch, 'data_tenant') && currentSearch.data_tenant !== undefined
+  const nextHasParam = Object.hasOwn(nextSearch, 'data_tenant') && nextSearch.data_tenant !== undefined
+  const currentEffective = currentHasParam ? String(currentSearch.data_tenant || '') : (activeTenantID ?? '')
+  const isPop = action === 'BACK' || action === 'FORWARD' || action === 'GO'
+  const nextEffective = nextHasParam
+    ? String(nextSearch.data_tenant || '')
+    : isPop
+      ? (resolvePopTenant?.() ?? '')
+      : currentEffective
+  return nextEffective !== currentEffective
+}
+
 /**
  * In-app navigation and tab-close guard for a dirty draft. Only a pathname
- * change counts as leaving: search-param writes such as an editor's own
- * `?agent=` scope stay free. It lives in its own component so callers without
- * a draft never reach `useBlocker`, which requires a data router.
+ * change or an effective data-tenant switch counts as leaving: search-param
+ * writes such as an editor's own `?agent=` scope stay free. It lives in its
+ * own component so callers without a draft never reach `useBlocker`, which
+ * requires a data router.
  */
 export function EditorNavigationGuard({ blocked }: { blocked: boolean }) {
   const blocker = useBlocker({
-    shouldBlockFn: ({ current, next }) => blocked && current.pathname !== next.pathname,
+    shouldBlockFn: ({ action, current, next }) =>
+      shouldBlockEditorNavigation({
+        action,
+        blocked,
+        current,
+        next,
+        resolvePopTenant: () => {
+          const state =
+            typeof window !== 'undefined'
+              ? (window.history?.state as { __TSR_key?: string; key?: string } | null)
+              : null
+          const recorded = peekActiveHistoryTenant(state?.__TSR_key ?? state?.key)
+          return recorded === undefined ? '' : (recorded ?? '')
+        }
+      }),
     enableBeforeUnload: false,
     withResolver: true
   })

@@ -67,6 +67,7 @@ import {
   podLinkUnfurl,
   podPageMove,
   podPageDelete,
+  podAppletOwner,
   podEmbedsDelete,
   podPageRestore,
   podPagePurge,
@@ -307,7 +308,9 @@ export const pageAPI = {
   knowledge: (id: string) => podKnowledgePanel({ path: { id } }),
   exportKnowledge: (id: string, snapshot_id?: string) => podKnowledgeExport({ path: { id }, query: { snapshot_id } }),
   move: (id: string, body: PageMove) => podPageMove({ path: { id }, body: { data: body } }),
-  remove: (id: string) => podPageDelete({ path: { id } }),
+  remove: (id: string, force = false) => podPageDelete({ path: { id }, ...(force ? { query: { force: true } } : {}) }),
+  claimAppletOwner: (page_id: string, owner_uid: string) =>
+    podAppletOwner({ path: { page_id }, body: { data: { owner_uid } } }),
   removeEmbeds: (id: string, refs: readonly string[]) =>
     podEmbedsDelete({ path: { id }, body: { data: { refs: [...refs] } } }),
   restore: (id: string) => podPageRestore({ path: { id } }),

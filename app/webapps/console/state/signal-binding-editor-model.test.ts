@@ -160,4 +160,91 @@ describe('SignalBindingEditorModel', () => {
     })
     model[Symbol.dispose]()
   })
+
+  test('switching connections submits the selected ID and drops discarded manual credential edits', () => {
+    const model = new SignalBindingEditorModel()
+    model.initialize('binding:agent-a:lark:main', {
+      agentUID: 'agent-a',
+      routingMode: 'ai_colleague',
+      adapterID: 'lark',
+      name: 'main',
+      groupMessageMode: 'observe_all',
+      unmatchedSenderPolicy: 'manual_review',
+      config: { authConfigId: 'connection-a', appID: 'app-a', appSecret: '', domain: 'feishu' }
+    })
+    expect(model.connectionChanged.value).toBe(false)
+    model.changeConfig('appSecret', 'discarded-secret')
+    model.changeConfig('delivery.userName', 'Research Bot')
+    model.changeConnection({
+      authConfigId: 'connection-b',
+      delivery: { userName: 'Research Bot' }
+    })
+
+    expect(model.config.value).toEqual({ authConfigId: 'connection-b', delivery: { userName: 'Research Bot' } })
+    expect(model.configPatch.value).toEqual({ authConfigId: 'connection-b', delivery: { userName: 'Research Bot' } })
+    expect(model.connectionChanged.value).toBe(true)
+    expect(model.dirty.value).toBe(true)
+
+    model.changeConnection({ authConfigId: 'connection-a', delivery: { userName: 'Research Bot' } })
+    expect(model.connectionChanged.value).toBe(false)
+    expect(model.configPatch.value.authConfigId).toBe('connection-a')
+    model[Symbol.dispose]()
+  })
+
+  test('switching to manual credentials explicitly clears the stored connection in the patch', () => {
+    const model = new SignalBindingEditorModel()
+    model.initialize('binding:agent-a:lark:main', {
+      agentUID: 'agent-a',
+      routingMode: 'ai_colleague',
+      adapterID: 'lark',
+      name: 'main',
+      groupMessageMode: 'observe_all',
+      unmatchedSenderPolicy: 'manual_review',
+      config: { authConfigId: 'connection-a', appSecret: '' }
+    })
+    model.changeConnection({ appID: '', appSecret: '' })
+    expect(model.configPatch.value).toEqual({ authConfigId: null })
+    expect(model.connectionChanged.value).toBe(true)
+    model.changeConfig('appID', 'manual-app')
+    model.changeConfig('appSecret', 'manual-secret')
+    expect(model.configPatch.value).toEqual({ authConfigId: null, appID: 'manual-app', appSecret: 'manual-secret' })
+    model[Symbol.dispose]()
+  })
+
+  test('connection defaults replace the pending values of fields that stay in the form', () => {
+    const model = new SignalBindingEditorModel()
+    model.initialize('binding:agent-a:lark:main', {
+      agentUID: 'agent-a',
+      routingMode: 'ai_colleague',
+      adapterID: 'lark',
+      name: 'main',
+      groupMessageMode: 'observe_all',
+      unmatchedSenderPolicy: 'manual_review',
+      config: { authConfigId: 'connection-a', identityProvider: '', appSecret: '' }
+    })
+    model.changeConfig('identityProvider', 'provider-x')
+    model.changeConnection({ authConfigId: null, identityProvider: '', appSecret: '' })
+    expect(model.configPatch.value).toEqual({ authConfigId: null, identityProvider: '' })
+    expect(model.config.value.identityProvider).toBe('')
+    model[Symbol.dispose]()
+  })
+
+  test('switching connections clears validation errors and keeps narrow nested patches intact', () => {
+    const model = new SignalBindingEditorModel()
+    model.initialize('binding:agent-a:lark:main', {
+      agentUID: 'agent-a',
+      routingMode: 'ai_colleague',
+      adapterID: 'lark',
+      name: 'main',
+      groupMessageMode: 'observe_all',
+      unmatchedSenderPolicy: 'manual_review',
+      config: { authConfigId: 'connection-a', delivery: { userName: 'Old', avatar: 'keep' } }
+    })
+    model.validationError.value = 'Target agent required'
+    model.changeConfig('delivery.userName', 'Research Bot')
+    model.changeConnection({ authConfigId: 'connection-b', delivery: { userName: 'Research Bot', avatar: 'keep' } })
+    expect(model.validationError.value).toBeUndefined()
+    expect(model.configPatch.value).toEqual({ authConfigId: 'connection-b', delivery: { userName: 'Research Bot' } })
+    model[Symbol.dispose]()
+  })
 })

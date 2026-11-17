@@ -777,8 +777,25 @@ fn bedrock_eventstream_finishes_with_the_message_stop_reason() {
     );
     assert_eq!(terminal["response"]["usage"]["total_tokens"], 38);
 
+    for stop_reason in ["content_filtered", "guardrail_intervened"] {
+        let (events, _end) = bedrock_eventstream(&[
+            bedrock_event(
+                "messageStop",
+                &format!(r#"{{"stopReason":"{stop_reason}"}}"#),
+            ),
+            bedrock_event("metadata", BEDROCK_METADATA),
+        ]);
+        let terminal = events.last().unwrap();
+        assert_eq!(terminal["type"], "response.incomplete");
+        assert_eq!(terminal["response"]["status"], "incomplete");
+        assert_eq!(
+            terminal["response"]["incomplete_details"]["reason"],
+            "content_filter"
+        );
+    }
+
     let (events, _end) = bedrock_eventstream(&[
-        bedrock_event("messageStop", r#"{"stopReason":"content_filtered"}"#),
+        bedrock_event("messageStop", r#"{"stopReason":"unknown_future_stop"}"#),
         bedrock_event("metadata", BEDROCK_METADATA),
     ]);
     let terminal = events.last().unwrap();
@@ -1143,4 +1160,276 @@ fn sse_stream_completes_on_trailing_done_without_final_blank_line_under_strict_p
         }
     }
     assert!(saw_completed, "expected response.completed event");
+}
+
+#[test]
+fn websocket_session_reuses_single_connection_across_turns_and_sends_incremental_previous_response_id()
+ {
+    let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (initial_tx, initial_rx) = mpsc::channel::<String>();
+
+    let server = thread::spawn(move || {
+        // Accept exactly one TCP connection for both turns.
+        let (socket, _) = listener.accept().unwrap();
+        let mut websocket = accept(socket).unwrap();
+
+        for resp_id in ["resp_turn_1", "resp_turn_2"] {
+            let Message::Text(text) = websocket.read().unwrap() else {
+                panic!("expected text frame");
+            };
+            initial_tx.send(text.to_string()).unwrap();
+            websocket
+                .send(Message::Text(
+                    format!(
+                        r#"{{"type":"response.created","response":{{"id":"{resp_id}","object":"response","status":"in_progress","output":[],"usage":{{}}}}}}"#
+                    )
+                    .into(),
+                ))
+                .unwrap();
+            websocket
+                .send(Message::Text(
+                    format!(
+                        r#"{{"type":"response.completed","response":{{"id":"{resp_id}","object":"response","status":"completed","output":[],"usage":{{}}}}}}"#
+                    )
+                    .into(),
+                ))
+                .unwrap();
+        }
+    });
+
+    let session = Arc::new(WebSocketSession::new());
+
+    // Turn 1: connects and parks the socket on clean completion.
+    let (event_tx1, event_rx1) = mpsc::channel();
+    let sink1: EventSink = Arc::new(move |event| {
+        event_tx1.send(event).unwrap();
+    });
+    let spec1 = format!(
+        r#"{{
+          "api_resolver": "openai_responses",
+          "upstream": {{
+            "kind": "websocket_text",
+            "method": "GET",
+            "url": "ws://{address}/v1/responses",
+            "headers": [],
+            "timeout": {{"connect_ms": 1000, "first_byte_ms": 1000, "idle_ms": 1000}},
+            "transport": {{}}
+          }},
+          "response_context": {{"model": "gpt-test", "request": {{"input": [{{"type": "message", "role": "user", "content": "turn 1"}}], "instructions": "sys"}}}}
+        }}"#
+    );
+
+    let handle1 = start_stream_with_session(&spec1, Some(Arc::clone(&session)), sink1).unwrap();
+    let frame1: Value =
+        sonic_rs::from_str(&initial_rx.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+    assert_eq!(frame1["type"], "response.create");
+    assert!(frame1.get("previous_response_id").is_none());
+
+    match event_rx1.recv_timeout(Duration::from_secs(1)).unwrap() {
+        StreamEvent::Ready(meta) => {
+            assert_eq!(meta["websocket_reused"], false);
+            assert!(meta["request_bytes"].as_u64().unwrap() > 0);
+        }
+        event => panic!("expected ready event, got {event:?}"),
+    }
+    handle1.read(4).unwrap();
+    assert_eq!(chunk_event(&event_rx1)["type"], "response.created");
+    assert_eq!(chunk_event(&event_rx1)["type"], "response.completed");
+    assert!(matches!(
+        event_rx1.recv_timeout(Duration::from_secs(1)).unwrap(),
+        StreamEvent::Done(_)
+    ));
+    assert!(session.has_parked_socket());
+
+    // Turn 2: reuses parked socket and sends incremental delta with previous_response_id.
+    let (event_tx2, event_rx2) = mpsc::channel();
+    let sink2: EventSink = Arc::new(move |event| {
+        event_tx2.send(event).unwrap();
+    });
+    let spec2 = format!(
+        r#"{{
+          "api_resolver": "openai_responses",
+          "upstream": {{
+            "kind": "websocket_text",
+            "method": "GET",
+            "url": "ws://{address}/v1/responses",
+            "headers": [],
+            "timeout": {{"connect_ms": 1000, "first_byte_ms": 1000, "idle_ms": 1000}},
+            "transport": {{}}
+          }},
+          "response_context": {{
+            "model": "gpt-test",
+            "request": {{
+              "__ankole_upstream_previous_response_id": "resp_turn_1",
+              "input": [{{"type": "message", "role": "user", "content": "turn 2"}}],
+              "instructions": "sys"
+            }}
+          }}
+        }}"#
+    );
+
+    let handle2 = start_stream_with_session(&spec2, Some(Arc::clone(&session)), sink2).unwrap();
+    let frame2: Value =
+        sonic_rs::from_str(&initial_rx.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+    assert_eq!(frame2["type"], "response.create");
+    assert_eq!(frame2["previous_response_id"], "resp_turn_1");
+    assert_eq!(frame2["instructions"], "sys");
+    assert!(
+        frame2
+            .get("__ankole_upstream_previous_response_id")
+            .is_none()
+    );
+
+    match event_rx2.recv_timeout(Duration::from_secs(1)).unwrap() {
+        StreamEvent::Ready(meta) => {
+            assert_eq!(meta["websocket_reused"], true);
+        }
+        event => panic!("expected ready event, got {event:?}"),
+    }
+    handle2.read(4).unwrap();
+    assert_eq!(chunk_event(&event_rx2)["type"], "response.created");
+    let completed2 = chunk_event(&event_rx2);
+    assert_eq!(completed2["type"], "response.completed");
+    assert!(completed2["response"]["previous_response_id"].is_null());
+    assert!(matches!(
+        event_rx2.recv_timeout(Duration::from_secs(1)).unwrap(),
+        StreamEvent::Done(_)
+    ));
+    assert!(session.has_parked_socket());
+
+    session.close();
+    assert!(!session.has_parked_socket());
+    server.join().unwrap();
+}
+
+#[test]
+fn websocket_pre_first_event_error_frame_emits_native_error_without_chunks_and_closes_session() {
+    let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+
+    thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let mut websocket = accept(socket).unwrap();
+        let _ = websocket.read();
+        websocket
+            .send(Message::Text(
+                r#"{"type":"error","status":400,"error":{"type":"invalid_request_error","code":"previous_response_not_found","message":"Previous response not found."}}"#.into(),
+            ))
+            .unwrap();
+        // Keep socket open without sending response.failed, matching OpenAI WebSocket mode.
+        thread::sleep(Duration::from_millis(300));
+    });
+
+    let session = Arc::new(WebSocketSession::new());
+    let (event_tx, event_rx) = mpsc::channel();
+    let sink: EventSink = Arc::new(move |event| {
+        let _ = event_tx.send(event);
+    });
+    let spec = format!(
+        r#"{{
+          "api_resolver": "openai_responses",
+          "upstream": {{
+            "kind": "websocket_text",
+            "method": "GET",
+            "url": "ws://{address}/v1/responses",
+            "headers": [],
+            "timeout": {{"connect_ms": 1000, "first_byte_ms": 1000, "idle_ms": 5000}},
+            "transport": {{}}
+          }},
+          "response_context": {{
+            "model": "gpt-test",
+            "request": {{
+              "__ankole_upstream_previous_response_id": "resp_missing",
+              "input": [{{"type": "message", "role": "user", "content": "delta"}}]
+            }}
+          }}
+        }}"#
+    );
+
+    let _handle = start_stream_with_session(&spec, Some(Arc::clone(&session)), sink).unwrap();
+
+    assert!(matches!(
+        event_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        StreamEvent::Ready(_)
+    ));
+
+    // Must arrive immediately without read credit and without hanging on idle_ms.
+    match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
+        StreamEvent::Error(error) => {
+            assert_eq!(error["code"], "provider_status_rejected");
+            assert_eq!(error["provider_status"], 400);
+            assert_eq!(error["provider_error_type"], "invalid_request_error");
+            assert!(
+                error["provider_body_excerpt"]
+                    .as_str()
+                    .unwrap()
+                    .contains("previous_response_not_found")
+            );
+        }
+        event => panic!("expected native pre-first-event error, got {event:?}"),
+    }
+    assert!(!session.has_parked_socket());
+}
+
+#[test]
+fn websocket_cancel_closes_session_instead_of_parking_dirty_socket() {
+    let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+
+    thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let mut websocket = accept(socket).unwrap();
+        let _ = websocket.read();
+        websocket
+            .send(Message::Text(
+                r#"{"type":"response.created","response":{"id":"resp_cancel","object":"response","status":"in_progress","output":[],"usage":{}}}"#.into(),
+            ))
+            .unwrap();
+        thread::sleep(Duration::from_millis(300));
+    });
+
+    let session = Arc::new(WebSocketSession::new());
+    let (event_tx, event_rx) = mpsc::channel();
+    let sink: EventSink = Arc::new(move |event| {
+        let _ = event_tx.send(event);
+    });
+    let spec = format!(
+        r#"{{
+          "api_resolver": "openai_responses",
+          "upstream": {{
+            "kind": "websocket_text",
+            "method": "GET",
+            "url": "ws://{address}/v1/responses",
+            "headers": [],
+            "timeout": {{"connect_ms": 1000, "first_byte_ms": 1000, "idle_ms": 5000}},
+            "transport": {{}}
+          }},
+          "response_context": {{"model": "gpt-test", "request": {{"input": "hi"}}}}
+        }}"#
+    );
+
+    let handle = start_stream_with_session(&spec, Some(Arc::clone(&session)), sink).unwrap();
+    assert!(matches!(
+        event_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        StreamEvent::Ready(_)
+    ));
+    handle.read(1).unwrap();
+    assert_eq!(chunk_event(&event_rx)["type"], "response.created");
+    handle.cancel().unwrap();
+    assert!(matches!(
+        event_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        StreamEvent::Aborted
+    ));
+    assert!(!session.has_parked_socket());
+
+    let (event_tx2, event_rx2) = mpsc::channel();
+    let sink2: EventSink = Arc::new(move |event| {
+        let _ = event_tx2.send(event);
+    });
+    let _handle2 = start_stream_with_session(&spec, Some(Arc::clone(&session)), sink2).unwrap();
+    match event_rx2.recv_timeout(Duration::from_secs(1)).unwrap() {
+        StreamEvent::Error(error) => assert_eq!(error["code"], "websocket_session_closed"),
+        event => panic!("expected closed session error, got {event:?}"),
+    }
 }

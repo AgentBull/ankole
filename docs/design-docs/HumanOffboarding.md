@@ -63,7 +63,8 @@ administrator through a complete audit ActorRef and uses service authorization.
 Disabling a Human stops future work associated with that tenant and `human_uid`.
 Tenant deletion follows the same revocation path and finishes durable work
 cleanup before deleting the Human rows. Operators can explicitly reauthorize paused cron
-rules from the work-review list, whereas terminal tasks and cancelled jobs must
+rules and routines from the work-review list—either assigning them to an active
+Human or reclassifying team-owned schedules to service authorization—whereas terminal tasks and cancelled jobs must
 be recreated through their owning subsystem. `WorkCleanup` records each
 completed `access_version` sweep in Human access history, and tenant deletion
 processes cleanup in bounded, retry-safe batches.
@@ -435,19 +436,18 @@ credentials.
 ## Restore Access Explicitly
 
 An authorized administrator restores a disabled Human by submitting an audit
-reason. Ankole records the actor and reason, clears eligible restrictions, and
-sets the Human to `active` in one transaction. If a restriction lacks the
-required provider evidence, the transaction rolls back and keeps all
-restrictions and the `disabled` state intact.
+reason. Ankole records the actor and reason, clears active manual and
+provider-originated restrictions while advancing the provider replay watermark
+(`recovery_verified_at`), and sets the Human to `active` in one transaction.
 
 The restored account uses its current direct grants, group memberships, and
 computed authorization rules. Administrators are responsible for the access they
 restore and can edit grants or memberships through the ordinary AuthZ editors.
 
-A provider-originated restriction can be cleared only when a complete, `healthy`
-directory snapshot (with any pending scope or large-removal review already
-approved) observes the subject as active. A provider update makes recovery
-eligible; the administrator still initiates restoration.
+Advancing `recovery_verified_at` ensures that delayed or replayed provider
+events carrying a `provider_time` earlier than the restoration timestamp are
+ignored, while subsequent directory snapshots or newer departure events still
+apply restrictions according to the latest upstream observation.
 
 After restoration, the person must sign in anew: pre-disablement browser
 sessions, OIDC tokens, cancelled jobs, and paused schedules remain invalid or

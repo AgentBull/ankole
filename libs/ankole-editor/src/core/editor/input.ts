@@ -23,17 +23,21 @@ import {
 } from '../command'
 import { findClusterBreak } from '@marijn/find-cluster-break'
 import type { Wordgard } from './editor'
-import { rangeForClick } from './selection'
+import { rangeForClick, setDOMSelection } from './selection'
 import browser from './browser'
 import {
   getSelection,
+  hasSelection,
+  atElementStart,
   scrollableParents,
   DOMNode,
   textNodeBefore,
   textNodeAfter,
   domIndex,
   isEquivalentPosition,
-  getSelectionRange
+  getSelectionRange,
+  isElt,
+  isText
 } from './dom'
 import { readClipboard, writeClipboard } from './clipboard'
 import { selectionFromDOM } from './domobserver'
@@ -187,6 +191,10 @@ export class InputState {
     }
   }
 
+  scheduleFocusCheck() {
+    updateForFocusChange(this.wg)
+  }
+
   ensureHandlers(state: GardState) {
     const handlers = computeHandlers(state),
       prev = this.handlers,
@@ -211,6 +219,7 @@ export class InputState {
     this.lastKeyCode = event.keyCode
     this.lastKeyTime = Date.now()
     this.shiftKey = event.keyCode == 16 || event.shiftKey
+    if (this.composing && event.isComposing === false) compositionEnd(this.wg)
     if (event.keyCode != 229) this.readNewSelection()
     return false
   }
@@ -253,11 +262,11 @@ export class InputState {
   // positions when there are unflushed DOM changes.
   getDOMPos(node: Node, offset: number) {
     if (!this.domChanges) return this.wg.docTile.posFromDOM(node, offset)
-    if (node.nodeType == 1 && offset && node.childNodes[offset - 1]!.nodeType == 3) {
+    if (isElt(node) && offset && isText(node.childNodes[offset - 1])) {
       node = node.childNodes[offset - 1]!
       offset = node.nodeValue!.length
     }
-    const inText = node.nodeType == 3 && !this.wg.docTile.nearest(node)?.isPoint
+    const inText = isText(node) && !this.wg.docTile.nearest(node)?.isPoint
     let ref = this.wg.docTile.posFromDOM(node, inText ? 0 : offset)
     let dir: -1 | 1 = -1
     const textBefore = node.parentNode && textNodeBefore(node.parentNode, domIndex(node))
@@ -292,6 +301,8 @@ export class InputState {
 
   // Update the editor state for a beforeinput event.
   beforeInput(event: InputEvent, data: InputEventData) {
+    if (this.composing && event.isComposing === false && !/Composition/.test(event.inputType)) compositionEnd(this.wg)
+
     const type = event.inputType
     let range: { from: number; to: number } | undefined
     const { wg } = this
@@ -464,7 +475,7 @@ export class InputState {
     }
 
     const comp = this.composing
-    if (!comp) return null
+    if (!comp || !comp.changes) return null
     comp.target = this.findComposition(comp.target)
     if (!comp.target) return null
     let value = comp.target.nodeValue!
@@ -508,7 +519,8 @@ export class InputState {
   }
 
   clearComposition() {
-    const comp = this.composing!
+    const comp = this.composing
+    if (!comp) return false
     this.composing = null
     this.compositionCompletionPending = true
     this.compositionPendingKey = true
@@ -709,7 +721,7 @@ class MouseSelection {
   dragging: null | boolean
   extend: boolean
   lastEvent: MouseEvent
-  scrollParents: { x?: HTMLElement; y?: HTMLElement }
+  scrollParents: { x?: Element; y?: Element }
   scrollSpeed = { x: 0, y: 0 }
   scrolling = -1
 
@@ -1097,6 +1109,7 @@ const baseHandlers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
     ) {
       return false
     }
+    if (event.button == 0 && wg.inputState.composing) compositionEnd(wg)
     let style: Wordgard.MouseSelectionStyle | null = null
     for (const makeStyle of wg.state.facet(mouseSelectionStyle)) {
       style = makeStyle(wg, event)
@@ -1271,11 +1284,40 @@ const baseObservers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: 
       wg.scrollDOM.scrollTop = wg.inputState.lastScrollTop
       wg.scrollDOM.scrollLeft = wg.inputState.lastScrollLeft
     }
+    if (
+      !wg.composing &&
+      wg.hasFocus &&
+      !wg.isFlushing &&
+      !wg.inputState.mouseSelection &&
+      wg.inputState.lastTouchTime < Date.now() - 300 &&
+      !wg.observer.selectionChanged &&
+      !wg.viewState.pending.some(tr => tr.docChanged)
+    ) {
+      const raw = getSelectionRange(wg.root)
+      const range = raw && {
+        anchorNode: raw.startContainer,
+        anchorOffset: raw.startOffset,
+        focusNode: raw.endContainer,
+        focusOffset: raw.endOffset
+      }
+      if (!range || !hasSelection(wg.contentDOM, range) || atElementStart(wg.contentDOM, range)) {
+        wg.observer.ignore(() => setDOMSelection(wg))
+      }
+    }
     updateForFocusChange(wg)
   },
 
   blur(wg) {
     wg.inputState.shiftKey = false
+    if (wg.inputState.composing) {
+      if (!wg.inputState.composing.changes) {
+        compositionEnd(wg)
+      } else {
+        queueMicrotask(() => {
+          if (wg.connected && !wg.hasFocus && wg.inputState.composing) compositionEnd(wg)
+        })
+      }
+    }
     updateForFocusChange(wg)
   },
 

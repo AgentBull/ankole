@@ -287,6 +287,11 @@ function SkillRow({ skill }: { skill: MetaSkill }) {
             ) : (
               <span className="text-xs text-fg-tertiary">{t(`pod.meta.source_${skill.source_kind}`)}</span>
             )}
+            {skill.has_upstream_update && (
+              <span className="rounded-mini bg-warning-subtle px-1.5 py-0.5 text-xs font-medium text-warning-fg">
+                {t('pod.meta.upstream_update_available')}
+              </span>
+            )}
           </div>
           <p className="mt-2 text-sm text-fg-secondary">{skill.description}</p>
           <p className="mt-1 text-xs text-fg-tertiary">

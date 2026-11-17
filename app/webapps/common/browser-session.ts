@@ -5,6 +5,15 @@ import { registeredSessionHeaders } from './internal-api-client'
 
 const podDraftPrefixes = ['ankole.pod.comments:', 'ankole.pod.document-draft:'] as const
 
+export type PodSessionDraftCleaner = (prefixes: readonly string[] | null) => void
+
+const podSessionDraftCleaners = new Set<PodSessionDraftCleaner>()
+
+export function registerPodSessionDraftCleaner(cleaner: PodSessionDraftCleaner): () => void {
+  podSessionDraftCleaners.add(cleaner)
+  return () => podSessionDraftCleaners.delete(cleaner)
+}
+
 function storageKey(): string {
   return `ankole.console.data-tenant:${authenticationRef() ?? 'anonymous'}`
 }
@@ -30,9 +39,12 @@ function removeMatchingKeys(storage: Storage | undefined, prefixes: readonly str
 }
 
 export function clearPodSessionDrafts(scope?: { podId?: string | null; principalUid?: string | null }): void {
-  if (typeof window === 'undefined') return
   const scoped = scope?.podId && scope?.principalUid ? `${scope.podId}:${scope.principalUid}:` : ''
   const prefixes = scoped ? podDraftPrefixes.map(prefix => `${prefix}${scoped}`) : podDraftPrefixes
+  for (const cleaner of podSessionDraftCleaners) {
+    cleaner(scoped ? prefixes : null)
+  }
+  if (typeof window === 'undefined') return
   let local: Storage | undefined
   let session: Storage | undefined
   try {
@@ -50,12 +62,33 @@ export function clearPodSessionDrafts(scope?: { podId?: string | null; principal
   void clearPodLocalCache(scope)
 }
 
+const dataTenantListeners = new Set<() => void>()
+
+function notifyDataTenantListeners(): void {
+  for (const listener of dataTenantListeners) listener()
+}
+
+export function subscribeDataTenant(listener: () => void): () => void {
+  dataTenantListeners.add(listener)
+  return () => dataTenantListeners.delete(listener)
+}
+
 export function dataTenantID(): string | null {
-  return window.sessionStorage.getItem(storageKey())
+  if (typeof window === 'undefined') return null
+  return window.sessionStorage?.getItem(storageKey()) ?? null
 }
 
 export function clearDataTenant(): void {
-  window.sessionStorage.removeItem(storageKey())
+  if (typeof window === 'undefined') return
+  window.sessionStorage?.removeItem(storageKey())
+  notifyDataTenantListeners()
+}
+
+export function setDataTenantSoft(tenantID: string | null): void {
+  if (typeof window === 'undefined') return
+  if (tenantID) window.sessionStorage?.setItem(storageKey(), tenantID)
+  else window.sessionStorage?.removeItem(storageKey())
+  notifyDataTenantListeners()
 }
 
 export async function endAccountSession(): Promise<void> {
@@ -75,8 +108,12 @@ export function applyDataTenantNavigation(): void {
   const url = new URL(window.location.href)
   if (!url.searchParams.has('data_tenant')) return
   const tenantID = url.searchParams.get('data_tenant')
-  if (tenantID) window.sessionStorage.setItem(storageKey(), tenantID)
-  else clearDataTenant()
+  if (tenantID) {
+    window.sessionStorage.setItem(storageKey(), tenantID)
+    notifyDataTenantListeners()
+  } else {
+    clearDataTenant()
+  }
   url.searchParams.delete('data_tenant')
   window.history.replaceState(window.history.state, '', url)
 }

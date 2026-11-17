@@ -162,7 +162,7 @@ defmodule Ankole.Conversations.ReplySuggestion do
   end
 
   defp prepared_action_cards?(conversation_id) do
-    MapSet.member?(ActionCards.prepared_conversation_ids([conversation_id]), conversation_id)
+    MapSet.member?(ActionCards.open_conversation_ids([conversation_id]), conversation_id)
   end
 
   defp draft(agent_uid, messages, locale, request_context) do

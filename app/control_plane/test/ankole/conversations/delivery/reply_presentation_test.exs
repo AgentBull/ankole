@@ -676,4 +676,27 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentationTest do
     assert stopped_nil["state"] == "stopped"
     assert stopped_nil["answer"] == ""
   end
+
+  test "checkpoint preserves working status label and activities across response rounds" do
+    working =
+      ReplyPresentation.new(state: "working")
+      |> ReplyPresentation.apply_event("turn.phase", %{
+        "revision" => 1,
+        "state" => "working",
+        "label" => "Calling tool: brain"
+      })
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "call_brain_1",
+        "revision" => 2,
+        "phase" => "running",
+        "label" => "Calling tool: brain"
+      })
+      |> ReplyPresentation.replace_answer("partial")
+
+    checkpointed = ReplyPresentation.checkpoint(working)
+    assert checkpointed["state"] == "working"
+    assert get_in(checkpointed, ["meta", "status"]) == "Calling tool: brain"
+    assert get_in(checkpointed, ["activities", "call_brain_1", "phase"]) == "running"
+    assert get_in(checkpointed, ["activities", "call_brain_1", "label"]) == "Calling tool: brain"
+  end
 end

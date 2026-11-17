@@ -108,7 +108,7 @@ export function DeclarativeFacts({
         .filter(col => record[col] != null && !['attributes', 'links', 'relationships', 'type'].includes(col))
         .map(col => (
           <div key={col} className="contents">
-            <dt className="text-muted-foreground">
+            <dt className="text-fg-secondary">
               {t(`${i18nPrefix}.field.${col}`, { defaultValue: formatIdentifierLabel(col) })}
             </dt>
             <dd>
@@ -188,7 +188,7 @@ export function DeclarativeDataTable({
 }) {
   const { t } = useTranslation()
   return (
-    <section className="grid min-w-0 gap-2 border border-border bg-card p-4">
+    <section className="grid min-w-0 gap-2 border border-border-subtle bg-page p-4">
       <div className="flex items-center justify-between gap-2">
         <h3 className="title-section">{title}</h3>
         {linkTo ? (
@@ -198,7 +198,7 @@ export function DeclarativeDataTable({
         ) : null}
       </div>
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('console.empty.title', { defaultValue: 'No data' })}</p>
+        <p className="text-sm text-fg-secondary">{t('console.empty.title', { defaultValue: 'No data' })}</p>
       ) : (
         <div className="overflow-x-auto">
           <Table aria-label={title}>
@@ -281,7 +281,7 @@ export function DeclarativeResultRenderer({
       ) : null}
 
       {schema.latency ? (
-        <div className="border border-border bg-card p-4">
+        <div className="border border-border-subtle bg-page p-4">
           <h3 className="title-section mb-2">
             {t(`${i18nPrefix}.field.${schema.latency.field}`, {
               defaultValue: formatIdentifierLabel(schema.latency.field)
@@ -297,7 +297,7 @@ export function DeclarativeResultRenderer({
       ) : null}
 
       {schema.sections?.map(section => (
-        <div key={section.field} className="border border-border bg-card p-4">
+        <div key={section.field} className="border border-border-subtle bg-page p-4">
           <h3 className="title-section mb-2">
             {t(section.titleKey, { defaultValue: formatIdentifierLabel(section.field) })}
           </h3>
@@ -325,7 +325,7 @@ export function DeclarativeResultRenderer({
       })}
 
       {schema.detailFields && schema.detailFields.length > 0 ? (
-        <div className="border border-border bg-card p-4">
+        <div className="border border-border-subtle bg-page p-4">
           <DeclarativeFacts
             columns={schema.detailFields}
             fieldFormats={formats}
@@ -381,7 +381,7 @@ export function DeclarativePanelView({
     <div className="grid gap-4">
       {hasFields ? (
         <form
-          className="grid gap-4 border border-border bg-card p-4"
+          className="grid gap-4 border border-border-subtle bg-page p-4"
           noValidate
           onSubmit={event => {
             event.preventDefault()
@@ -426,7 +426,7 @@ export function DeclarativePanelView({
 
       <ErrorBlock error={error} />
       {loading ? (
-        <p className="text-sm text-muted-foreground" role="status">
+        <p className="text-sm text-fg-secondary" role="status">
           {t('common.loading', { defaultValue: 'Loading...' })}
         </p>
       ) : null}
@@ -448,7 +448,7 @@ export function DeclarativePanelView({
             schema={surface.resultSchema}
           />
         ) : (
-          <div className="border border-border bg-card p-4">
+          <div className="border border-border-subtle bg-page p-4">
             <DeclarativeFacts
               columns={surface.columns.length > 0 ? surface.columns : undefined}
               fieldFormats={formats}
@@ -458,7 +458,7 @@ export function DeclarativePanelView({
           </div>
         )
       ) : !loading && hasTriggered ? (
-        <p className="text-sm text-muted-foreground">{t('console.empty.title', { defaultValue: 'No data' })}</p>
+        <p className="text-sm text-fg-secondary">{t('console.empty.title', { defaultValue: 'No data' })}</p>
       ) : null}
     </div>
   )
@@ -554,7 +554,7 @@ export function DeclarativeDashboardView({
       <ErrorBlock error={report.error} />
 
       {report.loading ? (
-        <p className="text-sm text-muted-foreground" role="status">
+        <p className="text-sm text-fg-secondary" role="status">
           {t('common.loading', { defaultValue: 'Loading...' })}
         </p>
       ) : null}
@@ -576,7 +576,7 @@ export function DeclarativeDashboardView({
       ) : null}
 
       {selectedDrilldown && schema.drilldownRoute && schema.drilldownParams ? (
-        <div className="flex items-center justify-between border border-border bg-card px-4 py-3 text-sm">
+        <div className="flex items-center justify-between border border-border-subtle bg-page px-4 py-3 text-sm">
           <span>
             {t(schema.drilldownParams.promptKey ?? `${i18nPrefix}.ui.drilldown`, {
               defaultValue: 'Inspect records for'
@@ -616,7 +616,7 @@ export function DeclarativeDashboardView({
             const sectionData = data[section.sourceKey]
             if (!isRecord(sectionData)) return null
             return (
-              <section key={section.sourceKey} className="grid gap-2 border border-border bg-card p-4">
+              <section key={section.sourceKey} className="grid gap-2 border border-border-subtle bg-page p-4">
                 <h3 className="title-section">
                   {t(section.titleKey, { defaultValue: formatIdentifierLabel(section.sourceKey) })}
                 </h3>
@@ -655,7 +655,7 @@ export function DeclarativeDashboardView({
       !surface.resultSchema &&
       !schema.factsSections &&
       !schema.tableSections ? (
-        <div className="border border-border bg-card p-4">
+        <div className="border border-border-subtle bg-page p-4">
           <RefreshButton />
           <DeclarativeFacts i18nPrefix={i18nPrefix} record={data} />
         </div>

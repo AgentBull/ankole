@@ -86,7 +86,12 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
   defp authorize_runner_route(%{method: method, path_info: ["api", "v1", "ai-gateway", route]}, %{
          "runner_worker" => _
        })
-       when {method, route} in [{"GET", "models"}, {"GET", "responses"}, {"POST", "responses"}],
+       when {method, route} in [
+              {"GET", "models"},
+              {"GET", "responses"},
+              {"POST", "responses"},
+              {"POST", "ocr"}
+            ],
        do: :ok
 
   defp authorize_runner_route(_conn, %{"runner_worker" => _}), do: {:error, :invalid_token}

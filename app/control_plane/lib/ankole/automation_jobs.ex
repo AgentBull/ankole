@@ -50,6 +50,7 @@ defmodule Ankole.AutomationJobs do
     end
 
     resource Run do
+      define(:get_automation_job_run, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_automation_job_runs, action: :read)
     end
 

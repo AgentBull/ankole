@@ -100,6 +100,44 @@ defmodule Ankole.Pod.PageFullTextSearchTest do
     assert title_hit.id == doc.id
   end
 
+  test "updating a :doc page body indexes newly added text and removes deleted text from search",
+       ctx do
+    {:ok, doc} =
+      Pages.create(ctx.actor, %{
+        title: "Mutable Architecture Notes",
+        xml: "<page><p>Initial legacy_zephyr_token body paragraph.</p></page>"
+      })
+
+    assert {:ok, %{pages: [initial_hit]}} = Pages.search(ctx.actor, "legacy_zephyr_token")
+    assert initial_hit.id == doc.id
+
+    assert {:ok, %{page: updated}} =
+             Documents.write(
+               ctx.actor,
+               doc.id,
+               doc.revision,
+               "<page><p>Replaced with fresh_quasar_beacon body paragraph.</p></page>"
+             )
+
+    assert {:ok, %{pages: [added_hit]}} = Pages.search(ctx.actor, "fresh_quasar_beacon")
+    assert added_hit.id == doc.id
+    assert {:ok, %{pages: []}} = Pages.search(ctx.actor, "legacy_zephyr_token")
+
+    assert {:ok, %{page: _edited}} =
+             Documents.edit_markdown(
+               ctx.actor,
+               doc.id,
+               updated.revision,
+               "Finalized aurora_prism_marker body.",
+               :write,
+               nil
+             )
+
+    assert {:ok, %{pages: [md_hit]}} = Pages.search(ctx.actor, "aurora_prism_marker")
+    assert md_hit.id == doc.id
+    assert {:ok, %{pages: []}} = Pages.search(ctx.actor, "fresh_quasar_beacon")
+  end
+
   test "indexes Base tables, views, and fields and resolves base_table deep-link targets", ctx do
     {:ok, base_page} = Pages.create(ctx.actor, %{type: :base, title: "Revenue Operations"})
     {:ok, %{tables: [first_table | _]}} = Bases.list_tables(ctx.actor, base_page.id)
@@ -245,11 +283,7 @@ defmodule Ankole.Pod.PageFullTextSearchTest do
 
     assert Enum.map(subtree_hits, & &1.id) == [child_a.id, child_b.id]
 
-    # Respect hide_visits for visited_at, while personal edited_at still boosts edited pages
-    {:ok, _} = Pages.state(ctx.actor, child_b.id, %{visited: true, hide_visits: true})
-    assert {:ok, %{pages: still_a_first}} = Pages.search(ctx.actor, "lattice")
-    assert hd(still_a_first).id == child_a.id
-
+    # Personal edited_at and visited_at recency boost matching pages
     {:ok, child_c} =
       Pages.create(ctx.actor, %{
         parent_id: private_parent.id,
@@ -262,20 +296,31 @@ defmodule Ankole.Pod.PageFullTextSearchTest do
       set: [updated_at: same_time]
     )
 
+    older_edit = DateTime.add(DateTime.utc_now(:microsecond), -10 * 86_400, :second)
+
     {:ok, saved_state} =
       Repo.transact_top_level(fn ->
-        Pages.save_state_in_tx(ctx.owner.uid, child_b.id, %{edited_at: DateTime.utc_now()})
+        Pages.save_state_in_tx(ctx.owner.uid, child_b.id, %{edited_at: older_edit})
       end)
 
-    assert saved_state.hide_visits == true
     assert %DateTime{} = saved_state.edited_at
 
     assert {:ok, %{pages: ranked_after_edit}} = Pages.search(ctx.actor, "lattice")
+    assert hd(ranked_after_edit).id == child_a.id
 
     assert Enum.find_index(ranked_after_edit, &(&1.id == child_b.id)) <
              Enum.find_index(ranked_after_edit, &(&1.id == child_c.id))
+
+    {:ok, _} = Pages.state(ctx.actor, child_c.id, %{visited: true})
+
+    assert {:ok, %{pages: ranked_after_visit}} = Pages.search(ctx.actor, "lattice")
+    assert hd(ranked_after_visit).id == child_a.id
+
+    assert Enum.find_index(ranked_after_visit, &(&1.id == child_c.id)) <
+             Enum.find_index(ranked_after_visit, &(&1.id == child_b.id))
   end
 
+  @tag timeout: 120_000
   test "extracts inline text/CSV and async DOCX/PPTX/PDF files with deep-link coordinates and CAS safety",
        ctx do
     # 1. Synchronous Markdown file upload

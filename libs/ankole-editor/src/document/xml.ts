@@ -1,6 +1,16 @@
 import { SaxesParser } from 'saxes'
 import { normalizeTree } from './normalize'
-import { checkSource, DocumentError, element, limits, text, TreeError, type Element, type Node } from './tree'
+import {
+  checkSource,
+  DocumentError,
+  element,
+  limits,
+  text,
+  TreeError,
+  type DocumentErrorCode,
+  type Element,
+  type Node
+} from './tree'
 
 export function parseXml(source: string): Element {
   checkSource(source, 'xml')
@@ -9,8 +19,8 @@ export function parseXml(source: string): Element {
   const stack: Element[] = []
   let root: Element | undefined
   let count = 0
-  const fail = (reason: string, fix: string) => {
-    throw new DocumentError('xml', reason, Math.max(0, parser.position - 1), parser.position, fix, source)
+  const fail = (reason: string, fix: string, code: DocumentErrorCode) => {
+    throw new DocumentError('xml', reason, Math.max(0, parser.position - 1), parser.position, fix, source, code)
   }
   const addText = (value: string) => {
     const parent = stack.at(-1)
@@ -22,17 +32,31 @@ export function parseXml(source: string): Element {
   parser.on('text', addText)
   parser.on('cdata', addText)
   parser.on('xmldecl', declaration => {
-    if (declaration.version !== '1.0') fail('只支持 XML 1.0', '请写 <?xml version="1.0"?> 或删除声明。')
+    if (declaration.version !== '1.0') {
+      fail(
+        'Only XML 1.0 is accepted',
+        'Write <?xml version="1.0"?> or remove the declaration.',
+        'unsupported_xml_version'
+      )
+    }
     if (declaration.encoding && !/^utf-8$/i.test(declaration.encoding)) {
-      fail('源码编码必须是 UTF-8', '请删除 encoding 或写 UTF-8。')
+      fail('The source encoding must be UTF-8', 'Remove encoding or set it to UTF-8.', 'invalid_encoding')
     }
   })
-  parser.on('doctype', () => fail('页面不支持 DOCTYPE', '请删除 DOCTYPE。'))
-  parser.on('comment', () => fail('页面没有注释节点', '请删除这段注释。'))
-  parser.on('processinginstruction', () => fail('页面不支持处理指令', '请删除这段指令。'))
+  parser.on('doctype', () =>
+    fail('Pages do not allow a DOCTYPE declaration', 'Remove the DOCTYPE declaration.', 'unsupported_syntax')
+  )
+  parser.on('comment', () => fail('Pages do not have comment nodes', 'Remove this comment.', 'unsupported_syntax'))
+  parser.on('processinginstruction', () =>
+    fail('Pages do not allow processing instructions', 'Remove this processing instruction.', 'unsupported_syntax')
+  )
   parser.on('opentag', tag => {
     if (++count > limits.nodes || stack.length > limits.depth) {
-      fail(`页面超过 ${limits.nodes} 个节点或 ${limits.depth} 层嵌套`, '请把页面拆小。')
+      fail(
+        `The page exceeds ${limits.nodes} nodes or ${limits.depth} levels of nesting`,
+        'Split the page into smaller pages.',
+        'limit_exceeded'
+      )
     }
     const node = element(tag.name, Object.fromEntries(Object.entries(tag.attributes)))
     positions.set(node, [Math.max(0, source.lastIndexOf(`<${tag.name}`, parser.position)), parser.position])
@@ -43,15 +67,27 @@ export function parseXml(source: string): Element {
   parser.on('closetag', () => {
     stack.pop()
   })
-  parser.on('error', error => fail(error.message.replace(/^\d+:\d+: /, ''), '请修正这处 XML 语法。'))
+  parser.on('error', error =>
+    fail(error.message.replace(/^\d+:\d+: /, ''), 'Correct this XML syntax.', 'invalid_tag_syntax')
+  )
   parser.write(source).close()
-  if (!root) throw new DocumentError('xml', '缺少 page 根元素', 0, 0, '请用 <page> 包住整页内容。', source)
+  if (!root) {
+    throw new DocumentError(
+      'xml',
+      'Missing <page> root element',
+      0,
+      0,
+      'Wrap the page content in <page>.',
+      source,
+      'missing_root'
+    )
+  }
   try {
     return normalizeTree(root)
   } catch (error) {
     if (!(error instanceof TreeError)) throw error
     const [start, end] = (error.node && positions.get(error.node)) ?? [0, source.length]
-    throw new DocumentError('xml', error.message, start, end, error.fix, source)
+    throw new DocumentError('xml', error.message, start, end, error.fix, source, error.code)
   }
 }
 

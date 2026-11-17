@@ -33,7 +33,13 @@ defmodule Ankole.Pod.Applets.AI do
            true <- valid_save_to?(options["saveTo"]) or invalid_request(),
            {:ok, destination} <- authorize_destination(actor, applet_page_id, options["saveTo"]),
            {:ok, body} <-
-             Gateway.call(principal, :ai, &AIGateway.create_speech/3, speech_request(options)),
+             Gateway.call(
+               principal,
+               :ai,
+               &AIGateway.create_speech/3,
+               speech_request(options),
+               applet_page_id: applet_page_id
+             ),
            {:ok, committed} <-
              commit_generated_file(actor, destination, body["audio"], body["content_type"]) do
         {:ok, generated_file(committed, body["content_type"], opts)}
@@ -59,7 +65,9 @@ defmodule Ankole.Pod.Applets.AI do
   Turns a Pod audio file into text through the Pod `transcription` profile.
   The file name's extension names the audio format.
   """
-  def transcribe(%Ankole.AuthZ.Actor{} = actor, options) do
+  def transcribe(actor, options, opts \\ [])
+
+  def transcribe(%Ankole.AuthZ.Actor{} = actor, options, opts) when is_list(opts) do
     Gateway.with_principal(actor, fn principal ->
       with :ok <- known_options(options, ~w(audio language vadFilter verbose)),
            {:ok, input_audio} <- pod_audio(actor, options["audio"]),
@@ -74,7 +82,8 @@ defmodule Ankole.Pod.Applets.AI do
                |> maybe_put_gateway(
                  "response_format",
                  if(options["verbose"] == true, do: "verbose_json")
-               )
+               ),
+               Keyword.take(opts, [:applet_page_id])
              ) do
         {:ok, Map.take(body, ~w(model text language duration segments usage))}
       end
@@ -99,16 +108,24 @@ defmodule Ankole.Pod.Applets.AI do
   images. `usage` counts the pages, and the tokens when a language model read
   the image.
   """
-  def ocr(%Ankole.AuthZ.Actor{} = actor, options) do
+  def ocr(actor, options, opts \\ [])
+
+  def ocr(%Ankole.AuthZ.Actor{} = actor, options, opts) when is_list(opts) do
     Gateway.with_principal(actor, fn principal ->
       with :ok <- known_options(options, ~w(image)),
            true <- is_binary(options["image"]) or invalid_request(),
            {:ok, document} <- resolve_pod_image_data_url(actor, options["image"]),
            {:ok, body} <-
-             Gateway.call(principal, :ai, &AIGateway.create_ocr/3, %{
-               "model" => "ocr.default",
-               "document" => document
-             }) do
+             Gateway.call(
+               principal,
+               :ai,
+               &AIGateway.create_ocr/3,
+               %{
+                 "model" => "ocr.default",
+                 "document" => document
+               },
+               Keyword.take(opts, [:applet_page_id])
+             ) do
         {:ok,
          %{
            model: body["model"],
@@ -135,20 +152,23 @@ defmodule Ankole.Pod.Applets.AI do
   Answers typed questions about a state through the Pod `decision` profile, or
   through the `light` profile when no decision model is configured.
   """
-  def decide(%Ankole.AuthZ.Actor{} = actor, options) do
+  def decide(actor, options, opts \\ [])
+
+  def decide(%Ankole.AuthZ.Actor{} = actor, options, opts) when is_list(opts) do
     Gateway.with_principal(actor, fn principal ->
-      do_decide(principal, options)
+      do_decide(principal, options, opts)
     end)
   end
 
-  defp do_decide(principal, options) do
+  defp do_decide(principal, options, opts) do
     with :ok <- known_options(options, ~w(state questions images)),
          {:ok, body} <-
            Gateway.call(
              principal,
              :ai,
              &AIGateway.create_decision/3,
-             Map.put(options, "model", "decision.default")
+             Map.put(options, "model", "decision.default"),
+             Keyword.take(opts, [:applet_page_id])
            ) do
       {:ok,
        %{
@@ -162,18 +182,26 @@ defmodule Ankole.Pod.Applets.AI do
     end
   end
 
-  def generate_text(%Ankole.AuthZ.Actor{} = actor, options) do
+  def generate_text(actor, options, opts \\ [])
+
+  def generate_text(%Ankole.AuthZ.Actor{} = actor, options, opts) when is_list(opts) do
     Gateway.with_principal(actor, fn principal ->
-      do_generate_text(principal, options)
+      do_generate_text(principal, options, opts)
     end)
   end
 
-  defp do_generate_text(principal, options) do
+  defp do_generate_text(principal, options, opts) do
     with :ok <- profile(options["model"]),
          :ok <- prompt(options),
          {:ok, _effort} <- ReasoningEffort.normalize(options["effort"]),
          {:ok, body} <-
-           Gateway.call(principal, :ai, &AIGateway.create_response/3, request(options)),
+           Gateway.call(
+             principal,
+             :ai,
+             &AIGateway.create_response/3,
+             request(options),
+             Keyword.take(opts, [:applet_page_id])
+           ),
          {:ok, reason} <- finish_reason(body) do
       usage = body["usage"] || %{}
 
@@ -205,7 +233,8 @@ defmodule Ankole.Pod.Applets.AI do
            gateway_req = build_gateway_image_request(validated, image_urls, mask_url),
            {:ok, body} <-
              Gateway.call(principal, :ai_image, &AIGateway.create_image/3, gateway_req,
-               respect_provider_hosted?: true
+               respect_provider_hosted?: true,
+               applet_page_id: applet_page_id
              ),
            {:ok, committed} <-
              commit_generated_file(
@@ -292,6 +321,12 @@ defmodule Ankole.Pod.Applets.AI do
          "incomplete_details" => %{"reason" => "max_output_tokens"}
        }),
        do: {:ok, "length"}
+
+  defp finish_reason(%{
+         "status" => "incomplete",
+         "incomplete_details" => %{"reason" => "content_filter"}
+       }),
+       do: {:ok, "content_filter"}
 
   defp finish_reason(_), do: {:error, :ai_unavailable}
 

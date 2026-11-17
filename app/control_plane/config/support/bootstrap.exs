@@ -9,14 +9,13 @@ defmodule Ankole.Config.Bootstrap do
   @phoenix_secret_key_base "phoenix.secret_key_base"
 
   @doc "Parses the fixed Base shard topology before storage starts."
-  def base_databases(raw, database_url, env, partition \\ nil, edition \\ :foss) do
+  def base_databases(raw, database_url, env, partition \\ nil, defaults \\ []) do
     raw = if is_binary(raw) and String.trim(raw) == "", do: nil, else: raw
+    count = Keyword.get(defaults, :shard_count, if(env in [:dev, :test], do: 4))
 
     urls =
       case raw do
-        nil when env in [:dev, :test] or edition == :saas ->
-          count = if env in [:dev, :test], do: 4, else: 8
-
+        nil when is_integer(count) and count > 0 ->
           for index <- 0..(count - 1) do
             id = "base_" <> String.pad_leading(to_string(index), 2, "0")
             suffix = if env == :test, do: "_test_#{partition || "default"}", else: ""
@@ -33,12 +32,7 @@ defmodule Ankole.Config.Bootstrap do
 
     if urls == [], do: raise("BASE_DB_URLS must contain at least one URL")
 
-    default_pool =
-      cond do
-        env in [:dev, :test] -> 2
-        edition == :saas -> 5
-        true -> 10
-      end
+    default_pool = Keyword.get(defaults, :pool_size, if(env in [:dev, :test], do: 2, else: 10))
 
     shards = Enum.map(urls, &base_database(&1, length(urls), default_pool))
     ids = Enum.map(shards, & &1.id)

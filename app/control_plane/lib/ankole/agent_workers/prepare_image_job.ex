@@ -33,7 +33,7 @@ defmodule Ankole.AgentWorkers.PrepareImageJob do
     with {:ok, provider} <- Providers.load(id),
          {:ok, kind} <- ProviderKind.fetch(provider.kind),
          :ok <- kind.prepare_image(provider, provider.runtime.image) do
-      :ok
+      Providers.record_prepared_image(provider)
     else
       {:pending, _reason} ->
         {:snooze, 15}

@@ -91,7 +91,7 @@ describe('Infographic document, editor, templates, and conversions', () => {
 
   test('Infographic blocks hold text only, strip inline marks, and preserve carriage returns', () => {
     expect(() => normalizeTree(page(element('infographic', {}, [element('strong', {}, [text('x')])])))).toThrow(
-      '<infographic> 只能包含文字'
+      '<infographic> can contain only text'
     )
 
     const state = headlessState(parseXml('<page><infographic>infographic compare-swot</infographic></page>'))

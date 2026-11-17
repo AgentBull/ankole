@@ -5,6 +5,7 @@ import {
   listIdentityProvidersOptions,
   saveIdentityProviderMutation
 } from '../api/v2/generated/@tanstack/react-query.gen'
+import { listControlPlanePluginsOptions, listTenantsOptions } from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { validateConsoleSlots } from '../slots'
 import {
   consoleTenantPage,
@@ -123,6 +124,13 @@ test('an aggregate row mutation pins its tenant without changing the caller inpu
   await options.mutationFn!(variables, { client: new QueryClient(), meta: undefined, mutationKey: undefined })
   expect(targets).toEqual(['tenant-b'])
   expect(variables).not.toHaveProperty('headers')
+})
+
+test('site-scoped generated queries remain unchanged under tenantQueryOptions', () => {
+  const plugins = listControlPlanePluginsOptions()
+  const tenants = listTenantsOptions()
+  expect(tenantQueryOptions(plugins, 'tenant-a')).toBe(plugins)
+  expect(tenantQueryOptions(tenants, 'tenant-b')).toBe(tenants)
 })
 
 test('aggregate searches and cursors stay with their tenant section', () => {

@@ -17,7 +17,7 @@ FOSS 프로덕션 배포에서 `BASE_DB_URLS`를 지정하지 않으면 `Ankole.
 |---|---|---|
 | `ANKOLE_MAX_CONCURRENT_SLOTS` | 12 | 단일 Agent의 열린 환경 workspace 수와 실행 중인 Codex turn 수 합계 |
 | `POOL_SIZE`(Compose/Helm에서는 `ANKOLE_DATABASE_POOL_SIZE`) | 10 | replica당 `Ankole.Repo` control-plane 데이터베이스 연결 풀 크기 |
-| `BASE_DB_URLS`(`ankole_pool_size`) | FOSS 프로덕션 10, SaaS 프로덕션 5, dev/test 2 | replica당 각 `Ankole.Pod.BaseRepo` Base 샤드 연결 풀 크기 |
+| `BASE_DB_URLS`(`ankole_pool_size`) | FOSS 프로덕션 10, dev/test 2 | replica당 각 `Ankole.Pod.BaseRepo` Base 샤드 연결 풀 크기 |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | 300 | 번들 PostgreSQL 서버의 `max_connections` |
 | `background_agent_jobs.max_running_per_agent` | 3 | 테넌트 범위 내 Agent당 동시 실행 가능한 최대 Background Agent Job 수 |
 | `idleReleaseAfter` | 6개 공급자 모두 `15m`(`never`로 유휴 중지 비활성화 가능) | Worker가 유휴 상태로 전환되어 중지되고 CPU·메모리를 반납하기까지의 대기 시간 |

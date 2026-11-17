@@ -95,6 +95,26 @@ defmodule Ankole.AIAgent.Console do
       resource: "site_console:agent:{agent_uid}:token_quota",
       action: "update"
     )
+
+    allow(:system_token_quota,
+      resource: "site_console:model_profiles",
+      action: "read"
+    )
+
+    allow(:put_system_token_quota,
+      resource: "site_console:model_profiles",
+      action: "update"
+    )
+
+    allow(:delete_system_token_quota,
+      resource: "site_console:model_profiles",
+      action: "delete"
+    )
+
+    allow(:reset_system_token_quota,
+      resource: "site_console:model_profiles",
+      action: "update"
+    )
   end
 
   @provider_hosted_fields [
@@ -330,6 +350,37 @@ defmodule Ankole.AIAgent.Console do
       transaction?(false)
       constraints(fields: @quota_status_fields)
       argument(:agent_uid, :string, allow_nil?: false)
+      run(__MODULE__.Actions)
+    end
+
+    action :system_token_quota, :map do
+      transaction?(false)
+      constraints(fields: @quota_status_fields)
+      argument(:uid, :string, allow_nil?: false)
+      run(__MODULE__.Actions)
+    end
+
+    action :put_system_token_quota, :map do
+      transaction?(false)
+      constraints(fields: @quota_status_fields)
+      argument(:uid, :string, allow_nil?: false)
+      argument(:period_days, :integer, allow_nil?: false)
+      argument(:period_start_at, :string)
+      argument(:limit_tokens, :integer, allow_nil?: false)
+      run(__MODULE__.Actions)
+    end
+
+    action :delete_system_token_quota, :map do
+      transaction?(false)
+      constraints(fields: @quota_status_fields)
+      argument(:uid, :string, allow_nil?: false)
+      run(__MODULE__.Actions)
+    end
+
+    action :reset_system_token_quota, :map do
+      transaction?(false)
+      constraints(fields: @quota_status_fields)
+      argument(:uid, :string, allow_nil?: false)
       run(__MODULE__.Actions)
     end
   end

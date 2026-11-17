@@ -132,9 +132,15 @@ import type {
   DeleteSystemModelProfileData,
   DeleteSystemModelProfileErrors,
   DeleteSystemModelProfileResponses,
+  DeleteSystemTokenQuotaData,
+  DeleteSystemTokenQuotaErrors,
+  DeleteSystemTokenQuotaResponses,
   DeleteWorkerEnvData,
   DeleteWorkerEnvErrors,
   DeleteWorkerEnvResponses,
+  DisableAgentData,
+  DisableAgentErrors,
+  DisableAgentResponses,
   DisableHumanAccessData,
   DisableHumanAccessErrors,
   DisableHumanAccessResponses,
@@ -147,6 +153,9 @@ import type {
   EnqueueBrainDreamData,
   EnqueueBrainDreamErrors,
   EnqueueBrainDreamResponses,
+  ForceResetAgentWorkerGenerationData,
+  ForceResetAgentWorkerGenerationErrors,
+  ForceResetAgentWorkerGenerationResponses,
   ForgetBrainClaimData,
   ForgetBrainClaimErrors,
   ForgetBrainClaimResponses,
@@ -219,6 +228,9 @@ import type {
   GetSignalBindingData,
   GetSignalBindingErrors,
   GetSignalBindingResponses,
+  GetSystemTokenQuotaData,
+  GetSystemTokenQuotaErrors,
+  GetSystemTokenQuotaResponses,
   GetUnreadScansData,
   GetUnreadScansErrors,
   GetUnreadScansResponses,
@@ -402,6 +414,12 @@ import type {
   PutSystemModelProfileData,
   PutSystemModelProfileErrors,
   PutSystemModelProfileResponses,
+  PutSystemTokenQuotaData,
+  PutSystemTokenQuotaErrors,
+  PutSystemTokenQuotaResponses,
+  RecoverHumanPodAdminData,
+  RecoverHumanPodAdminErrors,
+  RecoverHumanPodAdminResponses,
   RejectBrainMergeSuggestionData,
   RejectBrainMergeSuggestionErrors,
   RejectBrainMergeSuggestionResponses,
@@ -429,6 +447,9 @@ import type {
   ResetAppConfigurationData,
   ResetAppConfigurationErrors,
   ResetAppConfigurationResponses,
+  ResetSystemTokenQuotaData,
+  ResetSystemTokenQuotaErrors,
+  ResetSystemTokenQuotaResponses,
   ResolveBrainTakeData,
   ResolveBrainTakeErrors,
   ResolveBrainTakeResponses,
@@ -653,6 +674,22 @@ export const createWebhookEndpoint = <ThrowOnError extends boolean = false>(
   (options.client ?? client).post<CreateWebhookEndpointResponses, CreateWebhookEndpointErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/webhook-endpoints',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * recover_human_pod_admin operation on human_access resource
+ */
+export const recoverHumanPodAdmin = <ThrowOnError extends boolean = false>(
+  options: Options<RecoverHumanPodAdminData, ThrowOnError>
+): RequestResult<RecoverHumanPodAdminResponses, RecoverHumanPodAdminErrors, ThrowOnError> =>
+  (options.client ?? client).post<RecoverHumanPodAdminResponses, RecoverHumanPodAdminErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principals/{uid}/pod-admin-recoveries',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -1387,6 +1424,46 @@ export const disableHumanAccess = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * delete_system_token_quota operation on agent_model_configuration resource
+ */
+export const deleteSystemTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteSystemTokenQuotaData, ThrowOnError>
+): RequestResult<DeleteSystemTokenQuotaResponses, DeleteSystemTokenQuotaErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteSystemTokenQuotaResponses, DeleteSystemTokenQuotaErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/system-principals/{uid}/token-quota',
+    ...options
+  })
+
+/**
+ * get_system_token_quota operation on agent_model_configuration resource
+ */
+export const getSystemTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<GetSystemTokenQuotaData, ThrowOnError>
+): RequestResult<GetSystemTokenQuotaResponses, GetSystemTokenQuotaErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetSystemTokenQuotaResponses, GetSystemTokenQuotaErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/system-principals/{uid}/token-quota',
+    ...options
+  })
+
+/**
+ * put_system_token_quota operation on agent_model_configuration resource
+ */
+export const putSystemTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<PutSystemTokenQuotaData, ThrowOnError>
+): RequestResult<PutSystemTokenQuotaResponses, PutSystemTokenQuotaErrors, ThrowOnError> =>
+  (options.client ?? client).put<PutSystemTokenQuotaResponses, PutSystemTokenQuotaErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/system-principals/{uid}/token-quota',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * get_principal operation on principal resource
  */
 export const getPrincipal = <ThrowOnError extends boolean = false>(
@@ -1959,6 +2036,18 @@ export const putDefaultProviderHosted = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * reset_system_token_quota operation on agent_model_configuration resource
+ */
+export const resetSystemTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<ResetSystemTokenQuotaData, ThrowOnError>
+): RequestResult<ResetSystemTokenQuotaResponses, ResetSystemTokenQuotaErrors, ThrowOnError> =>
+  (options.client ?? client).post<ResetSystemTokenQuotaResponses, ResetSystemTokenQuotaErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/system-principals/{uid}/token-quota/reset',
+    ...options
+  })
+
+/**
  * run_cron_schedule operation on cron_schedule resource
  */
 export const runCronSchedule = <ThrowOnError extends boolean = false>(
@@ -2040,6 +2129,18 @@ export const setAgentLibraryPlugin = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * disable_agent operation on agent resource
+ */
+export const disableAgent = <ThrowOnError extends boolean = false>(
+  options: Options<DisableAgentData, ThrowOnError>
+): RequestResult<DisableAgentResponses, DisableAgentErrors, ThrowOnError> =>
+  (options.client ?? client).post<DisableAgentResponses, DisableAgentErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{uid}/disable',
+    ...options
   })
 
 /**
@@ -2575,6 +2676,22 @@ export const cancelWebhookEndpoint = <ThrowOnError extends boolean = false>(
   (options.client ?? client).delete<CancelWebhookEndpointResponses, CancelWebhookEndpointErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/webhook-endpoints/{id}',
+    ...options
+  })
+
+/**
+ * force_reset_agent_worker_generation operation on agent_worker resource
+ */
+export const forceResetAgentWorkerGeneration = <ThrowOnError extends boolean = false>(
+  options: Options<ForceResetAgentWorkerGenerationData, ThrowOnError>
+): RequestResult<ForceResetAgentWorkerGenerationResponses, ForceResetAgentWorkerGenerationErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    ForceResetAgentWorkerGenerationResponses,
+    ForceResetAgentWorkerGenerationErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agent-workers/{agent_uid}/force-reset-generation',
     ...options
   })
 

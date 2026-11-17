@@ -2268,11 +2268,11 @@ fn collect_cjk_in_object(
     }
 }
 
-fn is_cjk_char(c: char) -> bool {
+pub(crate) fn is_cjk_char(c: char) -> bool {
     wordcraft_fonts::is_cjk(c) || matches!(c, '\u{1100}'..='\u{11FF}')
 }
 
-fn select_cjk_fallback_families(
+pub(crate) fn select_cjk_fallback_families(
     uncovered: &[char],
     is_loaded: impl Fn(&str) -> bool,
 ) -> Vec<&'static str> {

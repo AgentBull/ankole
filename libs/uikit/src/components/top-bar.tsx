@@ -19,11 +19,12 @@ function TopBar({ className, ...props }: React.ComponentProps<'header'>) {
 }
 
 /**
- * The zone above the sidebar column: the product mark and the sidebar toggle. While the sidebar is docked open, the
- * zone spans the column less 8px, so the first 36px button of the next zone draws its icon on the content card's edge,
- * and its `SidebarTrigger` hides. Otherwise the zone is as wide as what it holds. The zone's width follows the
- * column's clock (see `Sidebar`); the toggle fades and grows in over 160ms from 100ms into a hide, and it fades out
- * within 80ms of a dock. A screen that asks for reduced motion swaps both at once.
+ * The zone above the sidebar column: the product mark, its name, and the sidebar toggle. While the sidebar is docked
+ * open, the zone spans the column less 8px, so the first 36px button of the next zone draws its icon on the content
+ * card's edge, and its `SidebarTrigger` hides. Otherwise the zone is as wide as what it holds, up to the column's
+ * width less 8px. The zone's width follows the column's clock (see `Sidebar`); the toggle fades and grows in over
+ * 160ms from 100ms into a hide, and it fades out within 80ms of a dock. A screen that asks for reduced motion swaps
+ * both at once.
  */
 function TopBarLeading({ className, ...props }: React.ComponentProps<'div'>) {
   const sidebar = React.useContext(SidebarContext)
@@ -33,7 +34,7 @@ function TopBarLeading({ className, ...props }: React.ComponentProps<'div'>) {
       data-slot="top-bar-leading"
       data-docked={docked ? '' : undefined}
       className={cn(
-        'flex min-w-0 shrink-0 items-center gap-1 ps-2 transition-[min-width] duration-(--duration-dialog) ease-drawer motion-reduce:transition-none data-docked:min-w-[calc(var(--sidebar-width)-var(--spacing)*2)] data-docked:duration-(--duration-drawer)',
+        'flex max-w-[calc(var(--sidebar-width,var(--spacing-sidebar))-var(--spacing)*2)] min-w-0 shrink-0 items-center gap-1 ps-2 transition-[min-width] duration-(--duration-dialog) ease-drawer motion-reduce:transition-none data-docked:min-w-[calc(var(--sidebar-width)-var(--spacing)*2)] data-docked:duration-(--duration-drawer)',
         '[&>[data-slot=sidebar-trigger]]:[transition:opacity_160ms_var(--ease-out)_100ms,scale_160ms_var(--ease-out)_100ms,visibility_0s_100ms,background-color_var(--duration-feedback)_var(--ease-productive),color_var(--duration-feedback)_var(--ease-productive)] data-docked:[&>[data-slot=sidebar-trigger]]:invisible data-docked:[&>[data-slot=sidebar-trigger]]:scale-90 data-docked:[&>[data-slot=sidebar-trigger]]:opacity-0 data-docked:[&>[data-slot=sidebar-trigger]]:[transition:opacity_80ms_var(--ease-out),scale_80ms_var(--ease-out),visibility_0s_80ms] motion-reduce:[&>[data-slot=sidebar-trigger]]:transition-none!',
         className
       )}

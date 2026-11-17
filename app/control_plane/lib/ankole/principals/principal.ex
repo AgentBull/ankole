@@ -109,6 +109,11 @@ defmodule Ankole.Principals.Principal do
       destination_attribute(:uid)
     end
 
+    has_one :service_account, Ankole.Principals.ServiceAccount do
+      source_attribute(:uid)
+      destination_attribute(:uid)
+    end
+
     has_many :external_identities, Ankole.Principals.ExternalIdentity do
       source_attribute(:uid)
       destination_attribute(:principal_uid)
@@ -151,8 +156,30 @@ defmodule Ankole.Principals.Principal do
     create :create_in_tx do
       accept([:uid, :type, :membership, :display_name, :avatar_url])
 
-      validate(one_of(:uid, Ankole.Principals.SystemServices.uids()),
+      validate(
+        fn changeset, _context ->
+          uid = Ash.Changeset.get_attribute(changeset, :uid)
+
+          if Ankole.Principals.ServiceAccounts.valid_system_uid?(uid) do
+            :ok
+          else
+            {:error, field: :uid, message: "is not a valid service account identifier"}
+          end
+        end,
         where: [attribute_equals(:type, :system)]
+      )
+
+      validate(
+        fn changeset, _context ->
+          uid = Ash.Changeset.get_attribute(changeset, :uid)
+
+          if Ankole.Principals.ServiceAccounts.reserved_non_system_uid?(uid) do
+            {:error, field: :uid, message: "is reserved for system service accounts"}
+          else
+            :ok
+          end
+        end,
+        where: [attribute_does_not_equal(:type, :system)]
       )
 
       change(set_attribute(:membership, :member),
@@ -184,6 +211,17 @@ defmodule Ankole.Principals.Principal do
 
     update :rename_in_tx do
       accept([:uid])
+      validate(attribute_does_not_equal(:type, :system))
+
+      validate(fn changeset, _context ->
+        uid = Ash.Changeset.get_attribute(changeset, :uid)
+
+        if Ankole.Principals.ServiceAccounts.reserved_non_system_uid?(uid) do
+          {:error, field: :uid, message: "is reserved for system service accounts"}
+        else
+          :ok
+        end
+      end)
     end
 
     update :enable_in_tx do

@@ -8,9 +8,10 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
   alias Ankole.AIAgent.TokenQuota
   alias Ankole.AIGateway.Artifacts
-  alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ChatGPTProtocol
+  alias Ankole.AIGateway.ClaudeMessageThreads
   alias Ankole.AIGateway.CodexVision
+  alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.HostedTools.Brain
   alias Ankole.AIGateway.HostedTools.ImageGeneration
@@ -104,6 +105,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
   defp build(subject_uid, runtime, request, opts) do
     stream? = Keyword.get(opts, :stream?, false)
+    runtime = Map.put_new(runtime, "subject_uid", subject_uid)
 
     with {:ok, provider_request} <- provider_request(subject_uid, runtime, request),
          {:ok, provider_request, tool_plan} <-
@@ -147,11 +149,44 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   credential-pool answer.
   """
   @spec ensure_token_quota(String.t(), keyword()) ::
-          :ok | {:error, {:agent_token_quota_exceeded, map()}}
+          :ok
+          | {:error, {:agent_token_quota_exceeded, map()}}
+          | {:error, {:service_token_quota_exceeded, map()}}
   def ensure_token_quota(subject_uid, opts) do
     case Keyword.get(opts, :subject_type) do
-      "agent" -> TokenQuota.ensure_available(subject_uid)
-      _system_or_human -> :ok
+      "agent" ->
+        TokenQuota.ensure_available(subject_uid)
+
+      _system_or_human ->
+        ensure_caller_service_quota(opts)
+    end
+  end
+
+  defp ensure_caller_service_quota(opts) do
+    case Keyword.get(opts, :caller) do
+      "brain" ->
+        TokenQuota.ensure_service_available("ankole_brain")
+
+      "brain." <> _stage ->
+        TokenQuota.ensure_service_available("ankole_brain")
+
+      "pod_applet" ->
+        service_uid =
+          opts
+          |> Keyword.get(:request_context, %{})
+          |> case do
+            %{"service_uid" => uid} when is_binary(uid) and uid != "" -> uid
+            _ -> nil
+          end
+
+        with :ok <- TokenQuota.ensure_service_available("ankole_applets") do
+          if service_uid,
+            do: TokenQuota.ensure_service_available(service_uid),
+            else: :ok
+        end
+
+      _other ->
+        :ok
     end
   end
 
@@ -258,6 +293,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
         |> put_native_encrypted_tool_fields(native_encrypted_tool_fields?(runtime))
         |> composite_spec(public_request, image_generation)
         |> put_tool_loop(tool_plan, provider_request)
+        |> ClaudeMessageThreads.decorate_spec(runtime, provider_request)
         |> Map.put(:issuer, Map.get(runtime, "provider_id"))
 
       rebuild = fn next_runtime, request_override ->

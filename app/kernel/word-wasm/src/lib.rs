@@ -436,6 +436,88 @@ impl WordEditor {
     }
 }
 
+/// Binary media assets staged for a single [`PageExportSession::from_page`] compilation.
+#[wasm_bindgen]
+#[derive(Default)]
+pub struct ExportAssets {
+    inner: std::collections::BTreeMap<String, Vec<u8>>,
+}
+
+#[wasm_bindgen]
+impl ExportAssets {
+    /// Creates an empty binary asset bundle.
+    #[wasm_bindgen(constructor)]
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Inserts one binary asset (such as a rasterized diagram, page image, or emoji PNG) by key.
+    pub fn put(&mut self, key: String, bytes: Vec<u8>) {
+        self.inner.insert(key, bytes);
+    }
+}
+
+/// Stateless one-shot Document/Knowledge Page export handle backed by an immutable [`ankole_word::WordDoc`].
+#[wasm_bindgen]
+pub struct PageExportSession {
+    doc: ankole_word::WordDoc,
+}
+
+#[wasm_bindgen]
+impl PageExportSession {
+    /// Compiles a normalized `<page>` export request JSON and its staged binary `assets` into a
+    /// [`PageExportSession`] in one atomic step.
+    ///
+    /// # Errors
+    ///
+    /// Throws a `JsError` when `request_json` is malformed or not a `<page>` root.
+    pub fn from_page(
+        request_json: &str,
+        assets: ExportAssets,
+    ) -> Result<PageExportSession, JsError> {
+        let doc =
+            ankole_word::from_page_tree(request_json, &assets.inner).map_err(|e| js_error(&e))?;
+        Ok(Self { doc })
+    }
+
+    /// Reports substituted font families, missing CJK fallback families, uncovered codepoint count,
+    /// and the active `FontDb` generation as JSON.
+    ///
+    /// # Errors
+    ///
+    /// Throws a `JsError` when JSON serialization fails.
+    pub fn font_needs(&self) -> Result<String, JsError> {
+        let needs = ankole_word::report_font_needs(&self.doc);
+        serde_json::to_string(&needs).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Registers a dynamically fetched site font blob in the Worker's `FontDb`, returning the
+    /// number of loaded faces.
+    #[must_use]
+    pub fn add_font(bytes: &[u8]) -> usize {
+        Editor::add_font(bytes)
+    }
+
+    /// Exports the compiled document as standard ECMA-376 `.docx` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Throws a `JsError` when OOXML serialization fails.
+    pub fn export_docx(&self) -> Result<Vec<u8>, JsError> {
+        ankole_word::export_docx(&self.doc).map_err(|e| js_error(&e))
+    }
+
+    /// Exports the compiled document as vector-text PDF bytes.
+    ///
+    /// # Errors
+    ///
+    /// Throws a `JsError` when PDF export fails.
+    pub fn export_pdf(&self) -> Result<Vec<u8>, JsError> {
+        ankole_word::export_pdf(&self.doc).map_err(|e| js_error(&e))
+    }
+}
+
 fn apply_error_message(error: ApplyError) -> String {
     match error {
         ApplyError::Conflict(conflict) => conflict.as_str().to_string(),
@@ -510,5 +592,49 @@ mod tests {
             apply_error_message(ApplyError::Conflict(Conflict::UnbalancedMarkers)),
             "unbalanced_markers"
         );
+    }
+
+    #[test]
+    fn page_export_session_exports_docx_and_pdf_atomically()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use super::{ExportAssets, PageExportSession};
+
+        let mut assets = ExportAssets::new();
+        // Minimal valid 1x1 PNG
+        assets.put(
+            "icon_1".into(),
+            vec![
+                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+                0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+                0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78,
+                0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+                0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+            ],
+        );
+
+        let req = r#"{
+            "title": "WASM Export Session",
+            "iconAssetKey": "icon_1",
+            "root": {
+                "type": "element",
+                "name": "page",
+                "children": [
+                    { "type": "element", "name": "h1", "children": [{ "type": "text", "value": "Section One" }] },
+                    { "type": "element", "name": "p", "children": [{ "type": "text", "value": "Body paragraph content." }] }
+                ]
+            }
+        }"#;
+
+        let session = PageExportSession::from_page(req, assets).map_err(|_| "from_page")?;
+        let needs: serde_json::Value =
+            serde_json::from_str(&session.font_needs().map_err(|_| "font_needs")?)?;
+        assert!(needs["substitutedFamilies"].is_array());
+
+        let docx = session.export_docx().map_err(|_| "export_docx")?;
+        assert!(docx.starts_with(b"PK\x03\x04"));
+
+        let pdf = session.export_pdf().map_err(|_| "export_pdf")?;
+        assert!(pdf.starts_with(b"%PDF-"));
+        Ok(())
     }
 }

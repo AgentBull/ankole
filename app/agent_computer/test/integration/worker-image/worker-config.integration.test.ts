@@ -50,6 +50,32 @@ it.skipIf(process.arch !== 'x64')('provides OSSFS2 for Function Compute custom i
   expect(Bun.spawnSync(['fusermount3', '--version']).exitCode).toBe(0)
 })
 
+it('provides /usr/local/bin/node -> bun compatibility shim for #!/usr/bin/env node scripts', async () => {
+  const { chmod, mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const expectedVersion = Bun.spawnSync(['node', '-p', 'process.version'], { stdin: 'ignore' })
+  expect(expectedVersion.exitCode).toBe(0)
+  const versionText = expectedVersion.stdout.toString().trim()
+  expect(versionText).toMatch(/^v\d+\./)
+
+  for (const flag of ['--version', '-v']) {
+    const versionProbe = Bun.spawnSync(['node', flag], { stdin: 'ignore' })
+    expect(versionProbe.exitCode).toBe(0)
+    expect(versionProbe.stdout.toString().trim()).toBe(versionText)
+  }
+
+  const root = await mkdtemp('/tmp/ankole-node-shim-')
+  const script = `${root}/hello.mjs`
+  try {
+    await writeFile(script, '#!/usr/bin/env node\nconsole.log("node-shim-ok", typeof process.versions.node)\n')
+    await chmod(script, 0o755)
+    const run = Bun.spawnSync([script])
+    expect(run.exitCode).toBe(0)
+    expect(run.stdout.toString().trim()).toBe('node-shim-ok string')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 it('the per-Agent Python bootstrap inherits the image packages without a download', async () => {
   const { mkdtemp, rm, writeFile, readFile } = await import('node:fs/promises')
   const root = await mkdtemp('/tmp/ankole-python-image-')

@@ -78,16 +78,13 @@ beforeEach(() => {
   Object.defineProperty(globalThis, 'document', {
     configurable: true,
     value: {
-      querySelector: (selector: string) =>
-        selector.includes('ankole-authentication')
-          ? { content: selectedAuthentication }
-          : selector.includes('ankole-pod')
-            ? { content: 'pod-privileged' }
-            : selector.includes('ankole-principal')
-              ? { content: selectedPrincipal }
-              : selector.includes('csrf-token')
-                ? { content: 'session-csrf' }
-                : null
+      querySelector: (selector: string) => {
+        if (selector.includes('ankole-authentication')) return { content: selectedAuthentication }
+        if (selector.includes('ankole-pod')) return { content: 'pod-privileged' }
+        if (selector.includes('ankole-principal')) return { content: selectedPrincipal }
+        if (selector.includes('csrf-token')) return { content: 'session-csrf' }
+        return null
+      }
     }
   })
 })

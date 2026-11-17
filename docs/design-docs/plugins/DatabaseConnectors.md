@@ -65,9 +65,16 @@ built-in function of the dialect that has effects outside the query result,
 such as PostgreSQL `pg_notify`, advisory locks, `dblink`, or `pg_sleep`, MySQL
 `GET_LOCK` or `SLEEP`, or ClickHouse `url`, `remote`, `s3`, or `sleep`. It
 matches the last part of the name case-insensitively, so a schema-qualified
-call also fails. Because the check is syntactic, the statement then runs in a
-read-only session, and the database role of the connection governs which
-user-defined and extension functions the statement may execute:
+call also fails. When `sqlparser`'s dialect grammar rejects engine-specific
+`SELECT` or `WITH` syntax rather than failing the depth budget or a semantic
+AST check, the kernel validates the statement with a token-level read-only
+fallback: it verifies a single `SELECT` or `WITH` statement with balanced
+delimiters, rejects write, DDL, session, and row-locking keywords along with
+side-effecting built-in functions, and returns `"dialect_fallback": true` so
+the adapter can still execute the query inside its read-only database session.
+Because these checks are syntactic, the statement always runs in a read-only
+session, and the database role of the connection governs which user-defined and
+extension functions the statement may execute:
 
 - PostgreSQL connects with `default_transaction_read_only=on` and runs each
   statement in a transaction that sets `READ ONLY`, `SET LOCAL
@@ -146,7 +153,10 @@ override the site value:
 
 `fetch_catalog/3` reads tables, views, columns, comments, row estimates, and
 keys from `pg_catalog`, `information_schema`, or `system.tables` and
-`system.columns`. PostgreSQL and MySQL report primary keys, single-column
+`system.columns`. Connectors commits a snapshot only while the connection is
+active and its credential version, slug, and public settings match the
+configuration used for the scan. A stale scan cannot restore samples cleared
+by a configuration edit. PostgreSQL and MySQL report primary keys, single-column
 unique keys, and foreign keys. ClickHouse reports its sorting key (or primary
 key) as the table's `sparse_order_key`, which lists the key expressions in
 order as ClickHouse prints them, such as `toDate(ts)` or

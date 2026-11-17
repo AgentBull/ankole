@@ -194,7 +194,13 @@ defmodule Ankole.Brain.CalibrationTest do
     assert {:ok, %{resolvedCount: 0, brier: nil}} = Brain.applet_calibration(actor, market_scope)
 
     write_fact!(context, "The delivery target was met", source_node_id: source.id)
-    write_fact!(context, "Other source evidence is distinct")
+    write_fact!(context, "Public cross-source evidence")
+
+    write_fact!(
+      %{context | member: stranger.principal},
+      "Stranger private evidence is distinct",
+      source_node_id: Ankole.Brain.Scope.principal(stranger.principal.uid)
+    )
 
     Agent.update(context.upstream, fn _ ->
       %{output: %{"quality" => "correct", "confidence" => 0.8, "domains" => ["market_call"]}}
@@ -204,8 +210,9 @@ defmodule Ankole.Brain.CalibrationTest do
     assert_receive {:calibration_prompt, prompt}, 1_000
     assert prompt =~ prediction["claim"]
     assert prompt =~ "The delivery target was met"
+    assert prompt =~ "Public cross-source evidence"
     assert prompt =~ "Installed calibration domains: market_call"
-    refute prompt =~ "Other source evidence is distinct"
+    refute prompt =~ "Stranger private evidence is distinct"
 
     assert {:ok, %{resolvedCount: 1, brier: 0.16}} =
              Brain.applet_calibration(actor, market_scope)

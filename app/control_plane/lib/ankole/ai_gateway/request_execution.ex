@@ -6,6 +6,10 @@ defmodule Ankole.AIGateway.RequestExecution do
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.UniversalAIRequest
 
+  @doc """
+  Executes a prepared request with credential recovery. Route retries default
+  to enabled; callers can pass `route_retry: false` for non-idempotent operations.
+  """
   @spec execute_prepared_request(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def execute_prepared_request(runtime, prepared_request, opts) do
     started_at = System.monotonic_time()

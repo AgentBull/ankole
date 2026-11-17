@@ -67,10 +67,10 @@ test('inline @ and ＠ triggers keep editor focus, switch tabs, suppress email f
   await expect(editor.locator('[data-mention-principal="agt_research_001"]')).toHaveText('@Research Agent')
 
   // Email addresses do not open the mention menu.
-  await page.keyboard.type(' contact boris@agentbull.com')
+  await page.keyboard.type(' contact boris@example.test')
   await expect(menu).toHaveCount(0)
 
-  await expect(editor).toContainText('boris@agentbull.com')
+  await expect(editor).toContainText('boris@example.test')
   await expect(markdown).toContainText('<mention page="019a2b00-0000-7000-8000-000000000101" />')
   await expect(markdown).toContainText('<mention principal="agt_research_001" />')
 })

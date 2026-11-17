@@ -84,7 +84,8 @@ config :ankole, Oban,
        {"23 * * * *", Ankole.Files.Jobs.CollectUnreferenced},
        {"*/5 * * * *", Ankole.Pod.Jobs.ReconcileSearchIndex},
        {"* * * * *", Ankole.AgentWorkers.SweepJob},
-       {"*/5 * * * *", Ankole.AgentWorkers.SweepJob, args: %{objects: true}}
+       {"*/5 * * * *", Ankole.AgentWorkers.SweepJob, args: %{objects: true}},
+       {"*/30 * * * *", Ankole.Plugins.Jobs.PeriodicChannelSync}
      ]}
   ]
 

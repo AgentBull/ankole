@@ -142,6 +142,7 @@ export class PodRealtime {
       const join = channel
         .join()
         .receive('ok', response => {
+          if (topic) topic.ready = Promise.resolve(response)
           connectionChanged('connected')
           if (attempted) for (const listener of rejoinedListeners) listener(response)
           attempted = true
@@ -176,7 +177,9 @@ export class PodRealtime {
     const joinBindings: ((response: unknown) => void)[] = []
     const cleanups: (() => void)[] = []
     return {
-      ready: owned.ready,
+      get ready() {
+        return owned.ready
+      },
       push: async <T>(event: string, payload: object) => {
         await owned.ready
         if (closed) throw new Error(t('pod.content.the_page_connection_is_closed'))
@@ -279,33 +282,25 @@ export class PodRealtime {
     if (!room || room.length > 120) throw new Error(t('pod.content.channel_names_must_be_between_1_and_120_characters'))
     let handle: TopicHandle | undefined,
       closed = false
-    let detachPresence: (() => void) | undefined
     let members: PresenceMember[] = []
     const listeners = new Set<() => void>()
     const events = new Map<string, Set<(payload: unknown) => void>>()
-    const joined = this.join(`applet:${pageID}:${room}`).then(async value => {
+    const joined = this.join(`applet:${pageID}:${room}`).then(value => {
       handle = value
       if (closed) {
         value.close()
         return value
       }
-      await value.ready
-      const topic = this.topics.get(`applet:${pageID}:${room}`)!
-      const syncPresence = () => {
+      value.on('presence', () => {
         if (closed) return
-        const presence = topic.presence!
-        members = presence.list((id, data) => ({ id, ...data.metas[0] }))
+        members = value.presence().map(({ id, metas }) => ({ id, ...metas[0] }))
         for (const notify of listeners) notify()
-      }
-      topic.presenceListeners!.add(syncPresence)
-      detachPresence = () => {
-        topic.presenceListeners!.delete(syncPresence)
-      }
-      syncPresence()
+      })
       value.on('broadcast', ({ event, payload }) => {
         for (const callback of events.get(event) ?? []) callback(payload)
       })
       value.on('access_revoked', () => {
+        closed = true
         members = []
         for (const notify of listeners) notify()
         value.close()
@@ -335,7 +330,6 @@ export class PodRealtime {
       },
       close: () => {
         closed = true
-        detachPresence?.()
         handle?.close()
         events.clear()
         listeners.clear()

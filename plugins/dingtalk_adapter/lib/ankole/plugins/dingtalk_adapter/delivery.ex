@@ -231,32 +231,33 @@ defmodule Ankole.Plugins.DingTalkAdapter.Delivery do
     |> normalize_delivery_result()
   end
 
-  defp send_message(client, robot_code, {:dm, user_id}, msg_key, msg_param) do
+  defp send_message(client, robot_code, space, msg_key, msg_param) do
     with {:ok, _token} <- TokenManager.get_app_token(client) do
-      client
-      |> Robot.batch_send_oto(
-        robot_code: robot_code,
-        user_ids: [user_id],
-        msg_key: msg_key,
-        msg_param: msg_param
-      )
-      |> send_result()
+      send_robot_message(client, robot_code, space, msg_key, msg_param)
       |> classify_non_idempotent_send()
     end
   end
 
-  defp send_message(client, robot_code, {:group, conversation_id}, msg_key, msg_param) do
-    with {:ok, _token} <- TokenManager.get_app_token(client) do
-      client
-      |> Robot.send_group_message(
-        open_conversation_id: conversation_id,
-        robot_code: robot_code,
-        msg_key: msg_key,
-        msg_param: msg_param
-      )
-      |> send_result()
-      |> classify_non_idempotent_send()
+  @doc false
+  def send_robot_message(client, robot_code, space, msg_key, msg_param) do
+    case space do
+      {:dm, user_id} ->
+        Robot.batch_send_oto(client,
+          robot_code: robot_code,
+          user_ids: [user_id],
+          msg_key: msg_key,
+          msg_param: msg_param
+        )
+
+      {:group, conversation_id} ->
+        Robot.send_group_message(client,
+          open_conversation_id: conversation_id,
+          robot_code: robot_code,
+          msg_key: msg_key,
+          msg_param: msg_param
+        )
     end
+    |> send_result()
   end
 
   defp classify_non_idempotent_send({:error, %Error{} = error}) do
@@ -265,7 +266,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.Delivery do
 
   defp classify_non_idempotent_send(result), do: result
 
-  defp uncertain?(%Error{reason: reason, http_status: status}),
+  @doc "Whether a failed non-idempotent send may have reached DingTalk."
+  def uncertain?(%Error{reason: reason, http_status: status}),
     do: reason == :transport or (is_integer(status) and status >= 500)
 
   defp send_result({:ok, %{"flowControlledStaffIdList" => [_ | _]} = body}) do

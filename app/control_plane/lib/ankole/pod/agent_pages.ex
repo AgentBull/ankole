@@ -4,7 +4,7 @@ defmodule Ankole.Pod.AgentPages do
   alias Ankole.{AuthZ, Kernel, Repo}
   alias Ankole.Brain.Access, as: KnowledgeAccess
   alias Ankole.Pod.Access
-  alias Ankole.Pod.{Knowledge, Page, Pages}
+  alias Ankole.Pod.{Documents, Knowledge, Page, Pages}
   alias Ankole.AuthZ.Checks.PageAnchorFilter
 
   def read(actor, context, id, level \\ "L2") do
@@ -32,22 +32,41 @@ defmodule Ankole.Pod.AgentPages do
     scope = Ankole.Attrs.get(opts, :scope, "space") || "space"
     depth = Ankole.Attrs.get(opts, :depth)
 
-    if scope == "all" or (is_integer(depth) and depth > 1) do
-      with {:ok, reachable} <- business_visibility(context) do
-        Ankole.Pod.Pages.Queries.tree(actor, %{
-          reachable: reachable,
-          scope: scope,
-          depth: depth || 3
-        })
-      end
-    else
-      with {:ok, reachable} <- business_visibility(context),
-           {:ok, directory} <-
-             Ankole.Pod.Pages.Queries.list_children(actor, nil, %{
-               reachable: reachable,
-               scope: scope
-             }),
-           do: {:ok, Enum.map(directory.pages, &directory_summary/1)}
+    cond do
+      scope == "shared" ->
+        with {:ok, reachable} <- business_visibility(context),
+             {:ok, pages} <-
+               Ankole.Pod.Pages.Queries.list(actor, %{reachable: reachable, scope: "shared"}),
+             {:ok, entries} <-
+               Ankole.Pod.Pages.Queries.navigation_entries(actor, Enum.map(pages, & &1.id)) do
+          by_id = Map.new(entries, &{&1.id, &1})
+
+          {:ok,
+           Enum.flat_map(pages, fn page ->
+             case Map.fetch(by_id, page.id) do
+               {:ok, entry} -> [directory_summary(entry)]
+               :error -> []
+             end
+           end)}
+        end
+
+      scope == "all" or (is_integer(depth) and depth > 1) ->
+        with {:ok, reachable} <- business_visibility(context) do
+          Ankole.Pod.Pages.Queries.tree(actor, %{
+            reachable: reachable,
+            scope: scope,
+            depth: depth || 3
+          })
+        end
+
+      true ->
+        with {:ok, reachable} <- business_visibility(context),
+             {:ok, directory} <-
+               Ankole.Pod.Pages.Queries.list_children(actor, nil, %{
+                 reachable: reachable,
+                 scope: scope
+               }),
+             do: {:ok, Enum.map(directory.pages, &directory_summary/1)}
     end
   end
 
@@ -93,6 +112,38 @@ defmodule Ankole.Pod.AgentPages do
            )
   end
 
+  @doc false
+  def save_page_in_tx(actor, context, id, base_revision, markdown)
+      when is_integer(base_revision) and is_binary(markdown) do
+    with {:ok, page} <- Pages.lock(id),
+         :ok <- editable(actor, context, page) do
+      case page.type do
+        :knowledge ->
+          with {:ok, parsed} <- Kernel.knowledge_parse(markdown),
+               {:ok, %{page: updated_page}} <-
+                 Knowledge.put_in_tx(id, parsed,
+                   actor: actor,
+                   context: context,
+                   base_revision: base_revision
+                 ) do
+            {:ok, updated_page, fn -> Pages.committed_page(updated_page) end}
+          end
+
+        :doc ->
+          with {:ok, %{result: %{page: updated_page}} = committed} <-
+                 Documents.edit_markdown_in_tx(actor, id, base_revision, markdown, :write) do
+            {:ok, updated_page, fn -> Documents.committed(committed) end}
+          end
+
+        _other ->
+          {:error, :invalid_page_type}
+      end
+    end
+  end
+
+  def save_page_in_tx(_actor, _context, _id, _base_revision, _markdown),
+    do: {:error, :invalid_request}
+
   def create(actor, context, parent_id, title, markdown) do
     Access.write_tree(
       actor.turn_authority,
@@ -118,6 +169,107 @@ defmodule Ankole.Pod.AgentPages do
              },
              context: context
            )
+  end
+
+  @doc false
+  def create_page_in_tx(actor, context, attrs) when is_map(attrs) do
+    parent_id = attrs["parent_id"]
+    title = attrs["title"] || ""
+    markdown = attrs["markdown"] || ""
+
+    with {:ok, parent} <- maybe_fetch_editable_parent(actor, context, parent_id),
+         {:ok, page_type} <- resolve_create_page_type(attrs["type"], parent) do
+      case page_type do
+        "knowledge" ->
+          if is_binary(parent_id) do
+            with {:ok, parsed} <- Kernel.knowledge_parse(markdown),
+                 {:ok, page} <-
+                   Pages.create_in_tx(
+                     actor,
+                     %{
+                       type: :knowledge,
+                       parent_id: parent_id,
+                       title: title,
+                       xml: parsed.xml,
+                       metadata: parsed.metadata
+                     },
+                     context: context
+                   ) do
+              {:ok, page,
+               fn ->
+                 Pages.committed_tree(page)
+                 emit_page_created_telemetry(actor, page)
+               end}
+            end
+          else
+            {:error, :invalid_page_domain}
+          end
+
+        "doc" ->
+          doc_attrs =
+            %{"type" => "doc", "title" => title}
+            |> put_create_destination(actor, parent_id, attrs["scope"])
+
+          with {:ok, parsed} <- Kernel.vfs_document_reconcile("<page />", markdown),
+               {:ok, page} <-
+                 Pages.create_in_tx(actor, Map.put(doc_attrs, "xml", parsed.xml),
+                   context: context
+                 ) do
+            {:ok, page,
+             fn ->
+               Pages.committed_tree(page)
+               emit_page_created_telemetry(actor, page)
+             end}
+          end
+      end
+    end
+  end
+
+  @doc false
+  def create_destination_attrs(actor, attrs) do
+    put_create_destination(%{}, actor, attrs["parent_id"], attrs["scope"])
+  end
+
+  defp maybe_fetch_editable_parent(_actor, _context, nil), do: {:ok, nil}
+
+  defp maybe_fetch_editable_parent(actor, context, parent_id) do
+    with {:ok, parent} <- Pages.fetch(parent_id),
+         :ok <- editable(actor, context, parent) do
+      {:ok, parent}
+    end
+  end
+
+  defp resolve_create_page_type("knowledge", _parent), do: {:ok, "knowledge"}
+  defp resolve_create_page_type("doc", _parent), do: {:ok, "doc"}
+
+  defp resolve_create_page_type(nil, %{type: _} = parent),
+    do: {:ok, if(Access.brain_page?(parent), do: "knowledge", else: "doc")}
+
+  defp resolve_create_page_type(nil, nil), do: {:ok, "doc"}
+  defp resolve_create_page_type(_other, _parent), do: {:error, :invalid_page_type}
+
+  defp put_create_destination(attrs, _actor, parent_id, _scope) when is_binary(parent_id) do
+    Map.put(attrs, "parent_id", parent_id)
+  end
+
+  defp put_create_destination(attrs, actor, nil, "private") do
+    Map.put(
+      attrs,
+      "private_owner_uid",
+      Ankole.Principals.authority_uid(AuthZ.Actor.uid(actor))
+    )
+  end
+
+  defp put_create_destination(attrs, _actor, nil, _scope), do: attrs
+
+  defp emit_page_created_telemetry(actor, page) do
+    :telemetry.execute([:ankole, :pod, :page, :created], %{count: 1}, %{
+      tenant_id: page.tenant_id,
+      page_id: page.id,
+      page_type: page.type,
+      actor_type: Map.get(actor.principal, :type),
+      actor_uid: AuthZ.Actor.uid(actor)
+    })
   end
 
   @doc "Uses the executing Actor's permissions, with audience and requester checks for Brain."
@@ -196,6 +348,17 @@ defmodule Ankole.Pod.AgentPages do
          {:content, body} -> {:body, body}
          field -> field
        end)}
+    end
+  end
+
+  defp project(%{page: %{type: :doc}} = detail, "L2") do
+    case detail[:content] do
+      nil ->
+        {:ok, %{body: "", level: "L2", metadata: detail.page.metadata}}
+
+      %{content: xml} ->
+        with {:ok, markdown} <- Kernel.vfs_document_export(xml),
+             do: {:ok, %{body: markdown, level: "L2", metadata: detail.page.metadata}}
     end
   end
 

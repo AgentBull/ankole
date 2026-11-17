@@ -38,7 +38,7 @@ export async function resolveScopedDrivePath(
     return join(view.scope.path, path.slice('/drive'.length))
   }
   const operation = async () => {
-    let remaining = map(resolve(input)).split(sep).filter(Boolean)
+    const remaining = map(resolve(input)).split(sep).filter(Boolean)
     let current: string = sep
     let links = 0
     while (remaining.length) {
@@ -54,7 +54,7 @@ export async function resolveScopedDrivePath(
         if (++links > 40) throw new Error('Too many symbolic links')
         const target = await readlink(current)
         const expanded = map(isAbsolute(target) ? target : resolve(dirname(current), target))
-        remaining = [...expanded.split(sep).filter(Boolean), ...remaining]
+        remaining.unshift(...expanded.split(sep).filter(Boolean))
         current = sep
       }
     }

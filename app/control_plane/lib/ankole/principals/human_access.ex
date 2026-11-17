@@ -77,6 +77,17 @@ defmodule Ankole.Principals.HumanAccess do
     end
   end
 
+  @doc "Enqueues a cleanup retry for a Human and returns the refreshed access view."
+  def retry_cleanup_view(uid) do
+    with {:ok, %{type: :human} = principal} <- Principals.get_principal(uid),
+         :ok <- Ankole.Principals.WorkCleanup.enqueue_in_tx(uid, principal.access_version) do
+      console_view(uid)
+    else
+      {:ok, _} -> {:error, :not_human}
+      error -> error
+    end
+  end
+
   def check(%Principal{type: :human, status: :active, access_version: version}, version)
       when is_integer(version),
       do: :ok
@@ -162,6 +173,27 @@ defmodule Ankole.Principals.HumanAccess do
                }),
              do: {:ok, principal}
       end)
+    end)
+  end
+
+  def recover_pod_admin_from_console(uid, actor_ref, reason, operation_id)
+      when is_binary(uid) and is_binary(reason) and is_binary(operation_id) do
+    Repo.transact_top_level(fn ->
+      with {:ok, _} <- Ankole.Tenants.lock_administration(),
+           :ok <- tenant_allows_restoration(Repo.tenant_id!()),
+           {:ok, principal} <- Ankole.AuthZ.Recovery.recover_pod_admin_in_tx(uid),
+           {:ok, _} <-
+             record(principal, principal, "operator_admin_recovery", %{
+               source: "operator",
+               reason: reason,
+               actor: actor_ref,
+               operation_id: operation_id,
+               details: %{
+                 "identity_verified" => true,
+                 "group" => "pod_admin"
+               }
+             }),
+           do: {:ok, principal}
     end)
   end
 
@@ -405,9 +437,28 @@ defmodule Ankole.Principals.HumanAccess do
           {:ok, principal}
 
         restriction ->
-          with :ok <- recovery_allowed(restriction),
-               {:ok, _} <-
-                 Ankole.Ash.update(restriction, :clear_in_tx, %{cleared_at: DateTime.utc_now()}) do
+          now = DateTime.utc_now()
+
+          recovery_at =
+            case restriction do
+              %AccessRestriction{source: "provider:" <> _, recovery_verified_at: nil} ->
+                now
+
+              %AccessRestriction{
+                source: "provider:" <> _,
+                recovery_verified_at: %DateTime{} = verified
+              } ->
+                if DateTime.compare(now, verified) == :gt, do: now, else: verified
+
+              %AccessRestriction{recovery_verified_at: existing} ->
+                existing
+            end
+
+          with {:ok, _} <-
+                 Ankole.Ash.update(restriction, :clear_in_tx, %{
+                   cleared_at: now,
+                   recovery_verified_at: recovery_at
+                 }) do
             record(principal, principal, "clear_restriction", %{
               source: "manual",
               reason: reason,
@@ -488,20 +539,6 @@ defmodule Ankole.Principals.HumanAccess do
       _ -> {:error, :tenant_deleting}
     end
   end
-
-  defp recovery_allowed(%AccessRestriction{source: "manual"}), do: :ok
-
-  defp recovery_allowed(%AccessRestriction{
-         source: "provider:" <> provider_id,
-         principal_uid: uid,
-         recovery_verified_at: %DateTime{} = time
-       }) do
-    if Ankole.IdentityProviders.DirectoryAccess.recovery_current?(provider_id, uid, time),
-      do: :ok,
-      else: {:error, :provider_recovery_not_verified}
-  end
-
-  defp recovery_allowed(_), do: {:error, :provider_recovery_not_verified}
 
   defp record(before, after_state, action, attrs) do
     Ankole.Ash.create(

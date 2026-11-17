@@ -1,8 +1,6 @@
-import { extname } from 'node:path'
-
-const CURL_JSON_MIN_BYTES = 4_096
+export const CURL_JSON_MIN_BYTES = 16_384
 const CURL_JSON_MAX_SCHEMA_RATIO = 0.65
-const SHELL_CAT_MIN_CHARS = 2_000
+const CURL_JSON_RAW_HINT = '[raw JSON elided; pipe to jq or redirect curl -o /tmp/resp.json]'
 
 export function normalizeCarriageReturns(text: string): string {
   if (!text.includes('\r')) return text
@@ -130,7 +128,7 @@ export function shapeCurlJsonOutput(raw: string): string {
 
   if (looksLikeErrorPayload(parsed)) return raw
 
-  const schemaSummary = renderUnifiedJsonDocument(parsed)
+  const schemaSummary = `${renderUnifiedJsonDocument(parsed)}\n${CURL_JSON_RAW_HINT}`
   if (Buffer.byteLength(schemaSummary, 'utf8') >= Buffer.byteLength(raw, 'utf8') * CURL_JSON_MAX_SCHEMA_RATIO) {
     return raw
   }
@@ -324,80 +322,6 @@ function formatSchemaNode(node: SchemaNode, indent: number, topLevel = false): s
   if (hasNull) parts.push('null')
 
   return parts.join(' | ') || 'unknown'
-}
-
-const LICENSE_KEYWORDS_RE =
-  /Copyright\s+\(c\)|SPDX-License-Identifier:|Licensed under the Apache License|Permission is hereby granted, free of charge/i
-
-export function shapeSourceCatOutput(raw: string, filePath: string): string {
-  if (raw.length <= SHELL_CAT_MIN_CHARS) return raw
-  const ext = extname(filePath).toLowerCase()
-  const isHashLang = ext === '.py' || ext === '.ex' || ext === '.exs' || ext === '.rb' || ext === '.sh'
-
-  let text = raw
-  // Strip leading license header comment block when present at top of file.
-  const leadingBlockMatch = text.match(/^(?:\/\*[\s\S]*?\*\/\s*\n|(?:(?:#|\/\/).*\n){3,})/)
-  if (leadingBlockMatch && LICENSE_KEYWORDS_RE.test(leadingBlockMatch[0])) {
-    // Preserve shebang on first line if present.
-    const firstLine = leadingBlockMatch[0].split('\n')[0] ?? ''
-    const rest = text.slice(leadingBlockMatch[0].length)
-    text = firstLine.startsWith('#!') ? `${firstLine}\n${rest}` : rest
-  }
-
-  const lines = text.split('\n')
-  const out: string[] = []
-  let inDocBlock = false
-  let inPythonTriple: '"""' | "'''" | null = null
-
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]!
-    const trimmed = line.trim()
-
-    if (ext === '.py') {
-      if (inPythonTriple) {
-        out.push(line)
-        if (trimmed.includes(inPythonTriple)) inPythonTriple = null
-        continue
-      }
-      if (trimmed.startsWith('"""') || trimmed.startsWith("'''")) {
-        const delim = trimmed.slice(0, 3) as '"""' | "'''"
-        out.push(line)
-        if (trimmed.slice(3).indexOf(delim) === -1) inPythonTriple = delim
-        continue
-      }
-    }
-
-    if (inDocBlock) {
-      out.push(line)
-      if (trimmed.includes('*/')) inDocBlock = false
-      continue
-    }
-
-    if (trimmed.startsWith('/**') || trimmed.startsWith('/*!')) {
-      out.push(line)
-      if (!trimmed.includes('*/')) inDocBlock = true
-      continue
-    }
-
-    if (isHashLang) {
-      if (index === 0 && trimmed.startsWith('#!')) {
-        out.push(line)
-        continue
-      }
-      if (trimmed.startsWith('#')) {
-        continue
-      }
-    } else {
-      // Preserve Rust/C# `///` and `//!` doc comments; strip ordinary standalone `//` comments.
-      if (trimmed.startsWith('//') && !trimmed.startsWith('///') && !trimmed.startsWith('//!')) {
-        continue
-      }
-    }
-
-    out.push(line)
-  }
-
-  return collapseBlankLines(out.join('\n'))
 }
 
 function collapseBlankLines(text: string): string {

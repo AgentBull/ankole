@@ -1,6 +1,7 @@
 ---
 name: calendly
 description: "Find and use calendly operations through Ankole connections."
+default_enabled: false
 ---
 
 # calendly

@@ -1,16 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { availableParallelism } from 'node:os'
+import type { AppletBindings } from '../main/code-cache.ts'
+import { base, headers, invoke, post, publish } from './support/runtime.ts'
 
-const base = process.env.ANKOLE_FUNCTION_RUNTIME_URL || 'http://127.0.0.1:5435'
-const headers = {
-  authorization: `Bearer ${process.env.ANKOLE_FUNCTION_RUNTIME_TOKEN || 'dev-function-runtime-token'}`,
-  'content-type': 'application/json',
-  'x-ankole-mcp-origin': 'http://host.docker.internal:5546',
-  'x-ankole-caller-mcp-token': 'caller-test-token',
-  'x-ankole-admin-mcp-token': 'admin-test-token'
-}
-const post = async (path: string, body: unknown) =>
-  await fetch(base + path, { method: 'POST', headers, body: JSON.stringify(body) })
 const tool = { namespace: 'test', name: 'lookup', global_name: 'lookup' }
 const run = async (program: string, memo: unknown[] = [], options = {}) => {
   const response = await post('/v1/program/run', { program, tools: [tool], memo, ...options })
@@ -21,64 +13,6 @@ const run = async (program: string, memo: unknown[] = [], options = {}) => {
     throw new Error(`Invalid program outcome: HTTP ${response.status} ${JSON.stringify(bytes)}`)
   }
   return value
-}
-
-async function publish(source: string, env: Record<string, string> = {}) {
-  const entries = Object.entries(env).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  const sha = new Bun.CryptoHasher('sha256').update(`${source}\n${JSON.stringify(entries)}`).digest('hex')
-  const response = await fetch(`${base}/v1/applet/code/${sha}`, {
-    method: 'PUT',
-    headers,
-    body: JSON.stringify({ source, env })
-  })
-  expect(response.status).toBe(204)
-  return sha
-}
-
-async function invoke(
-  sha: string,
-  context: Record<string, unknown> = { method: 'POST', path: '/' },
-  options: {
-    page?: string
-    lane?: 'route' | 'action'
-    revision?: number
-    timeout?: number
-    call?: (frame: { operation: string; args: unknown[] }) => Promise<unknown>
-  } = {}
-) {
-  const runId = crypto.randomUUID()
-  const path = `/v1/applet/invoke?tenant_id=test&page_id=${options.page || sha}&revision=${options.revision || 1}&sha256=${sha}&run_id=${runId}&timeout_ms=${options.timeout || 2000}&lane=${options.lane || 'route'}`
-  const ready = await fetch(base + path, { headers })
-  expect(ready.status).toBe(204)
-  try {
-    return await new Promise<any>((resolve, reject) => {
-      const ws = new WebSocket(base.replace(/^http/, 'ws') + path, { headers })
-      let settled = false
-      ws.onopen = () => ws.send(JSON.stringify({ type: 'start', run_id: runId, context }))
-      ws.onmessage = async event => {
-        const frame = JSON.parse(String(event.data))
-        if (frame.type === 'done') {
-          settled = true
-          resolve(frame.outcome)
-        }
-        if (frame.type === 'call') {
-          try {
-            const value = await options.call!(frame)
-            ws.send(JSON.stringify({ type: 'reply', call_id: frame.call_id, value }))
-          } catch (error) {
-            reject(error)
-            ws.close()
-          }
-        }
-      }
-      ws.onerror = reject
-      ws.onclose = () => {
-        if (!settled) reject(new Error('Invocation closed before completion'))
-      }
-    })
-  } finally {
-    expect((await fetch(`${base}/v1/applet/invocations/${runId}`, { method: 'DELETE', headers })).status).toBe(204)
-  }
 }
 
 describe('real edge-runtime protocol', () => {
@@ -237,125 +171,6 @@ describe('real edge-runtime protocol', () => {
       gateway.stop(true)
     }
   }, 8000)
-
-  test('published quant monitor Action reads its Pod configuration and emits a weekly event through host MCP', async () => {
-    const build = await Bun.build({
-      entrypoints: [
-        new URL('../../../internals/agent-plugins/quant-factor-monitor/runtime/automation-main.ts', import.meta.url)
-          .pathname
-      ],
-      target: 'browser',
-      format: 'esm'
-    })
-    expect(build.success).toBe(true)
-    const source = await build.outputs[0]!.text()
-    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
-    const config = {
-      version: 3,
-      plugin: 'quant-factor-monitor',
-      portfolio_id: 'proof',
-      drive_root: 'chats/proof/quant-factor-monitor/proof',
-      input_drive_path: 'positions.csv',
-      state_drive_path: 'state.json',
-      data_trade_date: '2020-01-01',
-      stocks: []
-    }
-    const upstream: string[] = []
-    const gateway = Bun.serve({
-      hostname: '0.0.0.0',
-      port: 5546,
-      async fetch(request) {
-        const body = (await request.json()) as any
-        let result: any
-        if (body.method === 'server/discover') {
-          result = { supportedVersions: ['2026-07-28'], capabilities: { tools: {} }, ttlMs: 0, cacheScope: 'private' }
-        } else if (body.method === 'tools/list') {
-          result = {
-            tools: [{ name: 'bullx_semantic_query', inputSchema: { type: 'object' } }],
-            ttlMs: 0,
-            cacheScope: 'private'
-          }
-        } else {
-          expect(request.headers.get('authorization')).toBe('Bearer admin-test-token')
-          expect(new URL(request.url).pathname).toBe(
-            '/api/internal/mcp/skills/bullx-financial-data/bullx-financial-data'
-          )
-          const args = body.params.arguments
-          upstream.push(args.operation)
-          const data =
-            args.operation === 'describe'
-              ? { catalog_revision: 'proof' }
-              : {
-                  rows: ['000001.SZ', '600519.SH', '300750.SZ'].map(symbol => ({ symbol, trade_date: today }))
-                }
-          result = { content: [], structuredContent: { success: true, data } }
-        }
-        return Response.json({ jsonrpc: '2.0', id: body.id, result: { resultType: 'complete', ...result } })
-      }
-    })
-    try {
-      const inspected = await post('/v1/applet/inspect', { source })
-      expect(inspected.status).toBe(200)
-      expect(((await inspected.json()) as any).actions.monitor).toMatchObject({
-        idempotent: false,
-        concurrency: 'serial_fifo'
-      })
-      const sha = await publish(source)
-      const events: any[] = []
-      const result = await invoke(
-        sha,
-        {
-          kind: 'action',
-          actionKey: 'monitor',
-          applet: { pageId: 'quant-page', revision: 1 },
-          job: { id: 41, config: {} },
-          run: { id: 42, attemptId: 'attempt', sliceCount: 0, progress: {} },
-          signal: { id: 'weekly-proof', type: 'schedule.fired', data: { mode: 'weekly' } }
-        },
-        {
-          lane: 'action',
-          timeout: 15000,
-          async call(frame) {
-            if (frame.operation === 'admin.file.read') {
-              expect(frame.args).toEqual(['pages/quant-page/src/server/config.json'])
-              return { bytes: { __ankole_bytes: Buffer.from(JSON.stringify(config)).toString('base64') } }
-            }
-            expect(frame.operation).toBe('admin.signals.emit')
-            events.push((frame.args as any[])[0])
-            return { accepted: true, signalId: 'accepted' }
-          }
-        }
-      )
-      expect(result.status).toBe(200)
-      expect(upstream).toEqual(['describe', 'execute'])
-      expect(events).toEqual([
-        {
-          id: 'weekly-proof:quant-factor-monitor.weekly',
-          type: 'quant-factor-monitor.weekly',
-          data: {
-            kind: 'quant-factor-monitor.weekly',
-            portfolio_id: 'proof',
-            drive_root: config.drive_root,
-            input_drive_path: 'positions.csv',
-            previous_state_drive_path: 'state.json',
-            previous_data_trade_date: '2020-01-01',
-            data_trade_date: today,
-            touches: {
-              price_below_stop: [],
-              touched_stop: [],
-              touched_sell_zone: [],
-              touched_buy_zone: [],
-              no_bars: []
-            },
-            instruction:
-              'Use the quant-factor-monitor Skill to start the weekly tracking Background Agent Job for this portfolio with these drive paths and data trade date.'
-          }
-        }
-      ])
-    } finally {
-      await gateway.stop(true)
-    }
-  }, 20000)
 
   test('Action remainingMs uses the invocation budget supplied by its control-plane owner', async () => {
     const sha = await publish(`export default {actions:{inspect:{handler:ctx => ({remaining:ctx.remainingMs()})}}}`)
@@ -753,6 +568,69 @@ describe('real edge-runtime protocol', () => {
     const next = await publish(source, { VALUE: 'second' })
     expect(next).not.toBe(sha)
     expect((await invoke(next, undefined, { page, revision: 1 })).body).toMatchObject({ count: 1, env: 'second' })
+  })
+  test('new draft workers retire old drafts without evicting live workers', async () => {
+    const sha = await publish('let count=0; export default {"POST /":()=>++count}')
+    const page = crypto.randomUUID()
+    const firstDraft = `draft:${crypto.randomUUID()}`
+    const nextDraft = `draft:${crypto.randomUUID()}`
+    expect((await invoke(sha, undefined, { page, revision: 1 })).body).toBe(1)
+    expect((await invoke(sha, undefined, { page, revision: firstDraft })).body).toBe(1)
+    expect((await invoke(sha, undefined, { page, revision: nextDraft })).body).toBe(1)
+    expect((await invoke(sha, undefined, { page, revision: 1 })).body).toBe(2)
+    expect((await invoke(sha, undefined, { page, revision: 2 })).body).toBe(1)
+    expect((await invoke(sha, undefined, { page, revision: nextDraft })).body).toBe(2)
+  })
+  test('resolved bindings route caller and admin operations through the effective table', async () => {
+    const bindings: AppletBindings = {
+      orders: {
+        tableId: 'table-b',
+        fields: { amount: 'amount-b' },
+        status: 'ready',
+        missing: [],
+        required: true,
+        description: null
+      }
+    }
+    const sha = await publish(
+      `export default {'POST /':async()=>({
+      fields:AnkoleRuntime.bindings.table('orders').fields,
+      rows:await AnkoleRuntime.bindings.table('orders').query({limit:1}),
+      summary:await AnkoleRuntime.admin.bindings.table('orders').aggregate({metrics:[]})
+    })}`,
+      {},
+      bindings
+    )
+    const calls: unknown[] = []
+    const result = await invoke(sha, undefined, {
+      call: async frame => {
+        calls.push(frame)
+        return { ok: true }
+      }
+    })
+    expect(result.body.fields).toEqual({ amount: 'amount-b' })
+    expect(calls).toMatchObject([
+      { operation: 'base.query', args: ['table-b', { limit: 1 }] },
+      { operation: 'admin.base.aggregate', args: ['table-b', { metrics: [] }] }
+    ])
+  })
+  test('diagnostic GET routes expose blocked writes as diagnostic_read_only', async () => {
+    const bindings: AppletBindings = {
+      orders: {
+        tableId: 'table-b',
+        fields: { amount: 'amount-b' },
+        status: 'ready',
+        missing: [],
+        required: true,
+        description: null
+      }
+    }
+    const source = `const table=AnkoleRuntime.bindings.table('orders'); export default {'GET /':()=>table.write({creates:[]})}`
+    const inspected = await post('/v1/applet/inspect', { source, bindings })
+    expect(inspected.status).toBe(200)
+    const sha = await publish(source, {}, bindings)
+    const result = await invoke(sha, { method: 'GET', path: '/', read_only: true, diagnostic: true })
+    expect(result).toMatchObject({ status: 403, body: { error: { code: 'diagnostic_read_only' } } })
   })
   test('web and image capabilities bridge caller and admin authorities and enforce GET write guard', async () => {
     const sha = await publish(

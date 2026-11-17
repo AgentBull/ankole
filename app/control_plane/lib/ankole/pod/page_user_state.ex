@@ -38,7 +38,6 @@ defmodule Ankole.Pod.PageUserState do
 
     attribute(:favorited_at, :utc_datetime_usec, public?: true)
     attribute(:visited_at, :utc_datetime_usec, public?: true)
-    attribute(:hide_visits, :boolean, public?: true, allow_nil?: false, default: false)
     attribute(:edited_at, :utc_datetime_usec)
     attribute(:comments_read_at, :utc_datetime_usec)
   end
@@ -57,12 +56,11 @@ defmodule Ankole.Pod.PageUserState do
         :favorited_at,
         :visited_at,
         :comments_read_at,
-        :hide_visits,
         :edited_at
       ])
 
       upsert?(true)
-      upsert_fields([:favorited_at, :visited_at, :comments_read_at, :hide_visits, :edited_at])
+      upsert_fields([:favorited_at, :visited_at, :comments_read_at, :edited_at])
     end
 
     destroy :remove_empty do
@@ -72,7 +70,7 @@ defmodule Ankole.Pod.PageUserState do
         filter(
           expr(
             is_nil(favorited_at) and is_nil(visited_at) and is_nil(comments_read_at) and
-              is_nil(edited_at) and not hide_visits
+              is_nil(edited_at)
           )
         )
       )

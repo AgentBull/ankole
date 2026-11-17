@@ -640,7 +640,7 @@ defmodule Ankole.Sessions.Driver do
   defp execute({:worker_timer, :check, ms}, data),
     do: {data, [{{:timeout, :worker_check}, ms, :check}]}
 
-  defp emit_turn_settled(%{run: %Run{event: %Signal{} = event} = run} = previous, data) do
+  defp emit_turn_settled(%{run: %Run{event: %Signal{} = event} = run} = previous, _data) do
     started_at = event.last_attempt_at || event.inserted_at
 
     duration_ms =
@@ -654,6 +654,9 @@ defmodule Ankole.Sessions.Driver do
         _ -> event.human_uid
       end
 
+    %{adapter: channel_adapter, kind: channel_kind} =
+      Observability.channel_info(event, run.spec, Map.get(run, :context))
+
     :telemetry.execute(
       [:ankole, :sessions, :turn, :settled],
       %{duration_ms: duration_ms},
@@ -664,8 +667,10 @@ defmodule Ankole.Sessions.Driver do
         human_uid: human_uid,
         agent_uid: run.agent_uid,
         outcome: run.outcome,
-        used_worker: previous.workspace_open_attempted? or not is_nil(data.worker_cli_context_id),
-        runtime: :native
+        used_worker: previous.worker_used?,
+        runtime: :native,
+        channel_adapter: channel_adapter,
+        channel_kind: channel_kind
       }
     )
   end

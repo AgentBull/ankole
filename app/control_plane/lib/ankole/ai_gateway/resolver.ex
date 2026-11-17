@@ -27,18 +27,23 @@ defmodule Ankole.AIGateway.Resolver do
   def resolve_request_model(subject_uid, capability, request, opts \\ []) do
     with {:ok, selector} <- model_selector(request) do
       case Keyword.get(opts, :model_binding) do
-        nil -> resolve_model(subject_uid, capability, selector, request)
-        %{} = binding -> resolve_bound_model(subject_uid, capability, selector, binding, request)
-        _invalid -> {:error, {:unknown_model_selector, capability, selector}}
+        nil ->
+          resolve_model(subject_uid, capability, selector, request, opts)
+
+        %{} = binding ->
+          resolve_bound_model(subject_uid, capability, selector, binding, request, opts)
+
+        _invalid ->
+          {:error, {:unknown_model_selector, capability, selector}}
       end
     end
   end
 
-  defp resolve_bound_model(subject_uid, capability, selector, binding, request) do
+  defp resolve_bound_model(subject_uid, capability, selector, binding, request, opts) do
     case binding do
       %{"profile" => ^selector} ->
         with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid) do
-          build_runtime(subject_uid, capability, selector, binding, request)
+          build_runtime(subject_uid, capability, selector, binding, request, opts)
         end
 
       _different_alias ->
@@ -46,17 +51,17 @@ defmodule Ankole.AIGateway.Resolver do
     end
   end
 
-  defp resolve_model(subject_uid, "llm", selector, request) do
+  defp resolve_model(subject_uid, "llm", selector, request, opts) do
     case ModelProfiles.profile_capability(selector) do
       {:ok, "llm"} ->
-        resolve_profile_model(subject_uid, "llm", selector, selector, request)
+        resolve_profile_model(subject_uid, "llm", selector, selector, request, opts)
 
       _not_llm_profile ->
-        resolve_explicit_model(subject_uid, "llm", selector, request)
+        resolve_explicit_model(subject_uid, "llm", selector, request, opts)
     end
   end
 
-  defp resolve_model(subject_uid, capability, selector, request)
+  defp resolve_model(subject_uid, capability, selector, request, opts)
        when capability in [
               "web_search",
               "web_fetch",
@@ -71,23 +76,39 @@ defmodule Ankole.AIGateway.Resolver do
             ] do
     case explicit_provider_selector(selector) do
       {:ok, provider_id, model} ->
-        resolve_provider_model(subject_uid, capability, selector, provider_id, model, request)
+        resolve_provider_model(
+          subject_uid,
+          capability,
+          selector,
+          provider_id,
+          model,
+          request,
+          opts
+        )
 
       :error ->
         with {:ok, profile} <- ModelSelectors.default_profile(capability, selector) do
-          resolve_profile_model(subject_uid, capability, selector, profile, request)
+          resolve_profile_model(subject_uid, capability, selector, profile, request, opts)
         end
     end
   end
 
-  defp resolve_model(subject_uid, capability, selector, request) do
-    resolve_explicit_model(subject_uid, capability, selector, request)
+  defp resolve_model(subject_uid, capability, selector, request, opts) do
+    resolve_explicit_model(subject_uid, capability, selector, request, opts)
   end
 
-  defp resolve_explicit_model(subject_uid, capability, selector, request) do
+  defp resolve_explicit_model(subject_uid, capability, selector, request, opts) do
     case explicit_provider_selector(selector) do
       {:ok, provider_id, model} ->
-        resolve_provider_model(subject_uid, capability, selector, provider_id, model, request)
+        resolve_provider_model(
+          subject_uid,
+          capability,
+          selector,
+          provider_id,
+          model,
+          request,
+          opts
+        )
 
       :error ->
         {:error, {:unknown_model_selector, capability, selector}}
@@ -99,7 +120,7 @@ defmodule Ankole.AIGateway.Resolver do
   # secrets.
   # Rerank, decision, speech, transcription, OCR, video, and music are Pod/Site
   # slots, which an Agent cannot override.
-  defp resolve_profile_model(subject_uid, capability, selector, capability, request)
+  defp resolve_profile_model(subject_uid, capability, selector, capability, request, opts)
        when capability in [
               "rerank",
               "decision",
@@ -112,16 +133,16 @@ defmodule Ankole.AIGateway.Resolver do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, principal} <- Principals.get_principal(subject_uid),
          {:ok, profile} <- pod_slot_profile(principal, capability) do
-      build_runtime(subject_uid, capability, selector, profile, request)
+      build_runtime(subject_uid, capability, selector, profile, request, opts)
     end
   end
 
-  defp resolve_profile_model(subject_uid, capability, selector, profile_name, request) do
+  defp resolve_profile_model(subject_uid, capability, selector, profile_name, request, opts) do
     with {:ok, profile_capability} <- ModelProfiles.profile_capability(profile_name),
          ^capability <- profile_capability,
          {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, profile} <- ModelProfiles.get_model_profile(subject_uid, profile_name) do
-      build_runtime(subject_uid, capability, selector, profile, request)
+      build_runtime(subject_uid, capability, selector, profile, request, opts)
     else
       other when is_binary(other) -> {:error, {:model_profile_capability_mismatch, other}}
       {:error, _reason} = error -> error
@@ -134,14 +155,23 @@ defmodule Ankole.AIGateway.Resolver do
   defp pod_slot_profile(%{uid: uid}, profile),
     do: ModelProfiles.get_pod_model_profile(uid, profile)
 
-  defp resolve_provider_model(subject_uid, capability, selector, provider_id, model, request) do
+  defp resolve_provider_model(
+         subject_uid,
+         capability,
+         selector,
+         provider_id,
+         model,
+         request,
+         opts
+       ) do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid) do
       build_runtime(
         subject_uid,
         capability,
         selector,
         %{"provider_id" => provider_id, "model" => model, "provider_options" => %{}},
-        request
+        request,
+        opts
       )
     end
   end
@@ -149,8 +179,10 @@ defmodule Ankole.AIGateway.Resolver do
   # This is the single runtime-map constructor for every selector style. Profile
   # selectors and explicit `provider/model` selectors must leave this module with
   # the same shape, otherwise provider preparation will drift by selector path.
-  defp build_runtime(subject_uid, capability, selector, binding, request) do
+  defp build_runtime(subject_uid, capability, selector, binding, request, opts) do
     request_context = Map.get(request, "__ankole_request_context", %{})
+    pinned_credential_id = Keyword.get(opts, :credential_id)
+    pinned? = is_binary(pinned_credential_id) and pinned_credential_id != ""
 
     with {:ok, provider_id} <- binding_text(binding, :provider_id),
          {:ok, model} <- binding_text(binding, :model),
@@ -160,9 +192,13 @@ defmodule Ankole.AIGateway.Resolver do
          {:ok, provider_options} <-
            provider_options(provider.provider_kind, binding_provider_options(binding), request),
          {:ok, selected} <-
-           ProviderConfigs.resolve_credential(
-             provider,
-             affinity_key: Map.get(request_context, "affinity_key")
+           if(pinned?,
+             do: ProviderConfigs.resolve_pinned_credential(provider, pinned_credential_id),
+             else:
+               ProviderConfigs.resolve_credential(
+                 provider,
+                 affinity_key: Map.get(request_context, "affinity_key")
+               )
            ),
          {:ok, connection_options} <- ProviderConfigs.runtime_connection(provider, selected) do
       runtime =
@@ -177,6 +213,7 @@ defmodule Ankole.AIGateway.Resolver do
           "credential_id" => selected["id"],
           "credential_entry" => selected["entry"],
           "credential_available_count" => selected["available_count"],
+          "pinned_credential" => pinned?,
           "provider_options" => provider_options,
           "request_context" => request_context,
           "provider_metadata" => provider_metadata(provider_kind),

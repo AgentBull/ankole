@@ -10,10 +10,12 @@ import {
   Sheet,
   SheetContent,
   SheetTitle,
-  useReducedMotion,
-  Spinner
+  Spinner,
+  toast,
+  useReducedMotion
 } from '@ankole/uikit'
 import {
+  ArrowDownloadRegular,
   ArrowDownRegular,
   ArrowLeftRegular,
   ArrowRightRegular,
@@ -43,7 +45,7 @@ import {
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStickToBottom } from 'use-stick-to-bottom'
-import { podKeys } from '../api'
+import { chatError, podKeys } from '../api'
 import {
   conversationExecution,
   messageConversationExecution,
@@ -53,6 +55,8 @@ import {
   stopPodJobExecution
 } from '../api/generated/sdk.gen'
 import { ContentError } from '../content-primitives'
+import { fileURL } from '../content-api'
+import { PageReferenceCard } from '../message-artifacts'
 import { jobsError, jobsKeys } from '../jobs-api'
 import { PodPanelSurface, popupOpen, type PanelInputEvent } from '../panel-motion'
 import { refreshConversationQueries } from '../query-cache'
@@ -81,7 +85,44 @@ import {
 import { WorkingLabel } from './collapsed-work-view'
 import { PeerExchangeInspectorBody } from './peer-exchange-card'
 import { ToolRunView, formatToolDetail, localizedStepTitle } from './tool-run-view'
-import type { ConversationExecutionDetail, ConversationExecutionItem, InspectorTarget } from './types'
+import type {
+  ConversationExecutionDetail,
+  ConversationExecutionItem,
+  ExecutionDeliverable,
+  InspectorTarget
+} from './types'
+
+const DELIVERABLE_MARKDOWN_TOKEN =
+  /((?:^|\n)[ \t]*(`{3,}|~{3,})[^\n]*(?:\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)|\n[\s\S]*$))|(!?\[(?:\\.|`[^`\n]*`|[^\]\n])*\]\([^)\n]*\))|((`+)([^`\n]+?)\5)/g
+
+export function linkDriveDeliverablesInMarkdown(text: string, deliverables?: ExecutionDeliverable[] | null): string {
+  if (!deliverables?.length) return text
+  const byPath = new Map<string, ExecutionDeliverable>()
+  for (const item of deliverables) {
+    if (item.path && item.nodeID) byPath.set(item.path, item)
+  }
+  if (byPath.size === 0) return text
+
+  return text.replace(
+    DELIVERABLE_MARKDOWN_TOKEN,
+    (
+      match,
+      fencedBlock: string | undefined,
+      _fence: string | undefined,
+      existingLink: string | undefined,
+      _codeSpan: string | undefined,
+      ticks: string | undefined,
+      codeContent: string | undefined
+    ) => {
+      if (fencedBlock !== undefined || existingLink !== undefined) return match
+      if (ticks !== '`' || !codeContent) return match
+      const item = byPath.get(codeContent)
+      if (!item) return match
+      const escapedName = item.name.replace(/[\\[\]]/g, '\\$&')
+      return `[${escapedName}](ankole:page/${item.nodeID})`
+    }
+  )
+}
 
 export function ExecutionInspectorPanel({
   conversationID,
@@ -452,6 +493,8 @@ function ExecutionInspectorBody({
     }
   }
 
+  const mapExecutionError = (err: unknown) => (conversationID ? chatError(err) : jobsError(err))
+
   const stopMutation = useMutation({
     mutationFn: () =>
       conversationID
@@ -463,11 +506,15 @@ function ExecutionInspectorBody({
           }),
     onSuccess: () => {
       refreshExecutionState()
+    },
+    onError: error => {
+      refreshExecutionState()
+      toast.error(requestErrorMessage(mapExecutionError(error)))
     }
   })
 
   const sendMutation = useMutation({
-    mutationFn: (text: string) =>
+    mutationFn: ({ text }: { text: string; source: 'composer' | 'questions' }) =>
       conversationID
         ? messageConversationExecution({
             path: { id: conversationID, run_id: Number(target.runID) },
@@ -477,9 +524,12 @@ function ExecutionInspectorBody({
             path: { run_id: Number(target.runID) },
             body: { data: { requestID: uuidV4(), text } }
           }),
-    onSuccess: result => {
-      setDraft('')
-      setSelectedChoices({})
+    onSuccess: (result, variables) => {
+      if (variables.source === 'composer') {
+        setDraft(current => (current.trim() === variables.text ? '' : current))
+      } else {
+        setSelectedChoices({})
+      }
       refreshExecutionState()
       if (result.respawned && result.runID && result.runID !== target.runID) {
         onSwitchTarget({
@@ -528,10 +578,10 @@ function ExecutionInspectorBody({
   const taskText = head?.task?.trim()
   const taskIsLong = Boolean(taskText && (taskText.length > 180 || taskText.split('\n').length > 3))
 
-  const submitText = (raw: string) => {
+  const submitText = (raw: string, source: 'composer' | 'questions' = 'composer') => {
     const text = raw.trim()
     if (!text || sendMutation.isPending) return
-    sendMutation.mutate(text)
+    sendMutation.mutate({ text, source })
   }
 
   const placeholder =
@@ -705,7 +755,7 @@ function ExecutionInspectorBody({
               selectedChoices={selectedChoices}
               onSelectChoice={(questionID, label) => {
                 if (head?.pendingQuestions.length === 1) {
-                  submitText(label)
+                  submitText(label, 'questions')
                 } else {
                   setSelectedChoices(prev => ({ ...prev, [questionID]: label }))
                 }
@@ -717,7 +767,7 @@ function ExecutionInspectorBody({
                     return value ? `${q.header || q.question}: ${value}` : null
                   })
                   .filter((line): line is string => Boolean(line))
-                if (lines.length > 0) submitText(lines.join('\n'))
+                if (lines.length > 0) submitText(lines.join('\n'), 'questions')
               }}
               submittingAnswer={sendMutation.isPending}
             />
@@ -758,14 +808,36 @@ function ExecutionInspectorBody({
             </div>
           )}
 
-          {showOutcome && head?.outcomeText && (
+          {onLeadThread && Boolean(head?.deliverables?.length) && (
             <section className="pod-chat-inspector-outcome">
-              <header>{t('pod.chat_timeline.execution_outcome_heading')}</header>
-              <ChatMarkdown text={head.outcomeText} generated />
+              <header>{t('pod.chat_timeline.execution_deliverables_heading')}</header>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {head!.deliverables!.map(item => (
+                  <div key={`${item.nodeID}:${item.path}`} className="inline-flex items-center gap-1">
+                    <PageReferenceCard id={item.nodeID} title={item.name} />
+                    {item.mimeType && !item.name.endsWith('._adoc.md') ? (
+                      <a
+                        href={fileURL(item.nodeID, item.name)}
+                        download={item.name}
+                        aria-label={item.name}
+                        className="inline-flex size-7 items-center justify-center rounded-md text-fg-secondary hover:bg-layer-03 hover:text-fg-primary">
+                        <ArrowDownloadRegular aria-hidden className="size-4" />
+                      </a>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             </section>
           )}
 
-          <ContentError error={query.error || stopMutation.error} retry={() => void query.refetch()} />
+          {showOutcome && head?.outcomeText && (
+            <section className="pod-chat-inspector-outcome">
+              <header>{t('pod.chat_timeline.execution_outcome_heading')}</header>
+              <ChatMarkdown text={linkDriveDeliverablesInMarkdown(head.outcomeText, head.deliverables)} generated />
+            </section>
+          )}
+
+          <ContentError error={query.error} retry={() => void query.refetch()} />
         </div>
         {!stick.isAtBottom && (
           <Button
@@ -783,11 +855,14 @@ function ExecutionInspectorBody({
         <footer className="pod-chat-inspector-composer">
           <JobComposer
             value={draft}
-            onChange={setDraft}
+            onChange={value => {
+              if (!sendMutation.isPending && sendMutation.error) sendMutation.reset()
+              setDraft(value)
+            }}
             onSubmit={submitText}
             placeholder={placeholder}
             submitting={sendMutation.isPending}
-            error={sendMutation.error ? requestErrorMessage(jobsError(sendMutation.error)) : undefined}
+            error={sendMutation.error ? requestErrorMessage(mapExecutionError(sendMutation.error)) : undefined}
             autoFocus={autoFocus}
             onStop={stoppable ? () => stopMutation.mutate() : undefined}
             stopping={stopMutation.isPending}

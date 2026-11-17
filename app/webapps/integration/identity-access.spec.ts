@@ -40,12 +40,30 @@ const access = () => ({
   cleanup_jobs: []
 })
 
-test('the identity editor saves v2 settings, keeps typed field errors, and reviews directory evidence', async ({
+const tenant = {
+  id: 'tenant-one',
+  type: 'tenant',
+  attributes: {
+    slug: 'harbor',
+    display_name: 'Harbor Space',
+    status: 'active',
+    pod_origin: 'https://harbor.pod.example'
+  }
+}
+
+test('the Console identity page shows read-only audit state, links to Pod Settings, and reflects fresh refetches', async ({
   page
 }) => {
   let current = structuredClone(provider)
-  let reviewed = false
-  let writes = 0
+  await page.route('**/api/v2/site/**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/privileged-tenant')) return route.fulfill({ json: { data: tenant } })
+    if (path.endsWith('/tenants')) return route.fulfill({ json: { data: [tenant] } })
+    return route.fulfill({ json: { data: [] } })
+  })
+  await page.route('**/api/v2/principals**', route => route.fulfill({ json: { data: [principal] } }))
+  await page.route('**/api/v2/connectors/catalog', route => route.fulfill({ json: { connectors: [] } }))
+  await page.route('**/api/v2/connector-auth-configs', route => route.fulfill({ json: { connections: [] } }))
   await page.route('**/api/v2/identity-provider-adapters', route =>
     route.fulfill({
       json: {
@@ -64,82 +82,82 @@ test('the identity editor saves v2 settings, keeps typed field errors, and revie
       }
     })
   )
-  await page.route('**/api/v2/identity-providers**', async route => {
+  await page.route('**/api/v2/identity-providers**', route => {
     const path = new URL(route.request().url()).pathname
-    if (route.request().method() === 'PUT') {
-      writes++
-      const data = route.request().postDataJSON().data
-      expect(data.config.appID).toBe('updated')
-      if (writes === 1) {
-        return route.fulfill({
-          status: 422,
-          json: {
-            errors: [
-              { code: 'missing', detail: 'appID is required.', meta: { details: [{ path: 'appID', kind: 'missing' }] } }
-            ]
-          }
-        })
-      }
-      current = { ...current, config: { ...current.config, appID: data.config.appID } }
-      return route.fulfill({ json: { identity_provider: current } })
-    }
-    if (path.endsWith('/directory-reviews')) {
-      expect(route.request().postDataJSON()).toEqual({
-        data: { snapshot_fingerprint: 'snapshot-one', reason: 'Reviewed scope', confirm_removals: true }
-      })
-      reviewed = true
-      return route.fulfill({ status: 201, json: { snapshot: null, events: [] } })
-    }
     if (path.endsWith('/directory')) {
       return route.fulfill({
         json: {
           snapshot: {
             provider_id: 'directory',
-            status: reviewed ? 'healthy' : 'review_required',
+            status: 'review_required',
             snapshot_fingerprint: 'snapshot-one',
-            missing_uids: reviewed ? [] : ['missing-person'],
-            member_uids: ['present-person'],
+            missing_uids: ['missing-person'],
+            member_uids: ['human-one'],
             last_success_at: '2026-10-23T00:00:00Z'
           },
-          events: []
+          events: [
+            {
+              id: 'ev-1',
+              event_id: 'ext-ev-1',
+              event_type: 'user.removed',
+              status: 'dismissed',
+              external_ids: ['ext-user-99'],
+              reason: 'Directory webhook removal',
+              review_reason: 'Reviewed in Pod Settings',
+              reviewed_by: { tenant_id: 'tenant-one', uid: 'human-one' },
+              inserted_at: '2026-10-23T00:05:00Z'
+            }
+          ]
         }
       })
     }
     return route.fulfill({ json: { identity_providers: [current] } })
   })
+
   await page.goto('/identity/directory')
+  const podSettingsLink = page.getByRole('link', { name: 'Open in Pod Settings ↗', exact: true })
+  await expect(podSettingsLink).toHaveAttribute('href', 'https://harbor.pod.example/settings?section=providers')
+
   const appID = page.getByRole('textbox', { name: 'Application ID (required)', exact: true })
   await expect(appID).toHaveValue('before')
-  await appID.fill('updated')
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('Application ID')
-  await expect(appID).toHaveValue('updated')
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+  await expect(appID).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Approve snapshot', exact: true })).toHaveCount(0)
+  await expect(page.getByText('Review required', { exact: true })).toBeVisible()
   await expect(page.getByText('missing-person', { exact: true })).toBeVisible()
-  await page.getByLabel('Reason for this change (required)', { exact: true }).fill('Reviewed scope')
-  await page
-    .getByRole('checkbox', { name: 'I reviewed this snapshot and approve disabling the listed missing people.' })
-    .check()
-  await page.getByRole('button', { name: 'Approve snapshot', exact: true }).click()
-  await expect(page.getByText('Healthy', { exact: true })).toBeVisible()
-  await expect(page.getByText('missing-person', { exact: true })).toHaveCount(0)
+  await expect(page.getByText(/Reviewed in Pod Settings/)).toBeVisible()
+
+  // Simulate an update committed in Pod Settings, then re-enter the detail page and verify no frozen Signal draft lags.
+  current = { ...current, config: { ...current.config, appID: 'updated-in-pod' } }
+  await page.getByRole('link', { name: 'Back', exact: true }).click()
+  await page.getByRole('link', { name: 'directory', exact: true }).click()
+  await expect(appID).toHaveValue('updated-in-pod')
 })
 
-test('Human access requires an explicit disposition and restores directly with a reason', async ({ page }) => {
+test('Human access exposes break-glass Pod administrator recovery and account restoration while linking routine actions to Pod Settings', async ({
+  page
+}) => {
   let state = access()
+  const recoveredAdminReasons: string[] = []
+  await page.route('**/api/v2/site/**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/privileged-tenant')) return route.fulfill({ json: { data: tenant } })
+    if (path.endsWith('/tenants')) return route.fulfill({ json: { data: [tenant] } })
+    return route.fulfill({ json: { data: [] } })
+  })
   await page.route(
-    url => url.pathname.startsWith('/api/v2/'),
+    url => url.pathname.startsWith('/api/v2/') && !url.pathname.startsWith('/api/v2/site/'),
     async route => {
       const path = new URL(route.request().url()).pathname
       const data = route.request().postDataJSON()?.data
       if (path.endsWith('/identity-providers')) {
         return route.fulfill({ json: { identity_providers: [] } })
       }
-      if (path.endsWith('/human-one/access-disables')) {
-        expect(data.reason).toBe('Reviewed departure')
-        expect(data.disposition).toBe('offboarded')
+      if (path.endsWith('/human-one/pod-admin-recoveries')) {
+        expect(data.reason).toBe('All Pod admins locked out')
         expect(data.operation_id).toBeTruthy()
+        recoveredAdminReasons.push(data.reason)
+        // Simulate subsequent Pod Settings offboarding so we can also exercise break-glass account restoration.
         state = {
           ...state,
           status: 'disabled',
@@ -148,8 +166,8 @@ test('Human access requires an explicit disposition and restores directly with a
             {
               id: 'restriction-one',
               source: 'manual',
-              disposition: data.disposition,
-              reason: data.reason,
+              disposition: 'offboarded',
+              reason: 'Reviewed departure',
               cleared_at: null,
               recovery_verified_at: null,
               inserted_at: '2026-10-23T00:00:00Z'
@@ -169,26 +187,29 @@ test('Human access requires an explicit disposition and restores directly with a
       return route.fulfill({ json: { data: [] } })
     }
   )
+
   await page.goto('/access/principals/human-one')
-  const offboardTrigger = page.getByRole('button', { name: 'Offboard member', exact: true })
-  await offboardTrigger.click()
-  const offboardDialog = page.getByRole('dialog', { name: 'Offboard member', exact: true })
-  const confirmOffboard = offboardDialog.getByRole('button', { name: 'Offboard member', exact: true })
-  await expect(confirmOffboard).toBeDisabled()
-  await offboardDialog
-    .getByRole('textbox', { name: 'Reason for this change (required)', exact: true })
-    .fill('Reviewed departure')
-  await offboardDialog
-    .getByRole('checkbox', { name: 'I confirm this person should lose access and their future work should stop.' })
-    .check()
-  await confirmOffboard.click()
-  await expect(offboardDialog).toHaveCount(0)
-  const restore = page.getByRole('button', { name: 'Restore account', exact: true })
-  await expect(restore).toBeEnabled()
-  await page.getByRole('form', { name: 'Restore account' }).getByRole('textbox').fill('Approved return')
-  await restore.click()
-  await expect(restore).toHaveCount(0)
-  await expect(offboardTrigger).toBeVisible()
+  const podSettingsLink = page.getByRole('link', { name: 'Open in Pod Settings ↗', exact: true })
+  await expect(podSettingsLink).toHaveAttribute('href', 'https://harbor.pod.example/settings?section=members')
+  await expect(page.getByRole('button', { name: 'Offboard member', exact: true })).toHaveCount(0)
+
+  const recoverForm = page.getByRole('form', { name: 'Emergency grant Pod administrator', exact: true })
+  const recoverButton = recoverForm.getByRole('button', { name: 'Emergency grant Pod administrator', exact: true })
+  await expect(recoverButton).toBeDisabled()
+  await recoverForm.getByRole('textbox').fill('All Pod admins locked out')
+  await expect(recoverButton).toBeEnabled()
+  await recoverButton.click()
+  expect(recoveredAdminReasons).toEqual(['All Pod admins locked out'])
+
+  await expect(page.getByText('Reviewed departure', { exact: true })).toBeVisible()
+  const restoreForm = page.getByRole('form', { name: 'Restore account', exact: true })
+  const restoreButton = restoreForm.getByRole('button', { name: 'Restore account', exact: true })
+  await expect(restoreButton).toBeDisabled()
+  await restoreForm.getByRole('textbox').fill('Approved return')
+  await expect(restoreButton).toBeEnabled()
+  await restoreButton.click()
+  await expect(restoreButton).toHaveCount(0)
+  await expect(page.getByRole('form', { name: 'Emergency grant Pod administrator', exact: true })).toBeVisible()
 })
 
 test('the OIDC editor lists login sources and shows a rotated secret only in its result dialog', async ({ page }) => {

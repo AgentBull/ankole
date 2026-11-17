@@ -27,6 +27,7 @@ export type ThreadRecreateReason =
   | 'respawn_runtime_incompatible'
   | 'turn_thread_lost'
   | 'continuation_without_thread'
+  | 'workspace_evicted'
 
 export type MaterializedExecutionLog = {
   reason: ThreadRecreateReason

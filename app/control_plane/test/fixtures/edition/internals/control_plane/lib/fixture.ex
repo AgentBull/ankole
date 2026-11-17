@@ -17,14 +17,14 @@ defmodule Ankole.EditionFixture.Router do
     plug :require_pod_session
   end
 
-  scope "/api/v2/saas-pod" do
+  scope "/api/v2/fixture-pod" do
     pipe_through [:edition, :browser, :pod_api]
-    AnkoleWeb.runtime_forward("/", Ankole.SaaSWeb.PodJSONAPIRouter)
+    AnkoleWeb.runtime_forward("/", Ankole.EditionFixture.PodJSONAPIRouter)
   end
 
-  scope "/api/v2/saas" do
+  scope "/api/v2/fixture" do
     pipe_through [:edition, :browser]
-    AnkoleWeb.runtime_forward("/", Ankole.SaaSWeb.JSONAPIRouter)
+    AnkoleWeb.runtime_forward("/", Ankole.EditionFixture.JSONAPIRouter)
   end
 
   scope "/fixture-browser" do
@@ -38,15 +38,17 @@ defmodule Ankole.EditionFixture.Router do
     AnkoleWeb.runtime_forward("/", AnkoleWeb.Router)
   end
 
-  defp browser_csrf(conn, opts),
-    do: AnkoleWeb.Plugs.BrowserCSRF.call(conn, AnkoleWeb.Plugs.BrowserCSRF.init(opts))
+  defp browser_csrf(conn, opts) do
+    opts = Keyword.put(opts, :bearer_paths, ["/api/v2/fixture-pod/"])
+    AnkoleWeb.Plugs.BrowserCSRF.call(conn, AnkoleWeb.Plugs.BrowserCSRF.init(opts))
+  end
 
   defp require_pod_session(conn, opts),
     do: AnkoleWeb.Plugs.RequirePodSession.call(conn, AnkoleWeb.Plugs.RequirePodSession.init(opts))
 
   defp host_scope(conn, _) do
     case {conn.assigns[:host_context], conn.path_info} do
-      {:site, ["api", "v2", "saas-pod" | _]} -> conn |> send_resp(404, "Not found") |> halt()
+      {:site, ["api", "v2", "fixture-pod" | _]} -> conn |> send_resp(404, "Not found") |> halt()
       {{:pod, _}, ["api", "v2", "saas" | _]} -> conn |> send_resp(404, "Not found") |> halt()
       _ -> conn
     end

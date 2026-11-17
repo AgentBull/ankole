@@ -29,7 +29,12 @@ describe('TopBar', () => {
   test('spans the sidebar column with its leading zone only while the sidebar is docked open', () => {
     const open = tagWith(renderToStaticMarkup(<SidebarProvider>{bar()}</SidebarProvider>), 'top-bar-leading')
     expect(attributeOf(open, 'data-docked')).toBe('')
-    expect(classesOf(open)).toContain('data-docked:min-w-[calc(var(--sidebar-width)-var(--spacing)*2)]')
+    expect(classesOf(open)).toEqual(
+      expect.arrayContaining([
+        'max-w-[calc(var(--sidebar-width,var(--spacing-sidebar))-var(--spacing)*2)]',
+        'data-docked:min-w-[calc(var(--sidebar-width)-var(--spacing)*2)]'
+      ])
+    )
 
     const collapsed = renderToStaticMarkup(<SidebarProvider defaultOpen={false}>{bar()}</SidebarProvider>)
     expect(attributeOf(tagWith(collapsed, 'top-bar-leading'), 'data-docked')).toBeUndefined()

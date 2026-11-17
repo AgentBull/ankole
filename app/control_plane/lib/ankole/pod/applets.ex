@@ -4,7 +4,7 @@ defmodule Ankole.Pod.Applets do
   alias Ankole.{Files, Repo}
   alias Ankole.Pod.Access
   alias Ankole.Pod.{Config, Pages}
-  alias Ankole.Pod.Applets.Invocation
+  alias Ankole.Pod.Applets.{Bindings, Invocation, Revisions}
 
   @methods ~w(GET POST PUT PATCH DELETE)
 
@@ -31,6 +31,7 @@ defmodule Ankole.Pod.Applets do
             |> Map.reject(fn {_key, value} -> is_nil(value) end),
           "applet" => %{"pageId" => published.page_id, "revision" => published.revision},
           "read_only" => request["method"] == "GET" or Keyword.get(opts, :read_only, false),
+          "diagnostic" => Keyword.get(opts, :diagnostic, false),
           "timezone" => timezone
         })
 
@@ -59,7 +60,7 @@ defmodule Ankole.Pod.Applets do
     with {:ok, snapshot} <-
            Repo.transact_top_level(fn ->
              with {:ok, page} <- Pages.lock(page_id, :share),
-                  {:ok, _page} <- Access.authorize(actor, page, "node_view", trash: false),
+                  {:ok, _page} <- Revisions.authorize_target(actor, page, revision),
                   :ok <- applet_type(page),
                   do: package_snapshot_in_tx(page, revision)
            end),
@@ -68,18 +69,18 @@ defmodule Ankole.Pod.Applets do
 
   defp package_snapshot_in_tx(page, revision) do
     with {:ok, _owner} <- owner(page),
-         :ok <- current_revision(page.revision, revision),
-         {:ok, files} <- Ankole.Pod.Files.list_files(page.id),
-         files = Map.new(files, &{&1.path, &1.object_id}),
+         {:ok, target} <- Revisions.resolve_target_in_tx(page, revision),
+         files = Map.new(target.files, &{&1.path, &1.object_id}),
          source_id when not is_nil(source_id) <- files["server/main.js"] do
       {:ok,
        %{
          tenant_id: Repo.tenant_id!(),
          page_id: page.id,
-         revision: page.revision,
+         revision: target.revision,
          owner_uid: page.owner_uid,
          source_id: source_id,
-         env_id: files["applet.env.json"]
+         env_id: files["applet.env.json"],
+         bindings_id: files["applet.bindings.json"]
        }}
     else
       nil -> {:error, :route_not_found}
@@ -90,7 +91,9 @@ defmodule Ankole.Pod.Applets do
   defp load_package(snapshot) do
     with {:ok, source} <- Files.read_object(snapshot.source_id),
          {:ok, env} <-
-           Ankole.Pod.Applets.Env.effective_env_from_object(snapshot.page_id, snapshot.env_id) do
+           Ankole.Pod.Applets.Env.effective_env_from_object(snapshot.page_id, snapshot.env_id),
+         {:ok, resolved} <-
+           Bindings.from_object(snapshot.page_id, Map.get(snapshot, :bindings_id)) do
       payload =
         source <>
           "\n" <>
@@ -100,13 +103,14 @@ defmodule Ankole.Pod.Applets do
               :unicode.characters_to_binary(key, :utf8, {:utf16, :big})
             end)
             |> Enum.map(fn {key, value} -> [key, value] end)
-          )
+          ) <> "\n" <> resolved.bindings_digest
 
       digest = :crypto.hash(:sha256, payload) |> Base.encode16(case: :lower)
 
       {:ok,
        snapshot
-       |> Map.drop([:source_id, :env_id])
+       |> Map.drop([:source_id, :env_id, :bindings_id])
+       |> Map.merge(resolved)
        |> Map.merge(%{source: source, env: env, sha256: digest})}
     end
   end
@@ -130,7 +134,8 @@ defmodule Ankole.Pod.Applets do
              package.source,
              inspection_limits,
              package.env,
-             contexts
+             contexts,
+             package.bindings
            ) do
       {:ok,
        Map.merge(package, %{
@@ -165,7 +170,8 @@ defmodule Ankole.Pod.Applets do
                   revision: page.revision,
                   owner_uid: page.owner_uid,
                   source_id: source_id,
-                  env_id: file_map["applet.env.json"]
+                  env_id: file_map["applet.env.json"],
+                  bindings_id: file_map["applet.bindings.json"]
                 }}}
           end
         end
@@ -179,7 +185,7 @@ defmodule Ankole.Pod.Applets do
         with {:ok, package} <- load_package(raw),
              {:ok, limits} <- Config.action_limits(),
              {:ok, inspection} <-
-               inspect_backend(package.source, limits, package.env) do
+               inspect_backend(package.source, limits, package.env, package.bindings) do
           {:ok,
            %{
              has_backend: true,
@@ -194,8 +200,8 @@ defmodule Ankole.Pod.Applets do
     end
   end
 
-  defp inspect_backend(source, limits, env) do
-    case Ankole.FunctionRuntime.AppletClient.inspect(source, limits, env, []) do
+  defp inspect_backend(source, limits, env, bindings) do
+    case Ankole.FunctionRuntime.AppletClient.inspect(source, limits, env, [], bindings) do
       {:ok, _} = ok ->
         ok
 
@@ -338,14 +344,57 @@ defmodule Ankole.Pod.Applets do
   def available(%{type: :applet}), do: {:error, :page_trashed}
   def available(_), do: {:error, :not_found}
 
-  def owner(%{owner_uid: nil}), do: {:error, :applet_owner_required}
+  def owner(%{id: page_id, owner_uid: uid}) do
+    case active_principal(uid) do
+      {:ok, principal} ->
+        {:ok, principal}
 
-  def owner(%{owner_uid: uid}) do
-    case Ankole.Principals.get_principal(uid) do
-      {:ok, %{status: :active} = principal} -> {:ok, principal}
-      _ -> {:error, :applet_owner_unavailable}
+      :fallback ->
+        service_uid = Ankole.Principals.ServiceAccounts.applet_uid(page_id)
+
+        case Ankole.Principals.get_principal(service_uid) do
+          {:ok, %{status: :active} = principal} -> {:ok, principal}
+          _ -> {:error, :applet_owner_unavailable}
+        end
     end
   end
+
+  def owner_status(actor, %{type: :applet, id: page_id, owner_uid: owner_uid} = page) do
+    case owner(page) do
+      {:ok, effective} ->
+        continuity_active = effective.uid == Ankole.Principals.ServiceAccounts.applet_uid(page_id)
+        actions = Map.get(page, :actions) || []
+
+        can_claim =
+          continuity_active and
+            ("node_manage" in actions or :node_manage in actions or
+               Ankole.AuthZ.pod_admin?(Ankole.AuthZ.Actor.uid(actor)))
+
+        %{
+          owner_uid: owner_uid,
+          effective_uid: effective.uid,
+          effective_name: Ankole.Principals.display_name(effective),
+          continuity_active: continuity_active,
+          can_claim: can_claim
+        }
+
+      {:error, _} ->
+        nil
+    end
+  end
+
+  def owner_status(_actor, _page), do: nil
+
+  defp active_principal(uid) when is_binary(uid) do
+    case Ankole.Principals.get_principal(uid) do
+      {:ok, %{status: :active} = principal} -> {:ok, principal}
+      _ -> :fallback
+    end
+  end
+
+  defp active_principal(_uid), do: :fallback
+
+  defp continuity_active?(%{owner_uid: uid}), do: active_principal(uid) == :fallback
 
   def transfer_owner(actor, page_id, owner_uid) do
     with {:ok, updated} <-
@@ -355,9 +404,7 @@ defmodule Ankole.Pod.Applets do
                   {:ok, _} <- Access.principal(actor),
                   {:ok, page} <- Pages.lock(page_id),
                   :ok <- applet_type(page),
-                  true <-
-                    page.owner_uid == Ankole.AuthZ.Actor.uid(actor) or
-                      Ankole.AuthZ.pod_admin?(Ankole.AuthZ.Actor.uid(actor)),
+                  true <- can_transfer_owner?(actor, page),
                   {:ok, %{status: :active}} <- Ankole.Principals.get_principal(owner_uid) do
                Ankole.Ash.update(page, :transfer_owner, %{owner_uid: owner_uid})
              else
@@ -371,14 +418,16 @@ defmodule Ankole.Pod.Applets do
     end
   end
 
+  defp can_transfer_owner?(actor, page) do
+    caller_uid = Ankole.AuthZ.Actor.uid(actor)
+
+    page.owner_uid == caller_uid or
+      Ankole.AuthZ.pod_admin?(caller_uid) or
+      (continuity_active?(page) and match?({:ok, _}, Access.authorize(actor, page, "node_manage")))
+  end
+
   defp applet_type(%{type: :applet}), do: :ok
   defp applet_type(_), do: {:error, :not_found}
-
-  defp current_revision(_current, nil), do: :ok
-  defp current_revision(revision, revision), do: :ok
-
-  defp current_revision(current, _revision),
-    do: {:error, {:applet_revision_changed, %{revision: current}}}
 
   defp valid_request(%{"method" => method, "path" => "/" <> _, "query" => query})
        when method in @methods and is_map(query) do

@@ -33,11 +33,11 @@ defmodule Ankole.EditionFixture.ConformanceTest do
     conn: conn,
     tenant: tenant
   } do
-    assert conn |> api_get("/api/v2/saas-pod/fixture-settings") |> response(404)
+    assert conn |> api_get("/api/v2/fixture-pod/fixture-settings") |> response(404)
 
     assert conn
            |> pod_conn(tenant)
-           |> api_get("/api/v2/saas-pod/fixture-settings")
+           |> api_get("/api/v2/fixture-pod/fixture-settings")
            |> api_response(401)
 
     %{principal: member} = human_fixture()
@@ -59,22 +59,22 @@ defmodule Ankole.EditionFixture.ConformanceTest do
     member_conn =
       WebSession.put_authentication(member_conn, completed.browser, completed.authentication)
 
-    assert member_conn |> api_get("/api/v2/saas-pod/fixture-settings") |> api_response(403)
+    assert member_conn |> api_get("/api/v2/fixture-pod/fixture-settings") |> api_response(403)
 
     {admin_conn, uid} = active_admin_conn_with_principal(conn)
 
     result =
       admin_conn
       |> pod_conn(tenant)
-      |> api_get("/api/v2/saas-pod/fixture-settings")
+      |> api_get("/api/v2/fixture-pod/fixture-settings")
       |> api_response(200)
 
     assert result == %{"tenantID" => tenant.id, "principalUID" => uid}
     assert admin_conn |> pod_conn(tenant) |> api_get("/api/v2/saas/openapi.json") |> response(404)
 
     assert Map.has_key?(
-             Ankole.SaaSWeb.PodJSONAPIRouter.spec().paths,
-             "/api/v2/saas-pod/fixture-settings"
+             Ankole.EditionFixture.PodJSONAPIRouter.spec().paths,
+             "/api/v2/fixture-pod/fixture-settings"
            )
   end
 

@@ -60,9 +60,10 @@ defmodule Ankole.Principals.Rename do
   end
 
   defp validate_name(%Principal{type: :human}, uid) do
-    if Regex.match?(~r/[\\\/:*?\[\]{}\s\p{C}]/u, uid),
-      do: {:error, :invalid_uid},
-      else: :ok
+    if Regex.match?(~r/[\\\/:*?\[\]{}\s\p{C}]/u, uid) or
+         Ankole.Principals.ServiceAccounts.reserved_non_system_uid?(uid),
+       do: {:error, :invalid_uid},
+       else: :ok
   end
 
   defp prepare_worker(%Principal{type: :agent, status: :disabled, uid: uid}) do

@@ -104,7 +104,6 @@ defmodule Ankole.Principals.WorkAccess do
          %{} = work <- lock_work_in_tx(kind, schema, id, parent_routine),
          :ok <- check_execution_target(Map.get(work, :agent_uid), authorization),
          true <- reauthorizable?(kind, work),
-         true <- work.authorization_kind != "human" or not is_nil(human_uid),
          previous_authorization = fields(work),
          {:ok, work} <- Ankole.Ash.update(work, :reauthorize, authorization),
          :ok <-

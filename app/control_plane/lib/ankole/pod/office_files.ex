@@ -388,6 +388,15 @@ defmodule Ankole.Pod.OfficeFiles do
        %{
          page_id: page.id,
          document: {format, page.revision, applied.doc_ref},
+         delta:
+           if(prior == [] and entry.kind == :op,
+             do: %{
+               kind: :office,
+               base_revision: page.revision - 1,
+               revision: page.revision,
+               entry: entry
+             }
+           ),
          result: %{
            revision: page.revision,
            changes: prior ++ [entry],
@@ -422,9 +431,9 @@ defmodule Ankole.Pod.OfficeFiles do
   end
 
   @doc "Caches the committed document on this node and publishes the commit to the page channel."
-  def committed(%{page_id: id, document: {format, revision, doc}}) do
+  def committed(%{page_id: id, document: {format, revision, doc}} = committed) do
     NodeCache.put({Repo.tenant_id!(), id}, format, revision, doc)
-    Pages.broadcast(id)
+    Pages.broadcast(id, Map.get(committed, :delta))
   end
 
   def committed(_result), do: :ok
@@ -436,8 +445,8 @@ defmodule Ankole.Pod.OfficeFiles do
   the log was pruned past `revision`, or the entries exceed one channel message.
   """
   def since(%Actor{} = actor, page_id, revision) when is_integer(revision) and revision >= 0 do
-    Repo.transact_top_level(fn ->
-      with {:ok, page} <- Pages.lock(page_id, :share),
+    Repo.transact_repeatable_read_only(fn ->
+      with {:ok, page} <- Pages.fetch(page_id),
            {:ok, _page} <- Access.authorize(actor, page, "node_view"),
            {:ok, _format} <- require_office_file(page),
            do: {:ok, replay(page, revision)}

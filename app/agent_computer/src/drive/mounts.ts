@@ -2,8 +2,31 @@ import { chmod, chown, mkdir, readFile, realpath as fsRealpath, rm, stat } from 
 import { dirname, join } from 'node:path'
 import type { DriveVfsConfig } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { isRootWorker } from '../common/agent-user'
+import {
+  defaultLazyUnmount,
+  defaultSpawnDaemon,
+  flushDriveMounts,
+  flushDrivePathsByMount,
+  formatDriveFlushSummary,
+  isConcreteDriveFilePath,
+  parseMountPointsUnder,
+  waitForProcessExit,
+  type DriveFlushedFile,
+  type DriveFlushResult,
+  type DriveWriteError,
+  type DriveWriteResult
+} from './mount-helpers'
 import { scopedPath, visibleDrivePath } from './paths'
 import { rcOnSocket, type RcCall } from './rclone-control'
+
+export {
+  formatDriveFlushSummary,
+  isConcreteDriveFilePath,
+  parseMountPointsUnder,
+  type DriveFlushedFile,
+  type DriveFlushResult,
+  type DriveWriteError
+}
 
 const defaultRoot = '/run/ankole-drives'
 const defaultCache = '/var/cache/ankole/rclone'
@@ -12,7 +35,6 @@ const defaultMountTimeoutMs = 60_000
 const defaultIdleTimeoutMs = 15 * 60_000
 const defaultRetryIdleTimeoutMs = 60_000
 
-type WriteResult = { Path: string; NodeID: string; Failure: string; Recovery: string }
 type Mount = {
   key: string
   path: string
@@ -81,66 +103,6 @@ function isMountNotFoundError(error: unknown): boolean {
 
 const defaultRc: RcCall = (method, body, signal) => rcOnSocket(defaultSocket, method, body, signal)
 
-async function defaultLazyUnmount(mountPoint: string): Promise<void> {
-  const proc = Bun.spawn(['umount', '-l', mountPoint], {
-    stdin: 'ignore',
-    stdout: 'ignore',
-    stderr: 'ignore'
-  })
-  await proc.exited
-}
-
-function defaultSpawnDaemon(socketPath: string, cacheDir: string): ReturnType<typeof Bun.spawn> {
-  return Bun.spawn(
-    [
-      'ankole-rclone',
-      'rcd',
-      '--config',
-      '/dev/null',
-      '--rc-addr',
-      socketPath,
-      '--rc-no-auth',
-      '--cache-dir',
-      cacheDir,
-      '--transfers',
-      '4',
-      '--low-level-retries',
-      '1'
-    ],
-    {
-      stdin: 'ignore',
-      stdout: 'ignore',
-      stderr: 'inherit',
-      env: { PATH: process.env.PATH!, ANKOLE_WORKER_CACHE_CAPACITY: process.env.ANKOLE_WORKER_CACHE_CAPACITY }
-    }
-  )
-}
-
-/**
- * Extracts mount points matching `targetPath` (and optionally descendants) from Linux
- * `/proc/self/mountinfo` in reverse mount order so stacked and child mounts detach first.
- */
-export function parseMountPointsUnder(mountinfo: string, targetPath: string, includeDescendants = true): string[] {
-  const normalized = targetPath.replace(/\/+$/, '') || '/'
-  const childPrefix = normalized === '/' ? '/' : `${normalized}/`
-  const matches: string[] = []
-  for (const line of mountinfo.split('\n')) {
-    if (!line) continue
-    const rawMountPoint = line.split(' ')[4]
-    if (!rawMountPoint) continue
-    const mountPoint = rawMountPoint.replace(/\\(040|011|012|134)/g, (_, code: string) => {
-      if (code === '040') return ' '
-      if (code === '011') return '\t'
-      if (code === '012') return '\n'
-      return '\\'
-    })
-    if (mountPoint === normalized || (includeDescendants && mountPoint.startsWith(childPrefix))) {
-      matches.push(mountPoint)
-    }
-  }
-  return matches.reverse()
-}
-
 export class DriveView {
   private released = false
   constructor(
@@ -183,32 +145,28 @@ export class DriveView {
       )
     )
   }
-  async flush(since: Map<string, number>, signal = AbortSignal.timeout(120_000)): Promise<string> {
-    const results = await Promise.all(
-      this.mounts().map(mount =>
-        this.rc<{ files?: WriteResult[]; background?: boolean }>(
-          'ankole/flush',
-          { fs: mount.key, since_seq: since.get(mount.key) ?? 0 },
-          signal
-        )
-      )
-    )
-    return results
-      .flatMap(result =>
-        result.background
-          ? ['Drive: large batch continues uploading in the background.']
-          : (result.files ?? [])
-              .filter(file => file.Failure)
-              .map(file => `Drive write failed: ${file.Path}: ${file.Failure}; saved at ${file.Recovery}`)
-      )
-      .join('\n')
+  private visiblePathForMount(mount: Mount, remote: string): string {
+    const clean = remote.replace(/^\/+/, '')
+    if (mount === this.chat) return `/drive/ChatDrive/${clean}`
+    if (mount === this.library) return `/drive/Library/${clean}`
+    return `/drive/${clean}`
+  }
+  async flush(since: Map<string, number>, signal = AbortSignal.timeout(120_000)): Promise<DriveFlushResult> {
+    return flushDriveMounts({
+      mounts: this.mounts(),
+      since,
+      rc: this.rc,
+      signal,
+      visiblePathForMount: (mount, remote) => this.visiblePathForMount(mount, remote)
+    })
   }
   async flushPath(path: string, signal = AbortSignal.timeout(120_000)): Promise<string> {
+    if (!isConcreteDriveFilePath(path)) throw new Error(`Drive file is unavailable: ${path}`)
     const chat = path.startsWith('/drive/ChatDrive/')
     const mount = chat ? this.chat : this.scope
     if (!mount) throw new Error('This execution has no ChatDrive')
     const remote = path.slice(chat ? '/drive/ChatDrive/'.length : '/drive/'.length)
-    const result = await this.rc<{ files: WriteResult[] }>(
+    const result = await this.rc<{ files: DriveWriteResult[] }>(
       'ankole/flush-paths',
       { fs: mount.key, paths: [remote] },
       signal
@@ -218,9 +176,25 @@ export class DriveView {
     if (file?.NodeID) return file.NodeID
     // A clean file has no pending upload. Its authoritative ID comes from DAV,
     // through the root-held remote, rather than from a guessed path identifier.
-    const listing = await this.rc<{ item: { ID?: string } | null }>('operations/stat', { fs: `${mount.key}:`, remote })
+    const listing = await this.rc<{ item: { ID?: string } | null }>(
+      'operations/stat',
+      { fs: `${mount.key}:`, remote },
+      signal
+    )
     if (!listing.item?.ID) throw new Error(`Drive file is unavailable: ${path}`)
     return listing.item.ID
+  }
+  async flushPaths(
+    paths: string[],
+    signal = AbortSignal.timeout(120_000)
+  ): Promise<{ flushed: string[]; pending: string[]; files: DriveFlushedFile[]; errors?: DriveWriteError[] }> {
+    return flushDrivePathsByMount({
+      paths,
+      scopeMount: this.scope,
+      chatMount: this.chat,
+      rc: this.rc,
+      signal
+    })
   }
   async release(): Promise<void> {
     if (this.released) return
@@ -701,22 +675,6 @@ export class DriveMounts {
     const slot = this.slots.get(mount.key)
     if (slot) this.releaseOnSlot(slot, mount)
   }
-}
-
-function waitForProcessExit(exited: Promise<unknown>, timeoutMs: number): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  return Promise.race([
-    exited.then(
-      () => true,
-      () => true
-    ),
-    new Promise<boolean>(resolve => {
-      timer = setTimeout(() => resolve(false), timeoutMs)
-      timer.unref?.()
-    })
-  ]).finally(() => {
-    if (timer) clearTimeout(timer)
-  })
 }
 
 export const driveMounts = new DriveMounts()

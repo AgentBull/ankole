@@ -67,6 +67,14 @@ defmodule Ankole.AIAgent.Library.Skills do
   def list, do: Skill |> Ash.Query.sort(slug: :asc) |> Ankole.Ash.read!()
   def get(slug), do: Skill |> Ash.Query.filter(slug == ^slug) |> Ankole.Ash.read_one() |> found()
 
+  def has_upstream_update?(%{source_kind: kind, upstream_state: state})
+      when kind in [:builtin, :agent_plugin] and is_map(state) do
+    pending = state["pending_upstream_hash"]
+    is_binary(pending) and pending != "" and pending != state["upstream_base_hash"]
+  end
+
+  def has_upstream_update?(_skill), do: false
+
   def files(id),
     do:
       SkillFile

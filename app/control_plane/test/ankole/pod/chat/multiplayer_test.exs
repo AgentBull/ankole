@@ -355,7 +355,7 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
              end)
 
     assert message.author_display_name == "Researcher"
-    assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(a.uid)
+    assert {:ok, %{status: :disabled}} = Ankole.Principals.disable_agent(a.uid)
     assert {:ok, _} = Ankole.Principals.delete_agent(a.uid)
     assert is_nil(Conversations.get_conversation!(dm.conversation.id))
     assert %Conversation{room_mode: :group} = Conversations.get_conversation!(id)
@@ -940,6 +940,44 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
     assert Native.visible_conversation?(cached, detail.conversation.id)
     assert {:ok, _} = disable_principal_fixture(bob.uid)
     refute Native.visible_conversation?(cached, detail.conversation.id)
+  end
+
+  test "create sets an optional group title in one transaction without emitting a rename notice",
+       %{
+         alice: alice,
+         a: a
+       } do
+    id = Ash.UUIDv7.generate()
+    msg_id = Ash.UUIDv7.generate()
+
+    assert {:ok, detail} =
+             Ankole.ConversationsFixtures.create(alice.uid, %{
+               conversation_id: id,
+               message_id: msg_id,
+               agent_uid: a.uid,
+               room_mode: :group,
+               title: "  Architecture Sync  ",
+               text: "Kickoff notes"
+             })
+
+    assert detail.conversation.title == "Architecture Sync"
+    assert detail.conversation.title_customized
+    assert [%Message{kind: :message, text: "Kickoff notes"}] = detail.messages
+    refute Enum.any?(detail.messages, &(&1.kind == :notice))
+
+    # Idempotent retry with the same IDs returns the created conversation without duplication.
+    assert {:ok, replayed} =
+             Ankole.ConversationsFixtures.create(alice.uid, %{
+               conversation_id: id,
+               message_id: msg_id,
+               agent_uid: a.uid,
+               room_mode: :group,
+               title: "  Architecture Sync  ",
+               text: "Kickoff notes"
+             })
+
+    assert replayed.conversation.title == "Architecture Sync"
+    assert length(replayed.messages) == 1
   end
 
   defp create!(human, agent, mode \\ :group) do

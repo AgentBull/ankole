@@ -82,7 +82,12 @@ defmodule Ankole.Pod.Access.Graph do
        %{
          reachable:
            graph_rows(
-             query_reachable(Ankole.Principals.authority_uid(Actor.uid(actor)), context, []).rows
+             query_reachable(
+               Ankole.Principals.authority_uid(Actor.uid(actor)),
+               context,
+               [],
+               applet_host_page_id(actor)
+             ).rows
            ),
          space_bits: snapshot_space_bits(snapshot, evaluated),
          can_manage_space: space_manager?(snapshot)
@@ -153,9 +158,23 @@ defmodule Ankole.Pod.Access.Graph do
          do:
            {:ok,
             graph_rows(
-              query_reachable(Ankole.Principals.authority_uid(Actor.uid(actor)), context, opts).rows
+              query_reachable(
+                Ankole.Principals.authority_uid(Actor.uid(actor)),
+                context,
+                opts,
+                applet_host_page_id(actor)
+              ).rows
             )}
   end
+
+  defp applet_host_page_id(%Actor{principal: %{type: :system, status: :active}} = actor) do
+    case Ankole.Principals.ServiceAccounts.applet_page_id(Actor.uid(actor)) do
+      {:ok, host_page_id} -> host_page_id
+      :error -> nil
+    end
+  end
+
+  defp applet_host_page_id(_actor), do: nil
 
   def reachable_trashed(subject, page_ids, opts \\ []),
     do: reachable_anchors(subject, Keyword.put(opts, :trash_page_ids, page_ids))
@@ -177,7 +196,7 @@ defmodule Ankole.Pod.Access.Graph do
     end)
   end
 
-  defp query_reachable(uid, context, opts) do
+  defp query_reachable(uid, context, opts, applet_host_id) do
     # A UNION between full and targeted reads loses the column statistics of
     # deleted_at. PostgreSQL then estimates millions of trashed anchors even
     # when none exist. Keep the full scan direct and targeted reads keyed by
@@ -324,6 +343,20 @@ defmodule Ankole.Pod.Access.Graph do
             SELECT 'container'::text WHERE ag.is_container
           ) s
           WHERE ag.source_node_id IS NULL
+
+          UNION ALL
+
+          SELECT la.id, s.scope, b.bit
+          FROM live_anchors la
+          JOIN pages hp
+            ON hp.tenant_id = $1::text::uuid
+           AND hp.id = la.id
+           AND hp.type = 'applet'
+           AND hp.deleted_at IS NULL
+          CROSS JOIN (VALUES (1), (2), (4), (8), (16)) AS b(bit)
+          CROSS JOIN (VALUES ('container'), ('self')) AS s(scope)
+          WHERE $11::text IS NOT NULL
+            AND la.id = $11::text::uuid
         ),
         edges (src_anchor, src_scope, src_bit, dst_anchor, dst_scope, dst_bit) AS (
           SELECT la.parent_anchor_id, 'container', b.bit, la.id, s.scope, b.bit
@@ -380,7 +413,8 @@ defmodule Ankole.Pod.Access.Graph do
           Keyword.get(opts, :target_ids),
           Keyword.get(opts, :trash_page_id),
           Keyword.get(opts, :trash_page_ids),
-          Map.get(elem(context, 0), "conversationIDs", [])
+          Map.get(elem(context, 0), "conversationIDs", []),
+          applet_host_id
         ]
     )
   end

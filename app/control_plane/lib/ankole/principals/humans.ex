@@ -4,7 +4,7 @@ defmodule Ankole.Principals.Humans do
   require Ash.Query
 
   alias Ankole.Principals
-  alias Ankole.Principals.{HumanUser, Principal, SystemServices}
+  alias Ankole.Principals.{HumanUser, Principal, ServiceAccounts, SystemServices}
   alias Ankole.Repo
 
   @principal_profile_fields [:display_name, :avatar_url]
@@ -52,16 +52,14 @@ defmodule Ankole.Principals.Humans do
   end
 
   defp ensure_system_principal_in_tx(uid) do
-    case system_principal(uid) do
-      {:ok, principal} ->
-        {:ok, principal}
-
-      {:error, :system_principal_missing} ->
-        insert_principal(%{
-          uid: uid,
-          type: :system,
-          display_name: if(uid == "system", do: "System", else: "Ankole Brain")
-        })
+    ServiceAccounts.ensure_in_tx(%{
+      uid: uid,
+      kind: ServiceAccounts.singleton_kind(uid),
+      display_name: SystemServices.display_name(uid)
+    })
+    |> case do
+      {:ok, %{principal: principal}} -> {:ok, principal}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -69,7 +67,9 @@ defmodule Ankole.Principals.Humans do
     do: Repo.transact_top_level(fn -> create_human_in_tx(attrs) end)
 
   def create_human_in_tx(attrs, action \\ :create_in_tx) do
-    with {:ok, principal} <- insert_principal(human_principal_attrs(attrs)),
+    uid = resolve_human_uid_in_tx(attrs)
+
+    with {:ok, principal} <- insert_principal(human_principal_attrs(attrs, uid)),
          {:ok, human_user} <-
            insert_human_user(principal.uid, take_attrs(attrs, @human_profile_fields), action) do
       {:ok, %{principal: principal, human_user: human_user}}
@@ -225,13 +225,117 @@ defmodule Ankole.Principals.Humans do
 
   def human_principal_attrs(attrs, uid \\ nil) do
     uid =
-      uid || Principals.normalize_email(Ankole.Attrs.get(attrs, :email)) ||
-        Ankole.Attrs.get(attrs, :uid)
+      uid || Ankole.Attrs.get(attrs, :uid) ||
+        Principals.normalize_email(Ankole.Attrs.get(attrs, :email))
 
     attrs
     |> take_attrs([:membership | @principal_profile_fields])
     |> Map.put_new(:membership, :member)
     |> Map.merge(%{uid: uid, type: :human})
+  end
+
+  defp resolve_human_uid_in_tx(attrs) do
+    case Ankole.Attrs.get(attrs, :uid) do
+      explicit when not is_nil(explicit) ->
+        explicit
+
+      nil ->
+        case Principals.normalize_email(Ankole.Attrs.get(attrs, :email)) do
+          nil ->
+            nil
+
+          email ->
+            allocate_email_uid_in_tx(email)
+        end
+    end
+  end
+
+  defp allocate_email_uid_in_tx(email) do
+    cond do
+      active_email_taken?(email) ->
+        email
+
+      byte_size(email) <= 85 and not ServiceAccounts.reserved_non_system_uid?(email) and
+          uid_and_assistant_free?(email) ->
+        email
+
+      true ->
+        base = local_handle_base(email)
+        pick_free_handle(base)
+    end
+  end
+
+  def allocate_non_system_handle_in_tx(raw) when is_binary(raw) do
+    raw
+    |> local_handle_base()
+    |> pick_free_handle()
+  end
+
+  defp active_email_taken?(email) do
+    HumanUser
+    |> Ash.Query.filter(email == ^email)
+    |> Ankole.Ash.exists?()
+  end
+
+  defp uid_and_assistant_free?(candidate) do
+    assistant = candidate <> "_assistant"
+
+    not (Principal
+         |> Ash.Query.filter(uid in ^[candidate, assistant])
+         |> Ankole.Ash.exists?())
+  end
+
+  defp local_handle_base(email) do
+    local =
+      email
+      |> String.split("@", parts: 2)
+      |> hd()
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9._+-]+/, ".")
+      |> String.replace(~r/\A[^a-z0-9]+/, "")
+      |> String.trim_trailing(".")
+
+    base =
+      if(local == "", do: "member", else: local)
+      |> then(&binary_part(&1, 0, min(byte_size(&1), 78)))
+      |> String.trim_trailing(".")
+
+    base = if base == "", do: "member", else: base
+
+    if ServiceAccounts.reserved_non_system_uid?(base) do
+      prefixed = "member." <> base
+      prefixed |> binary_part(0, min(byte_size(prefixed), 78)) |> String.trim_trailing(".")
+    else
+      base
+    end
+  end
+
+  defp pick_free_handle(base) do
+    escaped = Repo.escape_like(base)
+    prefix_pattern = escaped <> "%"
+
+    taken =
+      Principal
+      |> Ash.Query.filter(fragment("? LIKE ?", uid, ^prefix_pattern))
+      |> Ash.Query.select([:uid])
+      |> Ankole.Ash.read!()
+      |> MapSet.new(& &1.uid)
+
+    free? = fn candidate ->
+      not ServiceAccounts.reserved_non_system_uid?(candidate) and
+        not MapSet.member?(taken, candidate) and
+        not MapSet.member?(taken, candidate <> "_assistant")
+    end
+
+    if free?.(base) do
+      base
+    else
+      Stream.iterate(2, &(&1 + 1))
+      |> Enum.find_value(fn index ->
+        candidate = "#{base}.#{index}"
+        if free?.(candidate), do: candidate
+      end)
+    end
   end
 
   def change_human_membership(uid, membership) when membership in [:member, :guest] do

@@ -121,6 +121,11 @@ defmodule AnkoleWeb.Router do
     options "/oauth/userinfo", OIDCController, :options
   end
 
+  scope "/pod/applet-diagnostic", AnkoleWeb do
+    get "/:ticket", PodAppletDiagnosticController, :show
+    match :*, "/:ticket/*path", PodAppletDiagnosticController, :show
+  end
+
   scope "/api/v2/pod", AnkoleWeb do
     pipe_through :pod_api
 
@@ -250,6 +255,19 @@ defmodule AnkoleWeb.Router do
     get "/pod/service-worker.js", SpaController, :pod_service_worker
   end
 
+  if Application.compile_env(:ankole, :dev_routes, false) do
+    pipeline :dev_mailbox do
+      plug :put_secure_browser_headers
+      plug :private_response
+    end
+
+    scope "/dev" do
+      pipe_through :dev_mailbox
+
+      AnkoleWeb.runtime_forward("/mailbox", Plug.Swoosh.MailboxPreview)
+    end
+  end
+
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own
   # client-side routing: console/setup deep links and canonical Pod paths return the same
   # shell, and the React router takes over. SpaController re-checks setup/auth
@@ -284,19 +302,7 @@ defmodule AnkoleWeb.Router do
     get "/meta/*path", SpaController, :pod
     get "/setup", SpaController, :setup
     get "/setup/*path", SpaController, :setup
-  end
-
-  if Application.compile_env(:ankole, :dev_routes, false) do
-    pipeline :dev_mailbox do
-      plug :put_secure_browser_headers
-      plug :private_response
-    end
-
-    scope "/dev" do
-      pipe_through :dev_mailbox
-
-      AnkoleWeb.runtime_forward("/mailbox", Plug.Swoosh.MailboxPreview)
-    end
+    get "/*path", SpaController, :not_found
   end
 
   # Function plugs preserve runtime dependencies on business code in production too.

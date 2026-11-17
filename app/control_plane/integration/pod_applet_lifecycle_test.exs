@@ -246,25 +246,24 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     end
 
     test = self()
+    handler = {__MODULE__, make_ref()}
+    table_id = ctx.table.id
 
-    lock =
-      Task.async(
-        Repo.bind_tenant(fn ->
-          Repo.transact(fn _ ->
-            Repo.one!(
-              from t in Ankole.Pod.BaseTable, where: t.id == ^ctx.table.id, lock: "FOR UPDATE"
-            )
+    :telemetry.attach(
+      handler,
+      [:ankole, :repo, :query],
+      fn _, _, meta, _ ->
+        if String.contains?(meta.query, "FROM base_records r") and
+             table_id in List.wrap(meta.params) do
+          :telemetry.detach(handler)
+          send(test, {:query_paused, self()})
+          receive do: (:release -> :ok)
+        end
+      end,
+      nil
+    )
 
-            send(test, :locked)
-
-            receive do
-              :release -> {:ok, :released}
-            end
-          end)
-        end)
-      )
-
-    assert_receive :locked
+    on_exit(fn -> :telemetry.detach(handler) end)
 
     invocation =
       Task.async(
@@ -277,18 +276,10 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
         end)
       )
 
-    eventually(fn ->
-      [[count]] =
-        Repo.query!(
-          "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%base_tables%' AND query LIKE '%FOR SHARE%'"
-        ).rows
-
-      assert count > 0
-    end)
+    assert_receive {:query_paused, query_pid}, 5_000
 
     {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, applet.id, %{grants: []})
-    send(lock.pid, :release)
-    Task.await(lock)
+    send(query_pid, :release)
 
     assert {:ok, %{"status" => 403, "body" => %{"error" => %{"code" => "forbidden"}}}} =
              Task.await(invocation)

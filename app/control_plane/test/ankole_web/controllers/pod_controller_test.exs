@@ -222,6 +222,31 @@ defmodule AnkoleWeb.PodControllerTest do
              api_response(posted, 200)
   end
 
+  test "POST /api/v2/pod/conversations sets an optional group title atomically without a rename notice",
+       %{conn: conn} do
+    {conn, human_uid} = console_conn_with_principal(conn)
+    agent = agent_fixture(%{display_name: "Pod Agent"}).principal
+    Ankole.ConversationsFixtures.grant_chat(human_uid, agent.uid)
+
+    attrs =
+      create_request(agent.uid, "Initial brief for launch")
+      |> Map.put("roomMode", "group")
+      |> Map.put("title", "  Launch War Room  ")
+
+    created = api_post(conn, ~p"/api/v2/pod/conversations", attrs)
+    detail = api_response(created, 200)
+
+    assert detail["conversation"]["title"] == "Launch War Room"
+    assert detail["conversation"]["titleCustomized"] == true
+    assert detail["conversation"]["roomMode"] == "group"
+    assert [%{"kind" => "message", "text" => "Initial brief for launch"}] = detail["messages"]
+
+    retried =
+      created |> recycle_api() |> api_post(~p"/api/v2/pod/conversations", attrs)
+
+    assert api_response(retried, 200) == detail
+  end
+
   test "page chat uses the same conversation API and can be recovered by page", %{conn: conn} do
     {conn, human_uid} = console_conn_with_principal(conn)
     agent = agent_fixture().principal

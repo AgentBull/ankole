@@ -30,10 +30,9 @@ defmodule Ankole.Application do
     #     compiled plugin during first-run configuration.
     #   - Plugins.Cohort after setup: it resolves one immutable activation snapshot,
     #     starts Plugins.Registry, then starts every child that consumes that snapshot.
-    #   - Upgrade202610.WorkerProviders runs after Plugins: provider kinds must
-    #     be active before bootstrap validates their configuration. Oban starts
-    #     first because Plugin startup can enqueue jobs. The bootstrap step
-    #     imports providers and completes supported Worker ownership upgrades.
+    #   - AgentWorkers.BootstrapSeed runs after Plugins: provider kinds must be
+    #     active before initial seed import validates their configuration when
+    #     `ANKOLE_WORKER_PROVIDERS_FILE` is configured on a fresh site.
     #   - IdentityProviders.StartupSync after Oban + Plugins: full-sync enqueue
     #     needs the queue, active provider config, and adapter declarations.
     #   - PubSub + DNSCluster early: peer discovery joins the Erlang cluster
@@ -67,7 +66,7 @@ defmodule Ankole.Application do
         Ankole.AgentWorkers.Config,
         {Oban, Application.fetch_env!(:ankole, Oban)},
         Ankole.Plugins.Cohort,
-        Ankole.Upgrade202610.WorkerProviders,
+        Ankole.AgentWorkers.BootstrapSeed,
         Ankole.Authn.RateLimiter,
         Ankole.AIGateway.CredentialPool,
         Ankole.FunctionRuntime.Supervisor,
@@ -78,6 +77,8 @@ defmodule Ankole.Application do
         Ankole.Connectors.RemoteMCP,
         {Task.Supervisor,
          name: Ankole.AIGateway.ResponseRecoveryTaskSupervisor, max_children: 16},
+        Ankole.AIGateway.UpstreamWebSocketPool,
+        Ankole.AIGateway.ClaudeMessageThreads,
         Ankole.AIGateway.ResponseStream.Supervisor,
         Ankole.WorkerFiles.Supervisor,
         Ankole.Conversations.Delivery.Supervisor,

@@ -294,8 +294,10 @@ origin of the RuntimeFabric endpoint that the Worker connects to
 `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT`). File transfers differ: a relay session
 lives in one Pod's memory, so a relay URL names that Pod (see
 [RuntimeFabric](RuntimeFabric.md)). The Worker channel batches committed
-content updates into targeted invalidations. Tree and access changes invalidate
-all clean entries so cached paths and directory membership follow the committed
+content updates into targeted invalidations scoped to the affected root IDs, and
+normalizes VFS path segments to Unicode NFC on both read lookup and write commit
+so macOS NFD filenames and Linux NFC paths converge on the same node. Tree and access changes invalidate
+affected root entries so cached paths and directory membership follow the committed
 Page hierarchy. Page creation, deletion and restoration use the same committed
 `tree_changed` notification. The channel coalesces changes during its initial
 refresh as well as subsequent 100 ms notification windows.

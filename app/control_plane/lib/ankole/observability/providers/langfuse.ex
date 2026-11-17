@@ -9,7 +9,16 @@ defmodule Ankole.Observability.Providers.Langfuse do
 
   @impl true
   def trace_attributes(context) do
-    %{"langfuse.trace.tags" => ["ankole", "ai_gateway"]}
+    tags =
+      case Map.get(context, :channel_adapter) do
+        adapter when is_binary(adapter) and adapter != "" ->
+          ["ankole", "ai_gateway", "channel:#{adapter}"]
+
+        _other ->
+          ["ankole", "ai_gateway"]
+      end
+
+    %{"langfuse.trace.tags" => tags}
     |> put_present("langfuse.trace.metadata.tenant_id", Map.get(context, :tenant_id))
     |> put_present("langfuse.trace.metadata.tenant_slug", Map.get(context, :tenant_slug))
     |> put_present("langfuse.trace.metadata.principal_uid", context.principal_uid)
@@ -19,6 +28,8 @@ defmodule Ankole.Observability.Providers.Langfuse do
     |> put_present("langfuse.trace.metadata.caller", context.caller)
     |> put_present("langfuse.trace.metadata.job_id", context.job_id)
     |> put_present("langfuse.trace.metadata.attempts", context.attempts)
+    |> put_present("langfuse.trace.metadata.channel_adapter", Map.get(context, :channel_adapter))
+    |> put_present("langfuse.trace.metadata.channel_kind", Map.get(context, :channel_kind))
     |> put_present("langfuse.release", context.release)
   end
 

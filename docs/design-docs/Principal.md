@@ -96,9 +96,15 @@ characters and the separators or wildcard syntax reserved by API routes and
 permission resources (`/`, `\`, `:`, `*`, `?`, `[]`, `{}`).
 
 Human creation uses the normalized login email or the primary external identity
-ID. An operator supplies an AI colleague's UID. A personal assistant initially
-uses `<owner_uid>_assistant`, and each registered system service uses its fixed
-UID (`system` or `ankole_brain`) within every tenant.
+ID; when a recycled email or candidate UID collides with an existing Principal
+(such as a previously offboarded employee whose email was released), Ankole
+derives a deterministic `@`-free handle (`<local>_2`, `<local>_3`, and so on) so
+onboarding succeeds without colliding with another person's mailbox address. An
+operator supplies an AI colleague's UID. A personal assistant initially uses
+`<owner_uid>_assistant`, each registered system service uses its fixed UID
+(`system`, `ankole_brain`, or `ankole_applets`) within every tenant, and
+resource-bound service accounts (`service_accounts`) use `svc_applet_<page_id>`
+or `svc_bot_<adapter>_<hash>`.
 Agent UIDs match:
 
 ```text
@@ -208,6 +214,7 @@ identity. `Ankole.Principals.SystemServices` owns the closed registry:
 | --- | --- |
 | `system` | Internal operations such as admission notices, document mention renames, and tenant deletion |
 | `ankole_brain` | Brain model, embedding, and rerank calls |
+| `ankole_applets` | Shared tenant-level token quota umbrella across Applet model calls |
 
 Tenant initialization creates every registered service in its transaction;
 migrations provision existing tenants. Runtime reads require the row to exist
@@ -215,9 +222,20 @@ and never create it. Each service has a fixed UID and cannot be renamed. Adding
 a service requires a registry entry and a data migration. Ankole exposes no API
 for creating arbitrary system Principals.
 
+Separately, `Ankole.Principals.ServiceAccounts` manages structured `system`
+Principals extended by `service_accounts(tenant_id, uid, kind, applet_page_id)`:
+each `:applet` row (`svc_applet_<page_id>`) holds intrinsic `:system` `manage`
+authority over its live `:applet` host Page and permission-inheriting
+descendants without materializing a user-facing `permission_grants` row, and
+each `:external_bot` row (`bot_<provider>_<id>`) attributes inbound webhook or
+chat-app bot messages without elevating them to Human accounts.
+
 System Principals can override every fixed Pod model slot through AppConfigure
-`system:<uid>` rows. They do not appear in mentions, conversation member choices,
-page collaborator catalogs, Signal routing targets, or Agent readiness checks.
+`system:<uid>` rows. Fixed system services do not appear in mentions,
+conversation member choices, page collaborator catalogs, Signal routing targets,
+or Agent readiness checks, whereas `:applet` service accounts appear in Pod
+subject directories and connector or sharing access lists under their host
+Applet's title.
 
 ### `principal_external_identities`
 
@@ -261,6 +279,10 @@ trusted build-selected site login sources. Once a user proves a site credential,
 Ankole queries `principal_site_credentials` by `(provider, identifier)` to list
 accessible Pods and pending memberships; tenant enterprise providers use a
 separate namespace bound to a single tenant.
+The email verification form measures rate-limit cooldowns against an absolute
+deadline. Timer callbacks, returning to the tab, restoring the page, and form
+submission refresh the remaining time, so reading mail in another app does not
+extend the server's cooldown.
 
 For every Pod session proof, BrowserSessions stamps the Human's current
 `access_version`. Claiming a pending membership requires satisfying both the
@@ -408,10 +430,12 @@ control plane starts the Worker right away (see [Agent Workers](AgentWorkers.md)
 `update_agent` edits mutable display and colleague fields without altering `uid`
 or Principal `type`.
 
-Enabling or deleting an Agent snapshots affected Conversation IDs inside the
-transaction. Deleting an `active` Agent first transitions it to `disabled`;
-sending a second delete for a `disabled` Agent physically removes its durable
-rows. The transaction acquires the Page tree lock and private-root lock first,
+Enabling, disabling, or deleting an Agent snapshots affected Conversation IDs
+inside the transaction. `POST /api/v2/agents/:uid/disable` transitions an
+`active` Agent to `disabled` while preserving its private root and content;
+`DELETE /api/v2/agents/:uid` accepts only a `disabled` Agent (returning `409
+agent_must_be_disabled` if called on an `active` Agent) and physically removes
+its durable rows. The deletion transaction acquires the Page tree lock and private-root lock first,
 cleans the private subtree's Pod content and physical Base tables, removes its
 Drive nodes, strips Drive grants and grants targeting the Agent's resource
 patterns, and recomputes affected ACL anchors before deleting the `principals`
@@ -546,6 +570,7 @@ and `/api/v2/identity-providers` in the Site Console (and
 `/api/v2/pod/admin/identity-providers` in Pod settings):
 
 - The provider editor enables its fields after the adapter catalog and provider list initialize its draft. Background refreshes preserve the initialized draft.
+- Pod's member precreation, invitation, and identity-provider forms, together with Principal rename dialogs, disable their fields while a submission is pending. Editing a field clears a settled request's feedback without resetting a pending request. General Pod settings remain editable during a save. When the server acknowledges that save, the browser advances the saved baseline while retaining any edits made after submission.
 - Credential-bearing identity providers store their application credentials in a shared `Ankole.Connectors` connection (`connector_auth_configs`), referenced by `authConfigId` through `Ankole.Connectors.LegacyConfig` while keeping provider behavior settings in `AppConfigure`. Read responses redact stored secrets, and submitting a blank secret field keeps the existing stored secret.
 - Approving a directory sync requires matching the current snapshot fingerprint
   and explicitly confirming user removals; reviewing a sync event checks both

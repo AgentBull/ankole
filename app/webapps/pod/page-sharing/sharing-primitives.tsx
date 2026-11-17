@@ -31,7 +31,7 @@ export function SubjectAvatar({
 }: {
   subject: {
     name: string
-    kind: 'human' | 'agent' | 'group' | 'userset'
+    kind: 'human' | 'agent' | 'service' | 'group' | 'userset'
     avatar_url?: string | null
     group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
   }
@@ -42,7 +42,7 @@ export function SubjectAvatar({
     <Avatar size={size}>
       {subject.avatar_url ? <AvatarImage src={subject.avatar_url} alt="" /> : null}
       <AvatarFallback>
-        {subject.kind === 'agent' ? (
+        {subject.kind === 'agent' || subject.kind === 'service' ? (
           <BotRegular aria-hidden className={size === 'sm' ? 'size-3.5' : 'size-4'} />
         ) : subject.kind === 'group' ? (
           subject.group_domain === 'directory' ? (
@@ -62,7 +62,7 @@ export function SubjectKindBadges({
   subject
 }: {
   subject: {
-    kind: 'human' | 'agent' | 'group' | 'userset'
+    kind: 'human' | 'agent' | 'service' | 'group' | 'userset'
     membership?: 'member' | 'guest' | null
     group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
   }
@@ -71,6 +71,7 @@ export function SubjectKindBadges({
   return (
     <>
       {subject.kind === 'agent' && <Badge variant="secondary">{translate('pod.sharing.badge_agent')}</Badge>}
+      {subject.kind === 'service' && <Badge variant="secondary">{translate('pod.sharing.badge_service')}</Badge>}
       {subject.kind === 'group' && (
         <Badge variant="secondary">
           {subject.group_domain === 'directory'

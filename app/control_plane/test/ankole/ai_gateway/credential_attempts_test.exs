@@ -77,6 +77,40 @@ defmodule Ankole.AIGateway.CredentialAttemptsTest do
              )
   end
 
+  test "route_retry opt-out stops ambiguous failures before replaying a request" do
+    context = context()
+
+    failures =
+      for status <- [502, 503, 504] do
+        %Ankole.AIGateway.ProviderFailure{
+          kind: :status_rejected,
+          provider_status: status,
+          provider_body: %{"error" => %{"message" => "Upstream unavailable"}},
+          provider_headers: []
+        }
+      end
+
+    failures =
+      failures ++
+        [
+          %{"code" => "first_byte_timeout", "stage" => "connect"},
+          %{
+            "code" => "transport_failed",
+            "stage" => "connect",
+            "message" => "connection reset by peer"
+          },
+          %{"code" => "upstream_read_failed", "stage" => "response_body"}
+        ]
+
+    for reason <- failures do
+      assert {:retry, _next_context, _, _delay} =
+               CredentialAttempts.plan_retry(context, %{}, reason)
+
+      assert {:stop, ^reason, ^context} =
+               CredentialAttempts.plan_retry(context, %{}, reason, route_retry: false)
+    end
+  end
+
   test "build_round removes all control-plane private keys" do
     build = fn runtime, request ->
       {:ok,
@@ -108,6 +142,10 @@ defmodule Ankole.AIGateway.CredentialAttemptsTest do
 
   test "forced OAuth refresh 429 retains the exhausted pool code and absolute retry clock" do
     refresh_failure_scenario(:reset_at, pool_size: 1)
+  end
+
+  test "route_retry opt-out preserves OAuth refresh and credential rotation" do
+    refresh_failure_scenario(:permanent, route_retry: false)
   end
 
   defp refresh_failure_scenario(scenario, opts \\ []) do
@@ -198,6 +236,7 @@ defmodule Ankole.AIGateway.CredentialAttemptsTest do
 
     result =
       CredentialAttempts.plan_retry(context, %{}, reason,
+        route_retry: Keyword.get(opts, :route_retry, true),
         credential_retry_jitter: &Function.identity/1
       )
 

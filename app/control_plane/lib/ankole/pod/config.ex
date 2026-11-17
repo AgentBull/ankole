@@ -13,7 +13,7 @@ defmodule Ankole.Pod.Config do
   @applet_defaults %{"timeout_ms" => 60_000, "heap_mb" => 128}
   @office_defaults [
     max_file_bytes: 20 * 1024 * 1024,
-    compaction_idle_seconds: 30,
+    compaction_idle_seconds: 15,
     compaction_op_threshold: 100,
     compaction_structural_threshold: 10
   ]
@@ -26,6 +26,7 @@ defmodule Ankole.Pod.Config do
         encrypted: false,
         schema: Schema.new(&boolean/1),
         default_value: true,
+        console_writable: false,
         description: "Allows invited external guests to access shared Pod pages."
       ),
       Definition.new!(

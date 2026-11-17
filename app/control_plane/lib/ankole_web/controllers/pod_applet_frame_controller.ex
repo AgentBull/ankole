@@ -7,7 +7,7 @@ defmodule AnkoleWeb.PodAppletFrameController do
   def show(conn, %{"id" => id, "revision" => value, "path" => path}) do
     relative = if path == [], do: "index.html", else: Enum.join(path, "/")
 
-    with {revision, ""} when revision >= 0 <- Integer.parse(value),
+    with {:ok, revision} <- Ankole.Pod.Applets.Revisions.parse_ref(value),
          {:ok, file} <-
            Files.resolve_applet_frame_object(conn.assigns.authz_actor, id, revision, relative),
          {:ok, object} <- Ankole.Files.fetch_object(file.object_id) do

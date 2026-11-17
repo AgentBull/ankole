@@ -1,6 +1,7 @@
 import { lazy, Suspense, useMemo, useSyncExternalStore } from 'react'
 import { cn } from '../lib/utils'
 import {
+  INCREMENTAL_FORCE_ALPHA,
   computeGraphTopology,
   projectGraphAnchors,
   resolveCanvasThemePalette,
@@ -18,7 +19,7 @@ import {
 } from '../viz/graph-layout'
 import type { AnkoleGraphHandle, AnkoleGraphProps } from './graph'
 
-export { computeGraphTopology, projectGraphAnchors, resolveCanvasThemePalette }
+export { INCREMENTAL_FORCE_ALPHA, computeGraphTopology, projectGraphAnchors, resolveCanvasThemePalette }
 export type { AnkoleGraphHandle, AnkoleGraphProps }
 export type {
   AnkoleCanvasThemePalette,

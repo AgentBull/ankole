@@ -55,7 +55,7 @@ impl Delivery {
         }
     }
 
-    fn has_response_events(&self) -> bool {
+    pub(super) fn has_response_events(&self) -> bool {
         // Queued events belong to this attempt before read credit arrives.
         self.seq > 0 || !self.pending.is_empty()
     }
@@ -262,10 +262,6 @@ impl Delivery {
     }
 }
 
-pub(super) fn summary(reason: &str) -> Value {
-    json!({ "reason": reason })
-}
-
 pub(super) async fn ingest_resolver_event(
     delivery: &mut Delivery,
     resolver: &mut api_resolver::APIResolver,
@@ -283,7 +279,7 @@ pub(super) async fn flush_resolver_events(
     if resolver.is_terminal() {
         delivery.push_events(events);
         delivery
-            .finish_done_pending(summary("provider_terminal"))
+            .finish_done_pending(json!({ "reason": "provider_terminal" }))
             .await;
         Ok(false)
     } else {

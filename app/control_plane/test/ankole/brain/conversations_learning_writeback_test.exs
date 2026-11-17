@@ -526,6 +526,154 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
              ConversationsLearning.process_conversation(c.channel.id)
   end
 
+  test "editing or removing a learned message clears extracted timelines, timeline chunks, and extraction links while keeping page projections",
+       c do
+    alias Ankole.Brain.Schemas.{Chunk, Link, Timeline}
+
+    {:ok, company} =
+      page_fixture_result(
+        %{
+          slug: "companies/acme-timeline",
+          type: "company",
+          title: "Acme Corp",
+          body: "Acme builds industrial sensors."
+        },
+        :system
+      )
+
+    {:ok, peer} =
+      page_fixture_result(
+        %{slug: "companies/beta-partner", type: "company", title: "Beta Partner"},
+        :system
+      )
+
+    # Create a real page-owned body chunk and "page" link that must survive conversation withdrawal.
+    {:ok, _} =
+      Repo.transact(fn ->
+        with {:ok, _} <- Ankole.Brain.Chunks.reconcile_in_tx(company),
+             {:ok, _} <-
+               Ankole.Brain.Links.upsert_link(%{
+                 from_page_id: company.id,
+                 to_page_id: peer.id,
+                 origin_page_id: company.id,
+                 link_source: "page",
+                 link_type: "references",
+                 origin_field: "content"
+               }),
+             do: {:ok, :ok}
+      end)
+
+    configure_items!([
+      valid_item(c.alice.uid)
+      |> Map.put("subject_page_id", company.id),
+      %{
+        "type" => "timeline",
+        "subject_page_id" => company.id,
+        "date" => "2026-11-10",
+        "summary" => "Acme signed the Beta supply deal"
+      },
+      %{
+        "type" => "link",
+        "from" => company.id,
+        "to" => peer.id,
+        "link_type" => "partners_with"
+      }
+    ])
+
+    assert {:ok, %{status: :complete, written: %{claims: 1, timelines: 1, links: 1}}} =
+             ConversationsLearning.process_conversation(c.channel.id)
+
+    {:ok, conv_root_id} = Ankole.Brain.Scope.conversation(c.channel.id)
+
+    {:ok, _} =
+      Ankole.Brain.Timelines.write_timeline(
+        %{
+          subject_page_id: company.id,
+          source_node_id: peer.id,
+          date: ~D[2026-11-11],
+          summary: "Beta published its independently sourced report",
+          provenance: "company report"
+        },
+        :system
+      )
+
+    assert Repo.exists?(from t in Timeline, where: t.source_node_id == ^conv_root_id)
+
+    assert Repo.exists?(
+             from ch in Chunk,
+               where: ch.source_node_id == ^conv_root_id and ch.content_kind == :timeline
+           )
+
+    assert Repo.exists?(
+             from l in Link,
+               where: l.origin_page_id == ^conv_root_id and l.link_source == "extraction"
+           )
+
+    assert Repo.exists?(
+             from ch in Chunk,
+               where: ch.page_id == ^company.id and ch.content_kind == :body
+           )
+
+    # Editing the learned message must withdraw timelines, timeline chunks, and extraction links.
+    message = get_entry!(c.channel.id, "m1")
+    edit_at = DateTime.add(message.created_at, 1, :second)
+
+    assert {:ok, :locked} =
+             Repo.transact(fn ->
+               with {:ok, _} <-
+                      Ankole.Conversations.External.observe_in_tx(
+                        c.channel.id,
+                        %{
+                          provider_message_id: "m1",
+                          text: "Corrected message without the deal.",
+                          provider_time: edit_at,
+                          author: %{"principal_uid" => c.alice.uid}
+                        },
+                        edit_at
+                      ),
+                    :ok <-
+                      Ankole.Sessions.Queue.lock_sessions_in_tx([
+                        {c.agent.uid, Ankole.Sessions.Key.conversation(c.channel.id)}
+                      ]) do
+                 {:ok, :locked}
+               end
+             end)
+
+    refute Repo.exists?(from t in Timeline, where: t.source_node_id == ^conv_root_id)
+    refute Repo.exists?(from ch in Chunk, where: ch.source_node_id == ^conv_root_id)
+
+    refute Repo.exists?(
+             from l in Link,
+               where: l.origin_page_id == ^conv_root_id and l.link_source == "extraction"
+           )
+
+    # Entity page's own body chunk and page-authored link remain untouched.
+    assert Repo.exists?(
+             from ch in Chunk,
+               where: ch.page_id == ^company.id and ch.content_kind == :body
+           )
+
+    assert Repo.exists?(
+             from l in Link,
+               where: l.origin_page_id == ^company.id and l.link_source == "page"
+           )
+
+    remaining =
+      Repo.all(from ch in Chunk, where: ch.page_id == ^company.id, order_by: ch.chunk_index)
+
+    assert Enum.map(remaining, & &1.content_kind) == [:body, :timeline]
+    assert List.last(remaining).source_node_id == peer.id
+
+    assert {:ok, _} = Repo.transact(fn -> Ankole.Brain.Chunks.reconcile_in_tx(company) end)
+
+    compacted =
+      Repo.all(from ch in Chunk, where: ch.page_id == ^company.id, order_by: ch.chunk_index)
+
+    assert Enum.map(compacted, & &1.content_kind) == [:body, :timeline]
+    assert Enum.map(compacted, & &1.chunk_index) == [0, 1]
+    assert List.last(compacted).source_node_id == peer.id
+  end
+
   describe "existing page writeback" do
     setup %{alice: alice} do
       {:ok, object} =

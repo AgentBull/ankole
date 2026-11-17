@@ -1,6 +1,7 @@
 import { Slice, Leaf, Plot, Node, Pos, serialize, parse, Token } from '../doc'
 import { GardState } from '../state'
 import browser from './browser'
+import { isElt } from './dom'
 
 export const clipboardOutputFilter = GardState.Facet.define<(slice: Slice, state: GardState) => Slice>()
 export const clipboardOutputHTMLFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
@@ -35,7 +36,7 @@ export function writeClipboard(state: GardState, slice: Slice, data: DataTransfe
   let wrappers = 0
   for (;;) {
     const first = dom.firstChild
-    const needsWrap = first?.nodeType == 1 ? wrapMap[first.nodeName.toLowerCase()] : undefined
+    const needsWrap = isElt(first) ? wrapMap[first.nodeName.toLowerCase()] : undefined
     if (!needsWrap) break
     for (let i = needsWrap.length - 1; i >= 0; i--) {
       const wrapper = doc.createElement(needsWrap[i]!)
@@ -48,13 +49,13 @@ export function writeClipboard(state: GardState, slice: Slice, data: DataTransfe
 
   // The first element carries the markers, so inline content that starts
   // with text gets a wrapping span.
-  if (dom.firstChild && dom.firstChild.nodeType != 1) {
+  if (dom.firstChild && !isElt(dom.firstChild)) {
     const span = doc.createElement('span')
     span.appendChild(dom)
     dom.appendChild(span)
   }
-  if (dom.firstChild) {
-    const first = dom.firstChild as Element
+  if (isElt(dom.firstChild)) {
+    const first = dom.firstChild
     first.setAttribute('wg-content', 'true')
     // The exact slice, so that a paste into an editor with the same
     // schema does not depend on the HTML shapes. It holds the context

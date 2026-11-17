@@ -46,23 +46,24 @@ defmodule WeComOpenAPI.Bot.ClientTest do
     wait_until(fn -> Client.status(pid) == :connected end)
   end
 
-  defp start_connected(dispatcher) do
+  defp start_connected(dispatcher, extra_opts \\ []) do
     parent = self()
     {server, port} = FakeWsServer.start(parent)
     on_exit(fn -> send(server, :close) end)
 
-    pid =
-      start_supervised!(
-        {Client,
-         [
-           bot_id: "bot-1",
-           secret: "secret-1",
-           dispatcher: dispatcher,
-           ws_url: "ws://127.0.0.1:#{port}/",
-           auto_reconnect: false
-         ]},
-        restart: :temporary
+    opts =
+      Keyword.merge(
+        [
+          bot_id: "bot-1",
+          secret: "secret-1",
+          dispatcher: dispatcher,
+          ws_url: "ws://127.0.0.1:#{port}/",
+          auto_reconnect: false
+        ],
+        extra_opts
       )
+
+    pid = start_supervised!({Client, opts}, restart: :temporary)
 
     assert_receive {:ws_upgraded, ^server}, 2_000
 
@@ -154,20 +155,65 @@ defmodule WeComOpenAPI.Bot.ClientTest do
     assert {:ok, _ack} = Task.await(task_two, 2_000)
   end
 
-  test "an ACK timeout fails queued replies before the req_id can be reused" do
-    {pid, _server} = start_connected(Dispatcher.new())
+  test "an ACK timeout distinguishes queued replies from other requests already sent" do
+    {pid, _server} = start_connected(Dispatcher.new(), ack_timeout_ms: 80)
     monitor = Process.monitor(pid)
 
     first = Task.async(fn -> Bot.reply_markdown(pid, "same-request", "first") end)
     assert_receive {:client_frame, %{"cmd" => "aibot_respond_msg"}}, 2_000
     second = Task.async(fn -> Bot.reply_markdown(pid, "same-request", "second") end)
-    wait_until(fn -> Map.has_key?(:sys.get_state(pid).reply_queues, "same-request") end)
-    {seq, _from, _timer} = :sys.get_state(pid).pending["same-request"]
-    send(pid, {:ack_timeout, "same-request", seq})
+
+    wait_until(fn ->
+      match?({:connected, %{reply_queues: %{"same-request" => _}}}, :sys.get_state(pid))
+    end)
+
+    pending = Task.async(fn -> Bot.send_markdown(pid, "chat-1", 2, "already sent") end)
+    assert_receive {:client_frame, %{"cmd" => "aibot_send_msg"}}, 2_000
     assert {:error, %Error{reason: :ack_timeout}} = Task.await(first, 2_000)
     assert {:error, %Error{reason: :not_connected}} = Task.await(second, 2_000)
+    assert {:error, %Error{reason: :transport, raw: :ack_timeout}} = Task.await(pending, 2_000)
     refute_receive {:client_frame, %{"cmd" => "aibot_respond_msg"}}, 100
     assert_receive {:DOWN, ^monitor, :process, ^pid, {:shutdown, :ack_timeout}}, 2_000
+  end
+
+  test "authenticating state_timeout stops when auto_reconnect is disabled" do
+    parent = self()
+    {server, port} = FakeWsServer.start(parent)
+    on_exit(fn -> send(server, :close) end)
+
+    pid =
+      start_supervised!(
+        {Client,
+         [
+           bot_id: "bot-1",
+           secret: "secret-1",
+           dispatcher: Dispatcher.new(),
+           ws_url: "ws://127.0.0.1:#{port}/",
+           auto_reconnect: false,
+           auth_timeout_ms: 50
+         ]},
+        restart: :temporary
+      )
+
+    ref = Process.monitor(pid)
+    assert_receive {:client_frame, %{"cmd" => "aibot_subscribe"}}, 2_000
+    assert Client.status(pid) == :authenticating
+    assert {:error, %Error{reason: :not_connected}} = Bot.send_markdown(pid, "chat-1", 2, "early")
+    assert_receive {:DOWN, ^ref, :process, ^pid, {:shutdown, :auth_timeout}}, 2_000
+  end
+
+  test "heartbeat timer resets missed pongs on ack and disconnects after three missed pongs" do
+    {pid, server} = start_connected(Dispatcher.new(), heartbeat_interval_ms: 25)
+    ref = Process.monitor(pid)
+
+    assert_receive {:client_frame, %{"cmd" => "ping", "headers" => %{"req_id" => ping_1}}}, 2_000
+    send(server, {:push, %{"headers" => %{"req_id" => ping_1}, "errcode" => 0}})
+
+    for _ <- 1..3 do
+      assert_receive {:client_frame, %{"cmd" => "ping"}}, 2_000
+    end
+
+    assert_receive {:DOWN, ^ref, :process, ^pid, {:shutdown, :heartbeat_timeout}}, 2_000
   end
 
   test "proactive send uses a fresh req_id and surfaces non-zero ack errcodes" do
@@ -296,5 +342,84 @@ defmodule WeComOpenAPI.Bot.ClientTest do
     )
 
     assert_receive {:DOWN, ^ref, :process, ^pid, {:shutdown, %Error{reason: :auth}}}, 2_000
+  end
+
+  test "upgrading times out without stalling indefinitely when upgrade headers never complete" do
+    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
+    {:ok, port} = :inet.port(listen)
+    on_exit(fn -> :gen_tcp.close(listen) end)
+    test_pid = self()
+
+    holder =
+      spawn_link(fn ->
+        {:ok, conn} = :gen_tcp.accept(listen)
+        send(test_pid, :accepted)
+
+        receive do
+          :close -> :gen_tcp.close(conn)
+        end
+      end)
+
+    on_exit(fn -> send(holder, :close) end)
+
+    pid =
+      start_supervised!(
+        {Client,
+         [
+           bot_id: "bot-1",
+           secret: "secret-1",
+           dispatcher: Dispatcher.new(),
+           ws_url: "ws://127.0.0.1:#{port}/",
+           auto_reconnect: false,
+           auth_timeout_ms: 40
+         ]},
+        restart: :temporary
+      )
+
+    ref = Process.monitor(pid)
+    assert_receive :accepted, 2_000
+    assert_receive {:DOWN, ^ref, :process, ^pid, {:shutdown, :upgrade_timeout}}, 2_000
+  end
+
+  test "reconnects via :state_timeout, acks ping_-prefixed req_ids, avoids ghost queued sends, and handles calls after stop" do
+    {pid, server} =
+      start_connected(Dispatcher.new(),
+        auto_reconnect: true,
+        reconnect_base_ms: 15,
+        ack_timeout_ms: 400
+      )
+
+    # A reply whose inbound req_id starts with "ping_" is still matched in data.pending.
+    ping_reply = Task.async(fn -> Client.reply(pid, "ping_req_1", %{"text" => "ponged"}) end)
+    assert_receive {:client_frame, %{"headers" => %{"req_id" => "ping_req_1"}}}, 2_000
+    send(server, {:push, %{"headers" => %{"req_id" => "ping_req_1"}, "errcode" => 0}})
+    assert {:ok, %{"errcode" => 0}} = Task.await(ping_reply, 2_000)
+
+    # A second reply queued for the same req_id whose caller timeout expires must not ghost-send later.
+    first = Task.async(fn -> Client.reply(pid, "same-req", %{"seq" => 1}) end)
+
+    assert_receive {:client_frame,
+                    %{"headers" => %{"req_id" => "same-req"}, "body" => %{"seq" => 1}}},
+                   2_000
+
+    second =
+      Task.async(fn ->
+        Client.reply(pid, "same-req", %{"seq" => 2}, timeout: 30)
+      end)
+
+    assert {:error, %Error{reason: :ack_timeout}} = Task.await(second, 2_000)
+    send(server, {:push, %{"headers" => %{"req_id" => "same-req"}, "errcode" => 0}})
+    assert {:ok, %{"errcode" => 0}} = Task.await(first, 2_000)
+    refute_receive {:client_frame, %{"body" => %{"seq" => 2}}}, 80
+
+    # Auto-reconnect resumes via :state_timeout after the socket drops, and stop/1 returns :not_connected cleanly.
+    send(server, :close)
+
+    wait_until(fn ->
+      Client.status(pid) in [:disconnected, :upgrading, :authenticating, :connected]
+    end)
+
+    :ok = Client.stop(pid)
+    assert {:error, %Error{reason: :not_connected}} = Client.request(pid, "aibot_send_msg", %{})
   end
 end

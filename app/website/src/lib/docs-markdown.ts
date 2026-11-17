@@ -139,7 +139,7 @@ export function docBodyMarkdown(entry: DocEntry, target: DocMarkdownTarget): str
   const exports = isMdx ? MDX_MODULES[`/${file}`] : {}
   if (exports === undefined) throw new Error(`${file}: the MDX module is not in the build`)
 
-  const tree = (isMdx ? mdxParser : markdownParser).parse(entry.body) as unknown as MarkdownNode
+  const tree: MarkdownNode = (isMdx ? mdxParser : markdownParser).parse(entry.body)
   const context: TransformContext = {
     source: entry.body,
     file,

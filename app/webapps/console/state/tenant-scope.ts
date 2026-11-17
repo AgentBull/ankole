@@ -1,6 +1,22 @@
 import type { QueryKey, UseMutationOptions } from '@tanstack/react-query'
+import * as siteQueries from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { consoleSlotCollectionPath, consoleSlotTenantPage, coreConsoleRouteScopes } from '../slots'
 import { GLOBAL_LIBRARY_SCOPE, isSiteLibraryDefaults } from './agent-library-capabilities'
+
+export const SITE_QUERY_IDS: ReadonlySet<string> = (() => {
+  const ids = new Set<string>()
+  for (const [name, value] of Object.entries(siteQueries)) {
+    if (!name.endsWith('QueryKey') || typeof value !== 'function') continue
+    try {
+      const key = (value as (options?: unknown) => unknown)()
+      const first = Array.isArray(key) ? (key[0] as { _id?: unknown } | undefined) : undefined
+      if (typeof first?._id === 'string') ids.add(first._id)
+    } catch {
+      // Ignore generated query key helpers that require runtime arguments.
+    }
+  }
+  return ids
+})()
 
 const collections = new Set([
   '/',
@@ -77,6 +93,9 @@ export function tenantQueryOptions<T extends { queryKey: QueryKey }>(options: T,
   const [request, ...rest] = options.queryKey
   if (!request || typeof request !== 'object' || !('_id' in request)) {
     throw new Error('A tenant collection requires a generated Console query')
+  }
+  if (typeof request._id === 'string' && SITE_QUERY_IDS.has(request._id)) {
+    return options
   }
   const headers = new Headers('headers' in request ? (request.headers as HeadersInit) : undefined)
   headers.set('x-ankole-tenant', tenantID)

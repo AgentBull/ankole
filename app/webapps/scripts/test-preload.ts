@@ -12,8 +12,8 @@ plugin({
     build.onResolve({ filter: /^@ankole\/edition-modules\// }, () => ({
       path: editionModulesFile
     }))
-    build.onResolve({ filter: /\?url$/ }, args => ({
-      path: args.path.slice(0, -4),
+    build.onResolve({ filter: /\?(?:worker&)?url$/ }, args => ({
+      path: args.path.replace(/\?(?:worker&)?url$/, ''),
       namespace: 'vite-url'
     }))
     build.onLoad({ filter: /.*/, namespace: 'vite-url' }, args => ({

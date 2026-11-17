@@ -1,14 +1,13 @@
-import { hostFacet, openLinkHref, type EditorHost, type EmbedAttributes } from './host-context'
+import { hostFacet, openLinkHref, type EditorHost, type EmbedAttributes, type EmbedMount } from './host-context'
 import { resourceWidget } from '../blocks/resources'
-import { Elt, type Node } from '../core/doc'
+import { Elt } from '../core/doc'
 import { Wordgard, Decoration } from '../core/editor'
 import { Widget } from '../core/editor/decoration'
 import { compositionComplete } from '../core/editor/input'
 import { history } from '../core/history'
 import { GardState } from '../core/state'
 import * as T from '../core/types'
-import { Embed, embed as embedBlock, embedAttributes } from '../blocks/embed'
-import { element } from '../document/tree'
+import { Embed, embedAttributes, embedChanges, type EmbedPatch } from '../blocks/embed'
 import { markValue } from './attributes'
 import { deleteBlock } from './block-actions'
 import { dispatchStep } from './block-insert'
@@ -20,16 +19,22 @@ import { ImageTitle, Mention, sameMentionTarget, type MentionTarget } from './sc
 export function hostExtension(host: EditorHost): GardState.Extension {
   const cleanup = new WeakMap<Element, () => void>()
   const editors = new WeakMap<Element, Wordgard>()
-  const deferred = new WeakMap<Wordgard, { dom: Element; position: number | null; node: Node }[]>()
-  const configure = (editor: Wordgard, position: number, node: Node) => {
-    if (editor.state.readOnly || editor.state.doc.nodeAt(position)?.type !== Embed.type) return
+  const mounts = new WeakMap<Element, { ref?: string; active: boolean; handle?: EmbedMount }>()
+  const deferred = new WeakMap<Wordgard, { dom: Element; position: number | null; patch: EmbedPatch }[]>()
+  const configure = (editor: Wordgard, position: number, patch: EmbedPatch) => {
+    const node = editor.state.doc.nodeAt(position)
+    if (editor.state.readOnly || node?.type !== Embed.type) return
+    const changes = embedChanges(node, position, patch)
+    if (!changes.length) return
     editor.dispatch({
-      changes: { from: position, to: position + 1, insert: [node] },
+      changes,
       annotations: history.isolate.of(true),
       userEvent: 'embed.configure'
     })
   }
   const embed = Widget.define<EmbedAttributes>({
+    // Mark changes reuse this container; connect delivers their new values to the mounted host.
+    eq: (a, b) => a.ref === b.ref,
     render: (_attributes, editor) => {
       const container = document.createElement('div')
       container.className = 'embed'
@@ -37,28 +42,32 @@ export function hostExtension(host: EditorHost): GardState.Extension {
       return container
     },
     connect: (attributes, dom) => {
-      let active = true
+      const previous = mounts.get(dom as Element)
+      if (previous && previous.ref === attributes.ref && previous.handle?.update) {
+        previous.active = true
+        previous.handle.update(attributes)
+        return
+      }
+      previous?.handle?.dispose()
+      const mount: { ref?: string; active: boolean; handle?: EmbedMount } = { ref: attributes.ref, active: true }
+      mounts.set(dom as Element, mount)
       const update = (next: EmbedAttributes) => {
         const editor = editors.get(dom as Element)
-        if (!active || !editor || editor.state.readOnly || !dom.isConnected) return
+        if (!mount.active || !editor || editor.state.readOnly || !dom.isConnected) return
         const position = editor.inputState.domMapping.mapPos(editor.inputState.getDOMPos(dom, 0), 1, 'after')
         if (position === null || editor.state.doc.nodeAt(position)?.type !== Embed.type) return
-        const node = embedBlock.import(
-          element(
-            'embed',
-            Object.fromEntries(Object.entries(next).filter((item): item is [string, string] => item[1] !== undefined))
-          ),
-          { blocks: () => [], code: () => [] }
-        )
+        const patch = { ...next }
+        // Capture the patch; the host may mutate its argument after this callback returns.
+        embedChanges(editor.state.doc.nodeAt(position)!, position, patch)
         if (editor.composing) {
           const pending = deferred.get(editor) ?? []
-          pending.push({ dom: dom as Element, position, node })
+          pending.push({ dom: dom as Element, position, patch })
           deferred.set(editor, pending)
-        } else configure(editor, position, node)
+        } else configure(editor, position, patch)
       }
       const remove = () => {
         const editor = editors.get(dom as Element)
-        if (!active || !editor || editor.state.readOnly) return
+        if (!mount.active || !editor || editor.state.readOnly) return
         const position = editor.posAtDOM(dom)
         const found = editor.state.doc.resolveNode(position)
         if (found?.node.type !== Embed.type) return
@@ -74,18 +83,15 @@ export function hostExtension(host: EditorHost): GardState.Extension {
       const collapseToMention = attributes.ref
         ? () => {
             const editor = editors.get(dom as Element)
-            if (!active || !editor || editor.state.readOnly || !attributes.ref) return
+            if (!mount.active || !editor || editor.state.readOnly || !attributes.ref) return
             const position = editor.posAtDOM(dom)
             const found = editor.state.doc.resolveNode(position)
             if (found?.node.type !== Embed.type) return
             convertPageEmbedToMention(editor, position, attributes.ref)
           }
         : undefined
-      const dispose = host.mountEmbed?.(attributes, dom as HTMLElement, update, remove, collapseToMention)
-      cleanup.set(dom as Element, () => {
-        active = false
-        dispose?.()
-      })
+      const handle = host.mountEmbed?.(attributes, dom as HTMLElement, update, remove, collapseToMention)
+      mount.handle = typeof handle === 'function' ? { dispose: handle } : handle || undefined
     },
     disconnect: (_attributes, dom) => {
       const editor = editors.get(dom as Element)
@@ -95,8 +101,15 @@ export function hostExtension(host: EditorHost): GardState.Extension {
           (deferred.get(editor) ?? []).filter(update => update.dom !== dom)
         )
       }
-      cleanup.get(dom as Element)?.()
-      cleanup.delete(dom as Element)
+      const mount = mounts.get(dom as Element)
+      if (!mount) return
+      mount.active = false
+      // Wordgard reconnects reused DOM in this flush. A removed embed is disposed at its end.
+      queueMicrotask(() => {
+        if (mount.active || mounts.get(dom as Element) !== mount) return
+        mount.handle?.dispose()
+        mounts.delete(dom as Element)
+      })
     },
     propagateEvent: false
   })
@@ -161,7 +174,7 @@ export function hostExtension(host: EditorHost): GardState.Extension {
         // IME cleanup owns its undo step; delayed host actions follow it in their original order.
         if (!editor.connected || editor.state.readOnly) return
         for (const update of pending) {
-          if (update.position !== null) configure(editor, update.position, update.node)
+          if (update.position !== null) configure(editor, update.position, update.patch)
         }
       })
     ),

@@ -196,7 +196,9 @@ defmodule AnkoleWeb.PodContentChannelTest do
              )
 
     expected =
-      if Application.fetch_env!(:ankole, :edition) == :saas, do: "10.0.0.1", else: "10.0.0.2"
+      if :x_forwarded_for in Application.get_env(:ankole, :http_rewrite_on, [:x_forwarded_proto]),
+        do: "10.0.0.1",
+        else: "10.0.0.2"
 
     assert socket.assigns.actor.authn["ip"] == expected
     assert socket.assigns.actor.authn["surface"] == "pod_browser"
@@ -227,7 +229,7 @@ defmodule AnkoleWeb.PodContentChannelTest do
         }
       )
 
-    if Application.fetch_env!(:ankole, :edition) == :saas do
+    if :x_forwarded_for in Application.get_env(:ankole, :http_rewrite_on, [:x_forwarded_proto]) do
       assert {:ok, _, _} = subscribe_and_join(reader, PodPageChannel, "page:#{page.id}")
     else
       assert {:error, %{reason: "not_found"}} =

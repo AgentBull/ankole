@@ -12,6 +12,7 @@ defmodule Ankole.Pod.Files do
   alias Ankole.Files, as: Drive
   alias Ankole.Pod.Access
   alias Ankole.Pod.{OfficeFiles, Pages, PodFile}
+  alias Ankole.Pod.Applets.{Bindings, Revisions}
   require Ash.Query
   alias Ankole.Repo
 
@@ -24,7 +25,8 @@ defmodule Ankole.Pod.Files do
 
   @doc "Lists one page's current file manifest. Paths are relative to the page directory."
   def manifest(%Ankole.AuthZ.Actor{} = actor, page_id) do
-    with :ok <- OfficeFiles.flush_if_dirty(page_id),
+    with {:ok, _page} <- Pages.authorize(actor, page_id, "node_view"),
+         :ok <- OfficeFiles.flush_if_dirty(page_id),
          do: Repo.transact_top_level(fn -> manifest_in_tx(actor, page_id) end)
   end
 
@@ -74,13 +76,20 @@ defmodule Ankole.Pod.Files do
   file; an Office editor pairs them with the operations it bootstrapped.
   """
   def resolve_read(actor, page_id, relative, digest \\ nil) do
-    with :ok <- latest_bytes(page_id, digest),
+    with :ok <- latest_bytes(actor, page_id, relative, digest),
          do:
            Repo.transact_top_level(fn -> resolve_read_in_tx(actor, page_id, relative, digest) end)
   end
 
-  defp latest_bytes(page_id, nil), do: OfficeFiles.flush_if_dirty(page_id)
-  defp latest_bytes(_page_id, _digest), do: :ok
+  defp latest_bytes(actor, page_id, relative, nil) do
+    with {:ok, _path} <- page_path(page_id, relative),
+         {:ok, page} <- Pages.fetch(page_id),
+         {:ok, action} <- required_read_action(page, relative),
+         {:ok, _} <- Pages.authorize(actor, page.id, action),
+         do: OfficeFiles.flush_if_dirty(page_id)
+  end
+
+  defp latest_bytes(_actor, _page_id, _relative, _digest), do: :ok
 
   defp resolve_read_in_tx(actor, page_id, relative, digest) do
     with {:ok, _path} <- page_path(page_id, relative),
@@ -99,7 +108,7 @@ defmodule Ankole.Pod.Files do
         {:ok, "node_view"}
 
       String.starts_with?(path, ["src/", "server/"]) or
-          path in ~w(package.json bun.lock tsconfig.json applet.env.json) ->
+          path in ~w(package.json bun.lock tsconfig.json applet.env.json applet.bindings.json) ->
         {:ok, "node_edit"}
 
       true ->
@@ -129,18 +138,17 @@ defmodule Ankole.Pod.Files do
       with {:ok, _path} <- page_path(page_id, "dist/" <> relative),
            {:ok, page} <- Pages.lock(page_id, :share),
            :ok <- require_type(page, :applet),
-           {:ok, action} <- required_read_action(page, "dist/" <> relative),
-           {:ok, _} <- Pages.authorize(actor, page.id, action, trash: false),
-           :ok <- frame_revision(page, expected_revision),
-           {:ok, file} <- fetch_file(page_id, "dist/" <> relative),
-           do: {:ok, file}
+           {:ok, _} <- Revisions.authorize_target(actor, page, expected_revision),
+           {:ok, target} <- Revisions.resolve_target_in_tx(page, expected_revision),
+           file when not is_nil(file) <-
+             Enum.find(target.files, &(&1.path == "dist/" <> relative)) do
+        {:ok, file}
+      else
+        nil -> {:error, :not_found}
+        error -> error
+      end
     end)
   end
-
-  defp frame_revision(%{revision: revision}, revision), do: :ok
-
-  defp frame_revision(page, _),
-    do: {:error, {:applet_revision_changed, %{revision: page.revision}}}
 
   # Authorization has succeeded. A missing expected file means that its publication changed.
   defp manifest_read({:error, :not_found}, digest) when not is_nil(digest),
@@ -277,17 +285,20 @@ defmodule Ankole.Pod.Files do
   defp message_attachment(_actor, _message_id, _position), do: {:error, :not_found}
 
   @doc "Publishes a complete applet source and distribution manifest with compare-and-set."
-  def publish(uid, page_id, base_revision, files, authority \\ nil)
+  def publish(uid, page_id, base_revision, files, authority \\ nil, opts \\ [])
 
-  def publish(%Ankole.AuthZ.Actor{} = actor, page_id, base_revision, files, authority)
+  def publish(%Ankole.AuthZ.Actor{} = actor, page_id, base_revision, files, authority, opts)
       when is_list(files) do
-    publish_prepared(actor, page_id, base_revision, files, authority, MapSet.new())
+    publish_prepared(actor, page_id, base_revision, files, authority, MapSet.new(), opts)
   end
 
-  def publish(_uid, _page_id, _base_revision, _files, _authority), do: {:error, :invalid_manifest}
+  def publish(_uid, _page_id, _base_revision, _files, _authority, _opts),
+    do: {:error, :invalid_manifest}
 
   @doc "Streams Worker build artifacts into immutable storage, then commits one Applet manifest."
-  def publish_from_worker(actor, page_id, base_revision, files, worker, authority)
+  def publish_from_worker(actor, page_id, base_revision, files, worker, authority, opts \\ [])
+
+  def publish_from_worker(actor, page_id, base_revision, files, worker, authority, opts)
       when is_list(files) do
     with {:ok, page} <- Pages.authorize(actor, page_id, "node_edit"),
          :ok <- require_type(page, :applet),
@@ -298,11 +309,11 @@ defmodule Ankole.Pod.Files do
              stored |> Enum.map(&Drive.complete_object_in_tx/1) |> Ankole.Attrs.collect_results()
            end) do
       owned = MapSet.new(stored, & &1.object_id)
-      publish_prepared(actor, page_id, base_revision, stored, authority, owned)
+      publish_prepared(actor, page_id, base_revision, stored, authority, owned, opts)
     end
   end
 
-  def publish_from_worker(_actor, _page_id, _revision, _files, _worker, _authority),
+  def publish_from_worker(_actor, _page_id, _revision, _files, _worker, _authority, _opts),
     do: {:error, :invalid_manifest}
 
   defp stage_worker_files(files, worker, maximum) do
@@ -326,19 +337,37 @@ defmodule Ankole.Pod.Files do
     end)
   end
 
-  defp publish_prepared(actor, page_id, base_revision, files, authority, owned) do
+  @doc false
+  def publish_snapshot(actor, page_id, base_revision, snapshot, files, opts) do
+    opts = Keyword.put(opts, :summary, snapshot.summary)
+
+    publish_prepared(
+      actor,
+      page_id,
+      base_revision,
+      files,
+      nil,
+      MapSet.new(files, & &1.object_id),
+      opts
+    )
+  end
+
+  defp publish_prepared(actor, page_id, base_revision, files, authority, owned, opts) do
     authority = authority || actor.turn_authority
 
     with {:ok, _} <- Pages.authorize(actor, page_id, "node_edit"),
          {:ok, upserts} <- publish_files(page_id, files),
          :ok <- own_publish_contents(actor, page_id, upserts, owned),
+         {:ok, bindings_manifest} <- validate_bindings(actor, upserts),
          {:ok, env} <- validate_environment(page_id, upserts),
-         {:ok, routes} <- inspect_backend(page_id, upserts, env) do
+         {:ok, routes} <- inspect_backend(page_id, upserts, env, bindings_manifest) do
       Access.write(
         authority,
-        fn -> publish_in_tx(actor, page_id, base_revision, upserts, routes, owned) end,
+        fn -> publish_in_tx(actor, page_id, base_revision, upserts, routes, owned, opts) end,
         before_fence: fn ->
-          Ankole.AutomationJobs.sync_applet_policies_in_tx(page_id, routes["actions"])
+          if opts[:draft],
+            do: :ok,
+            else: Ankole.AutomationJobs.sync_applet_policies_in_tx(page_id, routes["actions"])
         end,
         after_commit: &committed/1
       )
@@ -420,39 +449,72 @@ defmodule Ankole.Pod.Files do
     end
   end
 
-  defp publish_in_tx(
-         %Ankole.AuthZ.Actor{} = actor,
-         page_id,
-         base_revision,
-         upserts,
-         routes,
-         owned
-       ) do
+  defp publish_in_tx(actor, page_id, base_revision, upserts, routes, owned, opts) do
     write_file_in_tx(actor, page_id, "node_edit", fn page ->
       with :ok <- require_type(page, :applet),
-           :ok <- revision(page, base_revision),
-           :ok <- own_publish_contents(actor, page.id, upserts, owned),
-           {:ok, result} <-
-             commit_files_in_tx(page.id, upserts, [
-               "src",
-               "dist",
-               "server",
-               "package.json",
-               "bun.lock",
-               "tsconfig.json",
-               "applet.env.json"
-             ]),
-           {:ok, page} <- advance(page) do
-        {:ok,
-         %{
-           page_id: page.id,
-           revision: page.revision,
-           files: Enum.map(result.files, &entry/1),
-           routes: routes["routes"],
-           actions: routes["actions"]
-         }}
+           :ok <- publication_target(page, base_revision, opts),
+           :ok <- own_publish_contents(actor, page.id, upserts, owned) do
+        if opts[:draft] do
+          Revisions.save_draft_in_tx(actor, page, upserts, routes, opts[:summary])
+        else
+          activate_in_tx(actor, page, upserts, routes, opts)
+        end
       end
     end)
+  end
+
+  defp publication_target(page, base_revision, opts) do
+    if id = opts[:expected_draft_id] do
+      with {:ok, _} <- Revisions.check_draft_in_tx(page, id, base_revision),
+           true <- page.revision == base_revision do
+        :ok
+      else
+        _ -> {:error, :draft_changed}
+      end
+    else
+      revision(page, base_revision)
+    end
+  end
+
+  defp activate_in_tx(actor, page, upserts, routes, opts) do
+    with :ok <- Revisions.baseline_in_tx(page),
+         {:ok, result} <- commit_files_in_tx(page.id, upserts, Revisions.owned_paths()),
+         {:ok, page} <- advance(page),
+         {:ok, _} <-
+           Revisions.snapshot_in_tx(page, result.files, %{
+             revision: page.revision,
+             base_revision: page.revision - 1,
+             summary: opts[:summary],
+             published_by: Ankole.AuthZ.Actor.uid(actor),
+             routes_signature: routes["routes"],
+             actions_signature: routes["actions"],
+             restored_from_revision: opts[:restored_from_revision]
+           }),
+         :ok <- remove_promoted_draft(page.id, opts[:expected_draft_id]),
+         :ok <- Revisions.prune_in_tx(page.id) do
+      {:ok,
+       %{
+         page_id: page.id,
+         revision: page.revision,
+         files: Enum.map(result.files, &entry/1),
+         routes: routes["routes"],
+         actions: routes["actions"]
+       }}
+    end
+  end
+
+  defp remove_promoted_draft(_page_id, nil), do: :ok
+
+  defp remove_promoted_draft(page_id, id) do
+    with {:ok, _} <-
+           Ankole.Ash.destroy_where(
+             Ash.Query.filter(
+               Ankole.Pod.AppletRevision,
+               page_id == ^page_id and id == ^id and is_draft
+             ),
+             :remove
+           ),
+         do: :ok
   end
 
   defp commit_upload(
@@ -587,7 +649,7 @@ defmodule Ankole.Pod.Files do
         with true <-
                is_binary(relative) and
                  (String.starts_with?(relative, "src/") or String.starts_with?(relative, "dist/") or
-                    relative in ~w(server/main.js package.json bun.lock tsconfig.json applet.env.json)),
+                    relative in ~w(server/main.js package.json bun.lock tsconfig.json applet.env.json applet.bindings.json)),
              {:ok, _id} <- Ecto.UUID.cast(object_id),
              {:ok, path} <- Drive.normalize_path(relative) do
           {:cont,
@@ -598,7 +660,8 @@ defmodule Ankole.Pod.Files do
                 object_id: object_id,
                 source_path: Ankole.Attrs.get(file, :source_path),
                 source: "pod",
-                content_type: Ankole.Attrs.get(file, :content_type)
+                content_type: Ankole.Attrs.get(file, :content_type),
+                mode: Ankole.Attrs.get(file, :mode, 0o644)
               }
               | upserts
             ]}}
@@ -624,7 +687,7 @@ defmodule Ankole.Pod.Files do
     end
   end
 
-  defp inspect_backend(_page_id, upserts, env) do
+  defp inspect_backend(page_id, upserts, env, bindings_manifest) do
     case Enum.find(upserts, &(&1.path == "server/main.js")) do
       nil ->
         {:ok, %{"routes" => [], "actions" => %{}}}
@@ -632,7 +695,15 @@ defmodule Ankole.Pod.Files do
       file ->
         with {:ok, source} <- Drive.read_object(file.object_id),
              {:ok, limits} <- Ankole.Pod.Config.applet_limits(),
-             {:ok, routes} <- Ankole.FunctionRuntime.AppletClient.inspect(source, limits, env) do
+             {:ok, resolved} <- Bindings.resolve(page_id, bindings_manifest),
+             {:ok, routes} <-
+               Ankole.FunctionRuntime.AppletClient.inspect(
+                 source,
+                 limits,
+                 env,
+                 [],
+                 resolved.bindings
+               ) do
           {:ok, routes}
         else
           {:error, %{"code" => "applet_busy"}} ->
@@ -645,6 +716,46 @@ defmodule Ankole.Pod.Files do
             error
         end
     end
+  end
+
+  defp validate_bindings(actor, upserts) do
+    case Enum.find(upserts, &(&1.path == "applet.bindings.json")) do
+      nil ->
+        Bindings.parse_manifest(nil)
+
+      file ->
+        with {:ok, bytes} <- Drive.read_object(file.object_id),
+             {:ok, manifest} <- Bindings.parse_manifest(bytes),
+             :ok <- authorize_default_binding_tables(actor, manifest) do
+          {:ok, manifest}
+        end
+    end
+  end
+
+  defp authorize_default_binding_tables(actor, %{"tables" => tables}) do
+    table_ids =
+      for {_slot, spec} <- tables,
+          table_id = spec["tableId"],
+          is_binary(table_id),
+          uniq: true,
+          do: table_id
+
+    Enum.reduce_while(table_ids, :ok, fn table_id, :ok ->
+      case Ankole.Pod.Bases.fetch_table(table_id) do
+        {:ok, table} ->
+          if Ankole.Pod.page_live?(table.page_id) do
+            case Ankole.Pod.Bases.table_access(actor, table, :read) do
+              {:ok, _} -> {:cont, :ok}
+              {:error, _} = error -> {:halt, error}
+            end
+          else
+            {:cont, :ok}
+          end
+
+        {:error, :not_found} ->
+          {:cont, :ok}
+      end
+    end)
   end
 
   defp validate_environment(page_id, upserts) do

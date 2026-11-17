@@ -80,6 +80,7 @@ defmodule Ankole.Principals.RenameTest do
     assert Repo.get_by!(PageContent, page_id: plain.id).content =~ owner.uid
     assert saved.updated_by.uid == renamed.uid
     assert Repo.get!(PageComment, comment.id).body =~ renamed.uid
+    assert Repo.get!(PageComment, comment.id).mentioned_uids == [renamed.uid]
     assert Repo.get!(PageComment, comment.id).author.uid == renamed.uid
     assert Repo.get_by!(Ankole.Brain.Schemas.Page, slug: "people/" <> renamed.uid).id == home.id
     refute Repo.get_by(Ankole.Brain.Schemas.Page, slug: "people/" <> owner.uid)
@@ -113,10 +114,15 @@ defmodule Ankole.Principals.RenameTest do
       "@[Owner](principal:#{owner.uid}) and `@[Code](principal:#{owner.uid})` and #{owner.uid}"
 
     {:ok, %{comment: comment}} = Pod.Comments.create(actor_fixture(owner), page.id, %{body: body})
+    assert Repo.get!(PageComment, comment.id).mentioned_uids == [owner.uid]
     assert {:ok, _} = Principals.rename(owner.uid, "renamed@example.com")
 
-    assert Repo.get!(PageComment, comment.id).body ==
+    reloaded = Repo.get!(PageComment, comment.id)
+
+    assert reloaded.body ==
              "@[Owner](principal:renamed@example.com) and `@[Code](principal:#{owner.uid})` and #{owner.uid}"
+
+    assert reloaded.mentioned_uids == ["renamed@example.com"]
   end
 
   test "inline Base users follow their tenant while author references match the complete identity" do

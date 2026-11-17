@@ -1,6 +1,7 @@
 ---
 name: figma
 description: "Find and use figma operations through Ankole connections."
+default_enabled: false
 ---
 
 # figma

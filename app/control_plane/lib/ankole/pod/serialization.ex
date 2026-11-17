@@ -40,6 +40,7 @@ defmodule Ankole.Pod.Serialization do
     |> Map.take([
       :id,
       :parent_id,
+      :owner_uid,
       :private_owner_uid,
       :type,
       :title,
@@ -148,7 +149,11 @@ defmodule Ankole.Pod.Serialization do
       content: content_json(detail.content),
       role: detail.role,
       child_count: Map.get(detail, :child_count, 0),
-      source_conversation: detail.source_conversation
+      source_conversation: detail.source_conversation,
+      applet_owner: Map.get(detail, :applet_owner),
+      bindings: Map.get(detail, :bindings, %{}),
+      bindings_digest: Map.get(detail, :bindings_digest),
+      applet_draft: json_value(Map.get(detail, :applet_draft))
     }
 
   def content_json(nil), do: nil
@@ -298,7 +303,7 @@ defmodule Ankole.Pod.Serialization do
         500
 
       code
-      when code in ~w(forbidden human_access_revoked work_authorization_review_required applet_owner_required user_authority_unavailable) ->
+      when code in ~w(diagnostic_read_only forbidden human_access_revoked work_authorization_review_required applet_owner_required user_authority_unavailable) ->
         403
 
       "move_requires_manage" ->
@@ -308,13 +313,14 @@ defmodule Ankole.Pod.Serialization do
         413
 
       code
-      when code in ~w(revision_conflict title_conflict document_conflict sharing_conflict cannot_restore manifest_changed
+      when code in ~w(conflict revision_conflict title_conflict document_conflict sharing_conflict cannot_restore manifest_changed
                           field_conflict record_conflict record_exists schema_conflict local_table_changed
-                          client_sequence_conflict applet_revision_changed approval_conflict conversation_conflict
+                          client_sequence_conflict applet_revision_changed draft_changed approval_conflict conversation_conflict
                           position_conflict office_conflict office_busy
                           job_sources_changed binding_source_changed automation_job_not_active
                           signal_source_in_use connector_trigger_busy connection_changed connector_trigger_changed
-                          webhook_terminal cron_schedule_completed cron_schedule_deleted) ->
+                          webhook_terminal cron_schedule_completed cron_schedule_deleted
+                          idempotency_key_mismatch idempotency_request_in_progress) ->
         409
 
       _ ->

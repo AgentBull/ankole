@@ -8,6 +8,7 @@ defmodule Ankole.AIAgent.Library.ConsoleTypes.AgentLibrarySkillCapabilityItem do
         description: [type: :string, allow_nil?: false],
         effective_enabled: [type: :boolean, allow_nil?: false],
         enabled_for_all: [type: :boolean, allow_nil?: false],
+        has_upstream_update: [type: :boolean, allow_nil?: false],
         revision: [type: :integer, allow_nil?: false],
         id: [type: :string, allow_nil?: false],
         name: [type: :string, allow_nil?: false],

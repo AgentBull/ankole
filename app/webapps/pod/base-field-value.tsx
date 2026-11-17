@@ -12,8 +12,24 @@ import { useContent } from './content-context'
 import { isRealtimeAccessDenied } from './realtime'
 import { fieldValue, principalUID } from './state/table-query'
 
-type TableReferenceLabels = { labels: Map<string, string>; pending: boolean }
+type TableReferenceLabels = { labels: Map<string, string>; resolved: Set<string>; pending: boolean }
+type CachedTableReferenceStore = { labels: Map<string, string>; resolved: Set<string> }
 const ReferenceLabels = createContext<Map<string, TableReferenceLabels> | null>(null)
+
+const referenceStoreKey = (tableID: string) => [...contentKeys.all, 'reference-labels-store', tableID] as const
+
+function getOrCreateReferenceStore(
+  client: ReturnType<typeof useQueryClient>,
+  tableID: string
+): CachedTableReferenceStore {
+  const key = referenceStoreKey(tableID)
+  let existing = client.getQueryData<CachedTableReferenceStore>(key)
+  if (!existing) {
+    existing = { labels: new Map(), resolved: new Set() }
+    client.setQueryData(key, existing)
+  }
+  return existing
+}
 
 /** Batch record labels at the view boundary instead of one schema/query pair per cell. */
 export function ReferenceLabelsProvider({
@@ -28,6 +44,7 @@ export function ReferenceLabelsProvider({
   const { base } = useContent()
   const client = useQueryClient()
   const [revoked, setRevoked] = useState(new Set<string>())
+  const [storeEpoch, setStoreEpoch] = useState(0)
   const entries = useMemo(() => {
     const tables = new Map<string, Set<string>>()
     for (const field of fields.filter(field => field.type === 'link')) {
@@ -51,6 +68,8 @@ export function ReferenceLabelsProvider({
       .map(tableID =>
         base.subscribe(tableID, event => {
           if (event.access_revoked) setRevoked(previous => new Set([...previous, tableID]))
+          client.removeQueries({ queryKey: referenceStoreKey(tableID), exact: true })
+          setStoreEpoch(value => value + 1)
           void client.invalidateQueries({ queryKey: [...contentKeys.all, 'reference-labels', tableID] })
         })
       )
@@ -58,25 +77,44 @@ export function ReferenceLabelsProvider({
       for (const unsubscribe of subscriptions) unsubscribe()
     }
   }, [base, client, tableIDs])
+  const queries = useMemo(
+    () =>
+      entries.map(({ tableID, ids }) => {
+        const store = getOrCreateReferenceStore(client, tableID)
+        const missing = ids.filter(id => !store.resolved.has(id))
+        return { tableID, ids, missing, store }
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [client, entries, storeEpoch]
+  )
   const labels = useQueries({
-    queries: entries.map(({ tableID, ids }) => ({
-      queryKey: [...contentKeys.all, 'reference-labels', tableID, ids],
-      queryFn: () => loadReferenceLabels(tableID, ids),
+    queries: queries.map(({ tableID, missing, store }) => ({
+      queryKey: [...contentKeys.all, 'reference-labels', tableID, missing],
+      queryFn: async () => {
+        if (!missing.length) return store.labels
+        const loaded = await loadReferenceLabels(tableID, missing)
+        const latest = getOrCreateReferenceStore(client, tableID)
+        for (const id of missing) latest.resolved.add(id)
+        for (const [id, label] of loaded) latest.labels.set(id, label)
+        return new Map(latest.labels)
+      },
       retry: false,
-      enabled: !revoked.has(tableID)
+      enabled: !revoked.has(tableID) && missing.length > 0
     }))
   })
   return (
     <ReferenceLabels
       value={
         new Map(
-          entries.map((entry, index) => {
-            const denied = revoked.has(entry.tableID) || isRealtimeAccessDenied(labels[index]?.error)
+          queries.map(({ tableID, missing, store }, index) => {
+            const denied = revoked.has(tableID) || isRealtimeAccessDenied(labels[index]?.error)
+            const mergedLabels = denied ? new Map<string, string>() : (labels[index]?.data ?? store.labels)
             return [
-              entry.tableID,
+              tableID,
               {
-                labels: denied ? new Map<string, string>() : (labels[index]?.data ?? new Map<string, string>()),
-                pending: !denied && Boolean(labels[index]?.isPending)
+                labels: mergedLabels,
+                resolved: denied ? new Set<string>() : store.resolved,
+                pending: !denied && missing.length > 0 && Boolean(labels[index]?.isPending)
               }
             ]
           })
@@ -219,7 +257,10 @@ export function FieldValue({
   if (!people && !link) return <>{displayValue(field, value)}</>
   if (!values.length) return <>—</>
   const shared = link ? sharedLabels?.get(String(field.config.table_id)) : undefined
-  if ((people && subjects.isPending) || (link && (shared ? shared.pending : !sharedLabels && records.isPending))) {
+  const linkPending = shared
+    ? shared.pending && values.some(id => !shared.resolved.has(id))
+    : !sharedLabels && records.isPending
+  if ((people && subjects.isPending) || (link && linkPending)) {
     return <span className="text-fg-tertiary">…</span>
   }
   return (

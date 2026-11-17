@@ -1,4 +1,13 @@
-import { Field, FieldLabel, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
+import {
+  Field,
+  FieldLabel,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Skeleton
+} from '@ankole/uikit'
 import { useId, type ComponentProps } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ConfigFields, defaultConfig } from './config-fields'
@@ -9,12 +18,16 @@ export function ConnectorConfigFields({
   onConnectionChange,
   catalog,
   connections,
+  loading = false,
+  initialAuthConfigId,
   ...props
 }: ComponentProps<typeof ConfigFields> & {
   pluginId: string
   onConnectionChange(config: ComponentProps<typeof ConfigFields>['config']): void
   catalog: PodConnectorsCatalogResponse['connectors']
   connections: PodConnectorAuthConfigsListResponse['connections']
+  loading?: boolean
+  initialAuthConfigId?: string | null
 }) {
   const id = useId()
   const { t } = useTranslation()
@@ -41,13 +54,19 @@ export function ConnectorConfigFields({
   const fields = selected
     ? props.fields.filter(field => !connectionKeys.has(field.path) || !configuredKeys.has(field.path))
     : props.fields
+  const connectionChanged = initialAuthConfigId !== undefined && (selected ?? null) !== (initialAuthConfigId ?? null)
+  const preservedSecretPaths = connectionChanged
+    ? props.preservedSecretPaths?.filter(path => !connectionKeys.has(path))
+    : props.preservedSecretPaths
 
   return (
     <>
-      {saved.length > 0 ? (
+      {saved.length > 0 || (loading && selected) ? (
         <Field>
           <FieldLabel htmlFor={id}>{t('pod.connectors.connection')}</FieldLabel>
           <Select
+            loading={loading}
+            disabled={props.disabled || loading}
             value={selected ?? 'new'}
             onValueChange={value =>
               onConnectionChange({
@@ -71,7 +90,11 @@ export function ConnectorConfigFields({
           </Select>
         </Field>
       ) : null}
-      <ConfigFields {...props} fields={fields} />
+      {loading ? (
+        <Skeleton className="h-9 w-full" />
+      ) : (
+        <ConfigFields {...props} fields={fields} preservedSecretPaths={preservedSecretPaths} />
+      )}
     </>
   )
 }

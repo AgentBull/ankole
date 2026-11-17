@@ -18,7 +18,20 @@ workspace domains (`Pod`, `Files`, `Conversations`, `AgentWorkers`,
 profile, member, invitation, and personal account settings remain available.
 
 Assigning site administrators and managing AuthZ roles belong to their
-respective domain owners. Tenant creation and slug updates share the same
+respective domain owners. Pod Settings (`/settings` on each tenant's Pod origin,
+backed by `Ankole.Principals.PodAdminOperations`) is the primary writer for
+tenant organization facts: member admission and offboarding (including work
+cleanup inspection and retry), invitations, login policy, guest access
+(`pod.allow_external_guests`), default Pod locale (`i18n.default_locale`),
+tenant SSO providers and directory snapshot reviews, and tenant-level Worker
+environment variables. Site Console projects read-only audit views of those
+tenant surfaces alongside direct deep links to the tenant's `pod_origin`
+settings tab, while keeping site-level infrastructure, AI Gateway, Worker
+Providers, global Worker environment variables, Agent runtime operations, and
+audited break-glass emergency recovery (`restore_human_access` and
+`recover_human_pod_admin`) in Site Console.
+
+Tenant creation and slug updates share the same
 resource validation, enforcing format rules alongside the build's reserved-slug
 list: a build can point `tenant_slug_blacklist` at a local TOML file containing
 a `slugs` array, which compilation embeds into the `Tenant` resource and tracks
@@ -63,7 +76,10 @@ network.
 | Production (single DB) | `DATABASE_URL`, ID `base_default` | 10 |
 | Development | `ankole_base_00` through `ankole_base_03` | 2 |
 | Test | Four databases with `_test_<partition>` suffix | 2 |
-| Multi-shard edition default | `ankole_base_00` through `ankole_base_07` | 5 |
+
+An edition configuration owner may supply `base_database_defaults/1` to select
+a default shard count and pool size. An explicit `BASE_DB_URLS` value still
+selects the topology, and per-URL pool sizes take precedence over those defaults.
 
 Only development and test environments create missing databases automatically,
 cloning `template0` with the control-plane locale provider, collation, and
@@ -145,7 +161,12 @@ steps inside an open transaction through `*_in_tx` helpers such as
 For Console management, `Tenant` exposes generic JSON:API actions at
 `/api/v2/site/tenants` (list, Brain pack catalog, create, profile update,
 `POST`/`DELETE …/suspension`, and begin deletion) and
-`/api/v2/site/privileged-tenant` (read and transfer). Actual data removal runs
+`/api/v2/site/privileged-tenant` (read and transfer), while `Ankole.SiteConsole`
+exposes read-only cursor-paginated cross-tenant aggregation endpoints at
+`/api/v2/site/{overview,agents,workers,principals,signal-bindings,schedules,background-agent-jobs,ai-usage}`
+for multi-tenant "All tenants" views (single-tenant deployments bind their sole
+active tenant automatically, and switching tenants navigates within the Console
+SPA without a document reload). Actual data removal runs
 in a registered maintenance job that deletes external resources and durable
 child rows in dependency order using tenant-scoped SQL before invoking the final
 destroy action—never relying on an unbounded `ON DELETE CASCADE`.
@@ -324,13 +345,12 @@ private-claim checks apply; cross-tenant administrative writes use the system
 writer paired with full operator attribution.
 
 `AnkoleWeb.SiteAdminConsole` owns the Console origin, mount path, and login
-return URL. SaaS serves the Console at `site-admin-console.<domain>/`; its
-`console.<domain>` host serves Ankole Cloud OAuth callbacks and incoming
-connector webhooks. Single-domain FOSS deployments serve the Console at
+return URL. The build-selected host policy can assign a dedicated Console
+origin. Single-domain FOSS deployments serve the Console at
 `ANKOLE_SITE_ADMIN_CONSOLE_PATH` (default `/site-admin-console`), failing
 startup if the path is invalid or collides with another route. The authenticated
 shell supplies its mount path through `ankole-site-admin-console-path` metadata
-(`/` on the dedicated SaaS host). On the dedicated host, every path opens the
+(`/` on a dedicated Console host). On the dedicated host, every path opens the
 Console shell except the protocol endpoints that live beside it: `/api`,
 `/oauth`, `/sessions`, `/setup`, `/internal`, `/runtime-fabric`, `/dev`,
 `/meta`, `/.well-known`, inbound CloudEvents under `/signals/v1/`, and provider
@@ -343,8 +363,7 @@ privileged tenant, the Pod session payload includes the Console URL so the Pod
 sidebar renders a Console link that opens the Console directly under the
 browser's proven `siteadmin` authentication. Direct unauthenticated visits to
 the Console path seal a short-lived `console_return` ticket and redirect to
-the privileged Pod’s sign-in flow. SaaS performs that sign-in on the accounts
-host and returns to the dedicated Console origin.
+the privileged Pod’s sign-in flow and returns to the configured Console origin.
 
 Console `/api/v2` endpoints and native Agent file transfers honor the
 `x-ankole-tenant` header—defaulting to the operator's own tenant when
@@ -438,8 +457,8 @@ open browser tab pins both its authentication reference and tenant on API calls
 and realtime sockets—ignoring conflicting tenant hints and keeping its pinned
 account even if another tab switches the default browser account. Browser-group
 and account-proof cookies are shared across Pod subdomains. Login shells use
-the build's canonical sign-in host: the target Pod host in FOSS and the accounts
-host in SaaS. Enterprise SSO authorization and callbacks use the target Pod host.
+the build's canonical sign-in host, which is the target Pod host in FOSS.
+Enterprise SSO authorization and callbacks use the target Pod host.
 
 Any active Human in a tenant can sign in via that tenant's enabled identity
 providers and participate in Conversations without needing `siteadmin`; Console

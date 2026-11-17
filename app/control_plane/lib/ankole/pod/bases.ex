@@ -216,31 +216,40 @@ defmodule Ankole.Pod.Bases do
   end
 
   def get_table(%Ankole.AuthZ.Actor{} = actor, id) do
-    Repo.transact_top_level(fn -> get_table_in_tx(actor, id) end)
+    run_top_level_read(actor, id, [], fn table, limits, definitions, context ->
+      get_table_projection(table, limits, definitions, context)
+    end)
   end
 
   @doc false
   def get_table_in_tx(%Ankole.AuthZ.Actor{} = actor, id) do
     query_transaction(actor, id, fn table, limits, definitions, context ->
-      mode = if local_snapshot?(table, definitions), do: "local", else: "remote"
-
-      timezone = context.timezone
-
-      {:ok,
-       %{
-         table: table,
-         fields: definitions,
-         views: context.views,
-         mode: mode,
-         timezone: timezone,
-         local_query: context.capabilities,
-         limits: limits
-       }}
+      get_table_projection(table, limits, definitions, context)
     end)
   end
 
+  defp get_table_projection(table, limits, definitions, context) do
+    mode = if local_snapshot?(table, definitions), do: "local", else: "remote"
+
+    {:ok,
+     %{
+       table: table,
+       fields: definitions,
+       views: context.views,
+       mode: mode,
+       timezone: context.timezone,
+       local_query: context.capabilities,
+       limits: limits
+     }}
+  end
+
   def query(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
-    Repo.transact_top_level(fn -> query_in_tx(actor, id, attrs) end)
+    has_search? =
+      match?(value when is_binary(value) and value != "", Ankole.Attrs.get(attrs, :search))
+
+    run_top_level_read(actor, id, [search: has_search?], fn table, limits, definitions, context ->
+      execute_query_records(table, limits, definitions, context, attrs)
+    end)
   end
 
   @doc false
@@ -249,16 +258,20 @@ defmodule Ankole.Pod.Bases do
       match?(value when is_binary(value) and value != "", Ankole.Attrs.get(attrs, :search))
 
     query_transaction(actor, id, [search: has_search?], fn table, limits, definitions, context ->
-      if Ankole.Attrs.get(attrs, :local, false) == true do
-        local_records(table, definitions, attrs, limits, context.principal_names)
-      else
-        Query.records(table, definitions, attrs,
-          limit: min(limits["query_rows"], 200),
-          max_limit: limits["query_rows"],
-          principal_names: context.principal_names
-        )
-      end
+      execute_query_records(table, limits, definitions, context, attrs)
     end)
+  end
+
+  defp execute_query_records(table, limits, definitions, context, attrs) do
+    if Ankole.Attrs.get(attrs, :local, false) == true do
+      local_records(table, definitions, attrs, limits, context.principal_names)
+    else
+      Query.records(table, definitions, attrs,
+        limit: min(limits["query_rows"], 200),
+        max_limit: limits["query_rows"],
+        principal_names: context.principal_names
+      )
+    end
   end
 
   @doc "Reads a VFS projection within one table snapshot, including physical shard batches."
@@ -297,24 +310,46 @@ defmodule Ankole.Pod.Bases do
   end
 
   def aggregate(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
-    Repo.transact_top_level(fn -> aggregate_in_tx(actor, id, attrs) end)
+    run_top_level_read(
+      actor,
+      id,
+      [linked: Query.linked?(attrs)],
+      &execute_aggregate(&1, &2, &3, &4, attrs)
+    )
   end
 
   @doc false
   def aggregate_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
-    run = fn table, limits, definitions, context ->
-      opts = [max_groups: limits["group_count"], tables: context.tables]
+    query_transaction(
+      actor,
+      id,
+      [linked: Query.linked?(attrs)],
+      &execute_aggregate(&1, &2, &3, &4, attrs)
+    )
+  end
 
-      case Query.aggregate(table, definitions, attrs, opts) do
-        {:ok, %{groups: groups}} = result ->
-          if length(groups) > limits["group_count"], do: {:error, :group_limit}, else: result
+  defp execute_aggregate(table, limits, definitions, context, attrs) do
+    opts = [max_groups: limits["group_count"], tables: context.tables]
 
-        result ->
-          result
-      end
+    case Query.aggregate(table, definitions, attrs, opts) do
+      {:ok, %{groups: groups}} = result ->
+        if length(groups) > limits["group_count"], do: {:error, :group_limit}, else: result
+
+      result ->
+        result
     end
+  end
 
-    query_transaction(actor, id, [linked: Query.linked?(attrs)], run)
+  defp run_top_level_read(%Ankole.AuthZ.Actor{} = actor, id, opts, fun) do
+    case Repo.transact_repeatable_read_only(fn ->
+           query_transaction(actor, id, Keyword.put(opts, :snapshot_read, true), fun)
+         end) do
+      {:error, :physical_table_requires_key_share} ->
+        Repo.transact_top_level(fn -> query_transaction(actor, id, opts, fun) end)
+
+      result ->
+        result
+    end
   end
 
   defdelegate delete_table(actor, id, authority \\ nil), to: Ankole.Pod.Bases.Schema
@@ -453,14 +488,24 @@ defmodule Ankole.Pod.Bases do
       |> Ash.Query.sort(:position)
       |> Ankole.Ash.read!()
 
-  # Sets the query limits for the rest of the calling action's transaction and
-  # reads the table under a shared lock. A `linked: true` query on a physical
-  # table locks every table on the Base Page in ID order, because link paths
-  # may read any of them and every lock precedes the shard transaction.
+  # Sets the query limits for the rest of the calling action's transaction.
+  # Top-level reads on `:inline` tables run inside `REPEATABLE READ, READ ONLY`
+  # snapshots (`snapshot_read: true`) so `data_version`, permissions, and
+  # `base_records` stay consistent without acquiring a `FOR SHARE` row lock that
+  # would block concurrent `FOR NO KEY UPDATE` record writes. Physical tables
+  # acquire `FOR KEY SHARE` in a standard transaction before opening their shard
+  # snapshot, and intra-transaction `_in_tx` callers keep row locks.
   defp query_transaction(%Ankole.AuthZ.Actor{} = actor, id, opts \\ [], fun) do
+    snapshot_read? = opts[:snapshot_read] == true
+
     with {:ok, candidate} <- fetch_table(id),
+         :ok <-
+           if(snapshot_read? and candidate.storage_mode == :physical,
+             do: {:error, :physical_table_requires_key_share},
+             else: :ok
+           ),
          {:ok, id} <- Ecto.UUID.cast(id),
-         tables = lock_query_tables(candidate, opts[:linked] == true),
+         tables = lock_query_tables(candidate, opts[:linked] == true, snapshot_read?),
          %BaseTable{} = locked <- Enum.find(tables, &(&1.id == id)),
          {:ok, table} <- table_access(actor, locked, :read),
          {:ok, limits} <- Config.limits(),
@@ -538,19 +583,30 @@ defmodule Ankole.Pod.Bases do
     end
   end
 
-  defp lock_query_tables(candidate, linked?) do
+  defp lock_query_tables(candidate, linked?, snapshot_read?) do
     query =
       if linked? and candidate.storage_mode == :physical,
         do: Ash.Query.filter(BaseTable, page_id == ^candidate.page_id),
         else: Ash.Query.filter(BaseTable, id == ^candidate.id)
 
-    query
-    |> Ash.Query.filter(is_nil(deleting_at))
-    |> Ash.Query.sort(id: :asc)
-    |> Ash.Query.lock(
-      if(candidate.storage_mode == :inline, do: "FOR SHARE", else: "FOR KEY SHARE")
-    )
-    |> Ankole.Ash.read!()
+    query =
+      query
+      |> Ash.Query.filter(is_nil(deleting_at))
+      |> Ash.Query.sort(id: :asc)
+
+    query =
+      cond do
+        snapshot_read? and candidate.storage_mode == :inline ->
+          query
+
+        candidate.storage_mode == :inline ->
+          Ash.Query.lock(query, "FOR SHARE")
+
+        true ->
+          Ash.Query.lock(query, "FOR KEY SHARE")
+      end
+
+    Ankole.Ash.read!(query)
   end
 
   defp broadcast_result(id, result) do

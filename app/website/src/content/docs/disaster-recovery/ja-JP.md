@@ -7,7 +7,7 @@ order: 320
 
 ディザスタリカバリでは、コントロールプレーンの PostgreSQL データベース、独立した Pod Base シャードデータベース、ファイルストア、永続 Agent Home、`ankole-function-runtime`、および元のデプロイ用秘密情報を、1 つの整合したデプロイメントとしてまとめて復元します。保全対象のデータと整合バックアップの手順については、[バックアップガイド](../backup-and-restore/)を参照してください。
 
-復旧前に、実際の Base データベース構成を確認してください。`BASE_DB_URLS` が未設定の場合、dev/test では 4 シャード、SaaS production では 8 シャードを自動構成し、FOSS production では `DATABASE_URL` を共有します。既定値で構成したものも含め、独立したすべてのシャードを復元対象にします。
+復旧前に、実際の Base データベース構成を確認してください。`BASE_DB_URLS` が未設定の場合、dev/test では 4 シャードを自動構成し、FOSS production では `DATABASE_URL` を共有します。既定値で構成したものも含め、独立したすべてのシャードを復元対象にします。
 
 ## 復旧前
 

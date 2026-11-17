@@ -1,8 +1,9 @@
 import { computed, createModel, effect, signal } from '@preact/signals-react'
-import { documentPlainText, textStats } from './document-tools'
+import { documentStats, textStats, type EditingStats } from './document-tools'
 import type { DocumentDraftModel } from './document-draft'
 
 const STATS_DEBOUNCE_MS = 150
+const EMPTY_STATS: EditingStats = { words: 0, characters: 0, paragraphs: 0, readingTime: 0 }
 
 /** Document tools read the live draft, including edits awaiting OT acknowledgement. */
 export const DocumentToolsModel = createModel(
@@ -47,12 +48,11 @@ export const DocumentToolsModel = createModel(
       return clearTimer
     })
 
-    const plainText = computed(() =>
-      showStats.value ? documentPlainText(debouncedXml.value, { omitResources: true }) : ''
-    )
-    const stats = computed(() => {
-      if (!showStats.value) return { words: 0, characters: 0, paragraphs: 0, readingTime: 0 }
-      return textStats(selectedText.value || plainText.value)
+    const wholeStats = computed<EditingStats>(() => (showStats.value ? documentStats(debouncedXml.value) : EMPTY_STATS))
+    const stats = computed<EditingStats>(() => {
+      if (!showStats.value) return EMPTY_STATS
+      const selected = selectedText.value
+      return selected ? textStats(selected) : wholeStats.value
     })
 
     return {

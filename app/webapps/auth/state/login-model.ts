@@ -6,14 +6,14 @@ export type LoginFormError =
   | { kind: 'invalid_code' }
   | { kind: 'account_disabled' }
   | { kind: 'sso_required' | 'reauthentication_required' }
-  | { kind: 'locked'; remainingSeconds: number }
+  | { kind: 'locked'; remainingSeconds: number; until: number }
 
 /**
  * Classifies a code verification failure into the inline form errors the login
  * form owns. Every other failure returns undefined and stays with the generic
  * request-error surface.
  */
-export function classifyLoginError(error: unknown): LoginFormError | undefined {
+export function classifyLoginError(error: unknown, now = Date.now()): LoginFormError | undefined {
   if (!(error instanceof InternalAPIError)) return undefined
 
   const code = requestErrorCode(error.payload)
@@ -25,17 +25,18 @@ export function classifyLoginError(error: unknown): LoginFormError | undefined {
   if (error.status === 429 && code === 'rate_limited') {
     const seconds = requestErrorDetails(error.payload).retryAfterSeconds
     if (typeof seconds === 'number' && seconds > 0) {
-      return { kind: 'locked', remainingSeconds: Math.ceil(seconds) }
+      return { kind: 'locked', remainingSeconds: Math.ceil(seconds), until: now + Math.ceil(seconds) * 1000 }
     }
   }
 
   return undefined
 }
 
-export function tickLockout(error: LoginFormError | undefined): LoginFormError | undefined {
+export function tickLockout(error: LoginFormError | undefined, now = Date.now()): LoginFormError | undefined {
   if (error?.kind !== 'locked') return error
-  if (error.remainingSeconds <= 1) return undefined
-  return { ...error, remainingSeconds: error.remainingSeconds - 1 }
+  const remainingSeconds = Math.max(0, Math.ceil((error.until - now) / 1000))
+  if (remainingSeconds === 0) return undefined
+  return remainingSeconds === error.remainingSeconds ? error : { ...error, remainingSeconds }
 }
 
 export const LoginModel = createModel(() => {

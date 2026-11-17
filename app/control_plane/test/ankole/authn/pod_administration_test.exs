@@ -73,7 +73,7 @@ defmodule Ankole.Principals.PodAdministrationTest do
     assert {:error, :human_access_revoked} = HumanAccess.check(member.uid, member.access_version)
   end
 
-  test "Pod restoration preserves all restrictions when provider evidence is missing or stale" do
+  test "Pod restoration clears manual and provider restrictions without requiring directory sync" do
     admin = human_fixture().principal
     member = human_fixture().principal
 
@@ -83,27 +83,16 @@ defmodule Ankole.Principals.PodAdministrationTest do
     assert {:ok, _} =
              HumanAccess.restrict_from_provider(member.uid, "lark", "suspended", "freeze")
 
-    assert {:error, :provider_recovery_not_verified} =
+    assert {:ok, restored} =
              PodAdministration.restore(
                Actor.new(admin),
                member.uid,
                "reviewed"
              )
 
-    assert Enum.all?(HumanAccess.restrictions(member.uid), &is_nil(&1.cleared_at))
-
-    verify_healthy_directory(member.uid)
-    assert {:ok, _} = DirectoryAccess.begin_sync("lark")
-
-    assert {:error, :provider_recovery_not_verified} =
-             PodAdministration.restore(
-               Actor.new(admin),
-               member.uid,
-               "reviewed"
-             )
-
-    assert Enum.all?(HumanAccess.restrictions(member.uid), &is_nil(&1.cleared_at))
-    assert {:ok, %{status: :disabled}} = Principals.get_principal(member.uid)
+    assert restored.status == :active
+    assert Enum.all?(HumanAccess.restrictions(member.uid), &is_struct(&1.cleared_at, DateTime))
+    assert {:ok, %{status: :active}} = Principals.get_principal(member.uid)
   end
 
   test "restoration requires permission to update the member" do
@@ -402,6 +391,95 @@ defmodule Ankole.Principals.PodAdministrationTest do
 
     assert Principals.list_invitations() == []
     assert Principals.pending_invitations(attrs.invited_email) == []
+  end
+
+  test "Pod administrators can review directory snapshots, inspect member access, and retry work cleanup via PodAdminOperations" do
+    admin = human_fixture().principal
+
+    {:ok, _} =
+      Repo.transact_top_level(fn ->
+        {:ok, group} = Ankole.AuthZ.Root.ensure_pod_admin_group()
+        {:ok, _} = Ankole.AuthZ.Grants.upsert_pod_admin_grants(group)
+        AuthZ.add_pod_admin_in_tx(admin.uid)
+      end)
+
+    admin_actor = Actor.new(admin)
+
+    assert {:ok, _} =
+             Ankole.IdentityProviders.save_provider(
+               "lark-pod-review",
+               "lark",
+               %{"appID" => "cli_pod_review", "appSecret" => "secret"},
+               true
+             )
+
+    assert {:ok, %{principal: member}} =
+             Ankole.Plugins.LarkAdapter.IdentityProvider.upsert_user("lark-pod-review", %{
+               "user_id" => "u_missing"
+             })
+
+    assert {:ok, %{principal: kept}} =
+             Ankole.Plugins.LarkAdapter.IdentityProvider.upsert_user("lark-pod-review", %{
+               "user_id" => "u_kept"
+             })
+
+    # Sync with admission_scope: "contact" and missing member triggers review_required
+    {:ok, t1} = DirectoryAccess.begin_sync("lark-pod-review")
+
+    {:ok, _} =
+      DirectoryAccess.finish_sync(t1, "scope-1", [{kept.uid, :healthy}],
+        admission_scope: "contact",
+        maximum_removal_percent: 20
+      )
+
+    dir_input =
+      Ash.ActionInput.for_action(
+        Ankole.Principals.PodAdminOperations,
+        :provider_directory,
+        %{provider_id: "lark-pod-review"},
+        tenant: Repo.tenant_id!()
+      )
+
+    assert {:ok, %{snapshot: %{status: :review_required, snapshot_fingerprint: fp}}} =
+             Ankole.Ash.run_action_authorized(dir_input, admin_actor)
+
+    approve_input =
+      Ash.ActionInput.for_action(
+        Ankole.Principals.PodAdminOperations,
+        :approve_provider_directory,
+        %{
+          provider_id: "lark-pod-review",
+          snapshot_fingerprint: fp,
+          reason: "Confirmed reorganization in Pod Settings",
+          confirm_removals: true
+        },
+        tenant: Repo.tenant_id!()
+      )
+
+    assert {:ok, %{snapshot: %{status: :healthy}}} =
+             Ankole.Ash.run_action_authorized(approve_input, admin_actor)
+
+    access_input =
+      Ash.ActionInput.for_action(
+        Ankole.Principals.PodAdminOperations,
+        :member_access,
+        %{uid: member.uid},
+        tenant: Repo.tenant_id!()
+      )
+
+    assert {:ok, %{status: :disabled, restrictions: [%{disposition: :offboarded}]}} =
+             Ankole.Ash.run_action_authorized(access_input, admin_actor)
+
+    retry_input =
+      Ash.ActionInput.for_action(
+        Ankole.Principals.PodAdminOperations,
+        :retry_member_cleanup,
+        %{uid: member.uid},
+        tenant: Repo.tenant_id!()
+      )
+
+    assert {:ok, %{cleanup_jobs: [_ | _]}} =
+             Ankole.Ash.run_action_authorized(retry_input, admin_actor)
   end
 
   defp collect_queries(acc \\ []) do

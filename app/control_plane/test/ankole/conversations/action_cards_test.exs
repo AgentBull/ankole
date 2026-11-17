@@ -814,6 +814,511 @@ defmodule Ankole.Conversations.ActionCardsTest do
     assert {:ok, _} = Pages.authorize(charlie_actor, doc_email.id, "node_view")
   end
 
+  for receipt_status <- ["succeeded", "in_flight"] do
+    test "connector cards reject cancellation during execution and recover #{receipt_status} receipts",
+         ctx do
+      alice_actor = actor_fixture(ctx.alice)
+      bob_actor = actor_fixture(ctx.bob)
+      admin = human_fixture().principal
+      {:ok, _} = Repo.transact(fn -> Ankole.AuthZ.add_pod_admin_in_tx(admin.uid) end)
+
+      {:ok, config} =
+        Ankole.Connectors.Store.create_auth_config(admin, %{
+          "plugin_id" => "lark",
+          "slug" => "lark-claim-test",
+          "auth_scheme" => "lark_app",
+          "display_name" => "Feishu (Claim)",
+          "is_default" => true,
+          "secret" => %{"appID" => "cli_claim", "appSecret" => "secret"},
+          "public_metadata" => %{"domain" => "feishu", "access_mode" => "restricted"}
+        })
+
+      for uid <- [ctx.alice.uid, ctx.agent.uid] do
+        {:ok, _} =
+          Ankole.AuthZ.create_permission_grant(%{
+            principal_uid: uid,
+            resource_pattern: "connector_connection:" <> config.id,
+            action: "query"
+          })
+      end
+
+      {:ok, _account} =
+        Ankole.Connectors.Accounts.put_human_tokens(
+          config.id,
+          ctx.alice.uid,
+          %{"access_token" => "alice-token", "expires_in" => 3600},
+          %{external_subject_id: "ou_alice", granted_scopes: ["calendar:calendar.event:delete"]}
+        )
+
+      {:ok, stub_server} =
+        Bandit.start_link(
+          plug: fn conn, _opts ->
+            conn
+            |> Plug.Conn.put_resp_content_type("application/json")
+            |> Plug.Conn.send_resp(
+              200,
+              Torque.encode!(%{
+                "code" => 0,
+                "tenant_access_token" => "stub-app-token",
+                "expire" => 7200
+              })
+            )
+          end,
+          ip: {127, 0, 0, 1},
+          port: 0
+        )
+
+      {:ok, {_, stub_port}} = ThousandIsland.listener_info(stub_server)
+      previous = Application.get_env(:ankole, Ankole.Plugins.LarkAdapter.Config)
+
+      Application.put_env(:ankole, Ankole.Plugins.LarkAdapter.Config,
+        client_opts: [base_url: "http://127.0.0.1:#{stub_port}"]
+      )
+
+      on_exit(fn ->
+        Application.put_env(:ankole, Ankole.Plugins.LarkAdapter.Config, previous || [])
+      end)
+
+      ref = %Ankole.Sessions.RunRef{
+        agent_uid: ctx.agent.uid,
+        session_id: ctx.event.session_id,
+        signal_id: ctx.event.id
+      }
+
+      {:ok, env} = Ankole.Connectors.Tokens.worker(ctx.agent.uid, ref)
+      {:ok, claims} = Ankole.Connectors.Tokens.verify(env["ANKOLE_MCP_TOKEN"])
+      {:ok, mcp_ctx} = Ankole.Connectors.Access.authorize(claims)
+      args = %{"calendar_id" => "cal-1", "event_id" => "ev-99"}
+
+      assert {:error, %{code: "approval_required", card_id: card_id}} =
+               Ankole.Connectors.Gateway.request(
+                 {:toolkit, "lark_calendar"},
+                 %{
+                   "method" => "tools/call",
+                   "params" => %{"name" => "calendar_delete_event", "arguments" => args}
+                 },
+                 mcp_ctx,
+                 %{"connection" => "lark-claim-test"}
+               )
+
+      # Stop the stub server and point Lark base_url to a closed port so any Connector HTTP call would fail!
+      :ok = GenServer.stop(stub_server)
+
+      Application.put_env(:ankole, Ankole.Plugins.LarkAdapter.Config,
+        client_opts: [base_url: "http://127.0.0.1:1"]
+      )
+
+      # (b) Unauthorized :confirm by Bob fails in Phase 1 before invoking Connector or claiming
+      assert {:error, :forbidden} =
+               ActionCards.resolve_native(bob_actor, ctx.room_id, card_id, :confirm)
+
+      card = Repo.get_by!(ActionCard, id: card_id)
+      assert card.status == :prepared
+      assert is_nil(card.execution_claim_id)
+      assert card.execution_attempts == 0
+
+      # (a) Active :executing lease blocks both :cancel and concurrent :confirm with {:error, :conflict}
+      now = DateTime.utc_now(:microsecond)
+      claim_id = Ankole.Ecto.UUIDv7.autogenerate()
+
+      {:ok, claimed_card} =
+        Repo.transact_top_level(fn ->
+          Ankole.Ash.update(card, :claim_execution_in_tx, %{
+            status: :executing,
+            resolved_by_uid: ctx.alice.uid,
+            resolved_by_name: "Alice",
+            execution_claim_id: claim_id,
+            execution_claim_expires_at: DateTime.add(now, 60, :second),
+            execution_attempts: 1
+          })
+        end)
+
+      assert claimed_card.status == :executing
+      assert ActionCards.client_card_state(claimed_card, alice_actor)["status"] == "executing"
+      assert ActionCards.client_card_state(claimed_card, alice_actor)["can_recover"] == false
+
+      assert {:error, :conflict} =
+               ActionCards.resolve_native(alice_actor, ctx.room_id, card_id, :cancel)
+
+      assert {:error, :conflict} =
+               ActionCards.resolve_native(alice_actor, ctx.room_id, card_id, :confirm)
+
+      assert Repo.get_by!(ActionCard, id: card_id).status == :executing
+
+      assert {:ok, :ok} =
+               Repo.transact_top_level(fn ->
+                 locked = ActionCards.lock_prepared_for_signals_in_tx([card.source_signal_id])
+
+                 :ok =
+                   ActionCards.cancel_locked_for_signals_in_tx(
+                     locked,
+                     [card.source_signal_id],
+                     now
+                   )
+
+                 {:ok, :ok}
+               end)
+
+      assert Repo.get_by!(ActionCard, id: card_id).status == :executing
+
+      # An expired :executing lease recovers the existing receipt without invoking the tool.
+      {:ok, expired_card} =
+        Repo.transact_top_level(fn ->
+          {:ok, updated} =
+            Ankole.Ash.update(claimed_card, :claim_execution_in_tx, %{
+              status: :executing,
+              resolved_by_uid: ctx.alice.uid,
+              resolved_by_name: "Alice",
+              execution_claim_id: claim_id,
+              execution_claim_expires_at: DateTime.add(now, -5, :second),
+              execution_attempts: 1
+            })
+
+          {:ok, receipt} =
+            Ankole.Ash.create(Ankole.Connectors.WriteReceipt, :claim_in_tx, %{
+              authority_scope: "action_card:" <> card_id,
+              toolkit:
+                Ankole.Connectors.WriteReceipts.card_target_identity(
+                  {:toolkit, "lark_calendar"},
+                  card.payload
+                ),
+              tool_name: "calendar_delete_event",
+              args_sha256: card.preconditions["args_sha256"],
+              status: "in_flight",
+              expires_at: DateTime.add(now, 3600, :second)
+            })
+
+          if unquote(receipt_status) == "succeeded" do
+            {:ok, _} =
+              Ankole.Ash.update(receipt, :settle_in_tx, %{
+                status: "succeeded",
+                http_status: 200,
+                external_ref: "ev-99",
+                expires_at: DateTime.add(now, 3600, :second)
+              })
+          end
+
+          {:ok, updated}
+        end)
+
+      assert ActionCards.client_card_state(expired_card, alice_actor)["can_recover"] == true
+
+      assert {:error, :conflict} =
+               ActionCards.resolve_native(alice_actor, ctx.room_id, card_id, :cancel)
+
+      assert {:ok, :ok} =
+               Repo.transact_top_level(fn ->
+                 locked = ActionCards.lock_prepared_for_signals_in_tx([card.source_signal_id])
+
+                 :ok =
+                   ActionCards.cancel_locked_for_signals_in_tx(
+                     locked,
+                     [card.source_signal_id],
+                     now
+                   )
+
+                 {:ok, :ok}
+               end)
+
+      assert Repo.get_by!(ActionCard, id: card_id).status == :executing
+
+      # prune_expired_in_tx preserves settled receipts for actively :executing cards even after TTL expiry.
+      past = DateTime.add(now, -120, :second)
+
+      {:ok, _} =
+        Repo.transact_top_level(fn ->
+          receipt =
+            Repo.get_by!(Ankole.Connectors.WriteReceipt,
+              authority_scope: "action_card:" <> card_id
+            )
+
+          {:ok, _} =
+            Ankole.Ash.update(receipt, :settle_in_tx, %{
+              status: receipt.status,
+              expires_at: past
+            })
+
+          Ankole.Connectors.WriteReceipts.prune_expired_in_tx(now)
+        end)
+
+      assert Repo.get_by(Ankole.Connectors.WriteReceipt,
+               authority_scope: "action_card:" <> card_id
+             )
+
+      assert {:ok, _detail} =
+               Ankole.SessionsCase.with_stubbed_session_drivers(ctx.agent.uid, fn ->
+                 ActionCards.resolve_native(alice_actor, ctx.room_id, card_id, :confirm)
+               end)
+
+      settled = Repo.get_by!(ActionCard, id: card_id)
+      assert is_nil(settled.execution_claim_id)
+      assert is_nil(settled.execution_claim_expires_at)
+      assert settled.execution_attempts == 2
+      refute is_nil(settled.resolved_at)
+
+      if unquote(receipt_status) == "succeeded" do
+        assert settled.status == :executed
+        assert settled.resolution_note =~ "Executed Feishu (Claim) · calendar_delete_event once"
+        assert settled.resolution_note =~ "ev-99"
+      else
+        assert settled.status == :execution_uncertain
+
+        assert Repo.get_by!(Ankole.Connectors.WriteReceipt,
+                 authority_scope: "action_card:" <> card_id
+               ).status == "outcome_unknown"
+
+        assert settled.resolution_note =~ "outcome uncertain"
+      end
+    end
+  end
+
+  test "expired :executing card with no recorded receipt settles to :failed without re-invoking upstream",
+       ctx do
+    alice_actor = actor_fixture(ctx.alice)
+    admin = human_fixture().principal
+    {:ok, _} = Repo.transact(fn -> Ankole.AuthZ.add_pod_admin_in_tx(admin.uid) end)
+
+    {:ok, config} =
+      Ankole.Connectors.Store.create_auth_config(admin, %{
+        "plugin_id" => "lark",
+        "slug" => "lark-missing-receipt",
+        "auth_scheme" => "lark_app",
+        "display_name" => "Feishu (Missing Receipt)",
+        "is_default" => true,
+        "secret" => %{"appID" => "cli_missing", "appSecret" => "sec_missing"},
+        "public_metadata" => %{"domain" => "feishu", "access_mode" => "restricted"}
+      })
+
+    for uid <- [ctx.alice.uid, ctx.agent.uid] do
+      {:ok, _} =
+        Ankole.AuthZ.create_permission_grant(%{
+          principal_uid: uid,
+          resource_pattern: "connector_connection:" <> config.id,
+          action: "query"
+        })
+    end
+
+    {:ok, _account} =
+      Ankole.Connectors.Accounts.put_human_tokens(
+        config.id,
+        ctx.alice.uid,
+        %{"access_token" => "alice-missing-receipt", "expires_in" => 3600},
+        %{external_subject_id: "ou_missing", granted_scopes: ["calendar:calendar.event:delete"]}
+      )
+
+    {:ok, stub_server} =
+      Bandit.start_link(
+        plug: fn conn, _opts ->
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.send_resp(
+            200,
+            Torque.encode!(%{
+              "code" => 0,
+              "tenant_access_token" => "stub-app-token",
+              "expire" => 7200
+            })
+          )
+        end,
+        ip: {127, 0, 0, 1},
+        port: 0
+      )
+
+    {:ok, {_, stub_port}} = ThousandIsland.listener_info(stub_server)
+    previous = Application.get_env(:ankole, Ankole.Plugins.LarkAdapter.Config)
+
+    Application.put_env(:ankole, Ankole.Plugins.LarkAdapter.Config,
+      client_opts: [base_url: "http://127.0.0.1:#{stub_port}"]
+    )
+
+    on_exit(fn ->
+      Application.put_env(:ankole, Ankole.Plugins.LarkAdapter.Config, previous || [])
+    end)
+
+    ref = %Ankole.Sessions.RunRef{
+      agent_uid: ctx.agent.uid,
+      session_id: ctx.event.session_id,
+      signal_id: ctx.event.id
+    }
+
+    {:ok, env} = Ankole.Connectors.Tokens.worker(ctx.agent.uid, ref)
+    {:ok, claims} = Ankole.Connectors.Tokens.verify(env["ANKOLE_MCP_TOKEN"])
+    {:ok, mcp_ctx} = Ankole.Connectors.Access.authorize(claims)
+
+    assert {:error, %{code: "approval_required", card_id: card_id}} =
+             Ankole.Connectors.Gateway.request(
+               {:toolkit, "lark_calendar"},
+               %{
+                 "method" => "tools/call",
+                 "params" => %{
+                   "name" => "calendar_delete_event",
+                   "arguments" => %{"calendar_id" => "cal-1", "event_id" => "ev-100"}
+                 }
+               },
+               mcp_ctx,
+               %{"connection" => "lark-missing-receipt"}
+             )
+
+    :ok = GenServer.stop(stub_server)
+
+    Application.put_env(:ankole, Ankole.Plugins.LarkAdapter.Config,
+      client_opts: [base_url: "http://127.0.0.1:1"]
+    )
+
+    now = DateTime.utc_now(:microsecond)
+
+    {:ok, _} =
+      Repo.transact_top_level(fn ->
+        card = Repo.get_by!(ActionCard, id: card_id)
+
+        Ankole.Ash.update(card, :claim_execution_in_tx, %{
+          status: :executing,
+          resolved_by_uid: ctx.alice.uid,
+          resolved_by_name: "Alice",
+          execution_claim_id: Ankole.Ecto.UUIDv7.autogenerate(),
+          execution_claim_expires_at: DateTime.add(now, -5, :second),
+          execution_attempts: 1
+        })
+      end)
+
+    assert {:ok, _} =
+             Ankole.SessionsCase.with_stubbed_session_drivers(ctx.agent.uid, fn ->
+               ActionCards.resolve_native(alice_actor, ctx.room_id, card_id, :confirm)
+             end)
+
+    settled = Repo.get_by!(ActionCard, id: card_id)
+    assert settled.status == :failed
+    assert settled.execution_attempts == 2
+    assert settled.resolution_note =~ "Previous execution attempt ended before completing"
+  end
+
+  test "connector cards settle deterministic 4xx errors as :failed and 5xx errors as :execution_uncertain",
+       ctx do
+    alice_actor = actor_fixture(ctx.alice)
+    admin = human_fixture().principal
+    {:ok, _} = Repo.transact(fn -> Ankole.AuthZ.add_pod_admin_in_tx(admin.uid) end)
+
+    {:ok, config} =
+      Ankole.Connectors.Store.create_auth_config(admin, %{
+        "plugin_id" => "lark",
+        "slug" => "lark-status-test",
+        "auth_scheme" => "lark_app",
+        "display_name" => "Feishu (Status)",
+        "is_default" => true,
+        "secret" => %{"appID" => "cli_status", "appSecret" => "secret"},
+        "public_metadata" => %{"domain" => "feishu", "access_mode" => "restricted"}
+      })
+
+    for uid <- [ctx.alice.uid, ctx.agent.uid] do
+      {:ok, _} =
+        Ankole.AuthZ.create_permission_grant(%{
+          principal_uid: uid,
+          resource_pattern: "connector_connection:" <> config.id,
+          action: "query"
+        })
+    end
+
+    {:ok, _account} =
+      Ankole.Connectors.Accounts.put_human_tokens(
+        config.id,
+        ctx.alice.uid,
+        %{"access_token" => "alice-token", "expires_in" => 3600},
+        %{external_subject_id: "ou_alice", granted_scopes: ["calendar:calendar.event:delete"]}
+      )
+
+    mode = :atomics.new(1, signed: false)
+    :atomics.put(mode, 1, 400)
+
+    {:ok, stub_server} =
+      Bandit.start_link(
+        plug: fn conn, _opts ->
+          cond do
+            String.contains?(conn.request_path, "tenant_access_token") ->
+              conn
+              |> Plug.Conn.put_resp_content_type("application/json")
+              |> Plug.Conn.send_resp(
+                200,
+                Torque.encode!(%{
+                  "code" => 0,
+                  "tenant_access_token" => "stub-app-token",
+                  "expire" => 7200
+                })
+              )
+
+            true ->
+              status_code = :atomics.get(mode, 1)
+
+              conn
+              |> Plug.Conn.put_resp_content_type("application/json")
+              |> Plug.Conn.send_resp(
+                status_code,
+                Torque.encode!(%{"code" => 99_999, "msg" => "upstream status #{status_code}"})
+              )
+          end
+        end,
+        ip: {127, 0, 0, 1},
+        port: 0
+      )
+
+    {:ok, {_, stub_port}} = ThousandIsland.listener_info(stub_server)
+    previous = Application.get_env(:ankole, Ankole.Plugins.LarkAdapter.Config)
+
+    Application.put_env(:ankole, Ankole.Plugins.LarkAdapter.Config,
+      client_opts: [base_url: "http://127.0.0.1:#{stub_port}"]
+    )
+
+    on_exit(fn ->
+      Application.put_env(:ankole, Ankole.Plugins.LarkAdapter.Config, previous || [])
+    end)
+
+    ref = %Ankole.Sessions.RunRef{
+      agent_uid: ctx.agent.uid,
+      session_id: ctx.event.session_id,
+      signal_id: ctx.event.id
+    }
+
+    {:ok, env} = Ankole.Connectors.Tokens.worker(ctx.agent.uid, ref)
+    {:ok, claims} = Ankole.Connectors.Tokens.verify(env["ANKOLE_MCP_TOKEN"])
+    {:ok, mcp_ctx} = Ankole.Connectors.Access.authorize(claims)
+
+    for {http_code, expected_status} <- [{400, :failed}, {502, :execution_uncertain}] do
+      :atomics.put(mode, 1, http_code)
+
+      assert {:error, %{code: "approval_required", card_id: card_id}} =
+               Ankole.Connectors.Gateway.request(
+                 {:toolkit, "lark_calendar"},
+                 %{
+                   "method" => "tools/call",
+                   "params" => %{
+                     "name" => "calendar_delete_event",
+                     "arguments" => %{"calendar_id" => "cal-1", "event_id" => "ev-#{http_code}"}
+                   }
+                 },
+                 mcp_ctx,
+                 %{"connection" => "lark-status-test"}
+               )
+
+      assert {:ok, _detail} =
+               Ankole.SessionsCase.with_stubbed_session_drivers(ctx.agent.uid, fn ->
+                 ActionCards.resolve_native(alice_actor, ctx.room_id, card_id, :confirm)
+               end)
+
+      settled = Repo.get_by!(ActionCard, id: card_id)
+      assert settled.status == expected_status
+      assert is_nil(settled.execution_claim_id)
+      refute is_nil(settled.resolved_at)
+
+      wakeup =
+        Repo.one!(
+          from(s in Signal,
+            where: s.source_event_id == ^("action-card-executed:" <> card_id)
+          )
+        )
+
+      assert wakeup.data["status"] == Atom.to_string(expected_status)
+    end
+  end
+
   defp start_unboxed(fun) do
     parent = self()
     tenant_id = Repo.tenant_id!()
@@ -924,35 +1429,27 @@ defmodule Ankole.Conversations.ActionCardsTest do
       "preconditions" => prepared["preconditions"]
     }
 
+    controls =
+      for {id, label} <- [{"confirm", "Confirm & Execute"}, {"cancel", "Cancel"}] do
+        %{
+          "id" => id,
+          "type" => "button",
+          "label" => label,
+          "interaction_id" => interaction_id,
+          "source_signal_id" => event.id,
+          "control_id" => "action-card-decision",
+          "selected_option_id" => id,
+          "option_value" => id,
+          "revision" => 1
+        }
+      end
+
     presentation =
       ReplyPresentation.new()
       |> ReplyPresentation.apply_event("interaction.request", %{
         "revision" => 1,
         "prompt" => prepared["summary"],
-        "controls" => [
-          %{
-            "id" => "confirm",
-            "type" => "button",
-            "label" => "Confirm & Execute",
-            "interaction_id" => interaction_id,
-            "source_signal_id" => event.id,
-            "control_id" => "action-card-decision",
-            "selected_option_id" => "confirm",
-            "option_value" => "confirm",
-            "revision" => 1
-          },
-          %{
-            "id" => "cancel",
-            "type" => "button",
-            "label" => "Cancel",
-            "interaction_id" => interaction_id,
-            "source_signal_id" => event.id,
-            "control_id" => "action-card-decision",
-            "selected_option_id" => "cancel",
-            "option_value" => "cancel",
-            "revision" => 1
-          }
-        ]
+        "controls" => controls
       })
 
     checkpoint =

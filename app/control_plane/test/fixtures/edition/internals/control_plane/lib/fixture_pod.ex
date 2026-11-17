@@ -52,25 +52,29 @@ defmodule Ankole.EditionFixture.PodDomain do
   end
 end
 
-defmodule Ankole.SaaSWeb.PodJSONAPIRouter do
+defmodule Ankole.EditionFixture.PodJSONAPIRouter do
   use AnkoleWeb.JSONAPI.Router,
-    scope: :saas_pod,
+    scope: :fixture_pod,
+    title: "Fixture Pod API",
     domains: [Ankole.EditionFixture.PodDomain],
-    prefix: "/api/v2/saas-pod",
+    prefix: "/api/v2/fixture-pod",
     before_dispatch: {AnkoleWeb.JSONAPI.Context, :before_dispatch, [:pod]}
 end
 
-defmodule Ankole.SaaSWeb.JSONAPIRouter do
+defmodule Ankole.EditionFixture.JSONAPIRouter do
   use AnkoleWeb.JSONAPI.Router,
-    scope: :saas,
+    scope: :fixture,
+    title: "Fixture account API",
     domains: [],
-    prefix: "/api/v2/saas",
+    prefix: "/api/v2/fixture",
     before_dispatch: {AnkoleWeb.JSONAPI.Context, :before_dispatch, [:site]}
 end
 
-defmodule Ankole.SaaSWeb.SiteJSONAPIRouter do
+defmodule Ankole.EditionFixture.SiteJSONAPIRouter do
   use AnkoleWeb.JSONAPI.Router,
-    scope: :saas_site,
+    scope: :fixture_site,
+    title: "Fixture site API",
+    context_scope: :site,
     domains: [],
-    prefix: "/api/v2/saas-site"
+    prefix: "/api/v2/fixture-site"
 end

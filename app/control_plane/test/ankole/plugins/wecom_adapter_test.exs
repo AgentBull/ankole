@@ -120,6 +120,10 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     def init(state), do: {:ok, state}
 
     @impl true
+    def handle_call({:send_frame, cmd, req_id, body, _deadline_ms}, from, state) do
+      handle_call({:send_frame, cmd, req_id, body}, from, state)
+    end
+
     def handle_call({:send_frame, cmd, req_id, body}, _from, {parent, script} = state) do
       send(parent, {:bot_frame, cmd, req_id, body})
 

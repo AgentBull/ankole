@@ -137,11 +137,14 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
         "promptCacheRetention" => "24h",
         "safetyIdentifier" => "user-123",
         "contextManagement" => [%{"type" => "compaction"}],
+        "supportsParallelToolCalls" => true,
         "truncation" => "auto"
       })
 
     assert %UniversalAIRequest{provider_options: options} =
-             OpenAIRequestOptions.put_provider_options(request, :responses)
+             OpenAIRequestOptions.put_provider_options(request, :responses, %{
+               "prompt_cache_key" => "conv_fallback"
+             })
 
     assert options == %{
              "reasoning" => %{"effort" => "high", "summary" => "detailed"},
@@ -154,6 +157,14 @@ defmodule Ankole.AIGateway.OpenAIRequestOptionsTest do
              "context_management" => [%{"type" => "compaction"}],
              "truncation" => "auto"
            }
+
+    assert %UniversalAIRequest{provider_options: fallback_options} =
+             request(%{})
+             |> OpenAIRequestOptions.put_provider_options(:responses, %{
+               "prompt_cache_key" => "conv_fallback"
+             })
+
+    assert fallback_options["prompt_cache_key"] == "conv_fallback"
   end
 
   test "maps Chat Completions verbosity and rejects Responses-only options" do

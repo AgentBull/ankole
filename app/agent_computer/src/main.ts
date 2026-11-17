@@ -19,9 +19,13 @@ import { heartbeatIntervalMs, sendWorkerHeartbeat, Slots } from './worker/lifecy
 import { workerLogger } from './worker/logging'
 import { verifyWorkerReadiness } from './worker/readiness'
 import { createWorkerRPCHandlers } from './worker/rpc-handlers'
+import { throwingRPCRequester } from './worker/rpc-requests'
+import { evictInactiveWorkspaces } from './worker/workspace'
 
 /** Time without a joined channel after which the Worker stops itself. */
 const selfIsolationAfterMs = ms('5m')
+/** Cadence for background cleanup of inactive session and Job workspaces. */
+const workspaceEvictionIntervalMs = ms('30m')
 /** Longest wait of one loop step, so that signals and isolation take effect in time. */
 const loopStepMs = 500
 
@@ -84,6 +88,8 @@ async function runWorker(): Promise<void> {
     let nextHeartbeatAt = Date.now()
     let heartbeatTask: Promise<void> | undefined
     let heartbeatError: unknown
+    let nextWorkspaceEvictionAt = Date.now()
+    let workspaceEvictionTask: Promise<void> | undefined
     let shutdownReported = false
     // Span export is an RPC: it needs a reply, and only this loop delivers
     // replies. So the flush starts when the loop is otherwise done and the loop
@@ -163,6 +169,39 @@ async function runWorker(): Promise<void> {
           heartbeatTask = task
         }
         nextHeartbeatAt = Date.now() + heartbeatIntervalMs
+      }
+
+      if (drain.acceptsTurns && Date.now() >= nextWorkspaceEvictionAt) {
+        if (!workspaceEvictionTask) {
+          const requestRPC = throwingRPCRequester(rpcClient)
+          const sweep = evictInactiveWorkspaces(config.agentHomeRoot, {
+            activeSessionIDs: workspaces.activeWorkspaceIds(),
+            activeJobIDs: activeTurns.activeJobIds(),
+            evictJobs: fabric.isReady,
+            resolveRetainedJobIDs: async candidateJobIds => {
+              const res = await requestRPC('background_agent_job.retained_workspaces', { candidateJobIds }, undefined)
+              return new Set(res.retainedJobIds)
+            }
+          })
+            .then(({ evictedSessions, evictedJobs }) => {
+              if (evictedSessions.length > 0 || evictedJobs.length > 0) {
+                workerLogger.info('worker.workspaces_evicted', 'evicted inactive worker workspaces', {
+                  evicted_sessions: evictedSessions.length,
+                  evicted_jobs: evictedJobs.length
+                })
+              }
+            })
+            .catch(error => {
+              workerLogger.warning('worker.workspace_eviction_failed', 'inactive workspace cleanup failed', {
+                error: toError(error)
+              })
+            })
+            .finally(() => {
+              if (workspaceEvictionTask === sweep) workspaceEvictionTask = undefined
+            })
+          workspaceEvictionTask = sweep
+        }
+        nextWorkspaceEvictionAt = Date.now() + workspaceEvictionIntervalMs
       }
 
       const received = await fabric.receive(loopStepMs)

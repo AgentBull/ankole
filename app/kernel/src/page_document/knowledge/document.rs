@@ -15,7 +15,7 @@ pub struct Knowledge {
 }
 
 /// Knowledge pages and document Markdown files share this codec. A document also carries
-/// Infographic blocks and the `view` and `theme` of its source diagrams.
+/// Infographic blocks, source diagram display attributes, and parameterized Page embeds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Dialect {
     Knowledge,
@@ -240,6 +240,17 @@ pub(super) fn validate_tree(node: &Element, dialect: Dialect) -> Result<()> {
         "th" | "td" => &["align"],
         "media" => &["src", "title", "description", "kind"],
         "mention" => &["page", "principal"],
+        "embed" if dialect == Dialect::Document => &[
+            "ref",
+            "table",
+            "view",
+            "href",
+            "title",
+            "description",
+            "image",
+            "height",
+            "props",
+        ],
         other => return Err(format!("knowledge pages do not support <{other}>")),
     };
     if let Some(key) = node.attrs.keys().find(|key| !attrs.contains(&key.as_str())) {

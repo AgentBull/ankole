@@ -47,7 +47,7 @@ export function parentInputToolSpec(): DynamicToolSpec {
     name: PARENT_INPUT_TOOL_NAME,
     description:
       'Pause this background task and ask the parent agent for information that is genuinely required to continue. Use this instead of request_user_input, which is unavailable in Default mode. Ask one to three concise questions.',
-    inputSchema: zodToJSONSchema(UserInputArguments) as unknown as JSONValue
+    inputSchema: zodToJSONSchema(UserInputArguments) as JSONValue
   }
 }
 

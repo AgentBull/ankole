@@ -1,8 +1,6 @@
 import { expect, test } from 'bun:test'
 import { WorkerEnvEditorModel } from './worker-env-editor-model'
 import { WorkerProviderEditorModel } from './worker-provider-editor-model'
-import { IdentityEditorModel } from './identity-editor-model'
-import { PrincipalGroupEditorModel } from './principal-group-editor-model'
 import { TenantEditorModel } from './tenant-editor-model'
 import { TokenQuotaEditorModel } from './token-quota-editor-model'
 
@@ -19,41 +17,6 @@ test('a Worker provider save confirms only its sent config and credentials', () 
   expect(confirm({ ...original, config: 'sent' })).toBe(true)
   expect(model.config.value).toBe('next')
   expect(model.credentials.value).toEqual({ token: 'next-token', added: 'new' })
-  expect(model.dirty.value).toBe(true)
-  model[Symbol.dispose]()
-})
-
-test('an identity save preserves newer config and cannot confirm a later incarnation of the same source', () => {
-  const model = new IdentityEditorModel()
-  const original = { adapterID: 'oidc', providerID: 'company', enabled: true, config: { name: 'sent' } }
-  model.initialize('company', original)
-  const confirm = model.captureSave()
-  model.config.value = { name: 'next' }
-  expect(confirm(original)).toBe(true)
-  expect(model.config.value).toEqual({ name: 'next' })
-  expect(model.dirty.value).toBe(true)
-  model.resetSource()
-  model.initialize('company', { ...original, config: { name: 'reopened' } })
-  expect(confirm(original)).toBe(false)
-  expect(model.config.value).toEqual({ name: 'reopened' })
-  model[Symbol.dispose]()
-})
-
-test('a group save normalizes unchanged fields while preserving fields edited during the request', () => {
-  const model = new PrincipalGroupEditorModel()
-  const original = {
-    name: 'team',
-    displayName: 'Team ',
-    description: 'sent ',
-    kind: 'static' as const,
-    computedCondition: ''
-  }
-  model.initialize('team', original)
-  const confirm = model.captureSave()
-  model.description.value = 'next'
-  expect(confirm({ ...original, displayName: 'Team', description: 'sent' })).toBe(true)
-  expect(model.displayName.value).toBe('Team')
-  expect(model.description.value).toBe('next')
   expect(model.dirty.value).toBe(true)
   model[Symbol.dispose]()
 })

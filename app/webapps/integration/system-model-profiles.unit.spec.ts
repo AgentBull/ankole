@@ -20,7 +20,10 @@ const slots = [
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 
-async function fixture(page: Page, options: { initialURL?: string; unconfiguredSitePrimary?: boolean } = {}) {
+async function fixture(
+  page: Page,
+  options: { initialURL?: string; unconfiguredSitePrimary?: boolean; multiTenant?: boolean } = {}
+) {
   const overrides: Record<string, Record<string, Record<string, unknown>>> = { system: {}, ankole_brain: {} }
   const writes: { uid: string; slot: string; method: string }[] = []
   const defaultWrites: {
@@ -118,7 +121,22 @@ async function fixture(page: Page, options: { initialURL?: string; unconfiguredS
               suspended_at: null,
               deleting_at: null
             }
-          }
+          },
+          ...(options.multiTenant
+            ? [
+                {
+                  id: '22222222-2222-4222-8222-222222222222',
+                  type: 'tenant',
+                  attributes: {
+                    id: '22222222-2222-4222-8222-222222222222',
+                    slug: 'beta',
+                    display_name: 'Beta',
+                    suspended_at: null,
+                    deleting_at: null
+                  }
+                }
+              ]
+            : [])
         ]
       }
     })
@@ -340,10 +358,10 @@ test('right after an upgrade the question still comes and says that the numbers 
   )
 })
 
-test('Pod defaults tab keeps scope tabs mounted when no tenant is selected and binds the chosen tenant', async ({
+test('Pod defaults tab keeps scope tabs mounted when no tenant is selected in multi-tenant sites and binds the chosen tenant', async ({
   page
 }) => {
-  const server = await fixture(page, { initialURL: '/model-profiles' })
+  const server = await fixture(page, { initialURL: '/model-profiles', multiTenant: true })
   await expect.poll(() => server.defaultRequests).toEqual([{ scope: 'global', tenant: null }])
 
   await page.getByRole('tab', { name: 'Pod defaults', exact: true }).click()
@@ -358,6 +376,14 @@ test('Pod defaults tab keeps scope tabs mounted when no tenant is selected and b
 
   await expect(page).toHaveURL(/defaults_scope=tenant/)
   await expect(page.getByRole('tab', { name: 'Pod defaults', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(15)
+  expect(server.defaultRequests).toContainEqual({ scope: 'tenant', tenant: TENANT_ID })
+})
+
+test('Pod defaults tab auto-binds the sole tenant in single-tenant deployments', async ({ page }) => {
+  const server = await fixture(page, { initialURL: '/model-profiles' })
+  await page.getByRole('tab', { name: 'Pod defaults', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: 'Tenant', exact: true })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(15)
   expect(server.defaultRequests).toContainEqual({ scope: 'tenant', tenant: TENANT_ID })
 })

@@ -1,8 +1,34 @@
 import { t } from 'i18next'
-import type { AppletRuntime, AppletTheme } from '@ankole/applet-sdk'
+import type { AppletRuntime, AppletTheme, AppletRevision, PodPrincipal, RoutesAPI } from '@ankole/applet-sdk'
 import { InternalAPIError } from '../common/internal-api-client'
 import { authenticationRef, isDesktopRuntime, principalUID } from '../common/browser-context'
 import { createAppletRoutes } from './applet-routes'
+
+export type PodSubjectItem = {
+  principal_uid?: string | null
+  name: string
+  kind: string
+  avatar_url?: string | null
+  subtitle?: string | null
+  membership?: 'member' | 'guest' | null
+}
+
+export function subjectsToPodPrincipals(subjects: readonly PodSubjectItem[]): PodPrincipal[] {
+  return subjects.flatMap(subject =>
+    subject.principal_uid && (subject.kind === 'human' || subject.kind === 'agent')
+      ? [
+          {
+            uid: subject.principal_uid,
+            name: subject.name,
+            kind: subject.kind,
+            avatar_url: subject.avatar_url ?? null,
+            subtitle: subject.subtitle ?? null,
+            membership: subject.membership ?? null
+          }
+        ]
+      : []
+  )
+}
 
 export function readDocumentTheme(
   doc: Document | undefined = typeof document === 'undefined' ? undefined : document
@@ -90,28 +116,30 @@ function appletStorage(storage: Storage, principal: string, pageID: string): Sto
   })
 }
 
-function appletFrameURL(pageID: string, revision: number) {
+function appletFrameURL(pageID: string, revision: AppletRevision) {
   const reference = authenticationRef() ?? (isDesktopRuntime() ? 'oauth' : undefined)
   if (!reference) throw new Error('The applet requires this document’s authenticated session')
-  return `/pod/applet-frame/${encodeURIComponent(reference)}/${encodeURIComponent(pageID)}/${revision}/index.html`
+  return `/pod/applet-frame/${encodeURIComponent(reference)}/${encodeURIComponent(pageID)}/${String(revision).replace('draft:', 'draft-')}/index.html`
 }
 
 /** One mount owns one publication and all resources created by that generation. */
 export function mountApplet(
   pageID: string,
-  revision: number,
+  revision: AppletRevision,
   container: HTMLElement,
   runtime: Omit<AppletRuntime, 'revision' | 'routes' | 'embedded'>,
   onError: (error: unknown) => void,
   onReady?: () => void,
-  onRevisionChanged?: () => void
+  onRevisionChanged?: () => void,
+  options: { frameURL?: string; principal?: string; routes?: RoutesAPI } = {}
 ) {
-  const principal = principalUID()
+  const principal = options.principal ?? principalUID()
   if (!principal) throw new Error('The applet requires this document’s authenticated Principal')
   host()
   const frame = document.createElement('iframe')
   frame.title = resolveAppletFrameTitle(runtime.title)
   frame.className = 'block w-full min-h-32 border-0 bg-transparent'
+  frame.dataset.appletRevision = String(revision)
   let currentTheme = readDocumentTheme()
   frame.style.colorScheme = currentTheme
   const viewport = container.closest<HTMLElement>('.pod-page-scroll')
@@ -144,7 +172,7 @@ export function mountApplet(
     frame.style.height = `${height}px`
   }
   resize()
-  frame.src = appletFrameURL(pageID, revision)
+  frame.src = options.frameURL ?? appletFrameURL(pageID, revision)
   container.append(frame)
   const frameWindow = frame.contentWindow!
   let disposed = false
@@ -237,7 +265,13 @@ export function mountApplet(
       return stop
     }
   }
-  const routes = createAppletRoutes(pageID, revision, changed)
+  const bindRoutes = (routes: RoutesAPI): RoutesAPI => ({
+    key: routes.key,
+    call(request) {
+      current()
+      return routes.call(request)
+    }
+  })
   let currentRuntime = runtime
   let bound: AppletRuntime = {
     ...runtime,
@@ -267,13 +301,7 @@ export function mountApplet(
         return stop
       }
     },
-    routes: {
-      key: routes.key,
-      call(request) {
-        current()
-        return routes.call(request)
-      }
-    },
+    routes: bindRoutes(options.routes ?? createAppletRoutes(pageID, revision, changed, runtime.bindingsDigest)),
     pod: {
       request(...args) {
         current()
@@ -413,11 +441,26 @@ export function mountApplet(
   }
   return {
     dispose,
+    frame,
     update(next: Omit<AppletRuntime, 'revision' | 'routes' | 'embedded'>) {
       if (disposed || next.pageID !== pageID) return
+      // Query hooks and the React compiler observe this object's identity, so each key needs its own snapshot.
+      const routes =
+        !options.routes && next.bindingsDigest !== currentRuntime.bindingsDigest
+          ? bindRoutes(createAppletRoutes(pageID, revision, changed, next.bindingsDigest))
+          : bound.routes
       currentRuntime = next
       frame.title = resolveAppletFrameTitle(next.title)
-      bound = { ...bound, actions: next.actions, title: next.title, theme: currentTheme }
+      bound = {
+        ...bound,
+        actions: next.actions,
+        title: next.title,
+        theme: currentTheme,
+        bindings: next.bindings,
+        bindingsDigest: next.bindingsDigest,
+        routes,
+        embedProps: next.embedProps
+      }
       if (!provider) return
       try {
         provider.render({ dom: frameWindow.document.body, props: { runtime: bound } })

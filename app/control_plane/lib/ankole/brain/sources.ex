@@ -10,7 +10,7 @@ defmodule Ankole.Brain.Sources do
 
   require Ash.Query
 
-  alias Ankole.Brain.Schemas.Source
+  alias Ankole.Brain.Schemas.{Chunk, Link, Source, Timeline}
   alias Ankole.Brain.Scope
   alias Ankole.Repo
 
@@ -36,10 +36,12 @@ defmodule Ankole.Brain.Sources do
   def update_default_scope_in_tx(source_id, scope) do
     with :ok <- Repo.require_transaction(),
          :ok <- if(is_nil(scope), do: :ok, else: Scope.validate(scope)),
-         {:ok, source} <- lock_active(%Source{id: source_id}),
-         true <- source.kind == "oidc_client" do
+         %Source{} = source <- lock_source(source_id),
+         true <- is_nil(source.archived_at),
+         true <- source.kind == "oidc_client" or not is_nil(scope) do
       Ankole.Ash.update(source, :set_default_scope, %{default_source_node_id: scope})
     else
+      nil -> {:error, :not_found}
       false -> {:error, {:invalid, "source_kind"}}
       {:error, _reason} = error -> error
     end
@@ -58,9 +60,76 @@ defmodule Ankole.Brain.Sources do
     end
   end
 
-  @spec ensure_active(Source.t()) :: :ok | {:error, :source_archived}
-  def ensure_active(%Source{archived_at: nil}), do: :ok
-  def ensure_active(%Source{}), do: {:error, :source_archived}
+  @spec ensure_active(Source.t()) ::
+          :ok
+          | {:error, :source_archived | :source_attention_required | :source_scope_trashed}
+  def ensure_active(%Source{archived_at: archived_at}) when not is_nil(archived_at),
+    do: {:error, :source_archived}
+
+  def ensure_active(%Source{attention_reason: reason}) when is_binary(reason) and reason != "",
+    do: {:error, :source_attention_required}
+
+  def ensure_active(%Source{default_source_node_id: node_id}) when is_binary(node_id) do
+    case Ankole.Pod.get_page_record!(node_id, load: [:in_trash]) do
+      %{in_trash: true} -> {:error, :source_scope_trashed}
+      %{} -> :ok
+      nil -> {:error, :source_attention_required}
+    end
+  end
+
+  def ensure_active(%Source{}), do: :ok
+
+  @doc "Checks whether any active Brain Source uses one of `node_ids` as its default scope."
+  def ensure_nodes_not_default_scope_in_tx(node_ids) when is_list(node_ids) do
+    sources =
+      Source
+      |> Ash.Query.filter(is_nil(archived_at) and default_source_node_id in ^node_ids)
+      |> Ash.Query.select([:id, :name, :kind])
+      |> Ankole.Ash.read!()
+
+    case sources do
+      [] ->
+        :ok
+
+      referenced ->
+        {:error,
+         {:brain_source_scope_in_use,
+          Enum.map(referenced, &%{id: &1.id, name: &1.name, kind: &1.kind})}}
+    end
+  end
+
+  @purge_batch_size 1_000
+
+  @doc "Detaches Brain Sources whose default scope nodes are being physically purged."
+  def detach_purged_defaults([]), do: :ok
+
+  def detach_purged_defaults(node_ids) when is_list(node_ids) do
+    node_ids
+    |> Enum.chunk_every(@purge_batch_size)
+    |> Enum.reduce_while(:ok, fn batch, :ok ->
+      case Repo.transact_top_level(fn ->
+             with :ok <- detach_purged_defaults_in_tx(batch), do: {:ok, :ok}
+           end) do
+        {:ok, :ok} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  @doc "Detaches Brain Sources whose default scope node is being physically purged."
+  def detach_purged_defaults_in_tx([]), do: Repo.require_transaction()
+
+  def detach_purged_defaults_in_tx(node_ids) when is_list(node_ids) do
+    :ok = Repo.require_transaction()
+
+    Source
+    |> Ash.Query.filter(default_source_node_id in ^node_ids)
+    |> Ankole.Ash.update_where(:flag_scope_purged)
+    |> case do
+      {:ok, _sources} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   @spec lock_active(Source.t()) :: {:ok, Source.t()} | {:error, term()}
   def lock_active(%Source{id: source_id}) do
@@ -101,6 +170,7 @@ defmodule Ankole.Brain.Sources do
          |> Ash.Query.lock(:for_update)
          |> Ankole.Ash.read_one!() do
       %Source{extracted_through_seq: seq} = source when is_integer(seq) and seq >= message.seq ->
+        :ok = withdraw_conversation_projections_in_tx(conversation_id)
         :ok = Ankole.Brain.Claims.withdraw_source_claims_in_tx(source.id, now)
 
         {:ok, _} =
@@ -113,6 +183,31 @@ defmodule Ankole.Brain.Sources do
         :ok
 
       _ ->
+        :ok
+    end
+  end
+
+  defp withdraw_conversation_projections_in_tx(conversation_id) do
+    case Scope.conversation(conversation_id) do
+      {:ok, root_id} ->
+        {:ok, _} =
+          Timeline
+          |> Ash.Query.filter(source_node_id == ^root_id)
+          |> Ankole.Ash.destroy_where(:remove)
+
+        {:ok, _} =
+          Chunk
+          |> Ash.Query.filter(source_node_id == ^root_id)
+          |> Ankole.Ash.destroy_where(:remove_projection)
+
+        {:ok, _} =
+          Link
+          |> Ash.Query.filter(origin_page_id == ^root_id and link_source == "extraction")
+          |> Ankole.Ash.destroy_where(:remove)
+
+        :ok
+
+      {:error, :not_found} ->
         :ok
     end
   end

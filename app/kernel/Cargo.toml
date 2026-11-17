@@ -16,7 +16,7 @@ workspace = true
 # The Office crates are host-neutral so that the NIF and the browser builds
 # share them; the root package's own dependencies do not build for wasm32.
 [workspace]
-exclude = ["vendor/sqlparser"]
+exclude = ["vendor/gridcraft-xlsx", "vendor/sqlparser"]
 members = [
   "presentation",
   "presentation-wasm",
@@ -199,6 +199,9 @@ epaint_default_fonts = { git = "https://github.com/storytold/egui.git", rev = "6
 
 [patch."https://github.com/storytold/deckcraft"]
 deckcraft-fonts = { path = "vendor/deckcraft-fonts" }
+
+[patch."https://github.com/storytold/gridcraft"]
+gridcraft-xlsx = { path = "vendor/gridcraft-xlsx" }
 
 [patch."https://github.com/storytold/wordcraft"]
 wordcraft-fonts = { path = "vendor/wordcraft-fonts" }

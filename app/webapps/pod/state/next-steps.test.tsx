@@ -121,7 +121,27 @@ test('a reply suggestion targets an idle Agent reply when the viewer is the only
       detail({
         messages: [
           message('ask', 'human'),
+          message('reply', 'agent', 'message', { action_card: { card_id: 'c1', status: 'executing' } })
+        ]
+      })
+    )
+  ).toBe(undefined)
+  expect(
+    replySuggestionTarget(
+      detail({
+        messages: [
+          message('ask', 'human'),
           message('reply', 'agent', 'message', { action_card: { card_id: 'c1', status: 'executed' } })
+        ]
+      })
+    )
+  ).toBe('reply')
+  expect(
+    replySuggestionTarget(
+      detail({
+        messages: [
+          message('ask', 'human'),
+          message('reply', 'agent', 'message', { action_card: { card_id: 'c1', status: 'execution_uncertain' } })
         ]
       })
     )

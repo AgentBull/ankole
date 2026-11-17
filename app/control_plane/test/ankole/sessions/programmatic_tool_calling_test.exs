@@ -127,9 +127,25 @@ defmodule Ankole.Sessions.ProgrammaticToolCallingTest do
       refute Tool.programmatic?(tool), "expected #{name} to disallow programmatic calls"
     end
 
-    request = Model.request(run)
-    assert %{"type" => "tool_search", "execution" => "server"} in request["tools"]
-    assert %{"type" => "programmatic_tool_calling"} in request["tools"]
+    default_request = Model.request(run)
+    refute %{"type" => "tool_search", "execution" => "server"} in default_request["tools"]
+    refute %{"type" => "programmatic_tool_calling"} in default_request["tools"]
+
+    opted_in_request =
+      Model.request(%{
+        run
+        | spec: %{
+            run.spec
+            | model_ref:
+                Map.merge(run.spec.model_ref, %{
+                  "supports_tool_search" => true,
+                  "supports_programmatic_tool_calling" => true
+                })
+          }
+      })
+
+    assert %{"type" => "tool_search", "execution" => "server"} in opted_in_request["tools"]
+    assert %{"type" => "programmatic_tool_calling"} in opted_in_request["tools"]
   end
 
   test "the chat request sends no function parameters with a root combinator", %{run: run} do
@@ -312,7 +328,15 @@ defmodule Ankole.Sessions.ProgrammaticToolCallingTest do
 
   test "Sessions round recording preserves caller scope and resumes paused PTC programs without leaking intermediate outputs to provider history",
        %{run: run} do
-    request = Model.request(run)
+    opted_in_run = %{
+      run
+      | spec: %{
+          run.spec
+          | model_ref: Map.put(run.spec.model_ref, "supports_programmatic_tool_calling", true)
+        }
+    }
+
+    request = Model.request(opted_in_run)
     assert {:ok, prepared_req, %ToolSearch.Plan{} = plan} = ToolSearch.plan(request)
 
     loop = StreamLoop.new(%{plan: plan, provider_request: prepared_req})

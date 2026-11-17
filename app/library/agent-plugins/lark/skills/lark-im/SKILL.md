@@ -1,6 +1,7 @@
 ---
 name: lark-im
 description: "Send, read, update, and withdraw Feishu or Lark messages and cards; manage reactions, chats, and attachments."
+default_enabled: false
 ---
 
 # lark-im

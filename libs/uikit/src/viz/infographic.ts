@@ -142,7 +142,7 @@ export async function offlineInfographicResourceLoader(config: {
     ['xmlns', 'http://www.w3.org/2000/svg'],
     ['viewBox', '0 0 24 24']
   ])
-  return {
+  return Object.assign(Object.create(null) as SVGSymbolElement, {
     id: '',
     tagName: 'symbol',
     nodeName: 'symbol',
@@ -155,7 +155,7 @@ export async function offlineInfographicResourceLoader(config: {
     },
     hasAttribute: (name: string) => attrs.has(name),
     cloneNode: () => offlineInfographicResourceLoader(config)
-  } as unknown as SVGSymbolElement
+  })
 }
 
 let resourceLoaderRegistered = false

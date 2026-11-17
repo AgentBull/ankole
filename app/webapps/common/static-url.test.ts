@@ -30,25 +30,25 @@ describe('staticAssetBase and staticAssetURL', () => {
   })
 
   it('prefixes paths with protocol-relative CDN base and trims trailing slashes', () => {
-    setMetaStaticBase('//ankole-static-files.cdn.agentbull.net/')
+    setMetaStaticBase('//cdn.example.com/')
 
-    expect(staticAssetBase()).toBe('//ankole-static-files.cdn.agentbull.net')
-    expect(staticAssetURL('/images/logo.svg')).toBe('//ankole-static-files.cdn.agentbull.net/images/logo.svg')
-    expect(staticAssetURL('/favicon.ico')).toBe('//ankole-static-files.cdn.agentbull.net/favicon.ico')
+    expect(staticAssetBase()).toBe('//cdn.example.com')
+    expect(staticAssetURL('/images/logo.svg')).toBe('//cdn.example.com/images/logo.svg')
+    expect(staticAssetURL('/favicon.ico')).toBe('//cdn.example.com/favicon.ico')
   })
 
   it('ignores malformed values and Desktop runtime bootstrap', () => {
     setMetaStaticBase('///evil')
     expect(staticAssetBase()).toBe('')
 
-    setMetaStaticBase('//ankole-static-files.cdn.agentbull.net')
+    setMetaStaticBase('//cdn.example.com')
     setPodRuntimeBootstrap({
       mode: 'desktop',
       platform: 'macos',
       workspaceKey: 'demo',
       tenantId: '0195b6f0-0000-7000-8000-000000000001',
-      podOrigin: 'https://demo.ankole.ai',
-      siteOrigin: 'https://console.ankole.ai',
+      podOrigin: 'https://demo.example.com',
+      siteOrigin: 'https://console.example.com',
       principalUid: 'alice',
       activePlugins: [],
       features: {},

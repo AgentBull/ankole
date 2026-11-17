@@ -44,9 +44,7 @@ defmodule AnkoleWeb.JSONAPI.OpenAPI do
         "The browser sends the sealed group and selected authentication cookies in the Cookie header. The group alone is not authentication. The shell supplies x-ankole-authentication for selection and x-csrf-token for unsafe requests."
     }
 
-  defp title(:saas), do: "Ankole SaaS account API v2"
-  defp title(:saas_pod), do: "Ankole SaaS Pod extension API v2"
-  defp title(:saas_site), do: "Ankole SaaS site extension API v2"
+  defp title(title) when is_binary(title), do: title
   defp title(:browser), do: "Ankole browser authentication and setup API v2"
   defp title(:pod), do: "Ankole Pod API v2"
   defp title(:site), do: "Ankole site API v2"

@@ -1,7 +1,5 @@
 import { expect, spyOn, test } from 'bun:test'
 import i18next from 'i18next'
-import { readdirSync, readFileSync } from 'node:fs'
-import path from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
 import { normalizeSeriesPoints } from './charts'
@@ -43,7 +41,7 @@ async function loadVisibility(endpoint: string, ids: readonly string[]) {
 const FIXTURE_MANIFEST: DeclarativeConsoleManifest = {
   id: 'widget_ops',
   pluginId: 'widget_plugin',
-  visibilityEndpoint: '/api/v2/saas-site/widgets/console-visible-ids',
+  visibilityEndpoint: '/api/v2/fixture-site/widgets/console-visible-ids',
   navSections: [
     {
       id: 'widgets',
@@ -93,7 +91,7 @@ const FIXTURE_MANIFEST: DeclarativeConsoleManifest = {
       subject: 'WidgetMetrics',
       permission: 'site_console:widgets:read',
       audit: 'none',
-      endpoint: '/api/v2/saas-site/widgets/metrics',
+      endpoint: '/api/v2/fixture-site/widgets/metrics',
       method: 'GET',
       resourceType: null,
       payloadEnvelope: 'flat',
@@ -115,7 +113,7 @@ const FIXTURE_MANIFEST: DeclarativeConsoleManifest = {
       subject: 'WidgetItem',
       permission: 'site_console:widgets:read',
       audit: 'none',
-      endpoint: '/api/v2/saas-site/widgets/items',
+      endpoint: '/api/v2/fixture-site/widgets/items',
       method: 'GET',
       resourceType: 'widget_item',
       payloadEnvelope: 'jsonapi',
@@ -375,15 +373,6 @@ test('DeclarativeFields renders recursive object, key_value, and rule_tree contr
   })
 })
 
-test('declarative console engine contains zero domain-specific module names', () => {
-  const dir = import.meta.dir
-  const files = readdirSync(dir).filter(name => /\.(ts|tsx)$/.test(name) && name !== 'declarative.test.tsx')
-  for (const file of files) {
-    const source = readFileSync(path.join(dir, file), 'utf8')
-    expect(source).not.toMatch(/relay_saas|AccountSnapshot|StrategyDocument|PrincipalPolicy/i)
-  }
-})
-
 test('normalizeSeriesPoints supports status=no_data and explicit metric keys', () => {
   expect(
     normalizeSeriesPoints(
@@ -522,7 +511,7 @@ test('executeDeclarativeAction sends custom id in attributes for collection POST
         kind: 'action',
         operationKind: 'create',
         method: 'POST',
-        endpoint: '/api/v2/saas-site/widgets/items'
+        endpoint: '/api/v2/fixture-site/widgets/items'
       },
       { id: 'custom-strat', name: 'Strat A' }
     )
@@ -534,7 +523,7 @@ test('executeDeclarativeAction sends custom id in attributes for collection POST
         kind: 'action',
         operationKind: 'create',
         method: 'POST',
-        endpoint: '/api/v2/saas-site/widgets/items'
+        endpoint: '/api/v2/fixture-site/widgets/items'
       },
       { id: '  ', name: 'Strat B' }
     )
@@ -544,11 +533,11 @@ test('executeDeclarativeAction sends custom id in attributes for collection POST
 
   expect(calls).toEqual([
     {
-      url: '/api/v2/saas-site/widgets/items',
+      url: '/api/v2/fixture-site/widgets/items',
       body: { data: { type: 'widget_item', attributes: { id: 'custom-strat', name: 'Strat A' } } }
     },
     {
-      url: '/api/v2/saas-site/widgets/items',
+      url: '/api/v2/fixture-site/widgets/items',
       body: { data: { type: 'widget_item', attributes: { name: 'Strat B' } } }
     }
   ])

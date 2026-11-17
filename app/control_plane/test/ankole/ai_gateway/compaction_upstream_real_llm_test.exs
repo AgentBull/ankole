@@ -2,6 +2,9 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
   @moduledoc """
   Verifies Provider-native compaction against a real Codex-compatible upstream.
 
+  Set `ANKOLE_COMPACTION_BASE_URL`, `ANKOLE_COMPACTION_MODEL`, and
+  `ANKOLE_COMPACTION_API_KEY`, then opt in with `ANKOLE_REAL_LLM_E2E=1`.
+
   This is the only way to prove the pass-through backend: a fake upstream can
   always be made to answer with a compaction item, so it cannot show whether a
   real endpoint accepts the trigger at all.
@@ -16,27 +19,25 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
 
   @moduletag :real_llm
 
-  @base_url "https://ai-router.yuma.host/v1"
-  @model "gpt-5.6-luna"
-
   setup do
-    case System.get_env("ANKOLE_AI_ROUTER_KEY") do
-      key when is_binary(key) and key != "" -> {:ok, api_key: key}
-      _missing -> {:ok, api_key: nil}
-    end
+    {:ok,
+     base_url: required_env!("ANKOLE_COMPACTION_BASE_URL"),
+     model: required_env!("ANKOLE_COMPACTION_MODEL"),
+     api_key: required_env!("ANKOLE_COMPACTION_API_KEY")}
   end
 
-  test "an opted-in Agent compacts through the real upstream", %{api_key: api_key} do
-    assert is_binary(api_key),
-           "set ANKOLE_AI_ROUTER_KEY to run the upstream compaction verification"
-
+  test "an opted-in Agent compacts through the real upstream", %{
+    api_key: api_key,
+    base_url: base_url,
+    model: model
+  } do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, provider} =
              ProviderConfigs.create_provider(%{
-               provider_id: "ai-router-compaction",
+               provider_id: "upstream-compaction",
                provider_kind: "openai_compatible",
-               base_url: @base_url,
+               base_url: base_url,
                credential_pool: %{
                  "entries" => [%{"label" => "Default", "api_key" => api_key}]
                },
@@ -49,8 +50,8 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "ai-router-compaction",
-               model: @model
+               provider_id: "upstream-compaction",
+               model: model
              })
 
     assert {:ok, _config} =
@@ -76,24 +77,25 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
     assert artifact.content["version"] == 3
     assert artifact.content["source"] == "upstream"
     assert artifact.content["binding"]["provider_row_id"] == provider.id
-    assert artifact.content["binding"]["model"] == @model
+    assert artifact.content["binding"]["model"] == model
     refute Map.has_key?(artifact.content, "summary")
 
     assert Enum.filter(artifact.content["output"], &(&1["type"] == "compaction")) ==
              body["output"]
   end
 
-  test "the same Agent keeps the local summary while the switch is off", %{api_key: api_key} do
-    assert is_binary(api_key),
-           "set ANKOLE_AI_ROUTER_KEY to run the upstream compaction verification"
-
+  test "the same Agent keeps the local summary while the switch is off", %{
+    api_key: api_key,
+    base_url: base_url,
+    model: model
+  } do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
-               provider_id: "ai-router-local-compaction",
+               provider_id: "local-compaction",
                provider_kind: "openai_compatible",
-               base_url: @base_url,
+               base_url: base_url,
                credential_pool: %{
                  "entries" => [%{"label" => "Default", "api_key" => api_key}]
                },
@@ -107,8 +109,8 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
     for profile <- ["primary", "light"] do
       assert {:ok, _profile} =
                ModelProfiles.put_model_profile(agent.uid, profile, %{
-                 provider_id: "ai-router-local-compaction",
-                 model: @model
+                 provider_id: "local-compaction",
+                 model: model
                })
     end
 
@@ -120,6 +122,13 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
     assert String.starts_with?(encrypted_content, "ankole:compact:v1:")
     assert [artifact] = Repo.all(CompactionArtifact)
     assert artifact.content["version"] == 2
+  end
+
+  defp required_env!(name) do
+    case System.get_env(name) do
+      value when is_binary(value) and value != "" -> value
+      _missing -> raise "#{name} is required for the upstream compaction verification"
+    end
   end
 
   # Driven over the WebSocket because that is the transport the Main Agent and

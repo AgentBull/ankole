@@ -249,6 +249,13 @@ defmodule Ankole.AIGateway.CompactionSummarizer do
 
   defp summary_truncated?(_body), do: false
 
+  defp extract_summary_text(%{
+         "status" => "incomplete",
+         "incomplete_details" => %{"reason" => "content_filter"}
+       }) do
+    {:error, :content_filtered_compaction_summary}
+  end
+
   defp extract_summary_text(%{"output_text" => text}) when is_binary(text) do
     summary_text(text)
   end
@@ -261,11 +268,15 @@ defmodule Ankole.AIGateway.CompactionSummarizer do
   end
 
   defp extract_summary_text(%{"choices" => choices}) when is_list(choices) do
-    choices
-    |> Enum.map(&get_in(&1, ["message", "content"]))
-    |> Enum.filter(&is_binary/1)
-    |> Enum.join("\n")
-    |> summary_text()
+    if Enum.any?(choices, &(Map.get(&1, "finish_reason") == "content_filter")) do
+      {:error, :content_filtered_compaction_summary}
+    else
+      choices
+      |> Enum.map(&get_in(&1, ["message", "content"]))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.join("\n")
+      |> summary_text()
+    end
   end
 
   defp extract_summary_text(_body), do: {:error, :empty_compaction_summary}

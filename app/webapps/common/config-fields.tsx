@@ -38,6 +38,7 @@ export type ConfigFieldDefinition = SetupIdentityProviderAdaptersResponse['adapt
 export function ConfigFields({
   advancedLabel = i18n.t('common.advanced_settings'),
   config,
+  disabled = false,
   fieldGroupClassName = 'grid gap-5 md:grid-cols-2',
   fields,
   locale,
@@ -48,6 +49,7 @@ export function ConfigFields({
 }: {
   advancedLabel?: string
   config: JSONObject
+  disabled?: boolean
   fieldGroupClassName?: string
   fields: ConfigFieldDefinition[]
   locale: string
@@ -88,6 +90,7 @@ export function ConfigFields({
 
     return (
       <ConfigField
+        disabled={disabled}
         field={field}
         key={field.path}
         locale={locale}
@@ -101,6 +104,7 @@ export function ConfigFields({
 }
 
 export function ConfigField({
+  disabled = false,
   field,
   locale,
   onChange,
@@ -108,6 +112,7 @@ export function ConfigField({
   required = field.required === true,
   value
 }: {
+  disabled?: boolean
   field: ConfigFieldDefinition
   locale: string
   onChange(value: unknown): void
@@ -160,6 +165,7 @@ export function ConfigField({
           <span>{i18n.t('common.enable')}</span>
           <Switch
             id={controlID}
+            disabled={disabled}
             aria-labelledby={`${controlID}-label`}
             aria-describedby={description ? descriptionID : undefined}
             aria-required={required || undefined}
@@ -179,6 +185,7 @@ export function ConfigField({
       <Field>
         <FieldLabel htmlFor={controlID}>{labelContent}</FieldLabel>
         <Select
+          disabled={disabled}
           required={required}
           value={typeof value === 'string' ? value : ''}
           onValueChange={next => onChange(next ?? '')}>
@@ -210,6 +217,7 @@ export function ConfigField({
           id={controlID}
           ref={textareaRef}
           name={field.path}
+          disabled={disabled}
           required={required}
           autoComplete={secret ? 'new-password' : undefined}
           spellCheck={secret ? false : undefined}
@@ -236,6 +244,7 @@ export function ConfigField({
           ref={textareaRef}
           aria-describedby={describedBy || undefined}
           aria-invalid={showValidationError && validationError ? true : undefined}
+          disabled={disabled}
           required={required}
           value={arrayText ?? (Array.isArray(value) ? value.join('\n') : '')}
           onChange={event => {
@@ -270,6 +279,7 @@ export function ConfigField({
         aria-describedby={describedBy || undefined}
         aria-invalid={showValidationError && validationError ? true : undefined}
         autoComplete={secret ? 'new-password' : undefined}
+        disabled={disabled}
         max={field.max ?? undefined}
         min={field.min ?? undefined}
         placeholder={placeholder}

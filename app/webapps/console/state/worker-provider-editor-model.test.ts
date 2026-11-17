@@ -5,6 +5,7 @@ import { newWorkerProviderDraft, workerProviderDraft, WorkerProviderEditorModel 
 
 const docker: WorkerProviderKind = {
   kind: 'docker',
+  support_tier: 'core',
   example: '# Keep this comment\ncpus: 2\n',
   credentials: {}
 }

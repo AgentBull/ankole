@@ -10,7 +10,7 @@ import {
   RouterProvider
 } from '@tanstack/react-router'
 import { configureConsoleAPIClient } from './api/client'
-import { applyDataTenantNavigation, dataTenantID } from '../common/browser-session'
+import { applyDataTenantNavigation, dataTenantID, setDataTenantSoft } from '../common/browser-session'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { PageSkeleton } from './console-page'
 import { createConsoleRouteLoaders } from './console-route-loaders'
@@ -18,6 +18,7 @@ import { ConsoleLayout } from './console-shell-chrome'
 import { HomePage, NotFoundPage, RouteErrorPage } from './pages/home'
 import { SlotBoundary, SlotGate } from '../common/slots'
 import { ConsoleSlotsContext, normalizeConsoleSlotPath, resolveConsoleSlots, type ConsoleAppSlots } from './slots'
+import { createHistoryTenantTracker, evictTenantScopedQueries } from './tenant-context'
 
 const AgentEditorPage = lazyRouteComponent(() => import('./pages/agents'), 'AgentEditorPage')
 const AgentsListPage = lazyRouteComponent(() => import('./pages/agents'), 'AgentsListPage')
@@ -86,7 +87,6 @@ const PrincipalGroupEditorPage = lazyRouteComponent(
   'PrincipalGroupEditorPage'
 )
 const PrincipalGroupsListPage = lazyRouteComponent(() => import('./pages/principal-groups'), 'PrincipalGroupsListPage')
-const PrincipalCreatePage = lazyRouteComponent(() => import('./pages/principal-create'), 'PrincipalCreatePage')
 const PrincipalEditPage = lazyRouteComponent(() => import('./pages/principal-edit'), 'PrincipalEditPage')
 const PrincipalDetailPage = lazyRouteComponent(() => import('./pages/principals'), 'PrincipalDetailPage')
 const PrincipalsListPage = lazyRouteComponent(() => import('./pages/principals'), 'PrincipalsListPage')
@@ -111,6 +111,7 @@ configureConsoleAPIClient()
 export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppSlots = {}) {
   const resolvedSlots = resolveConsoleSlots(slots, editionModules)
   applyDataTenantNavigation()
+  const historyTenants = createHistoryTenantTracker(dataTenantID())
   const basename = document.querySelector<HTMLMetaElement>('meta[name="ankole-site-admin-console-path"]')?.content
   if (!basename) throw new Error('The authenticated console shell did not provide its mount path')
   const loaders = createConsoleRouteLoaders(queryClient)
@@ -118,6 +119,14 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
   // Without this the router shows its own built-in screen when the shell
   // throws: a stack trace with no navigation and no way back in.
   const rootRoute = createRootRoute({
+    beforeLoad: ({ location, preload }) => {
+      if (preload) return
+      const nextTenant = historyTenants.resolve(location)
+      if (nextTenant !== dataTenantID()) {
+        setDataTenantSoft(nextTenant)
+        evictTenantScopedQueries(queryClient)
+      }
+    },
     component: ConsoleLayout,
     errorComponent: RouteErrorPage
   })
@@ -217,7 +226,11 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
         component: IdentityProvidersListPage,
         loader: loaders.identity
       }),
-      createRoute({ getParentRoute: () => bodyRoute, path: 'identity/new', component: IdentityProviderEditorPage }),
+      createRoute({
+        getParentRoute: () => bodyRoute,
+        path: 'identity/new',
+        component: () => <Navigate to="/identity" replace />
+      }),
       createRoute({
         getParentRoute: () => bodyRoute,
         path: 'identity/mappings',
@@ -257,7 +270,11 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
         component: PrincipalGroupsListPage,
         loader: loaders.principalGroups
       }),
-      createRoute({ getParentRoute: () => bodyRoute, path: 'access/groups/new', component: PrincipalGroupEditorPage }),
+      createRoute({
+        getParentRoute: () => bodyRoute,
+        path: 'access/groups/new',
+        component: PrincipalGroupEditorPage
+      }),
       createRoute({
         getParentRoute: () => bodyRoute,
         path: 'access/groups/$name',
@@ -274,7 +291,11 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
         component: PrincipalsListPage,
         loader: loaders.principals
       }),
-      createRoute({ getParentRoute: () => bodyRoute, path: 'access/principals/new', component: PrincipalCreatePage }),
+      createRoute({
+        getParentRoute: () => bodyRoute,
+        path: 'access/principals/new',
+        component: () => <Navigate to="/access/principals" replace />
+      }),
       createRoute({
         getParentRoute: () => bodyRoute,
         path: 'access/principals/$uid',

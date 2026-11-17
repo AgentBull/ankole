@@ -47,6 +47,17 @@ type ManifestLookup = {
 }
 
 const DEFERRED_GENERIC_HAN_FAMILY = 'ibm plex sans sc'
+const BOOTSTRAP_BASE_LATIN_FAMILY = '__base_latin__'
+const BASE_LATIN_SANS_FALLBACKS = ['inter', 'source sans 3', 'carlito', 'liberation sans', 'source serif 4'] as const
+const BASE_LATIN_SERIF_FALLBACKS = [
+  'source serif 4',
+  'liberation serif',
+  'caladea',
+  'inter',
+  'source sans 3',
+  'carlito'
+] as const
+const BASE_LATIN_MONO_FALLBACKS = ['jetbrains mono', 'liberation mono', 'inter', 'source sans 3', 'carlito'] as const
 const INITIAL_FONTS_GATE_TIMEOUT_MS = 3_000
 const EXPORT_FONTS_WAIT_TIMEOUT_MS = 8_000
 const TRANSIENT_RETRY_DELAY_MS = 250
@@ -122,6 +133,19 @@ function inferUnknownNonAsciiFallback(normalized: string): string | undefined {
   if (HANGUL_RE.test(normalized)) return 'noto sans kr'
   if (KANA_RE.test(normalized)) return 'noto sans jp'
   return DEFERRED_GENERIC_HAN_FAMILY
+}
+
+function inferUnknownAsciiFallback(normalized: string, lookup: ReadonlyMap<string, string>): string | undefined {
+  const candidates = /\b(mono|code|console|courier|fixedsys|terminal|typewriter)\b/.test(normalized)
+    ? BASE_LATIN_MONO_FALLBACKS
+    : /\b(serif|roman|garamond|baskerville|palatino|cambria|georgia|mincho)\b/.test(normalized)
+      ? BASE_LATIN_SERIF_FALLBACKS
+      : BASE_LATIN_SANS_FALLBACKS
+  for (const candidate of candidates) {
+    const resolved = lookup.get(candidate)
+    if (resolved) return resolved
+  }
+  return undefined
 }
 
 function isCjkFamilyRequest(normalized: string, manifestLookup?: ReadonlyMap<string, string>): boolean {
@@ -264,7 +288,10 @@ export async function resolveOfficeFontBlobs(
   for (const raw of missingFamilies) {
     const normalized = normalizeFamily(raw)
     if (!normalized) continue
-    const canonical = lookup.get(normalized) ?? inferUnknownNonAsciiFallback(normalized)
+    const canonical =
+      lookup.get(normalized) ??
+      inferUnknownNonAsciiFallback(normalized) ??
+      inferUnknownAsciiFallback(normalized, lookup)
     if (canonical && lookup.has(canonical)) {
       matchedFamilies.add(canonical)
     }
@@ -359,8 +386,19 @@ export function createOfficeFontCoordinator<TSnapshot extends OfficeSnapshotBase
     return shouldRetry
   }
 
+  const computePending = (
+    requests: OfficeFontRequests | readonly string[],
+    entries?: readonly OfficeFontManifestEntry[]
+  ): string[] => {
+    const pending = selectPendingFontFamilies(requests, attempted, entries)
+    if (pending.length === 0 && epoch === 0 && attempted.size === 0) {
+      return [BOOTSTRAP_BASE_LATIN_FAMILY]
+    }
+    return pending
+  }
+
   const flushWaitersIfSettled = () => {
-    const pending = selectPendingFontFamilies(latestRequests, attempted)
+    const pending = computePending(latestRequests)
     if (documentLoaded && pending.length === 0 && activeFetchCount === 0 && retryTimer === undefined) {
       initialGateReleased = true
       if (gateTimer !== undefined) {
@@ -376,7 +414,7 @@ export function createOfficeFontCoordinator<TSnapshot extends OfficeSnapshotBase
   }
 
   const computeState = () => {
-    const pending = selectPendingFontFamilies(latestRequests, attempted)
+    const pending = computePending(latestRequests)
     const allSettled = documentLoaded && pending.length === 0 && activeFetchCount === 0 && retryTimer === undefined
     if (allSettled) {
       initialGateReleased = true
@@ -447,16 +485,12 @@ export function createOfficeFontCoordinator<TSnapshot extends OfficeSnapshotBase
           if (!active || lifecycleId !== runId) return
           manifestBootstrapping = false
           if (!manifest.ok) {
-            const failedFamilies = selectPendingFontFamilies(latestRequests, attempted).filter(
-              family => !inFlightFamilies.has(family)
-            )
+            const failedFamilies = computePending(latestRequests).filter(family => !inFlightFamilies.has(family))
             shouldRetry = recordTransientBatchFailure(failedFamilies)
             return
           }
           entries = manifest.entries
-          trackedBatch = selectPendingFontFamilies(latestRequests, attempted, entries).filter(
-            family => !inFlightFamilies.has(family)
-          )
+          trackedBatch = computePending(latestRequests, entries).filter(family => !inFlightFamilies.has(family))
           if (trackedBatch.length === 0) return
           for (const family of trackedBatch) inFlightFamilies.add(family)
         }
@@ -514,9 +548,7 @@ export function createOfficeFontCoordinator<TSnapshot extends OfficeSnapshotBase
               if (active && lifecycleId === runId) pump()
             }, retryDelayMs)
           }
-          const nextPending = selectPendingFontFamilies(latestRequests, attempted).filter(
-            family => !inFlightFamilies.has(family)
-          )
+          const nextPending = computePending(latestRequests).filter(family => !inFlightFamilies.has(family))
           if (!shouldRetry && nextPending.length > 0) {
             pump()
           } else {
@@ -530,7 +562,7 @@ export function createOfficeFontCoordinator<TSnapshot extends OfficeSnapshotBase
 
   return {
     peek(requests, isLoaded = documentLoaded) {
-      const pending = selectPendingFontFamilies(requests, attempted)
+      const pending = computePending(requests)
       const allSettled = isLoaded && pending.length === 0 && activeFetchCount === 0 && retryTimer === undefined
       const ready = isLoaded && (initialGateReleased || allSettled || pending.length === 0)
       return { epoch, fontsReady: ready }

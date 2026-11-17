@@ -19,7 +19,7 @@ import {
   planShellCommandShaping,
   shapeCommandOutput
 } from '../src/tools/computer/perceptual-shaping'
-import { shapeCurlJsonOutput } from '../src/tools/computer/perceptual-shapers'
+import { CURL_JSON_MIN_BYTES, shapeCurlJsonOutput } from '../src/tools/computer/perceptual-shapers'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
 
 class FakeFinishedCommand implements CommandFinished {
@@ -156,8 +156,9 @@ describe('Worker silent perceptual CLI shaping', () => {
     expect(output).not.toContain('looking for funding')
   })
 
-  it('synthesizes a global unified JSON schema across ALL array elements for >4KB curl payloads', () => {
-    const items = Array.from({ length: 120 }, (_, index) => {
+  it('synthesizes a global unified JSON schema across ALL array elements for >16KiB curl payloads with raw hint', () => {
+    expect(CURL_JSON_MIN_BYTES).toBe(16_384)
+    const items = Array.from({ length: 220 }, (_, index) => {
       const base: Record<string, unknown> = {
         id: `ord_${1000 + index}`,
         amount_cents: 2500 + index,
@@ -175,36 +176,41 @@ describe('Worker silent perceptual CLI shaping', () => {
     })
     const payload = JSON.stringify({
       ok: true,
-      total: 120,
+      total: 220,
       has_more: true,
       next_cursor: 'cur_next_page_99',
       items
     })
-    expect(Buffer.byteLength(payload, 'utf8')).toBeGreaterThan(4_096)
+    expect(Buffer.byteLength(payload, 'utf8')).toBeGreaterThan(16_384)
 
     const shaped = shapeCurlJsonOutput(payload)
     expect(Buffer.byteLength(shaped, 'utf8')).toBeLessThan(Buffer.byteLength(payload, 'utf8') * 0.25)
     expect(shaped).toContain('"next_cursor":"cur_next_page_99"')
-    expect(shaped).toContain('"total":120')
-    expect(shaped).toContain('(length: 120)')
+    expect(shaped).toContain('"total":220')
+    expect(shaped).toContain('(length: 220)')
     // Fields that only appeared on element #97 / #115 MUST be captured as optional & nullable!
     expect(shaped).toContain('"cancellation_reason"?: string | null')
     expect(shaped).toContain('"refunded_at"?: null')
+    expect(shaped).toContain('pipe to jq or redirect curl -o /tmp/resp.json')
   })
 
-  it('preserves <4KB JSON responses and >4KB HTTP error JSON payloads 100% verbatim', () => {
-    const smallPayload = JSON.stringify({ items: [{ id: 1, secret_value: 'exact-123' }] })
-    expect(shapeCurlJsonOutput(smallPayload)).toBe(smallPayload)
+  it('preserves <=16KiB JSON responses and >16KiB HTTP error JSON payloads 100% verbatim', () => {
+    const mediumPayload = JSON.stringify({
+      items: Array.from({ length: 80 }, (_, id) => ({ id, secret_value: `exact-token-${id}-value-padding` }))
+    })
+    expect(Buffer.byteLength(mediumPayload, 'utf8')).toBeGreaterThan(4_096)
+    expect(Buffer.byteLength(mediumPayload, 'utf8')).toBeLessThanOrEqual(16_384)
+    expect(shapeCurlJsonOutput(mediumPayload)).toBe(mediumPayload)
 
     const largeErrorPayload = JSON.stringify({
       status: 422,
       error: {
         code: 'validation_failed',
         message: 'Field amount_cents must be positive',
-        trace: 'x'.repeat(5_000)
+        trace: 'x'.repeat(18_000)
       }
     })
-    expect(Buffer.byteLength(largeErrorPayload, 'utf8')).toBeGreaterThan(4_096)
+    expect(Buffer.byteLength(largeErrorPayload, 'utf8')).toBeGreaterThan(16_384)
     expect(shapeCurlJsonOutput(largeErrorPayload)).toBe(largeErrorPayload)
   })
 
@@ -248,7 +254,7 @@ describe('Worker silent perceptual CLI shaping', () => {
     expect(bareGitLog.command).toBe('git -C /repo log -n 20 --no-merges --oneline src/index.ts')
   })
 
-  it('folds bare shell cat on large source files while keeping read_file + apply_patch 100% byte-exact', async () => {
+  it('keeps shell cat, ankole-cli-shim cat, read_file, and apply_patch 100% byte-exact on source files', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-perceptual-read-patch-'))
     mkdirAgentSync(root, 0o700)
     const agentHome = join(root, 'agent')
@@ -264,9 +270,11 @@ describe('Worker silent perceptual CLI shaping', () => {
       '',
       '',
       '',
-      '/** Public API docstring that must remain visible even in shell cat. */',
+      '// @ts-expect-error compiler directive must never be stripped',
+      '#pragma once',
+      '/** Public API docstring that must remain visible. */',
       'export function computeTotal(items: number[]): number {',
-      '  // Implementation comment line 1 that apply_patch context will anchor on',
+      '  // TODO: Implementation comment line 1 that apply_patch context will anchor on',
       '  // Implementation comment line 2',
       '  let sum = 0',
       ...Array.from({ length: 65 }, (_, idx) => `  // step comment ${idx}\n  sum += items[${idx}] ?? 0`),
@@ -279,13 +287,22 @@ describe('Worker silent perceptual CLI shaping', () => {
     writeFileSync(targetPath, rawFileContent, 'utf8')
 
     try {
-      // 1. Shell `cat compute.ts` folds license banner, 4 blank lines, and `//` comments, keeping `/** ... */`.
+      // 1. Both command-tool perceptual shaping AND standalone ankole-cli-shim keep `cat` 100% byte-exact!
       const catPlan = planShellCommandShaping('cat compute.ts')
+      expect(catPlan.plan).toEqual({ bypassed: true, bypassReason: 'unsupported_command' })
       const shapedCat = shapeCommandOutput(catPlan.plan, { exitCode: 0, output: rawFileContent })
-      expect(shapedCat.metrics.applied).toBe(true)
-      expect(shapedCat.output).toContain('/** Public API docstring that must remain visible even in shell cat. */')
-      expect(shapedCat.output).not.toContain('SPDX-License-Identifier')
-      expect(shapedCat.output).not.toContain('Implementation comment line 1')
+      expect(shapedCat.metrics.applied).toBe(false)
+      expect(shapedCat.output).toBe(rawFileContent)
+
+      const shimEntry = join(import.meta.dir, '..', 'src', 'cli', 'shim', 'ankole-cli-shim.ts')
+      const shimCat = Bun.spawnSync([process.execPath, shimEntry, 'cat', targetPath], {
+        env: {
+          ...process.env,
+          ANKOLE_SHIM_DIRECT: '1'
+        }
+      })
+      expect(shimCat.exitCode).toBe(0)
+      expect(shimCat.stdout.toString('utf8')).toBe(rawFileContent)
 
       // 2. `read_file` returns 100% byte-exact lines (including license banner, blank lines, and `//` comments).
       const computer = createContainerComputer(agentHome, workspaceRoot)
@@ -295,10 +312,10 @@ describe('Worker silent perceptual CLI shaping', () => {
 
       expect(readResult).toContain('2| * Copyright (c) 2026 Example Corp.')
       expect(readResult).toContain('5|')
-      expect(readResult).toContain('6|')
-      expect(readResult).toContain('7|')
-      expect(readResult).toContain('8|')
-      expect(readResult).toContain('11|  // Implementation comment line 1 that apply_patch context will anchor on')
+      expect(readResult).toContain('9|// @ts-expect-error compiler directive must never be stripped')
+      expect(readResult).toContain(
+        '13|  // TODO: Implementation comment line 1 that apply_patch context will anchor on'
+      )
 
       // 3. `apply_patch` anchoring directly on those exact comments & blank lines succeeds cleanly if binary exists.
       if (Bun.which('apply_patch')) {
@@ -308,7 +325,7 @@ describe('Worker silent perceptual CLI shaping', () => {
           '*** Update File: compute.ts',
           '@@',
           ' export function computeTotal(items: number[]): number {',
-          '   // Implementation comment line 1 that apply_patch context will anchor on',
+          '   // TODO: Implementation comment line 1 that apply_patch context will anchor on',
           '   // Implementation comment line 2',
           '-  let sum = 0',
           '+  let sum = 10',
@@ -367,8 +384,8 @@ describe('Worker silent perceptual CLI shaping', () => {
     mkdirAgentSync(shimDir)
 
     const payload = JSON.stringify({
-      total: 80,
-      items: Array.from({ length: 80 }, (_, idx) => ({
+      total: 260,
+      items: Array.from({ length: 260 }, (_, idx) => ({
         id: idx,
         title: `Item number ${idx} with descriptive text padding`,
         extra: idx === 50 ? 'rare-optional' : undefined
@@ -395,6 +412,7 @@ describe('Worker silent perceptual CLI shaping', () => {
       const directOut = direct.stdout.toString('utf8')
       expect(directOut).toContain('JSON Object unified schema:')
       expect(directOut).toContain('"extra"?: string')
+      expect(directOut).toContain('pipe to jq or redirect curl -o /tmp/resp.json')
 
       // 2. Redirected stdout to regular file (`> outFile`) -> 100% raw bytes!
       const fd = openSync(outFile, 'w')

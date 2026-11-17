@@ -1,5 +1,9 @@
 defmodule Ankole.Connectors.LegacyUpgrade do
-  @moduledoc "Imports existing tenant integration credentials before plugin connections start."
+  @moduledoc """
+  One-time 1.x -> 2.0 integration credential importer invoked by `Ankole.Release.upgrade_from_1x/0`.
+
+  Sunset: Remove at 2.0.0 GA.
+  """
   alias Ankole.Connectors.LegacyConfig
   alias Ankole.Repo
 

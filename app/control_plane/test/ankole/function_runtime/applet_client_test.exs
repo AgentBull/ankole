@@ -30,11 +30,36 @@ defmodule Ankole.FunctionRuntime.AppletClientTest.SlowAdmissionPlug do
   end
 end
 
+defmodule Ankole.FunctionRuntime.AppletClientTest.MidInspectPlug do
+  import Plug.Conn
+  def init(owner), do: owner
+
+  def call(conn, owner) do
+    {:ok, raw, conn} = read_body(conn)
+    decoded = Torque.decode!(raw)
+
+    if String.contains?(decoded["source"], "task-2") do
+      send(owner, {:task2_mid_inspect, self()})
+
+      receive do
+        :continue_task2 -> :ok
+      after
+        5_000 -> :ok
+      end
+    end
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, Torque.encode!(%{"routes" => ["GET /"], "actions" => %{}}))
+  end
+end
+
 defmodule Ankole.FunctionRuntime.AppletClientTest do
   use ExUnit.Case, async: false
   alias Ankole.FunctionRuntime.{AppletClient, EndpointPool, HTTP}
 
   setup do
+    AppletClient.clear_inspect_cache()
     Ankole.Repo.put_tenant_id(Ash.UUIDv7.generate())
     original = :sys.get_state(EndpointPool)
     {:ok, real, real_lease} = EndpointPool.checkout()
@@ -81,6 +106,58 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
 
     assert {:ok, %{"routes" => ["GET /"], "actions" => %{}}} =
              AppletClient.inspect("export default {'GET /':()=>true}", [])
+  end
+
+  test "permanent supervisor owns :ankole_applet_inspect_cache and survives short-lived caller exit mid-inspect",
+       ctx do
+    supervisor_pid = Process.whereis(Ankole.FunctionRuntime.Supervisor)
+    assert is_pid(supervisor_pid)
+    assert :ets.info(:ankole_applet_inspect_cache, :owner) == supervisor_pid
+    :ok = AppletClient.clear_inspect_cache()
+
+    parent = self()
+
+    {:ok, inspect_server} =
+      Bandit.start_link(
+        plug: {__MODULE__.MidInspectPlug, parent},
+        ip: {0, 0, 0, 0, 0, 0, 0, 1},
+        port: 0
+      )
+
+    {:ok, {_ip, inspect_port}} = ThousandIsland.listener_info(inspect_server)
+
+    endpoint = %{
+      ctx.real
+      | ip: {0, 0, 0, 0, 0, 0, 0, 1},
+        host: "localhost",
+        port: inspect_port,
+        url: "http://[::1]:#{inspect_port}"
+    }
+
+    :sys.replace_state(EndpointPool, &%{&1 | endpoints: %{endpoint.ip => endpoint}})
+
+    try do
+      task2 =
+        Task.async(fn ->
+          AppletClient.inspect("export default {'GET /':()=>'task-2'}", [])
+        end)
+
+      assert_receive {:task2_mid_inspect, plug_pid}, 2_000
+
+      {task1_pid, task1_ref} =
+        spawn_monitor(fn ->
+          assert {:ok, %{"routes" => ["GET /"]}} =
+                   AppletClient.inspect("export default {'GET /':()=>'task-1'}", [])
+        end)
+
+      assert_receive {:DOWN, ^task1_ref, :process, ^task1_pid, :normal}, 2_000
+      assert :ets.info(:ankole_applet_inspect_cache, :owner) == supervisor_pid
+
+      send(plug_pid, :continue_task2)
+      assert {:ok, %{"routes" => ["GET /"]}} = Task.await(task2, 5_000)
+    after
+      GenServer.stop(inspect_server)
+    end
   end
 
   test "waiting for an occupied HTTP pool returns the caller's timeout", ctx do
@@ -275,10 +352,19 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
 
   defp package(source) do
     id = Ash.UUIDv7.generate()
-    digest = :crypto.hash(:sha256, source <> "\n[]") |> Base.encode16(case: :lower)
+    bindings_digest = Ankole.Pod.Applets.Bindings.digest(%{})
 
-    {%{tenant_id: Ankole.Repo.tenant_id!(), source: source, env: %{}, sha256: digest},
-     %{"method" => "POST", "path" => "/", "applet" => %{"pageId" => id, "revision" => 1}}}
+    digest =
+      :crypto.hash(:sha256, source <> "\n[]\n" <> bindings_digest) |> Base.encode16(case: :lower)
+
+    {%{
+       tenant_id: Ankole.Repo.tenant_id!(),
+       source: source,
+       env: %{},
+       bindings: %{},
+       bindings_digest: bindings_digest,
+       sha256: digest
+     }, %{"method" => "POST", "path" => "/", "applet" => %{"pageId" => id, "revision" => 1}}}
   end
 
   defp slow_admission(endpoint, stage) do

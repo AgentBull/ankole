@@ -11,4 +11,4 @@ providers:
       socket: /var/run/docker.sock
       network: ankole_workers
       stopGraceSeconds: 60
-      idleReleaseAfter: 15m
+      idleReleaseAfter: 24h

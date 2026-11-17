@@ -388,7 +388,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   validates and starts the native request, so a GenServer can keep its mailbox
   responsive while the provider connects.
   """
-  @spec start_stream(map() | t(), receiver: pid()) ::
+  @spec start_stream(map() | t(), keyword()) ::
           {:ok, UniversalAIClient.stream()} | {:error, term()}
   def start_stream(spec, opts \\ [])
 
@@ -401,9 +401,10 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   def start_stream(spec, opts)
       when is_map(spec) and is_list(opts) do
     receiver = Keyword.get(opts, :receiver, self())
+    ws_session = Keyword.get(opts, :ws_session)
 
     if is_pid(receiver) do
-      UniversalAIClient.open(spec, receiver: receiver)
+      UniversalAIClient.open(spec, receiver: receiver, ws_session: ws_session)
       |> case do
         {:ok, stream} -> {:ok, stream}
         {:error, reason} -> {:error, normalize_stream_error(reason)}
@@ -683,7 +684,9 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
        status: status,
        body: body,
        headers: Map.get(response, "headers", []),
-       hosted_tool_metadata: Map.get(response, "hosted_tool_metadata")
+       hosted_tool_metadata: Map.get(response, "hosted_tool_metadata"),
+       request_bytes: Map.get(response, "request_bytes"),
+       resolver_metadata: Map.get(response, "resolver_metadata")
      }}
   end
 

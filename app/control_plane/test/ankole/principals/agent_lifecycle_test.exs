@@ -94,7 +94,8 @@ defmodule Ankole.Principals.AgentLifecycleTest do
                type: "test.changed"
              })
 
-    assert {:ok, %{status: :disabled}} = Principals.delete_agent(agent.uid)
+    assert {:error, :agent_must_be_disabled} = Principals.delete_agent(agent.uid)
+    assert {:ok, %{status: :disabled}} = Principals.disable_agent(agent.uid)
     assert {:ok, _} = Pages.fetch(private_page.id)
     assert {:ok, _} = Ankole.Pod.fetch_node(private_root.id)
     assert {:ok, _} = AuthZ.get_permission_grant(grant.id)
@@ -172,7 +173,7 @@ defmodule Ankole.Principals.AgentLifecycleTest do
 
     assert Repo.get_by!(Ankole.Pod.Page, id: applet.id).owner_uid == agent.uid
 
-    assert {:ok, %{status: :disabled}} = Principals.Agents.delete_agent(agent.uid)
+    assert {:ok, %{status: :disabled}} = Principals.Agents.disable_agent(agent.uid)
     assert {:ok, _deleted} = Principals.Agents.delete_agent(agent.uid)
 
     reloaded = Repo.get_by!(Ankole.Pod.Page, id: applet.id)

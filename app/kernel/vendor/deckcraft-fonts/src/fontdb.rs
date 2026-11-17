@@ -21,12 +21,20 @@ static GLOBAL: std::sync::OnceLock<FontDb> = std::sync::OnceLock::new();
 /// `epaint_default_fonts`; licence in ATTRIBUTION.md).
 pub const LAST_RESORT_FAMILY: &str = "Ubuntu";
 
-/// Compiled-in font files: the craft-fonts faces (Latin presentation fonts, then Japanese;
-/// empty without `CRAFT_FONTS_DIR`), then the last-resort face.
+/// Compiled-in font files: on native targets, the craft-fonts faces (Latin presentation fonts,
+/// then Japanese; empty without `CRAFT_FONTS_DIR`) plus the last-resort face; on `wasm32`, empty
+/// so fonts load on demand from `/fonts/office/`.
 pub fn bundled() -> Vec<&'static [u8]> {
-    let mut v: Vec<&'static [u8]> = crate::CRAFT_FONTS.iter().map(|f| f.bytes).collect();
-    v.push(epaint_default_fonts::UBUNTU_LIGHT);
-    v
+    #[cfg(target_arch = "wasm32")]
+    {
+        Vec::new()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut v: Vec<&'static [u8]> = crate::CRAFT_FONTS.iter().map(|f| f.bytes).collect();
+        v.push(epaint_default_fonts::UBUNTU_LIGHT);
+        v
+    }
 }
 
 /// Preferred East Asian fallback order when no explicit family covers CJK characters.
@@ -1389,16 +1397,22 @@ fn enumerate_faces(data: &[u8]) -> Vec<Found> {
 pub(crate) fn last_resort_face() -> Arc<FontFace> {
     static FACE: std::sync::OnceLock<Arc<FontFace>> = std::sync::OnceLock::new();
     FACE.get_or_init(|| {
-        // The font is compiled in (`include_bytes!`), so parsing it can't depend on input; the
-        // `last_resort_face_parses` test proves it on every run.
+        #[cfg(not(target_arch = "wasm32"))]
+        let (bytes, family): (&'static [u8], &str) =
+            (epaint_default_fonts::UBUNTU_LIGHT, LAST_RESORT_FAMILY);
+        #[cfg(target_arch = "wasm32")]
+        let (bytes, family): (&'static [u8], &str) = (
+            include_bytes!("../tests/fixtures/legacy-regular.ttf"),
+            "__last_resort__",
+        );
         #[allow(
             clippy::expect_used,
             reason = "the compiled-in last-resort font is static and verified by unit tests"
         )]
         let face = make_face(
-            FontBytes::Static(epaint_default_fonts::UBUNTU_LIGHT),
+            FontBytes::Static(bytes),
             0,
-            LAST_RESORT_FAMILY.into(),
+            family.into(),
             "Regular".into(),
             Vec::new(),
         )

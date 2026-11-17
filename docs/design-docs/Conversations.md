@@ -300,10 +300,13 @@ The browser generates client UUIDs for both conversations and messages:
   historical execution records and cannot be reused.
 - Message text must be valid UTF-8 with no `NUL` bytes and at least one
   non-whitespace character; Ankole stores and compares the exact untrimmed text
-  on retries. When a room is created, Ankole seeds its initial title from the
-  first non-empty line of the opening message or attachment filename (up to 40
-  characters). Once the opening Human message's turn is admitted in a
-  personal-assistant or group room, Ankole asynchronously asks the admitted
+  on retries. When a room is created, a caller can supply an optional custom
+  `title` for non-DM rooms (recording `title_customized = true` atomically in
+  the creation transaction without emitting a rename notice); otherwise Ankole
+  seeds its initial title from the first non-empty line of the opening message or
+  attachment filename (up to 40 characters). Once the opening Human message's
+  turn is admitted in a personal-assistant or group room without a custom title,
+  Ankole asynchronously asks the admitted
   Agent's `light` model profile once for a concise title in the message's
   language (up to 40 characters), stores it in `metadata.generated_title`, and
   updates `title` with a status broadcast unless the Human has manually renamed
@@ -426,7 +429,7 @@ expose only active Agents on which the Human holds `chat` permission.
 | `GET /agents` | Callable AI colleagues with role and `directConversationID`, plus the viewer's personal-assistant availability |
 | `GET /teammates` | Active Humans in the tenant, with an optional search query |
 | `GET /conversations` | Accessible rooms with personal preferences, Agent identities, activity status, search, cursor pagination, and pinned-first or recent interaction order; `imOnly` excludes personal-assistant tasks |
-| `POST /conversations` | Initial Agents and Humans, first message, optional Page, access scope and explicit `roomMode`; bound colleague DMs reuse their identity |
+| `POST /conversations` | Initial Agents and Humans, first message, optional `title` for non-DM rooms, optional Page, access scope and explicit `roomMode`; bound colleague DMs reuse their identity |
 | `GET /conversations/attention` | Accessible rooms with unread messages, pending interactions or active work, including downstream peer work |
 | `POST /next-steps` | The personal assistant's open next steps for the current Human's chat home; `refresh` asks for another menu and `locale` sets the writing language |
 | `POST /next-steps/:id/choose` | Record that the current Human chose one of their offered next steps |
@@ -566,10 +569,17 @@ requests without valid CSRF proof are rejected before reaching domain actions.
 
 ## Pod Chat Workspace
 
-New Chat opens a personal-assistant task with a greeting, starter prompts and
-composer. The sidebar header offers this action below its tabs to formal
-members, with Command/Control+Shift+O. The sidebar stays on the tab where the
-member started New Chat, including after the first message opens the task.
+New Chat (`/`) opens the unified workspace home with a greeting, a `New document`
+action (when the viewer can create Pages in `Space` or `Private`), the
+personal-assistant composer, unified `Needs attention` items (decision-waiting
+Conversations, unread Page comment mentions, and attention Jobs, hidden when
+empty), starter prompts or `NextSteps`, a horizontally scrollable `Continue
+working` miniature-card strip interleaving recent Pages and Conversations (with
+`View all` to `/content/recent`), and `Favorites` Page cards. Entering `/`
+directly selects the `Home` sidebar tab so the Page tree and workspace actions
+appear together; starting `New Chat` from the sidebar header or
+Command/Control+Shift+O preserves whichever sidebar tab (`Home` or `Chat`) was
+open (`keepSidebarTab`), including after the first message opens the task.
 
 While the composer is empty, the chat home shows the personal assistant's
 next-step menu in place of the fixed starter prompts. A menu offers 4 to 7
@@ -630,7 +640,11 @@ A group invites into itself. An assistant task offers Start a group and a DM
 offers New group; both leave the source conversation unchanged. That dialog
 takes a group name, the members (the source conversation's other members start
 checked), and a first message prefilled with the Pages the source referenced,
-and it explains which of these is still missing before it can create the group. Committed room events and native Session transitions notify
+and it explains which of these is still missing before it can create the group.
+The creation transaction records the group title and first message together.
+The dialog retains its conversation and message IDs after any uncertain response.
+Only when every earlier request was explicitly rejected can changes to members
+or the first message start a new attempt. Committed room events and native Session transitions notify
 open Pod tabs, coalescing sidebar refreshes over a 1,500 ms window and
 re-evaluating participant and Page permissions on every refresh.
 
@@ -899,9 +913,9 @@ In the timeline, compact event notices sit alongside attributed messages:
   reader returns to the room, shows the state (including the open tab) that its
   reader left; Pod keeps that state in memory for the 48 most recent blocks, by
   block source. The turn context of a
-  native room carries `ui_blocks: interactive`. The turn context of an external
-  IM conversation carries `ui_blocks: code_only`, and delivery leaves a `ui`
-  block of such a reply as a fenced code block, as it does for Mermaid.
+  native room carries `ui_blocks: interactive`, whereas an external IM
+  conversation omits `ui_blocks` and delivery leaves a `ui` block of such a
+  reply as a fenced code block, as it does for Mermaid.
 - While a turn runs, the active step stays visible above collapsed prior steps
   and reasoning. The work header shows elapsed time when the turn has a recorded
   start. In the expanded live list, new step rows fade up as Pod receives them
@@ -1265,6 +1279,9 @@ which every committed room change also triggers. When a visit marks the room
 read, the browser writes the confirmed read position into the cached room and
 conversation lists and clears an `unread` row whose last message the position
 covers, without rereading either.
+If that background write fails, the browser keeps the error silent and releases
+the local visit and read-position guards so the next visibility or reading-position
+change can retry the same position.
 
 Queue mutations (`POST /conversations/:id/queue`) require `agentUID` (a missing
 transport field returns HTTP 400 with a JSON:API `errors` entry identifying that
@@ -1467,12 +1484,14 @@ questions and will deliver them directly to the Human. The assistant can finish
 independent work and end its turn while the exchange continues.
 
 When an Agent needs a Human to authorize a high-privilege mutation that exceeds
-the Agent's own grants, calling `propose_action_card` drafts an `ActionCard` row
-(`conversation_action_cards`, lock rank `11`) for one of eight typed actions:
-`brain.object.create`, `pod.knowledge.save`, `pod.page.set_sharing`, `pod.page.delete`,
-`pod.page.restore`, `pod.base.delete_table`, `conversation.add_participants`, or
-`library.skill.save`. Page actions require the Agent to hold `node_view` on the
-target node; participant additions require participation in the native room. A
+the Agent's own grants, calling `propose_action_card` (or Connector write
+interception) drafts an `ActionCard` row (`conversation_action_cards`, lock rank
+`11`) for one of nine typed actions: `brain.object.create`,
+`pod.knowledge.save`, `pod.page.set_sharing`, `pod.page.delete`,
+`pod.page.restore`, `pod.base.delete_table`, `conversation.add_participants`,
+`library.skill.save`, or `connectors.tool.call`. Page actions require the Agent
+to hold `node_view` on the target node; participant additions require
+participation in the native room. A
 Skill card captures the complete draft and its personal or workspace scope,
 with the existing Skill ID and revision when updating. Drafting snapshots optimistic
 preconditions (`expected_sharing_version`, `expected_updated_at` +
@@ -1507,30 +1526,45 @@ preconditions. For deletion and restoration, it
 reads the target Page and Base versions after acquiring their write locks, so a
 concurrent writer that commits while confirmation waits invalidates the card:
 
-- Matching preconditions execute the domain mutation in the same control-plane
-  transaction, transition the card from `prepared` to `executed` (for
-  `pod.base.delete_table`, `executed` means `Bases.Delete.mark_in_tx/1` committed
-  `deleting_at` and registered the asynchronous shard-drop cleanup job), and
-  enqueue a `conversation.action_card.executed` wakeup Signal for the drafting
-  Agent.
+- Matching preconditions on control-plane mutations execute the domain mutation
+  in the same transaction, transition the card from `prepared` to `executed`
+  (for `pod.base.delete_table`, `executed` means `Bases.Delete.mark_in_tx/1`
+  committed `deleting_at` and registered the asynchronous shard-drop cleanup
+  job), and enqueue a `conversation.action_card.executed` wakeup Signal for the
+  drafting Agent.
+- Confirming a `connectors.tool.call` card transitions the row from `prepared`
+  to `executing` with a 120-second `execution_claim_id` lease before releasing
+  database locks to invoke the upstream tool. Once the call finishes, a second
+  transaction matches `execution_claim_id`, clears the lease, records the
+  terminal status (`executed` on confirmed success, `execution_uncertain` when
+  an upstream timeout or 5xx response leaves the side effect ambiguous, `failed`
+  when the call deterministically fails before mutating upstream state, or
+  `stale` when locked connection or account identity changed), and enqueues the
+  wakeup Signal carrying that terminal `status`. While a card is in `executing`,
+  cancellation and message retraction are rejected; if the lease expires after a
+  process crash, confirming settles any recorded receipt without re-invoking the
+  upstream write.
 - Precondition mismatches transition the card to `stale` with an explanatory
   `resolution_note` in the same transaction without mutating target state,
-  whereas `cancel` transitions it to `cancelled` silently without waking the
-  Agent. Withdrawing the source message cancels an open `prepared` card.
+  whereas `cancel` transitions a `prepared` card to `cancelled` silently without
+  waking the Agent. Withdrawing the source message cancels an open `prepared`
+  card that has not entered execution.
 - External channels follow explicit capability tiers: Tier 1 adapters with
   `PreviewAdapter.refresh/2` (Feishu/Lark, Slack, Discord, Telegram, Microsoft
-  Teams, and WeCom AI Bot when `response_url` is available) refresh the original
-  card in place to remove buttons and display the outcome; Tier 2 button-callback
-  adapters without preview-adapter card refresh (LINE, WhatsApp, DingTalk, and
-  WeCom AI Bot fallback) enforce server-side
-  idempotency on the locked card row, reject unlinked external clicks without
-  creating Principal records, and send one settlement receipt
-  (`outbound_key: "action-card-settlement:<card_id>"`, plus at most one duplicate
-  or unauthorized notice per external sender recorded in `notified_senders`);
-  Tier 3 channels without interactive card callbacks (Email and WeCom Customer
-  Service) render a read-only summary with a confirmation link
-  (`https://<slug>.<site>/?actionCard=<card_id>`) that opens the standalone
-  confirmation dialog in Pod WebUI.
+  Teams, DingTalk, and WeCom AI Bot) refresh the original preview message in
+  place to remove buttons and display the outcome; for asynchronous
+  `connectors.tool.call` confirmation on WeCom AI Bot (whose `template_card`
+  can only be replaced once inside the 5-second callback window), settlement
+  appends a one-time `[Action Card ...]` receipt message after the call
+  completes. Tier 2 button-callback adapters without preview-adapter card
+  refresh (LINE and WhatsApp) enforce server-side idempotency on the locked card
+  row, reject unlinked external clicks without creating Principal records, and
+  send one settlement receipt (`outbound_key: "action-card-settlement:<card_id>"`,
+  plus at most one duplicate or unauthorized notice per external sender recorded
+  in `notified_senders`). Tier 3 channels without interactive card callbacks
+  (Email and WeCom Customer Service) render a read-only summary with a
+  confirmation link (`https://<slug>.<site>/?actionCard=<card_id>`) that opens
+  the standalone confirmation dialog in Pod WebUI.
 
 On turn completion, `Sessions.Presentation` builds `rich_content.execution` from
 the durable turn journal and tool results, recording the reasoning summary,
@@ -1581,9 +1615,12 @@ collapsed row shows a spinner while one of its reads runs, and otherwise marks a
 read that was blocked, failed, or stopped. Expanding a step or group unfolds and
 fades in its details. A completed step draws its check mark.
 
- Linked Background Agent Jobs and Workflows in `waiting_on_user` render their
+Linked Background Agent Jobs and Workflows in `waiting_on_user` render their
 pending Clarify choices and quick-reply composer inline on `LinkedExecutionCard`
-alongside the read-only detail drawer trigger.
+alongside the read-only detail drawer trigger. Choosing a Clarify answer in this
+card or the execution inspector leaves the separate composer draft intact. After
+a successful composer send, Pod clears only the text that was submitted,
+retaining any new text typed while the request was pending.
 
 While an Agent works, Pod names every running step in the work header, joined
 by ` · ` when steps run in parallel, and keeps the steps in one folded list.
@@ -1722,7 +1759,12 @@ stimulus into the target Agent's `conversation:<uuid>` Session:
 
 - Multiple Agents observing the same platform message (or an outbound Agent
   Delivery followed by the platform's own echo webhook) converge on one shared
-  Message UUID and `seq`. If a user replies to an earlier ignored-but-retained
+  Message UUID and `seq`, and `Observe` suppresses self-echoes matching an
+  already recorded Agent reply. Inbound messages authored by external bots or
+  apps follow the Binding's `external_bot_policy` (`ignore` by default,
+  `record_only`, or rate-limited `allow`), attributing admitted bot posts to
+  `:external_bot` service accounts (`svc_bot_<adapter>_<hash>`) rather than
+  Human accounts. If a user replies to an earlier ignored-but-retained
   batch observation, `Observe` promotes that observation into a public Message
   before linking the reply.
 - Unmapped external senders and attachment-only posts are stored with nullable
@@ -1872,10 +1914,17 @@ Generation handoffs update both old and new preview owners atomically (rolling
 back both on conflict so an abandoned preview card never receives further text,
 and allowing a stopped preview to record a newer presentation only within its
 current generation), while `Delivery.ReplyPresentation` formats renderer-safe
-content. Durable `Delivery` uses these checkpoints to finalize or recover the
-in-place platform message without treating streamed drafts as committed model or
-conversation history; native Pod rooms stream over SSE and never create
-`delivery_previews` rows.
+content. Rich external IM previews (such as Feishu CardKit cards) surface
+streaming model tool calls (`tool_call_started` and `tool_call_completed`,
+including `StreamLoop` internal `tool_search`, `program`, and `brain` items)
+together with semantic Turn/Worker `"tool.activity"` events in `"activities"`
+and working `"meta"["status"]` on the 1,000ms throttled flush interval
+without overwriting richer Worker labels, and preserve `:working` activity
+and status labels across multi-round `checkpoint` transitions. Durable
+`Delivery` uses these checkpoints to finalize or recover the in-place platform
+message without treating streamed drafts as committed model or conversation
+history; native Pod rooms stream over SSE and never create `delivery_previews`
+rows.
 
 See [Signals](Signals.md) for intake and adapter contracts,
 [Sessions](Sessions.md) for execution and recovery, [AIGateway](AIGateway.md)

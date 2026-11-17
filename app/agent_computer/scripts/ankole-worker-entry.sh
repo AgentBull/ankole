@@ -82,11 +82,11 @@ case "${ANKOLE_WORKER_STORAGE:?}" in
   *) echo 'unsupported ANKOLE_WORKER_STORAGE' >&2; exit 64 ;;
 esac
 
-mkdir -p /workspace /var/cache/ankole
+mkdir -p /workspace /var/cache/ankole/skills-cas
 run_as_agent=(env -u ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY setpriv --reuid=1000 --regid=1000 --clear-groups --inh-caps=-all --ambient-caps=-all --no-new-privs)
 # The platform can mount an empty /run over the image's runtime directory.
 mkdir -p /run/ankole-browser
-chown 1000:1000 /var/cache/ankole /run/ankole-browser
+chown 1000:1000 /var/cache/ankole /var/cache/ankole/skills-cas /run/ankole-browser
 # OSS mounts permit writes by uid 1000 but do not support chown.
 if ! "${run_as_agent[@]}" test -w /workspace; then
   chown 1000:1000 /workspace

@@ -378,7 +378,7 @@ test('portable copies name embedded pages and an exported archive contains uploa
   }
 })
 
-test('Insights lists real readers, preserves anonymous counts, and limits reader names to editors', async ({
+test('Insights lists real readers, counts viewing sessions, and limits reader names to editors', async ({
   browser
 }, info) => {
   const ownerContext = await browser.newContext({ viewport: { width: 1280, height: 900 } })
@@ -415,22 +415,16 @@ test('Insights lists real readers, preserves anonymous counts, and limits reader
     await viewer.keyboard.press('ControlOrMeta+Shift+I')
     await expect(insights(viewer).getByText('仅文档编辑者和管理者可查看访问者名单。')).toBeVisible()
     await expect(insights(viewer).getByRole('list', { name: '访问者', exact: true })).toHaveCount(0)
-    const visibility = insights(viewer).getByRole('switch', { name: /显示我的访问记录/ })
-    await expect(visibility).toBeChecked()
-    const savedPrivacy = viewer.waitForResponse(
-      response => response.request().method() === 'PUT' && response.url().endsWith(`/pages/${id}/user-state`)
-    )
-    await visibility.click()
-    await expect(visibility).not.toBeChecked()
-    expect((await savedPrivacy).status()).toBe(200)
+    await expect(insights(viewer).getByRole('switch')).toHaveCount(0)
     await owner.keyboard.press('ControlOrMeta+Shift+I')
     await expect(insights(owner).getByRole('img', { name: '过去 30 天的活动' })).toBeVisible()
+    await expect(insights(owner).getByRole('switch')).toHaveCount(0)
     const readers = insights(owner).getByRole('list', { name: '访问者', exact: true })
-    await expect(readers.getByRole('listitem')).toHaveCount(2)
+    await expect(readers.getByRole('listitem')).toHaveCount(3)
     await expect(readers.getByText('Browser member', { exact: true })).toBeVisible()
-    await expect(readers.getByText('Browser viewer', { exact: true })).toHaveCount(0)
-    await expect(readers.getByText(/最近访问：.*\d{4}/)).toHaveCount(2)
-    await expect(insights(owner).getByText(/可见访问者：.*2.*人/)).toBeVisible()
+    await expect(readers.getByText('Browser viewer', { exact: true })).toBeVisible()
+    await expect(readers.getByText(/最近访问：.*\d{4}/)).toHaveCount(3)
+    await expect(insights(owner).getByText(/共.*3.*人/)).toBeVisible()
     const activity = await request<{ daily: { views: number }[] }>(owner, `/pages/${id}/insights`)
     expect(activity.daily.reduce((sum, day) => sum + day.views, 0)).toBe(3)
     await owner.screenshot({ path: info.outputPath('insights-readers-desktop.png'), caret: 'initial' })
@@ -440,12 +434,118 @@ test('Insights lists real readers, preserves anonymous counts, and limits reader
     await owner.screenshot({ path: info.outputPath('insights-readers-mobile.png'), caret: 'initial' })
     await viewer.reload()
     await expect(viewer.locator('.pod-document .editor-content')).toBeVisible()
-    await viewer.keyboard.press('ControlOrMeta+Shift+I')
-    await expect(insights(viewer).getByRole('switch')).not.toBeChecked()
     const repeated = await request<{ daily: { views: number }[] }>(owner, `/pages/${id}/insights`)
     expect(repeated.daily.reduce((sum, day) => sum + day.views, 0)).toBe(3)
   } finally {
     if (id) await request(owner, `/pages/${id}`, 'DELETE')
     await Promise.all([ownerContext.close(), memberContext.close(), viewerContext.close()])
+  }
+})
+
+test('editable documents, read-only documents, and knowledge pages export print-ready Word and PDF files', async ({
+  browser
+}, info) => {
+  const ownerContext = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+  const viewerContext = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+  await ownerContext.addCookies(state.owner.cookies)
+  await viewerContext.addCookies(state.viewer.cookies)
+  const owner = await ownerContext.newPage()
+  const viewer = await viewerContext.newPage()
+  let docId: string | undefined
+  let knowledgeId: string | undefined
+  try {
+    docId = await createDocument(owner)
+    const title = owner.getByRole('textbox', { name: '页面标题', exact: true })
+    const editor = owner.locator('.pod-document .editor-content')
+    await title.fill('Quarterly Architecture Review')
+    await title.press('Enter')
+    await expect(editor).toBeFocused()
+    await owner.keyboard.insertText('Live draft text before export')
+
+    // 1. Editable Document Page exports live draft to Word (.docx) and PDF (.pdf).
+    await submenu(owner, '导出')
+    await expect(owner.getByRole('menuitem', { name: 'Word (.docx)', exact: true })).toBeVisible()
+    await expect(owner.getByRole('menuitem', { name: 'PDF (.pdf)', exact: true })).toBeVisible()
+
+    const docDocxDownload = owner.waitForEvent('download')
+    await owner.getByRole('menuitem', { name: 'Word (.docx)', exact: true }).click()
+    const docDocx = await docDocxDownload
+    expect(docDocx.suggestedFilename()).toBe('Quarterly-Architecture-Review.docx')
+    const docDocxBytes = new Uint8Array(readFileSync((await docDocx.path())!))
+    const docDocxArchive = unzipSync(docDocxBytes)
+    expect(strFromU8(docDocxArchive['word/document.xml']!)).toContain('Live draft text before export')
+    await info.attach('exported-document.docx', {
+      path: (await docDocx.path())!,
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    })
+
+    await submenu(owner, '导出')
+    const docPdfDownload = owner.waitForEvent('download')
+    await owner.getByRole('menuitem', { name: 'PDF (.pdf)', exact: true }).click()
+    const docPdf = await docPdfDownload
+    expect(docPdf.suggestedFilename()).toBe('Quarterly-Architecture-Review.pdf')
+    const docPdfBytes = new Uint8Array(readFileSync((await docPdf.path())!))
+    expect(new TextDecoder().decode(docPdfBytes.subarray(0, 5))).toBe('%PDF-')
+    await info.attach('exported-document.pdf', {
+      path: (await docPdf.path())!,
+      contentType: 'application/pdf'
+    })
+
+    // 2. Read-only Document Page viewer exports Word (.docx) and PDF (.pdf).
+    const sharing = await request<{ sharing_version: string }>(owner, `/pages/${docId}/sharing`)
+    await request(owner, `/pages/${docId}/sharing`, 'PUT', {
+      sharing_version: sharing.sharing_version,
+      inherit_permissions: false,
+      grants: [
+        { principal_uid: state.owner.uid, role: 'manage' },
+        { principal_uid: state.viewer.uid, role: 'view' }
+      ]
+    })
+    await viewer.goto(state.base_url + pageRoute(docId))
+    await expect(viewer.locator('.pod-document .editor-content')).toContainText('Live draft text before export')
+    await submenu(viewer, '导出')
+    const viewerDocxDownload = viewer.waitForEvent('download')
+    await viewer.getByRole('menuitem', { name: 'Word (.docx)', exact: true }).click()
+    const viewerDocx = await viewerDocxDownload
+    expect(viewerDocx.suggestedFilename()).toBe('Quarterly-Architecture-Review.docx')
+
+    // 3. Knowledge Page exports structured YAML properties + body to Word (.docx) and PDF (.pdf).
+    const createdKnowledge = await request<{ page: { id: string } }>(owner, '/pages', 'POST', {
+      parent_id: state.report_id,
+      type: 'knowledge',
+      title: 'Service Catalog Entry',
+      metadata: {
+        tier: 'critical',
+        owners: ['platform', 'storage']
+      },
+      content: '<page><p>Authoritative service runbook body.</p></page>'
+    })
+    knowledgeId = createdKnowledge.page.id
+    await owner.goto(state.base_url + pageRoute(knowledgeId))
+    const knowledgeSection = owner.locator('[data-knowledge-page]')
+    await expect(knowledgeSection).toContainText('Authoritative service runbook body.')
+
+    await knowledgeSection.getByRole('button', { name: '导出', exact: true }).click()
+    const knowDocxDownload = owner.waitForEvent('download')
+    await owner.getByRole('menuitem', { name: 'Word (.docx)', exact: true }).click()
+    const knowDocx = await knowDocxDownload
+    expect(knowDocx.suggestedFilename()).toBe('Service-Catalog-Entry.docx')
+    const knowArchive = unzipSync(new Uint8Array(readFileSync((await knowDocx.path())!)))
+    const knowDocumentXml = strFromU8(knowArchive['word/document.xml']!)
+    expect(knowDocumentXml).toContain('critical')
+    expect(knowDocumentXml).toContain('platform, storage')
+    expect(knowDocumentXml).toContain('Authoritative service runbook body.')
+
+    await knowledgeSection.getByRole('button', { name: '导出', exact: true }).click()
+    const knowPdfDownload = owner.waitForEvent('download')
+    await owner.getByRole('menuitem', { name: 'PDF (.pdf)', exact: true }).click()
+    const knowPdf = await knowPdfDownload
+    expect(knowPdf.suggestedFilename()).toBe('Service-Catalog-Entry.pdf')
+    const knowPdfBytes = new Uint8Array(readFileSync((await knowPdf.path())!))
+    expect(new TextDecoder().decode(knowPdfBytes.subarray(0, 5))).toBe('%PDF-')
+  } finally {
+    if (docId) await request(owner, `/pages/${docId}`, 'DELETE')
+    if (knowledgeId) await request(owner, `/pages/${knowledgeId}`, 'DELETE')
+    await Promise.all([ownerContext.close(), viewerContext.close()])
   }
 })

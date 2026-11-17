@@ -1,21 +1,11 @@
 import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
-import { useMutation, useQuery } from '../tenant-context'
+import { useQuery } from '../tenant-context'
 import { ActorLabel } from '../actor-label'
-import { Badge, Button, Checkbox, Textarea, toast } from '@ankole/uikit'
-import { useModel } from '@preact/signals-react'
-import { useSignals } from '@preact/signals-react/runtime'
+import { Badge, Skeleton } from '@ankole/uikit'
 
 import { useTranslation } from 'react-i18next'
-import {
-  getIdentityDirectoryOptions,
-  approveIdentityDirectoryMutation,
-  reviewIdentityDirectoryEventMutation,
-  listPrincipalsOptions
-} from '../api/v2/generated/@tanstack/react-query.gen'
-import { AccessReviewModel } from '../state/access-review-model'
+import { getIdentityDirectoryOptions, listPrincipalsOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { ErrorBlock } from '../../common/error-block'
-import { requestErrorMessage } from '../../common/request-errors'
-import { LabeledField } from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
 import { LIST_REFRESH_MS } from '../refresh-intervals'
 import { fromDocument } from '../api/json-api'
@@ -30,9 +20,7 @@ function snapshotStatusVariant(status: string) {
 }
 
 export function DirectoryAccessSection({ providerID }: { providerID: string }) {
-  useSignals()
   const { t } = useTranslation()
-  const model = useModel(AccessReviewModel)
   const directory = useQuery({
     ...getIdentityDirectoryOptions({ path: { provider_id: providerID } }),
     refetchInterval: LIST_REFRESH_MS
@@ -41,18 +29,7 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
     ...listPrincipalsOptions({ query: { include_disabled: true } }),
     select: data => fromDocument(data)
   })
-  const onSuccess = () => {
-    model.reason.value = ''
-    model.approvedFingerprint.value = undefined
-    toast.success(t('console.human_access.saved'))
-  }
-  const onError = (error: unknown) => toast.error(requestErrorMessage(error))
-  const approve = useMutation({ ...approveIdentityDirectoryMutation(), onSuccess, onError })
   const snapshot = directory.data?.snapshot
-  const pending = approve.isPending
-  const confirmed = Boolean(
-    snapshot?.snapshot_fingerprint && model.approvedFingerprint.value === snapshot.snapshot_fingerprint
-  )
   return (
     <section className="grid gap-4 border-t border-border-subtle pt-6">
       <h3 className="title-section">{t('console.directory_access.title')}</h3>
@@ -90,8 +67,8 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
                 {snapshot.missing_uids.map(uid => {
                   const person = principals.data?.find(person => person.id === uid)
                   return (
-                    <li key={uid} title={uid}>
-                      {person ? principalLabel(person) : uid}
+                    <li key={uid} title={person || !principals.isPending ? uid : undefined}>
+                      {person ? principalLabel(person) : principals.isPending ? <Skeleton className="h-4 w-36" /> : uid}
                     </li>
                   )
                 })}
@@ -102,74 +79,15 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
       ) : (
         <p className="text-sm text-fg-secondary">{t('console.directory_access.no_snapshot')}</p>
       )}
-      {snapshot?.status === 'review_required' && snapshot.snapshot_fingerprint ? (
-        <>
-          <LabeledField label={t('console.human_access.reason')} required>
-            <Textarea
-              rows={2}
-              value={model.reason.value}
-              onChange={e => {
-                model.reason.value = e.target.value
-              }}
-            />
-          </LabeledField>
-
-          <label className="flex items-start gap-3 text-sm">
-            <Checkbox
-              checked={confirmed}
-              onCheckedChange={checked => {
-                model.approvedFingerprint.value =
-                  checked === true ? (snapshot.snapshot_fingerprint ?? undefined) : undefined
-              }}
-            />
-            <span>{t('console.directory_access.confirm')}</span>
-          </label>
-          <Button
-            type="button"
-            className="justify-self-start"
-            disabled={pending || !model.hasReason.value || !confirmed}
-            onClick={() =>
-              approve.mutate({
-                path: { provider_id: providerID },
-                body: {
-                  data: {
-                    reason: model.reason.value.trim(),
-                    snapshot_fingerprint: model.approvedFingerprint.value!,
-                    confirm_removals: true
-                  }
-                }
-              })
-            }>
-            {t('console.directory_access.approve')}
-          </Button>
-        </>
-      ) : null}
       {directory.data?.events.map(event => (
-        <DirectoryEventReview key={event.id} providerID={providerID} event={event} />
+        <DirectoryEventReview key={event.id} event={event} />
       ))}
     </section>
   )
 }
 
-function DirectoryEventReview({
-  providerID,
-  event
-}: {
-  providerID: string
-  event: GetIdentityDirectoryResponse['events'][number]
-}) {
-  useSignals()
+function DirectoryEventReview({ event }: { event: GetIdentityDirectoryResponse['events'][number] }) {
   const { t } = useTranslation()
-  const model = useModel(AccessReviewModel)
-  const review = useMutation({
-    ...reviewIdentityDirectoryEventMutation(),
-    onSuccess: () => {
-      model.reason.value = ''
-      toast.success(t('console.human_access.saved'))
-    },
-    onError: error => toast.error(requestErrorMessage(error))
-  })
-  const pending = review.isPending
   const eventTypeKey = event.event_type.replace(/[^a-zA-Z0-9]+/g, '_')
   return (
     <div className="grid gap-3 border border-border-subtle p-4">
@@ -187,47 +105,6 @@ function DirectoryEventReview({
       </div>
       <p className="text-sm">{event.reason ?? event.last_error}</p>
       <code className="text-xs break-all text-fg-secondary">{event.external_ids.join(', ')}</code>
-      {event.status === 'pending' || event.status === 'review_required' ? (
-        <div className="grid gap-3">
-          <LabeledField label={t('console.human_access.reason')} required>
-            <Textarea
-              rows={2}
-              value={model.reason.value}
-              onChange={e => {
-                model.reason.value = e.target.value
-              }}
-            />
-          </LabeledField>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={pending || !model.hasReason.value}
-              onClick={() =>
-                review.mutate({
-                  path: { provider_id: providerID, event_id: event.id },
-                  body: { data: { action: 'retry', reason: model.reason.value.trim() } }
-                })
-              }>
-              {t('common.retry')}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={pending || !model.hasReason.value}
-              onClick={() =>
-                review.mutate({
-                  path: { provider_id: providerID, event_id: event.id },
-                  body: { data: { action: 'dismiss', reason: model.reason.value.trim() } }
-                })
-              }>
-              {t('console.directory_access.dismiss')}
-            </Button>
-          </div>
-        </div>
-      ) : null}
       {event.review_reason ? (
         <p className="text-xs text-fg-secondary">
           <ActorLabel actor={event.reviewed_by} /> · {event.review_reason}

@@ -18,7 +18,7 @@ defmodule Ankole.Pod.Jobs.DeliverBaseChanges do
   end
 
   def run(_job) do
-    (&Ankole.Pod.Bases.Outbox.wake/0)
+    (&Ankole.Pod.Bases.Outbox.wake_if_pending/0)
     |> Ankole.Tenants.map_active()
     |> Ankole.Tenants.fanout_result()
   end

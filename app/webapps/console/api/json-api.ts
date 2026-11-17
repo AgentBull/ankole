@@ -38,6 +38,7 @@ export function fromDocument<R extends ResourceObject>(document: { data?: R | R[
 }
 
 interface JSONAPIError {
+  status?: string
   code?: string
   title?: string
   detail?: string
@@ -46,6 +47,7 @@ interface JSONAPIError {
 }
 
 interface ConsoleFailure {
+  httpStatus?: number
   error: { code: string; message: string; details: Record<string, unknown>[] }
 }
 
@@ -58,18 +60,29 @@ interface ConsoleFailure {
  * the session and data context failures of the shared pipeline, stay the same.
  * The v2 clients use this function as their error interceptor.
  */
-export function fromErrors(payload: unknown): unknown {
+export function fromErrors(payload: unknown, response?: Response): unknown {
   const errors = jsonAPIErrors(payload)
   const [first] = errors
-  if (!first) return payload
+  if (!first) {
+    if (!response) return payload
+    if (typeof payload === 'string') return { httpStatus: response.status, message: payload }
+    if (payload && typeof payload === 'object' && !Array.isArray(payload) && !('httpStatus' in payload)) {
+      return { ...payload, httpStatus: response.status }
+    }
+    return payload
+  }
 
   const fieldErrors = errors.filter(error => error.source?.pointer || error.source?.parameter)
   const details: Record<string, unknown>[] = fieldErrors.length
     ? fieldErrors.map(error => ({ path: fieldPath(error.source!), message: message(error) ?? '' }))
     : metaDetails(first)
   const code = fieldErrors.length === errors.length ? 'validation_failed' : (first.code ?? 'request_failed')
+  const parsedStatus = first.status ? Number(first.status) : undefined
+  const httpStatus =
+    response?.status ?? (typeof parsedStatus === 'number' && Number.isFinite(parsedStatus) ? parsedStatus : undefined)
 
   return {
+    ...(httpStatus !== undefined ? { httpStatus } : {}),
     error: { code, message: message(first) ?? code, details }
   } satisfies ConsoleFailure
 }

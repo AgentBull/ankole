@@ -102,6 +102,8 @@ const savedStatView: BaseView = {
 
 function makeBaseDetail(actions: PageDetail['actions']): PageDetail {
   return {
+    bindings: {},
+    bindings_digest: '',
     page: {
       id: baseID,
       name: 'Sales Pipeline',
@@ -254,7 +256,7 @@ async function renderBaseChart(options: {
   }
 }
 
-describe('Notion-aligned Base chart & doc embed UX', () => {
+describe('Base chart and doc embed UX', () => {
   test('a KPI never presents a single period as the total while its total is pending or failed', async () => {
     for (const scalarStatus of ['pending', 'error'] as const) {
       const html = await renderBaseChart({

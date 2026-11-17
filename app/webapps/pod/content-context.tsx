@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { createReadDenials } from '@ankole/applet-sdk'
 import type { PodChatOpenOptions, PodPrincipal } from '@ankole/applet-sdk/types'
 import { podSubjects } from './api/generated/sdk.gen'
+import { subjectsToPodPrincipals } from './applet-host'
 import { createBaseAPI } from './base-api'
 import { isRealtimeAccessDenied, PodRealtime } from './realtime'
 import { contentKeys } from './content-api'
@@ -17,9 +18,18 @@ export type PageSaveOptions = {
   syncIfClean: boolean
 }
 
+export type AppletWorkspaceSession = {
+  picking: boolean
+  startPick(): void
+  togglePick(): void
+  openHistory(): void
+}
+
 export type PageHostActions = {
+  commentOnElement?(selection: import('./applet-elements').AppletElementSelection): void
   navigateToPage(pageID: string): void
   openChat(options?: PodChatOpenOptions): void
+  registerAppletSession?(session: AppletWorkspaceSession): () => void
   registerOfficeSession?(session: OfficeNavigationSession): () => void
   registerPageSave?(handler: (options: PageSaveOptions) => Promise<boolean>): () => void
 }
@@ -76,20 +86,7 @@ function createContent(client: ReturnType<typeof useQueryClient>) {
     readDenial: readDenials.get,
     async principals(): Promise<PodPrincipal[]> {
       const { subjects } = await podSubjects()
-      return subjects.flatMap(subject =>
-        subject.principal_uid && (subject.kind === 'human' || subject.kind === 'agent')
-          ? [
-              {
-                uid: subject.principal_uid,
-                name: subject.name,
-                kind: subject.kind,
-                avatar_url: subject.avatar_url ?? null,
-                subtitle: subject.subtitle ?? null,
-                membership: subject.membership ?? null
-              }
-            ]
-          : []
-      )
+      return subjectsToPodPrincipals(subjects)
     },
     dispose() {
       readDenials.dispose()

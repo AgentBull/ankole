@@ -8,7 +8,7 @@ import { Command, insertText } from '../core/command'
 import { CellSelection } from '../core/table'
 import { TableMap } from '../core/table/tablemap'
 import * as T from '../core/types'
-import { MathBlock, openMathEditor } from '../blocks/math'
+import { InlineMath, MathBlock, openMathEditor } from '../blocks/math'
 import { InfographicBlock, InfographicView } from '../blocks/infographic'
 import { MermaidBlock, MermaidView } from '../blocks/mermaid'
 import { isEditableResource, openResourceEditor } from '../blocks/resources'
@@ -273,6 +273,9 @@ const enterSelection: Command = ({ state }) => {
       selection: GardSelection.near(state, state.selection.replacementRange.to, -1),
       scrollIntoView: true
     }
+  }
+  if (state.selection instanceof GardSelection.Node && state.selection.node.type === InlineMath && !state.readOnly) {
+    return { effects: openMathEditor.of(state.selection.from), scrollIntoView: true }
   }
   if (!(state.selection instanceof BlockSelection)) return false
   const blocks = state.selection.blocks
@@ -547,7 +550,11 @@ export const blockSelection: GardState.Extension = [
       key: 'Space',
       allowDefault: true,
       run: ({ state }) => {
-        if (state.readOnly || !(state.selection instanceof BlockSelection)) return false
+        if (state.readOnly) return false
+        if (state.selection instanceof GardSelection.Node && state.selection.node.type === InlineMath) {
+          return { effects: openMathEditor.of(state.selection.from), scrollIntoView: true }
+        }
+        if (!(state.selection instanceof BlockSelection)) return false
         const blocks = state.selection.blocks
         if (blocks.length !== 1) return false
         const first = blocks[0]!

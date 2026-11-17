@@ -1,14 +1,15 @@
 import { describe, expect, test } from 'bun:test'
+import { StrictMode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
   AnkoleGraph,
-  computeGraphTopology,
+  computeGraphTopology as computeComponentGraphTopology,
   projectGraphAnchors,
   resolveCanvasThemePalette,
   type AnkoleGraphEdge,
   type AnkoleGraphNode
 } from '../src/components/graph'
-import { buildG6GraphSpec } from '../src/viz/graph-layout'
+import { INCREMENTAL_FORCE_ALPHA, buildG6GraphSpec, computeGraphTopology } from '../src/viz/graph-layout'
 
 const SAMPLE_NODES: AnkoleGraphNode[] = [
   { id: 'cat:companies', label: 'companies', tier: 'hub', ramp: 'blue' },
@@ -186,5 +187,78 @@ describe('AnkoleGraph', () => {
     })
     expect(spec.transforms).toEqual([{ type: 'process-parallel-edges', key: 'parallel-edges', distance: 24 }])
     expect(spec.behaviors).toContainEqual({ type: 'collapse-expand', trigger: 'dblclick' })
+  })
+
+  test('relaxes incremental force updates from previousPositions at low alpha instead of cold-restarting', () => {
+    const initial = computeGraphTopology(SAMPLE_NODES, SAMPLE_EDGES, 'force', 960, 560)
+    // Simulate a user dragging `obj:report` to the upper-right quadrant before a poll adds one new neighbor.
+    const draggedPositions = new Map(initial.initialPositions)
+    draggedPositions.set('obj:report', { x: 820, y: 120 })
+
+    const updatedNodes: AnkoleGraphNode[] = [
+      ...SAMPLE_NODES,
+      { id: 'obj:appendix', label: 'Q3 Appendix', ramp: 'purple', href: '/meta/brain/obj:appendix' }
+    ]
+    const updatedEdges: AnkoleGraphEdge[] = [
+      ...SAMPLE_EDGES,
+      { id: 'e5', source: 'obj:report', target: 'obj:appendix', kind: 'relation' }
+    ]
+
+    const incremental = computeGraphTopology(updatedNodes, updatedEdges, 'force', 960, 560, null, draggedPositions)
+    const coldRestart = computeGraphTopology(updatedNodes, updatedEdges, 'force', 960, 560)
+
+    const incReport = incremental.initialPositions.get('obj:report')!
+    const coldReport = coldRestart.initialPositions.get('obj:report')!
+    // Incremental low-alpha relaxation keeps `obj:report` near its prior upper-right quadrant rather than snapping to cold layout.
+    expect(Math.hypot(incReport.x - 820, incReport.y - 120)).toBeLessThan(
+      Math.hypot(coldReport.x - 820, coldReport.y - 120)
+    )
+    const appendixPos = incremental.initialPositions.get('obj:appendix')!
+    expect(Number.isFinite(appendixPos.x) && Number.isFinite(appendixPos.y)).toBe(true)
+
+    // When fewer than half of the nodes existed previously, falls back cleanly to a full cold layout.
+    const mostlyNew = computeGraphTopology(
+      updatedNodes,
+      updatedEdges,
+      'force',
+      960,
+      560,
+      null,
+      new Map([['obj:report', { x: 820, y: 120 }]])
+    )
+    expect(mostlyNew.initialPositions).toEqual(coldRestart.initialPositions)
+    expect(computeComponentGraphTopology).toBe(computeGraphTopology)
+    expect(INCREMENTAL_FORCE_ALPHA).toBe(0.12)
+  })
+
+  test('does not mutate previousPositions or drift across repeated pure renders (StrictMode stability)', () => {
+    const base = computeGraphTopology(SAMPLE_NODES, SAMPLE_EDGES, 'force', 960, 560)
+    const frozenPrev = new Map(base.initialPositions)
+    const snapshotBefore = new Map(base.initialPositions)
+
+    const updatedNodes: AnkoleGraphNode[] = [
+      ...SAMPLE_NODES,
+      { id: 'obj:appendix', label: 'Q3 Appendix', ramp: 'purple', href: '/meta/brain/obj:appendix' },
+      { id: 'obj:island', label: 'Isolated Note', ramp: 'teal', href: '/meta/brain/obj:island' }
+    ]
+    const updatedEdges: AnkoleGraphEdge[] = [
+      ...SAMPLE_EDGES,
+      { id: 'e5', source: 'obj:report', target: 'obj:appendix', kind: 'relation' }
+    ]
+
+    const passOne = computeGraphTopology(updatedNodes, updatedEdges, 'force', 960, 560, null, frozenPrev)
+    const passTwo = computeGraphTopology(updatedNodes, updatedEdges, 'force', 960, 560, null, frozenPrev)
+    expect(frozenPrev).toEqual(snapshotBefore)
+    expect(passOne.initialPositions).toEqual(passTwo.initialPositions)
+
+    const singleMarkup = renderToStaticMarkup(
+      <AnkoleGraph ariaLabel="Graph" nodes={updatedNodes} edges={updatedEdges} layout="force" />
+    )
+    const strictMarkup = renderToStaticMarkup(
+      <StrictMode>
+        <AnkoleGraph ariaLabel="Graph" nodes={updatedNodes} edges={updatedEdges} layout="force" />
+      </StrictMode>
+    )
+    expect(strictMarkup).toBe(singleMarkup)
   })
 })

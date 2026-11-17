@@ -946,8 +946,8 @@ defmodule Ankole.Pod.Pages.Sharing do
       else
         Ankole.Principals.list_principals!(
           query: [
-            filter: [uid: [in: referenced_uids], type: [in: [:human, :agent]]],
-            load: [:human_user, :agent]
+            filter: [uid: [in: referenced_uids], type: [in: [:human, :agent, :system]]],
+            load: [:human_user, :agent, :service_account]
           ]
         )
         |> Enum.map(fn principal ->

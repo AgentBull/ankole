@@ -1,6 +1,7 @@
 ---
 name: google-analytics
 description: "Find and use google_analytics operations through Ankole connections."
+default_enabled: false
 ---
 
 # google-analytics

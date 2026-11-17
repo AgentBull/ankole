@@ -1,4 +1,4 @@
-import type { BaseRecord, RecordWrite } from './types'
+import type { BaseRecord, RecordData, RecordWrite } from './types'
 
 /** Assign each create its UUIDv7 once, so a retried request keeps the same identity. */
 export function withRecordIDs(changes: RecordWrite): RecordWrite {
@@ -25,7 +25,7 @@ export function previewRecordList(records: readonly BaseRecord[], pending: reado
   const next: BaseRecord[] = []
   for (const record of records) {
     let deleted = false
-    let data = record.data
+    let updatedData: RecordData | undefined
     for (const changes of pending) {
       if (changes.deletes?.some(item => item.id === record.id)) {
         deleted = true
@@ -33,18 +33,28 @@ export function previewRecordList(records: readonly BaseRecord[], pending: reado
       }
       const update = changes.updates?.find(item => item.id === record.id)
       if (!update) continue
-      data = { ...data, ...update.data }
+      updatedData ??= { ...record.data }
+      Object.assign(updatedData, update.data)
     }
     if (deleted) {
       changed = true
       continue
     }
-    if (data === record.data) {
+    if (!updatedData) {
       next.push(record)
       continue
     }
     changed = true
-    next.push({ ...record, data })
+    next.push({ ...record, data: updatedData })
   }
   return changed ? next : (records as BaseRecord[])
+}
+
+/** Record versions come from the captured read, including absence of an unwritten field. */
+export function expectedVersions(record: BaseRecord, data: RecordData) {
+  return Object.fromEntries(
+    Object.keys(data)
+      .filter(id => Object.hasOwn(record.versions, id))
+      .map(id => [id, record.versions[id]!])
+  )
 }

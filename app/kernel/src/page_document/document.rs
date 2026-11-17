@@ -260,6 +260,7 @@ fn from_block(node: &Element) -> Result<DocNode> {
                     "description",
                     "image",
                     "height",
+                    "props",
                 ],
             );
             for (key, name) in [
@@ -271,6 +272,7 @@ fn from_block(node: &Element) -> Result<DocNode> {
                 ("description", "EmbedDescription"),
                 ("image", "EmbedImage"),
                 ("height", "EmbedHeight"),
+                ("props", "EmbedProps"),
             ] {
                 add_str_attr(&mut marks, attrs, key, name);
             }
@@ -352,6 +354,20 @@ fn from_inline(nodes: &[Node], context: &Marks, style: &str) -> Result<Vec<DocNo
             } else {
                 out.push(DocNode::new(NodeKind::LineBreak, Value::Null, mark, None));
             }
+        } else if node.name == "inline-math" {
+            let mut mark = extras(&node.attrs, &[]);
+            for (key, value) in &marks {
+                mark.insert(key.clone(), value.clone());
+            }
+            let param = node
+                .children
+                .iter()
+                .filter_map(|child| match child {
+                    Node::Text(value) => Some(value.as_str()),
+                    Node::Element(_) => None,
+                })
+                .collect::<String>();
+            out.push(DocNode::new(NodeKind::InlineMath, json!(param), mark, None));
         } else if node.name == "mention" {
             let mut mark = extras(&node.attrs, &["page", "principal"]);
             for (key, value) in &marks {
@@ -536,6 +552,7 @@ fn to_block(node: &DocNode) -> Result<Element> {
                 ("description", "EmbedDescription"),
                 ("image", "EmbedImage"),
                 ("height", "EmbedHeight"),
+                ("props", "EmbedProps"),
             ] {
                 restore(&mut attrs, node, key, mark);
             }
@@ -561,6 +578,15 @@ fn to_inline(nodes: &[DocNode]) -> Result<Vec<Node>> {
                 restore(&mut attrs, node, "alt", "ImageAlt");
                 restore(&mut attrs, node, "title", "ImageTitle");
                 Node::Element(element("img", attrs, Vec::new()))
+            }
+            NodeKind::InlineMath => {
+                let text = node.param.as_str().ok_or("invalid inline math")?;
+                let children = if text.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![Node::Text(text.into())]
+                };
+                Node::Element(element("inline-math", attrs_back(node)?, children))
             }
             NodeKind::Mention => {
                 let mut attrs = attrs_back(node)?;

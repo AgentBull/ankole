@@ -105,6 +105,15 @@ defmodule Ankole.Pod.Chat.ExecutionDetail do
     ]
   ]
 
+  @deliverable [
+    fields: [
+      path: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+      nodeID: [type: :string, allow_nil?: false],
+      name: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+      mimeType: [type: :string]
+    ]
+  ]
+
   use Ash.Type.NewType,
     subtype_of: :map,
     constraints: [
@@ -128,6 +137,7 @@ defmodule Ankole.Pod.Chat.ExecutionDetail do
         continuedFromJobID: [type: :string],
         successorJobID: [type: :string],
         outcomeText: [type: :string, constraints: [trim?: false]],
+        deliverables: [type: {:array, :map}, constraints: [items: @deliverable]],
         errorText: [type: :string, constraints: [trim?: false]],
         stepCount: [type: :integer, allow_nil?: false],
         pendingQuestions: [

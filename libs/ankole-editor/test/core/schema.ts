@@ -36,19 +36,15 @@ export function builder<Param>(from: Mark<Param>): (...children: ContentSpec[]) 
 export function builder<Param>(from: Mark.Type<Param>): (param: Param, ...children: ContentSpec[]) => Plot
 export function builder(from: Schema): (...children: ContentSpec[]) => Plot.Doc
 export function builder(from: Mark | Mark.Type | Node.Type | Leaf | Plot.Tag | Schema): any {
-  return from instanceof Plot.Tag
-    ? (...children: ContentSpec[]) => from.create(collectChildren(children))
-    : from instanceof Mark
-      ? (...children: ContentSpec[]) => fragment(children, from)
-      : from instanceof Plot.Type
-        ? (param: any, ...children: ContentSpec[]) => from.of(param).create(collectChildren(children))
-        : from instanceof Leaf.Type
-          ? (param: any) => from.of(param)
-          : from instanceof Leaf
-            ? from
-            : from instanceof Schema
-              ? (...children: ContentSpec[]) => from.doc(collectChildren(children))
-              : (value: any, ...children: ContentSpec[]) => fragment(children, (from as any as Mark.Type).of(value))
+  if (from instanceof Plot.Tag) return (...children: ContentSpec[]) => from.create(collectChildren(children))
+  if (from instanceof Mark) return (...children: ContentSpec[]) => fragment(children, from)
+  if (from instanceof Plot.Type) {
+    return (param: any, ...children: ContentSpec[]) => from.of(param).create(collectChildren(children))
+  }
+  if (from instanceof Leaf.Type) return (param: any) => from.of(param)
+  if (from instanceof Leaf) return from
+  if (from instanceof Schema) return (...children: ContentSpec[]) => from.doc(collectChildren(children))
+  return (value: any, ...children: ContentSpec[]) => fragment(children, (from as Mark.Type).of(value))
 }
 
 const InlineFragment = Plot.define('Fragment', {

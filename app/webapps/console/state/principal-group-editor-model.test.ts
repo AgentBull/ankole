@@ -5,7 +5,7 @@ describe('PrincipalGroupEditorModel', () => {
   test('keeps edits during refetch and resets when the route selects another group', () => {
     const model = new PrincipalGroupEditorModel()
 
-    model.initialize('group:admins', {
+    model.initialize('tenant-1:group:admins', {
       name: 'admins',
       displayName: 'Admins',
       description: '',
@@ -15,7 +15,7 @@ describe('PrincipalGroupEditorModel', () => {
     expect(model.dirty.value).toBe(false)
     model.displayName.value = 'Edited Admins'
     expect(model.dirty.value).toBe(true)
-    model.initialize('group:admins', {
+    model.initialize('tenant-1:group:admins', {
       name: 'admins',
       displayName: 'Refetched Admins',
       description: '',
@@ -25,7 +25,7 @@ describe('PrincipalGroupEditorModel', () => {
 
     expect(model.displayName.value).toBe('Edited Admins')
 
-    model.initialize('group:operators', {
+    model.initialize('tenant-1:group:operators', {
       name: 'operators',
       displayName: 'Operators',
       description: '',
@@ -44,7 +44,13 @@ describe('PrincipalGroupEditorModel', () => {
   test('creation accepts a name for the server to normalize and requires a display name', () => {
     const model = new PrincipalGroupEditorModel()
 
-    model.initialize('new', { name: '', displayName: '', description: '', kind: 'static', computedCondition: '' })
+    model.initialize('tenant-1:new', {
+      name: '',
+      displayName: '',
+      description: '',
+      kind: 'static',
+      computedCondition: ''
+    })
     expect(model.draftError('new')).toBe('name_required')
 
     model.name.value = 'Operators'
@@ -111,7 +117,13 @@ describe('PrincipalGroupEditorModel', () => {
 
   test('auto-derives name from display name in new mode until manually edited', () => {
     const model = new PrincipalGroupEditorModel()
-    model.initialize('new', { name: '', displayName: '', description: '', kind: 'static', computedCondition: '' })
+    model.initialize('tenant-1:new', {
+      name: '',
+      displayName: '',
+      description: '',
+      kind: 'static',
+      computedCondition: ''
+    })
 
     model.setDisplayName('Research Ops', true)
     expect(model.name.value).toBe('research-ops')
@@ -119,6 +131,25 @@ describe('PrincipalGroupEditorModel', () => {
     model.setName('custom-ops')
     model.setDisplayName('Updated Research Ops', true)
     expect(model.name.value).toBe('custom-ops')
+    model[Symbol.dispose]()
+  })
+
+  test('a group save normalizes unchanged fields while preserving fields edited during the request', () => {
+    const model = new PrincipalGroupEditorModel()
+    const original = {
+      name: 'team',
+      displayName: 'Team ',
+      description: 'sent ',
+      kind: 'static' as const,
+      computedCondition: ''
+    }
+    model.initialize('tenant-1:group:team', original)
+    const confirm = model.captureSave()
+    model.description.value = 'next'
+    expect(confirm({ ...original, displayName: 'Team', description: 'sent' })).toBe(true)
+    expect(model.displayName.value).toBe('Team')
+    expect(model.description.value).toBe('next')
+    expect(model.dirty.value).toBe(true)
     model[Symbol.dispose]()
   })
 })

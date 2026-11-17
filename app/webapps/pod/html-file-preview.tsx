@@ -43,13 +43,14 @@ const transport = createClientConfig({}).fetch!
 export const HTML_SANDBOX_ALLOW =
   'allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads'
 
-const HTML_SANDBOX_SHIM = `<script>(function(){function s(){var d=Object.create(null);return{get length(){return Object.keys(d).length},key:function(i){return Object.keys(d)[i]??null},getItem:function(k){return Object.prototype.hasOwnProperty.call(d,String(k))?d[String(k)]:null},setItem:function(k,v){d[String(k)]=String(v)},removeItem:function(k){delete d[String(k)]},clear:function(){d=Object.create(null)}}}for(var n of['localStorage','sessionStorage']){try{void window[n]}catch(_){try{Object.defineProperty(window,n,{value:s(),configurable:true})}catch(__){}}}try{void document.cookie}catch(_){try{Object.defineProperty(document,'cookie',{get:function(){return''},set:function(){},configurable:true})}catch(__){}}document.addEventListener('click',function(e){if(e.defaultPrevented)return;var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a||a.hasAttribute('target')||a.hasAttribute('download'))return;var h=a.getAttribute('href')||'';if(/^(https?:|mailto:|tel:)/i.test(h)){a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer')}})})();</script>`
+const HTML_SANDBOX_SHIM = `<script>(function(){function s(){var d=Object.create(null);return{get length(){return Object.keys(d).length},key:function(i){return Object.keys(d)[i]??null},getItem:function(k){return Object.prototype.hasOwnProperty.call(d,String(k))?d[String(k)]:null},setItem:function(k,v){d[String(k)]=String(v)},removeItem:function(k){delete d[String(k)]},clear:function(){d=Object.create(null)}}}for(var n of['localStorage','sessionStorage']){try{void window[n]}catch(_){try{Object.defineProperty(window,n,{value:s(),configurable:true})}catch(__){}}}try{void document.cookie}catch(_){try{Object.defineProperty(document,'cookie',{get:function(){return''},set:function(){},configurable:true})}catch(__){}}window.addEventListener('click',function(e){if(e.defaultPrevented)return;var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a||a.hasAttribute('download'))return;var h=(a.getAttribute('href')||'').trim();var t=a.getAttribute('target');if(h.charAt(0)==='#'&&(!t||t.toLowerCase()==='_self')){e.preventDefault();location.assign('about:srcdoc'+h);return}if(t!==null)return;if(/^(https?:|mailto:|tel:)/i.test(h)){a.setAttribute('target','_blank');a.setAttribute('rel','noopener noreferrer')}})})();</script>`
 
 /**
  * Prepares an untrusted HTML document for `<iframe sandbox={HTML_SANDBOX_ALLOW} referrerPolicy="no-referrer" srcDoc>`:
  * preserves any leading `<!doctype>` so Standards Mode stays intact, shims `localStorage` / `sessionStorage` / `cookie`
  * so scripts do not crash with `SecurityError` inside the opaque origin, and opens external links in a new tab while
- * keeping `#hash` anchor navigation inside the frame.
+ * keeping `#hash` anchor navigation inside the frame. The window click handler lets document handlers cancel
+ * navigation first, then uses the srcdoc URL explicitly because relative fragments resolve against the host Page.
  */
 export function buildSandboxedHtmlSrcDoc(rawHtml: string): string {
   const html = rawHtml.startsWith('\uFEFF') ? rawHtml.slice(1) : rawHtml

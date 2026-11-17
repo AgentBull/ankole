@@ -12,6 +12,7 @@ import {
 } from './tree'
 import { marks, ruleOf, type ElementRule, type Mark } from './vocabulary'
 import { commentIDs } from './comments'
+import { parseEmbedProps } from './embed-props'
 
 /*
  * The normal form keeps everything a reader can see and removes differences
@@ -26,20 +27,20 @@ const layout = /^[ \t\r\n]*$/
 const closeScript =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\u3000-\u303f\u30fc\ufe30-\ufe4f\uff00-\uffef]/u
 const valueHints: Record<string, string> = {
-  align: 'left、center、right 或 justify',
-  indent: '1 到 999 的整数',
-  start: '0 或不超过 9 位的正整数',
-  task: 'todo 或 done',
-  colspan: '1 到 9999 的整数',
-  rowspan: '1 到 9999 的整数',
-  width: '1 到 9999 的整数',
-  height: '160 到 1600 的整数',
-  tone: 'info、warning、success、danger 或 neutral',
+  align: 'left, center, right, or justify',
+  indent: 'an integer from 1 to 999',
+  start: '0 or a positive integer of at most 9 digits',
+  task: 'todo or done',
+  colspan: 'an integer from 1 to 9999',
+  rowspan: 'an integer from 1 to 9999',
+  width: 'an integer from 1 to 9999',
+  height: 'an integer from 160 to 1600',
+  tone: 'info, warning, success, danger, or neutral',
   wrap: 'true',
-  view: 'both、code 或 diagram',
-  theme: 'auto、light 或 dark',
-  page: '非空页面 ID',
-  principal: '非空主体 UID'
+  view: 'both, code, or diagram',
+  theme: 'auto, light, or dark',
+  page: 'a non-empty page ID',
+  principal: 'a non-empty principal UID'
 }
 // Empty values of these attributes show nothing and equal a missing attribute.
 const optionalText = new Set(['alt', 'lang', 'meta', 'style', 'title'])
@@ -67,14 +68,19 @@ type Atom = { value?: string; node?: Element; marks: Mark[]; style: string; link
 
 export function normalizeTree(root: Element): Element {
   if (root?.type !== 'element' || root.name !== 'page') {
-    throw new TreeError('根元素必须是 page', root, '请用 <page> 包住整页内容。')
+    throw new TreeError('The root element must be <page>', root, 'Wrap the page content in <page>.', 'invalid_root')
   }
   return normalizeElement(root, undefined, 0, { nodes: 0 })
 }
 
 function count(node: Node, depth: number, state: Count) {
   if (++state.nodes > limits.nodes || depth > limits.depth) {
-    throw new TreeError(`页面超过 ${limits.nodes} 个节点或 ${limits.depth} 层嵌套`, node, '请把页面拆小。')
+    throw new TreeError(
+      `The page exceeds ${limits.nodes} nodes or ${limits.depth} levels of nesting`,
+      node,
+      'Split the page into smaller pages.',
+      'limit_exceeded'
+    )
   }
 }
 
@@ -82,57 +88,91 @@ function normalizeElement(node: Element, parent: Element | undefined, depth: num
   count(node, depth, state)
   if (parent) {
     checkElementName(node.name, node)
-    if (node.name === 'page') throw new TreeError('page 只能作为根元素', node, '请删除嵌套的 <page>。')
+    if (node.name === 'page') {
+      throw new TreeError('<page> can only be the root element', node, 'Remove the nested <page>.', 'invalid_parent')
+    }
   }
   const rule = ruleOf(node.name)
   if (rule?.parents && !rule.parents.includes(parent?.name ?? '')) {
     throw new TreeError(
-      `<${node.name}> 只能放在 ${rule.parents.map(name => `<${name}>`).join(' 或 ')} 里`,
+      `<${node.name}> can only be placed inside ${rule.parents.map(name => `<${name}>`).join(' or ')}`,
       node,
-      `请把 <${node.name}> 移到 ${rule.parents.map(name => `<${name}>`).join(' 或 ')} 中。`
+      `Move <${node.name}> inside ${rule.parents.map(name => `<${name}>`).join(' or ')}.`,
+      'invalid_parent'
     )
   }
   const attrs = normalizeAttributes(node, rule)
-  const children = !rule
-    ? unknownChildren(node, depth, state)
-    : rule.content === 'text'
-      ? textChildren(node, depth, state)
-      : rule.content === 'empty'
-        ? emptyChildren(node)
-        : rule.content === 'inline'
-          ? normalizeInline(node.children, node, depth, state)
-          : blockChildren(node, rule.content, depth, state)
+  const children = normalizeElementChildren(node, rule, depth, state)
   if (node.name === 'block' && !Object.keys(attrs).length && children.length < 2) {
     return (children[0] as Element | undefined) ?? element('p')
   }
   return element(node.name, attrs, children)
 }
 
+function normalizeElementChildren(node: Element, rule: ElementRule | undefined, depth: number, state: Count) {
+  if (!rule) return unknownChildren(node, depth, state)
+  switch (rule.content) {
+    case 'text':
+      return textChildren(node, depth, state)
+    case 'empty':
+      return emptyChildren(node)
+    case 'inline':
+      return normalizeInline(node.children, node, depth, state)
+    default:
+      return blockChildren(node, rule.content, depth, state)
+  }
+}
+
 function normalizeAttributes(node: Element, rule: ElementRule | undefined): Record<string, string> {
   const entries = Object.entries(node.attrs).sort(([a], [b]) => compareNames(a, b))
   if (node.name === 'comment') {
     if (entries.length !== 1 || entries[0]![0] !== 'ids') {
-      throw new TreeError('comment 只支持 ids 属性', node, '请提供 ids 并删除其他属性。')
+      throw new TreeError(
+        '<comment> only accepts the ids attribute',
+        node,
+        'Provide ids and remove other attributes.',
+        'invalid_attribute'
+      )
     }
     try {
       return { ids: commentIDs(node.attrs.ids!).join(' ') }
     } catch {
-      throw new TreeError('comment 的 ids 必须是以空格分隔的 UUIDv7', node, '请使用有效的评论线程 ID。')
+      throw new TreeError(
+        'ids on <comment> must be space-separated UUIDv7 values',
+        node,
+        'Use valid comment thread IDs.',
+        'invalid_attribute'
+      )
     }
   }
-  if (node.name === 'page' && entries.length) throw new TreeError('page 没有属性', node, '页面标题等信息不写在正文里。')
+  if (node.name === 'page' && entries.length) {
+    throw new TreeError(
+      '<page> does not accept attributes',
+      node,
+      'Page metadata such as the title belongs outside the body.',
+      'invalid_attribute'
+    )
+  }
   const kept: [string, string][] = []
   for (const [key, raw] of entries) {
     checkAttributeName(key, node)
     checkCharacters(raw, node)
     const known = rule && Object.hasOwn(rule.attributes, key)
     const value = known && key === 'style' ? keptStyle(raw) : raw
+    if (node.name === 'embed' && key === 'props') {
+      try {
+        parseEmbedProps(value)
+      } catch {
+        throw new TreeError('Invalid embed props', node, 'Use a JSON object of at most 16 KiB.', 'invalid_attribute')
+      }
+    }
     const pattern = known ? rule.attributes[key] : null
     if (pattern && !pattern.test(value)) {
       throw new TreeError(
-        `<${node.name}> 的 ${key}="${value}" 不合法`,
+        `${key}="${value}" on <${node.name}> is not valid`,
         node,
-        `${key} 的值应为 ${key === 'view' && node.name !== 'mermaid' && node.name !== 'infographic' ? 'link、title、card 或 preview' : (valueHints[key] ?? pattern.source)}。`
+        `The value of ${key} must be ${key === 'view' && node.name !== 'mermaid' && node.name !== 'infographic' ? 'link, title, card, or preview' : (valueHints[key] ?? pattern.source)}.`,
+        'invalid_attribute'
       )
     }
     if (
@@ -150,7 +190,12 @@ function normalizeAttributes(node: Element, rule: ElementRule | undefined): Reco
   }
   for (const key of rule?.required ?? []) {
     if (!kept.some(([name]) => name === key)) {
-      throw new TreeError(`<${node.name}> 缺少 ${key} 属性`, node, `请为 <${node.name}> 写上 ${key}。`)
+      throw new TreeError(
+        `<${node.name}> is missing the ${key} attribute`,
+        node,
+        `Add ${key} to <${node.name}>.`,
+        'missing_attribute'
+      )
     }
   }
   if (node.name === 'mention') {
@@ -158,9 +203,12 @@ function normalizeAttributes(node: Element, rule: ElementRule | undefined): Reco
     const hasPrincipal = kept.some(([name]) => name === 'principal')
     if (hasPage === hasPrincipal) {
       throw new TreeError(
-        hasPage ? '<mention> 不能同时指定 page 和 principal 属性' : '<mention> 需要指定 page 或 principal 属性',
+        hasPage
+          ? '<mention> cannot specify both page and principal attributes'
+          : '<mention> requires a page or principal attribute',
         node,
-        hasPage ? '请只保留 page 或 principal 其中一个属性。' : '请为 <mention> 写上 page="..." 或 principal="..."。'
+        hasPage ? 'Keep only page or principal.' : 'Add page="..." or principal="..." to <mention>.',
+        hasPage ? 'invalid_attribute' : 'missing_attribute'
       )
     }
   }
@@ -171,13 +219,25 @@ function normalizeAttributes(node: Element, rule: ElementRule | undefined): Reco
 function textChildren(node: Element, depth: number, state: Count): Node[] {
   const atoms: Atom[] = []
   flatten(node.children, { marks: [], style: '', link: null, comments: [] }, atoms, node, depth + 1, state)
+  if (node.name === 'inline-math') {
+    for (const atom of atoms) {
+      if (atom.value !== undefined && (atom.value.includes('\n') || atom.value.includes('\r'))) {
+        atom.value = replaceCodeLineBreaks(atom.value)
+      }
+    }
+  }
   return rebuild(merge(atoms))
 }
 
 function emptyChildren(node: Element): Node[] {
   for (const child of node.children) {
     if (child.type === 'element' || child.value) {
-      throw new TreeError(`<${node.name}> 是空元素`, child, `请把 <${node.name}> 写成 <${node.name} />。`)
+      throw new TreeError(
+        `<${node.name}> is an empty element`,
+        child,
+        `Write <${node.name}> as <${node.name} />.`,
+        'invalid_content'
+      )
     }
   }
   return []
@@ -190,9 +250,10 @@ function blockChildren(node: Element, content: 'blocks' | readonly string[], dep
       checkCharacters(child.value, child)
       if (layout.test(child.value)) continue
       throw new TreeError(
-        `<${node.name}> 中的文字必须放在块元素里`,
+        `Text inside <${node.name}> must be wrapped in a block element`,
         child,
-        Array.isArray(content) ? `请用 <${content[0]}> 包住这段文字。` : '请用 <p> 包住这段文字。'
+        Array.isArray(content) ? `Wrap this text in <${content[0]}>.` : 'Wrap this text in <p>.',
+        'invalid_content'
       )
     }
     if (Array.isArray(content) && !content.includes(child.name)) {
@@ -201,15 +262,21 @@ function blockChildren(node: Element, content: 'blocks' | readonly string[], dep
         grandchild => grandchild.type === 'element' && content.includes(grandchild.name)
       )
       throw new TreeError(
-        `<${node.name}> 只能包含 ${content.map(name => `<${name}>`).join('、')}`,
+        `<${node.name}> can contain only ${content.map(name => `<${name}>`).join(', ')}`,
         child,
         wrapper
-          ? `请去掉 <${child.name}> 标签，把其中的元素直接放在 <${node.name}> 里。`
-          : `请把 <${child.name}> 移出 <${node.name}>。`
+          ? `Remove the <${child.name}> wrapper tags and place their children directly inside <${node.name}>.`
+          : `Move <${child.name}> outside <${node.name}>.`,
+        'invalid_content'
       )
     }
     if (content === 'blocks' && ruleOf(child.name)?.kind === 'inline') {
-      throw new TreeError(`<${child.name}> 是行内元素，不能直接放在 <${node.name}> 里`, child, `请把它放进 <p>。`)
+      throw new TreeError(
+        `<${child.name}> is an inline element and cannot be placed directly inside <${node.name}>`,
+        child,
+        'Wrap it in <p>.',
+        'invalid_content'
+      )
     }
     const normalized = normalizeElement(child, node, depth + 1, state)
     // A list without items shows nothing.
@@ -243,9 +310,10 @@ function mergeLists(blocks: Element[]): Element[] {
     for (const [key, value] of Object.entries(attrs)) {
       if (Object.hasOwn(previous.attrs, key) && previous.attrs[key] !== value) {
         throw new TreeError(
-          `相邻的两个 <${block.name}> 的属性 ${key} 不同`,
+          `Adjacent <${block.name}> lists have different ${key} attributes`,
           block,
-          `请把两个列表的 ${key} 改成相同的值，或在两个列表之间加一个段落。`
+          `Set ${key} to the same value on both lists, or add a paragraph between them.`,
+          'conflicting_list_attribute'
         )
       }
     }
@@ -264,7 +332,12 @@ function unknownChildren(node: Element, depth: number, state: Count): Node[] {
   )
   const block = children.some(child => child.type === 'element' && ruleOf(child.name)?.kind === 'block')
   if (inline && block) {
-    throw new TreeError(`<${node.name}> 不能同时包含块元素和行内内容`, node, '请把行内内容放进 <p>，或把块元素移出。')
+    throw new TreeError(
+      `<${node.name}> cannot mix block elements and inline content`,
+      node,
+      'Wrap inline content in <p> or move block elements outside.',
+      'invalid_content'
+    )
   }
   if (block) return blockChildren(node, 'blocks', depth, state)
   // Line breaks between child elements only lay out the source.
@@ -303,24 +376,45 @@ function flatten(
       continue
     }
     if (container.name === 'pre' && child.name !== 'comment') {
-      throw new TreeError('<pre> 只能包含文字', child, '请删除其中的元素，或改用代码文字。')
+      throw new TreeError(
+        '<pre> can contain only text',
+        child,
+        'Remove child elements or convert them to plain code text.',
+        'invalid_content'
+      )
     }
-    if (container.name === 'math') {
-      throw new TreeError('<math> 只能包含文字', child, '请把公式写成 LaTeX 文字。')
+    if (container.name === 'math' || container.name === 'inline-math') {
+      throw new TreeError(
+        `<${container.name}> can contain only text`,
+        child,
+        'Write the formula as plain LaTeX text.',
+        'invalid_content'
+      )
     }
     if (container.name === 'mermaid' && child.name !== 'comment') {
-      throw new TreeError('<mermaid> 只能包含文字', child, '请把 Mermaid 源码写成文字。')
+      throw new TreeError(
+        '<mermaid> can contain only text',
+        child,
+        'Write the Mermaid source as plain text.',
+        'invalid_content'
+      )
     }
     if (container.name === 'infographic' && child.name !== 'comment') {
-      throw new TreeError('<infographic> 只能包含文字', child, '请把 Infographic 源码写成文字。')
+      throw new TreeError(
+        '<infographic> can contain only text',
+        child,
+        'Write the Infographic source as plain text.',
+        'invalid_content'
+      )
     }
     checkElementName(child.name, child)
     const rule = ruleOf(child.name)
     if (rule?.kind === 'block') {
       throw new TreeError(
-        `<${child.name}> 是块元素，不能放在行内内容里`,
+        `<${child.name}> is a block element and cannot be placed inside inline content`,
         child,
-        '请把它移到段落之外；在 Markdown 中让它单独成行，并用空行与文字隔开。'
+        'Move it outside the paragraph; in Markdown, place it on its own line separated by blank lines.',
+        'invalid_content'
       )
     }
     const plain = Object.keys(child.attrs).length === 0
@@ -356,7 +450,7 @@ function flatten(
       )
     } else if (child.name === 'a') {
       count(child, depth, state)
-      if (context.link) throw new TreeError('链接不能嵌套', child, '请删除内层链接。')
+      if (context.link) throw new TreeError('Links cannot be nested', child, 'Remove the inner link.', 'nested_link')
       const link = element('a', normalizeAttributes(child, rule))
       const inner: Atom[] = []
       flatten(child.children, { ...context, link }, inner, container, depth + 1, state)

@@ -115,6 +115,127 @@ defmodule Ankole.Brain.AppletTakes do
 
   def write(_actor, _options), do: {:error, :invalid_request}
 
+  def write_fact(%Actor{} = actor, options) when is_map(options) do
+    kind = options["kind"] || "fact"
+    notability = options["notability"] || "medium"
+
+    with :ok <- enabled(),
+         {:ok, source_id, subject_id} <- scope_ids(options),
+         :ok <- optional_text(options["context"]),
+         {:ok, provenance} <- fact_provenance(options["provenance"], options["recordRef"]),
+         {:ok, valid_from} <- fact_valid_from(options["validFrom"]),
+         {:ok, confidence} <- fact_confidence(options["confidence"]) do
+      PodAccess.write(
+        actor.turn_authority,
+        fn ->
+          with {:ok, _} <- Pages.authorize(actor, source_id, "node_contribute"),
+               {:ok, access} <- access(actor),
+               :ok <- visible(access, source_id),
+               :ok <- visible(access, subject_id),
+               {:ok, holder} <- fact_holder(actor, subject_id, kind, options["holder"]),
+               {:ok, %{claim: fact, status: status}} <-
+                 Claims.write_fact_in_tx(
+                   %{
+                     source_node_id: source_id,
+                     subject_page_id: subject_id,
+                     holder: holder,
+                     claim: options["claim"],
+                     kind: kind,
+                     notability: notability,
+                     confidence: confidence,
+                     context: options["context"],
+                     valid_from: valid_from,
+                     provenance: provenance
+                   },
+                   Actor.uid(actor),
+                   embed: false
+                 ) do
+            holder_uids = resolve_holder_uids([fact])
+            {:ok, Map.put(fact_payload(fact, holder_uids), :status, Atom.to_string(status))}
+          end
+        end,
+        shared_tree: true
+      )
+    end
+  end
+
+  def write_fact(_actor, _options), do: {:error, :invalid_request}
+
+  defp fact_holder(_actor, _subject_id, _kind, holder) when is_binary(holder) and holder != "",
+    do: {:ok, holder}
+
+  defp fact_holder(actor, subject_id, kind, nil)
+       when kind in ["preference", "belief", "commitment"] do
+    if actor.principal.type in [:human, :agent] do
+      case Scope.canonical_page_id(Actor.uid(actor)) do
+        {:ok, page_id} -> {:ok, page_id}
+        _ -> {:ok, subject_id || "world"}
+      end
+    else
+      {:ok, subject_id || "world"}
+    end
+  end
+
+  defp fact_holder(_actor, subject_id, _kind, nil), do: {:ok, subject_id || "world"}
+  defp fact_holder(_actor, _subject_id, _kind, _holder), do: {:error, :invalid_request}
+
+  defp fact_provenance(provenance, nil) when is_binary(provenance) do
+    trimmed = String.trim(provenance)
+    if trimmed == "", do: {:error, :missing_provenance}, else: {:ok, trimmed}
+  end
+
+  defp fact_provenance(provenance, %{"tableId" => table_id, "recordId" => record_id} = ref)
+       when is_binary(provenance) and is_binary(table_id) and is_binary(record_id) and
+              map_size(ref) == 2 do
+    trimmed = String.trim(provenance)
+    t_id = String.trim(table_id)
+    r_id = String.trim(record_id)
+
+    cond do
+      trimmed == "" ->
+        {:error, :missing_provenance}
+
+      t_id == "" or r_id == "" ->
+        {:error, :invalid_request}
+
+      true ->
+        suffix = "[base:#{t_id}/#{r_id}]"
+
+        if String.contains?(trimmed, suffix),
+          do: {:ok, trimmed},
+          else: {:ok, trimmed <> " " <> suffix}
+    end
+  end
+
+  defp fact_provenance(provenance, _record_ref) when not is_binary(provenance),
+    do: {:error, :missing_provenance}
+
+  defp fact_provenance(_provenance, _record_ref), do: {:error, :invalid_request}
+
+  defp fact_valid_from(nil), do: {:ok, DateTime.utc_now(:microsecond)}
+
+  defp fact_valid_from(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _offset} ->
+        {:ok, dt}
+
+      _ ->
+        case Date.from_iso8601(value) do
+          {:ok, date} -> {:ok, DateTime.new!(date, ~T[00:00:00], "Etc/UTC")}
+          _ -> {:error, :invalid_request}
+        end
+    end
+  end
+
+  defp fact_valid_from(_value), do: {:error, :invalid_request}
+
+  defp fact_confidence(nil), do: {:ok, 1.0}
+
+  defp fact_confidence(value) when is_number(value) and value >= 0.0 and value <= 1.0,
+    do: {:ok, Claims.snap_to_grid(value)}
+
+  defp fact_confidence(_value), do: {:error, {:out_of_range, :confidence}}
+
   defp read(actor, options, claim_kind, run) do
     with :ok <- enabled(),
          {:ok, source_id, subject_id} <- scope_ids(options),
@@ -268,7 +389,7 @@ defmodule Ankole.Brain.AppletTakes do
   end
 
   defp resolve_holder_uids(claims) do
-    raw_holders = claims |> Enum.map(& &1.holder) |> Enum.uniq()
+    raw_holders = claims |> Enum.map(& &1.holder) |> Enum.filter(&is_binary/1) |> Enum.uniq()
 
     direct =
       Enum.reduce(raw_holders, %{}, fn holder, acc ->

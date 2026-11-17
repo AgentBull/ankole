@@ -22,6 +22,7 @@ defmodule Ankole.AgentWorkers.Cloudflare do
       kind: "cloudflare",
       credentials: %{"adapterToken" => %{required: true}},
       pause: false,
+      support_tier: :cloud_extension,
       schema:
         C.object(
           Map.merge(common, %{
@@ -140,11 +141,6 @@ defmodule Ankole.AgentWorkers.Cloudflare do
       other -> error(other)
     end
   end
-
-  @impl true
-  def pause_instance(_provider, _instance), do: {:error, :pause_not_supported}
-  @impl true
-  def resume_instance(_provider, _instance), do: {:error, :pause_not_supported}
 
   @impl true
   def list_instances(provider, :all) do

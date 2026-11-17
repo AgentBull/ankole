@@ -7,7 +7,7 @@ await mkdir(directory, { recursive: true })
 const platform = process.platform
 const arch = process.arch
 if (!['darwin', 'linux'].includes(platform)) {
-  throw new Error('Set CHROMIUM_126_BINARY, FIREFOX_BINARY and GECKODRIVER to local installations on this OS.')
+  throw new Error('Set CHROMIUM_132_BINARY, FIREFOX_BINARY and GECKODRIVER to local installations on this OS.')
 }
 async function run(args: string[]) {
   const process = Bun.spawn(args, { stdout: 'inherit', stderr: 'inherit' })
@@ -21,11 +21,11 @@ async function download(url: string, name: string) {
   return path
 }
 const targets = Bun.argv.slice(2)
-if (!targets.length) throw new Error('Specify chromium126, firefox-esr, or both.')
+if (!targets.length) throw new Error('Specify chromium132, firefox-esr, or both.')
 for (const target of targets) {
-  if (target === 'chromium126') {
+  if (target === 'chromium132') {
     if (platform === 'linux' && arch !== 'x64') {
-      throw new Error('Chrome for Testing 126 has no Linux ARM build. Set CHROMIUM_126_BINARY explicitly.')
+      throw new Error('Chrome for Testing 132 has no Linux ARM build. Set CHROMIUM_132_BINARY explicitly.')
     }
     const build = platform === 'darwin' ? `mac-${arch === 'arm64' ? 'arm64' : 'x64'}` : 'linux64'
     const archive = await download(

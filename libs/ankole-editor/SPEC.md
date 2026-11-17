@@ -77,10 +77,11 @@ When input exceeds any of these limits, the package raises an error instead of t
 | `tr` | Block | Only `th` and `td` | — | Only in `table` |
 | `th`, `td` | Block | Block | `align`: the same values as for `p`. `colspan`, `rowspan`: an integer from 1 to 9999. `background`: a six-digit hex color. | Only in `tr` |
 | `callout` | Block | Block | `tone`: `info`, `warning`, `success`, `danger`, or `neutral`. `icon`: any value. | — |
-| `embed` | Block | Empty | `href`, `title`, `description`, `image`, `ref`, `table`, `view`: any value. `height`: an integer from `160` to `1600`. | `href` selects an external webpage card (`view="card"`) or iframe preview; `ref` identifies a host-owned Page. |
+| `embed` | Block | Empty | `href`, `title`, `description`, `image`, `ref`, `table`, `view`: any value. `height`: an integer from `160` to `1600`. `props`: a JSON object string of at most 16 KiB in UTF-8. | `href` selects an external webpage card (`view="card"`) or iframe preview; `ref` identifies a host-owned Page, with instance parameters in `props`. |
 | `media` | Block | Empty | `src`, `title`, `description`, `image`, `mime`, `size`: any value. `kind`: `image` or `video`. `view`: `link`, `title`, `card`, or `preview`. | Uploaded bytes belong to the host asset store. |
 | `a` | Inline | Inline | `href`: any value, required. `title`: any value. | — |
 | `img` | Inline | Empty | `src`: any value, required. `alt`, `title`: any value. | — |
+| `inline-math` | Inline | Text | — | The text is the LaTeX source of an inline formula. |
 | `mention` | Inline | Empty | Exactly one of `page` (canonical lowercase UUID) or `principal` (non-empty ASCII UID without whitespace) | Host-resolved inline reference; `N` strips any enclosing `a`. |
 | `br` | Inline | Empty | — | — |
 | `span` | Inline | Inline | `style`: `color`, `background-color`, and `text-transform` declarations | — |
@@ -174,17 +175,18 @@ Expansion rules:
 - Segments inside an `a` inherit that link. Nested links are invalid, and an empty `a` is treated as an atomic element.
 - `br` and `img` are atomic elements: they carry neither formats nor `style`, though they retain an enclosing link.
 - `mention` is an atomic empty inline element: it inherits surrounding formats, `style`, and `comment` marks while dropping any enclosing `a` link.
+- `inline-math` is an atomic inline element whose text child contains only text: it inherits surrounding formats, `style`, `comment` marks, and enclosing `a` links.
 - Every other inline element—unknown inline elements, format elements that carry attributes, and `span` elements with attributes other than `style`—is also atomic. It inherits the formats, `style`, and link of its ancestors, while `N` normalizes its own children according to that element's content rules.
 
 Soft line-break rules:
 
-- Outside `code`, `N` replaces each line break (CRLF, CR, or LF)—together with any spaces or tabs immediately before it and all whitespace immediately after it—with a single space, except in three cases where `N` deletes the break and surrounding whitespace altogether:
+- Outside `code` and `inline-math`, `N` replaces each line break (CRLF, CR, or LF)—together with any spaces or tabs immediately before it and all whitespace immediately after it—with a single space, except in three cases where `N` deletes the break and surrounding whitespace altogether:
   - The nearest visible characters on both sides of the line break are Chinese or Japanese characters.
   - The line break lies at the very start or end of the inline content.
   - The line break immediately follows a `br`.
 - A Chinese or Japanese character is any Han, Hiragana, or Katakana character, or any code point in U+3000–U+303F, U+30FC, U+FE30–U+FE4F, or U+FF00–U+FFEF.
 - When scanning for the nearest visible character, `N` skips plain whitespace, whereas whitespace formatted as `code`, underline, strikethrough, or highlight counts as visible. A `br` acts as a content boundary, and every other atomic element counts as a visible character that is neither Chinese nor Japanese.
-- Inside `code` text, `N` replaces each line break with a single space.
+- Inside `code` and `inline-math` text, `N` replaces each line break with a single space.
 
 Additional cleanup rules:
 
@@ -219,7 +221,7 @@ Rebuild rules:
 | Bullet list, ordered list | `ul` or `ol`. An ordered list's starting number is stored in `start`. |
 | List item, `[ ]` or `[x]` task item | `li`, with `task="todo"` or `task="done"` on task items. |
 | Fenced code block | `pre`. The first word of the info string becomes `lang`, and the remainder becomes `meta`. |
-| `$$` formula block | `math`. The formula must occupy its own paragraph, and the text between the delimiters becomes the LaTeX source. Single-line `$$…$$` stays inline math and is rejected. |
+| `$$` formula block | `math`. Multi-line `$$` fences form a display formula block, and the text between the delimiters becomes the LaTeX source. |
 | Mermaid fence | `mermaid`. The info string is exactly `mermaid` with no meta, and the fence body becomes the Mermaid source. |
 | Infographic fence | In Document pages, `infographic`. The info string is exactly `infographic` with no meta, and the fence body becomes the AntV Infographic source. |
 | GFM table | `table` > `tr` > `th` (header row) or `td`. Column alignment sets `align` on every cell in that column, and each cell wraps its inline content in a single `p`. |
@@ -227,6 +229,7 @@ Rebuild rules:
 | `**x**`, `__x__` | `strong` |
 | `~~x~~`, `~x~` | `s` |
 | `` `x` `` | `code` |
+| `$$x$$` | `inline-math`. Double-dollar spans form an inline formula whose text becomes the LaTeX source; single `$` characters stay literal text. |
 | Hard line break (two trailing spaces or a trailing backslash) | `br` |
 | Link | `a`, with `href` and `title` |
 | Image | `img`, with `src`, `alt`, and `title` |
@@ -241,7 +244,7 @@ Syntax:
 - Start tags use `<name attributes…>`, end tags use `</name>`, and self-closing empty elements use `<name />`.
 - Attributes take the form `name="value"` or `name='value'`; a bare attribute `name` receives `"name"` as its value.
 - JSX value expressions (`{…}`), spread attributes (`{...x}`), fragments (`<>`), and duplicate attribute names are syntax errors.
-- `{…}` in body text is literal text, and `<` inside inline code or code blocks is literal text.
+- `{…}` in body text is literal text, and `<` inside inline code, code blocks, inline formulas, or formula blocks is literal text.
 
 Where a tag appears determines whether the parser treats it as block or inline:
 
@@ -257,14 +260,14 @@ Where a tag appears determines whether the parser treats it as block or inline:
 
    Otherwise, the parser reads its body as block content.
 7. When `pre` is written with block tags, its body must be either empty or a single fenced code block. The parser merges the `<pre>` tag's attributes with the fence's `lang` and `meta`, raising an error if either attribute is specified in both places.
-8. When `math` is written with block tags, its body must be empty or a single `$$` formula block. The tag may carry attributes that the `$$` syntax cannot express.
+8. When `math` is written with block tags, its body must be empty or a single `$$` formula block. The tag may carry attributes that the `$$` syntax cannot express. When `inline-math` is written with tags, its body must be empty, plain text, or a single `$$…$$` inline formula; the tag preserves attributes or separates adjacent `$` delimiters.
 9. When `mermaid` or `infographic` is written with block tags, its body must be empty or a single fence with the matching language. The tag may carry `view` and `theme` that the fence cannot express.
 
 ### 4.4 Lenient forms
 
 If strict parsing fails, the parser rewrites unescaped `<` characters according to the table below and retries once. It leaves `<` untouched in three positions:
 
-- inside code spans or fenced code blocks
+- inside code spans, fenced code blocks, inline formulas, or formula blocks
 - immediately after a backslash escape
 - at the start of a link destination (immediately after `](` and optional whitespace)
 
@@ -294,7 +297,7 @@ Block elements:
 | `mermaid` | Has no attributes. | Block `<mermaid …>` tags wrapping a `mermaid` fence. |
 | `infographic` | Has no attributes. | Block `<infographic …>` tags wrapping an `infographic` fence. |
 | `hr` | Has no attributes. | `<hr … />` |
-| `table` | Neither the table nor its rows have attributes; the first row has only `th` cells and subsequent rows have only `td` cells; every row has the same cell count; every cell in a column shares the same `align` (excluding `justify`) and has no other attributes; every cell contains a single attribute-free `p` whose text has no leading or trailing whitespace; and no attribute value inside a cell contains `\|`. | Block tags. Rows in which every cell contains a single shorthand-eligible paragraph print one cell per line; other rows print cells as block tags as well. |
+| `table` | Neither the table nor its rows have attributes; the first row has only `th` cells and subsequent rows have only `td` cells; every row has the same cell count; every cell in a column shares the same `align` (excluding `justify`) and has no other attributes; every cell contains a single attribute-free `p` whose text has no leading or trailing whitespace; and neither an attribute value nor an `inline-math` formula inside a cell contains `\|`. | Block tags. Rows in which every cell contains a single shorthand-eligible paragraph print one cell per line; other rows print cells as block tags as well. |
 | Other block elements | — | Block tags when all children are non-inline elements, `<name … />` when empty, or a single-line tag otherwise. |
 
 Inline elements:
@@ -303,6 +306,7 @@ Inline elements:
 | --- | --- | --- |
 | `strong`, `em`, `s` | No attributes | `**…**`, `*…*`, `~~…~~` |
 | `code` | No attributes, and a single text child | `` `…` `` |
+| `inline-math` | No attributes, non-empty text without `$`, and not immediately adjacent to another `inline-math` shorthand or `$`-edged text | `$$…$$` |
 | `a` | Only `href` and `title` | `[text](url "title")`, or a bare URL when all conditions below hold |
 | `img` | Only `src`, `alt`, and `title` | `![alt](url "title")` |
 
@@ -367,17 +371,18 @@ When source input is invalid, parsing throws `DocumentError` with these fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
+| `code` | `DocumentErrorCode` | Stable machine-readable error code (`'source_too_large'`, `'limit_exceeded'`, `'unclosed_tag'`, etc.) |
 | `format` | `'markdown' \| 'xml'` | The source format |
-| `reason` | `string` | What failed |
-| `fix` | `string` | How to fix the problem |
+| `reason` | `string` | What failed (English default) |
+| `fix` | `string` | How to fix the problem (English default) |
 | `start`, `end` | `number` | UTF-16 offsets in the original source |
 | `line`, `column` | `number` | 1-based line and column numbers (column counts UTF-16 code units) |
 
-`message` uses the format `{Markdown|XML} 第 {line} 行第 {column} 列：{reason}。{fix}` ("Markdown or XML, line {line}, column {column}: {reason}. {fix}").
+`message` uses the format `[{code}] {Markdown|XML}, line {line}, column {column}: {reason}. {fix}`.
 
 When an error is not tied to a specific node position, it points to the start of the source (`line = 1`, `column = 1`, `start = 0`).
 
-### 6.2 Error reasons
+### 6.2 Error codes and reasons
 
 The templates below use these placeholders:
 
@@ -388,62 +393,39 @@ The templates below use these placeholders:
 - `U+XXXX`: a Unicode code point
 - `…`: context-specific detail
 
-| Category | `reason` | Meaning |
-| --- | --- | --- |
-| Source | `源码超过 8388608 个 UTF-16 单元` | The source is longer than 8,388,608 UTF-16 code units. |
-| Source | `含有 XML 1.0 不允许的字符 U+XXXX` | The source contains U+XXXX, which is not an XML 1.0 character. |
-| Tag syntax | `标签 <x> 没有闭合` | The tag `<x>` is not closed. |
-| Tag syntax | `结束标签 </x> 与开始标签 <y> 不匹配` | The end tag `</x>` does not match the start tag `<y>`. |
-| Tag syntax | `结束标签前没有对应的开始标签` | An end tag has no start tag before it. |
-| Tag syntax | `结束标签 </x> 和开始标签不在同一层` | The end tag `</x>` is not at the same level as its start tag. |
-| Tag syntax | `标签中不能有字符 c` | A tag cannot contain the character c. |
-| Tag syntax | `标签没有写完` | The tag is not complete. |
-| Tag syntax | `标签语法错误（…）` | Tag syntax error (…). |
-| Tag attributes and names | `属性不能写成 {…} 表达式` | An attribute cannot be a `{…}` expression. |
-| Tag attributes and names | `属性 x 的值不能写成 {…} 表达式` | The value of the attribute x cannot be a `{…}` expression. |
-| Tag attributes and names | `重复属性 x` | The attribute x occurs more than one time. |
-| Tag attributes and names | `页面不支持片段 <>…</>` | A page cannot contain a fragment `<>…</>`. |
-| Tag attributes and names | `元素名 "x" 不合法` | The element name "x" is not valid. |
-| Tag attributes and names | `属性名 "x" 不合法` | The attribute name "x" is not valid. |
-| Input that pages do not accept | `页面没有注释节点` | A page has no comment nodes. |
-| Input that pages do not accept | `页面不支持 CDATA` | A page cannot contain CDATA. |
-| Input that pages do not accept | `页面不支持处理指令` | A page cannot contain processing instructions. |
-| Input that pages do not accept | `页面不支持 <!…> 声明` | A page cannot contain `<!…>` declarations. |
-| Input that pages do not accept | `页面不支持尖括号自动链接` | A page cannot contain angle-bracket autolinks. |
-| Input that pages do not accept | `页面不支持 DOCTYPE` | A page cannot contain a DOCTYPE. |
-| Input that pages do not accept | `只支持 XML 1.0` | Only XML 1.0 is accepted. |
-| Input that pages do not accept | `源码编码必须是 UTF-8` | The source encoding must be UTF-8. |
-| Input that pages do not accept | `缺少 page 根元素` | There is no `page` root element. |
-| Position and content | `<pre> 只能包含一个代码围栏` | `<pre>` can contain only one code fence. |
-| Position and content | `<pre> 的 x 写了两次` | The x of `<pre>` is written two times. |
-| Position and content | `<x> 只能包含一段行内内容` | `<x>` can contain only one paragraph of inline content. |
-| Position and content | `<x> 只能包含行内内容` | `<x>` can contain only inline content. |
-| Position and content | `<x> 只能放在 <y> 里` | `<x>` can be only in `<y>`. |
-| Position and content | `<x> 只能包含文字` | `<x>` can contain only text. |
-| Position and content | `<x> 是空元素` | `<x>` is an empty element. |
-| Position and content | `<x> 中的文字必须放在块元素里` | Text in `<x>` must be in a block element. |
-| Position and content | `<x> 只能包含 <y>` | `<x>` can contain only `<y>`. |
-| Position and content | `<x> 是行内元素，不能直接放在 <y> 里` | `<x>` is an inline element. It cannot be directly in `<y>`. |
-| Position and content | `<x> 不能同时包含块元素和行内内容` | `<x>` cannot contain both block elements and inline content. |
-| Position and content | `<x> 是块元素，不能放在行内内容里` | `<x>` is a block element. It cannot be in inline content. |
-| Position and content | `链接不能嵌套` | Links cannot be nested. |
-| Vocabulary and tree | `根元素必须是 page` | The root element must be `page`. |
-| Vocabulary and tree | `page 只能作为根元素` | `page` can be only the root element. |
-| Vocabulary and tree | `page 没有属性` | `page` has no attributes. |
-| Vocabulary and tree | `comment 只支持 ids 属性` | A comment anchor requires `ids` and accepts no other attributes. |
-| Vocabulary and tree | `comment 的 ids 必须是以空格分隔的 UUIDv7` | Thread IDs must be lowercase UUIDv7 values separated by single spaces. |
-| Vocabulary and tree | `<x> 的 a="v" 不合法` | `a="v"` on `<x>` is not valid. |
-| Vocabulary and tree | `<x> 缺少 a 属性` | `<x>` does not have the attribute a. |
-| Vocabulary and tree | `页面超过 100000 个节点或 128 层嵌套` | The page has more than 100,000 nodes or 128 levels of nesting. |
-| Vocabulary and tree | `含有 XML 1.0 不允许的字符或孤立代理项` | The content contains a character that is not an XML 1.0 character, or a lone surrogate. |
+| `code` | `reason` |
+| --- | --- |
+| `source_too_large` | `The source exceeds 8388608 UTF-16 code units` |
+| `invalid_character` | `The source contains U+XXXX, which XML 1.0 does not allow` / `The content contains a character not allowed in XML 1.0 or a lone surrogate` |
+| `unclosed_tag` | `The tag <x> is not closed` |
+| `mismatched_closing_tag` | `The closing tag </x> does not match the opening tag <y>` |
+| `unexpected_closing_tag` | `Closing tag has no matching opening tag` |
+| `misaligned_closing_tag` | `The closing tag </x> is not at the same block/inline level as its opening tag` |
+| `invalid_tag_syntax` | `A tag cannot contain the character c` / `The tag is incomplete` / `Tag syntax error (…)` |
+| `expression_attribute` | `Attributes cannot use {…} expressions` / `The value of attribute x cannot be a {…} expression` |
+| `duplicate_attribute` | `Duplicate attribute x` / `x on <pre> is specified twice` |
+| `invalid_element_name` | `The element name "x" is not valid` |
+| `invalid_attribute_name` | `The attribute name "x" is not valid` |
+| `unsupported_syntax` | `Pages do not allow <>…</> fragments` / `Pages do not have comment nodes` / `Pages do not allow CDATA sections` / `Pages do not allow processing instructions` / `Pages do not allow <!…> declarations` / `Pages do not allow angle-bracket autolinks` / `Pages do not allow a DOCTYPE declaration` / `Unsupported Markdown construct …` |
+| `unsupported_xml_version` | `Only XML 1.0 is accepted` |
+| `invalid_encoding` | `The source encoding must be UTF-8` |
+| `missing_root` | `Missing <page> root element` |
+| `invalid_root` | `The root element must be <page>` |
+| `invalid_parent` | `<page> can only be the root element` / `<x> can only be placed inside <y>` |
+| `invalid_content` | `<pre> can contain only one code fence` / `<x> can contain only one paragraph of inline content` / `<x> can contain only inline content` / `<x> can contain only text` / `<x> is an empty element` / `Text inside <x> must be wrapped in a block element` / `<x> can contain only <y>` / `<x> is an inline element and cannot be placed directly inside <y>` / `<x> cannot mix block elements and inline content` / `<x> is a block element and cannot be placed inside inline content` |
+| `invalid_attribute` | `<page> does not accept attributes` / `<comment> only accepts the ids attribute` / `ids on <comment> must be space-separated UUIDv7 values` / `a="v" on <x> is not valid` / `<mention> cannot specify both page and principal attributes` |
+| `missing_attribute` | `<x> is missing the a attribute` / `<mention> requires a page or principal attribute` |
+| `conflicting_list_attribute` | `Adjacent <x> lists have different a attributes` |
+| `nested_link` | `Links cannot be nested` |
+| `limit_exceeded` | `The page exceeds 100000 nodes or 128 levels of nesting` |
 
 Every error includes an actionable `fix`. In particular:
 
-- **Unclosed tag**: if the tag opened inside a paragraph, `fix` instructs the author to close it in the same paragraph without a blank line or tag-only line in between; otherwise, `fix` instructs the author to place the closing tag after the content. In both cases, `fix` also notes that a literal `<` in text should be written as `&lt;`.
-- **Invalid value on a known attribute**: `fix` lists the allowed values—for example, `align 的值应为 left、center、right 或 justify。` ("The value of align must be left, center, right, or justify.").
+- **Unclosed tag**: if the tag opened inside a paragraph, `fix` instructs the author to close it in the same paragraph without blank lines or block tags in between; otherwise, `fix` instructs the author to place the closing tag after the content. In both cases, `fix` also notes that a literal `<` in text should be written as `&lt;`.
+- **Invalid value on a known attribute**: `fix` lists the allowed values—for example, `The value of align must be left, center, right, or justify.`
 - **Wrapper element inside an "Only …" parent** (such as `thead` inside `table`, wrapping children that the parent itself accepts): `fix` instructs the author to remove the wrapper tags.
 
-For low-level XML syntax errors, `reason` carries the message from the XML parser and `fix` is `请修正这处 XML 语法。` ("Correct this XML syntax.").
+For low-level XML syntax errors, `reason` carries the message from the XML parser and `fix` is `Correct this XML syntax.`.
 
 ### 6.3 Errors from the editor and from writes
 
@@ -511,6 +493,7 @@ The editing engine lives in `src/core` as a maintained fork of Wordgard within t
 | `a` with content | Link mark on text, preserving all attributes of `a` |
 | `br` | Line-break node |
 | `img` | Image node, with `alt` and `title` stored as marks |
+| `inline-math` | Inline formula leaf (`InlineMath`) whose parameter is the LaTeX source, inheriting surrounding formats, `style`, `comment` marks, and `a` links |
 | Unknown elements, empty `a`, format elements with attributes, `span` with attributes other than `style` | Read-only element (section 7.4). Inline read-only elements inherit the formats, `style`, and link of their ancestors. |
 
 Any attribute not listed above—including unknown attributes—is preserved in an extra-attributes mark on the node across copy, undo, and block-type conversions.
@@ -588,7 +571,7 @@ A table keeps 24px above and below it so that its column handles and add-row but
   - Invalid attribute values, cell spans above 9999, and empty optional attributes are removed.
 - **Typing shortcuts**: Markdown shorthand from section 4.1 (excluding `<…>` tags) acts as live typing shortcuts:
   - Typing a space after a block marker converts the current paragraph when it sits directly inside the page root, a quote, a callout, or a table cell.
-  - Pressing Enter after a code-fence marker converts the paragraph into a code block, and typing the closing delimiter of an inline marker applies that inline format.
+  - Pressing Enter after a code-fence marker or `$$` on an otherwise empty paragraph converts the paragraph into a code block or a display formula block (opening the formula editor), and typing the closing delimiter of an inline marker (including `$$…$$` for an inline formula) applies that inline format or inline formula.
   - Additional shortcuts trigger when their final character leaves the paragraph containing nothing else: `[] ` converts to a task item, `" ` or `| ` converts to a quote, `---` converts to a divider followed by a new empty paragraph, and `|--` inserts a three-column table outside existing tables.
   - Typing `[ ] ` or `[x] ` at the start of a bullet list item converts only that item into a task item.
   - Shortcuts trigger only on typed input—never on paste or delete—and run once when an IME composition commits.
@@ -624,7 +607,7 @@ A table keeps 24px above and below it so that its column handles and add-row but
   - A plain child paragraph inside a list item is edited independently: Enter creates another plain paragraph at the same level, and Enter on an empty child lifts that paragraph out of the list.
 - **Embeds**: Backspace and Delete at an adjacent block boundary skip over an embed rather than deleting it (see Delete below), and Up/Down Arrow move the caret past it. Users can delete an embed from the block menu or by deleting a selection that spans or selects the embed node (such as clicking the embed to create a node selection). Deleting an embed block removes only the reference; the target page itself is untouched.
 - **Code blocks**: Each editable code block carries a toolbar above its source with the block title, the language picker, the wrap toggle, and copy. The language picker searches labels, canonical names, and common aliases, and lists exact name or alias matches first, then languages with a word that starts with the query; choosing a language stores its canonical name as `lang`, choosing `Plain Text` removes the mark, and either choice is one undo step. A stored language Kirari does not recognize keeps its label in the toolbar and leaves every option unmarked; `Plain Text` is marked only when no language is set or the stored language is `plaintext`. Kirari tokenizes the source per block and paints token classes without changing the document; a block without a language, or with one Kirari does not know, stays plain. The wrap toggle adds or removes `wrap="true"` and lets long lines scroll horizontally when it is absent. Copy writes the literal source, including line breaks but no markup. In read-only documents the language and wrap controls are hidden and copy remains available.
-- **Formula blocks**: A formula block is a leaf whose LaTeX source is its parameter. It renders through Temml as display MathML; clicking it, or selecting it and pressing Enter, Space, or `⌘Enter`, opens a formula editor below the block. The editor accepts LaTeX and writes each change to the document immediately, preserving every mark (including unknown attributes), groups consecutive typing into one undo step, marks an invalid formula in its header, and closes on Enter, Escape, or a click outside. The slash menu inserts an empty formula block and opens its editor. Formula blocks follow the ordinary leaf-block deletion and selection rules, and their source round-trips through Markdown `$$` fences and the `math` element.
+- **Formula blocks and inline formulas**: A display formula block (`MathBlock`) and an inline formula (`InlineMath`) are leaves whose LaTeX source is their parameter. They render through Temml as display or inline MathML, ignoring matching outer math delimiters (`$…$`, `$$…$$`, `\(…\)`, and `\[…\]`) during live preview and validation; clicking either node, or selecting it and pressing Enter, Space, or `⌘Enter`, opens a formula editor below it. The editor accepts LaTeX and writes each change to the document immediately, preserving every mark (including unknown attributes), groups consecutive typing into one undo step, marks an invalid formula in its header, strips redundant outer math delimiters when closing, and closes on Enter, Escape, or a click outside (selecting the block for a display formula, or placing a collapsed caret immediately after the inline formula so typing continues in the paragraph). The slash and insert menus insert an empty display formula (`公式`) or inline formula (`行内公式`) and open its editor; the selection toolbar button and `⌘Shift+E` wrap a single-block text selection into an inline formula (unwrapping outer math delimiters) or insert an empty inline formula at a collapsed caret. Display formula blocks follow the ordinary leaf-block deletion and selection rules and round-trip through Markdown `$$` fences and `math`, whereas inline formulas sit inside inline content and round-trip through `$$…$$` and `inline-math`.
 - **Mermaid blocks**: A Mermaid block is a code-like text block whose source is its content. It renders through Pele into the right-hand pane of a split layout, with a line-number gutter beside the source. The `模板` (Templates) menu replaces the source with a starter diagram and focuses the block, `视图` (View) chooses both panes, code only, or diagram only, `主题` (Theme) chooses the host theme, light, or dark, `展开` (Expand) opens a full-window diagram, and `帮助` (Help) opens the Mermaid syntax reference. View and theme persist on the block (`view`, `theme`). Clicking a diagram-only (`view="diagram"`) Mermaid or Infographic block selects it as a whole block; switching its view while selected moves between whole-block selection (`diagram`) and a source caret (`both` or `code`). Each source edit re-renders the diagram; an invalid diagram shows Pele's error in place. Typing inside the block is ordinary code editing: Tab indents lines, `/` stays literal, formatting does not apply, comment anchors are preserved, and Markdown fences named `mermaid` round-trip to the block.
 - **Delete**: Backspace deletes backward and Delete deletes forward:
   - Backspace removes one grapheme/code-point unit before the caret: an emoji, a zero-width joiner (ZWJ) sequence, or a supplementary-plane character deletes as a single unit, whereas for BMP base characters with combining marks each Backspace strips only the last combining mark. Forward Delete removes the entire character cluster after the caret.
@@ -639,7 +622,7 @@ A table keeps 24px above and below it so that its column handles and add-row but
   - Some `insertReplacementText` events (such as OS spellcheck replacements) are non-cancelable, so the browser mutates the DOM directly. If the mutation stays within a pre-existing text node, the editor reads the updated text and applies it once; if the browser alters DOM structure, the editor re-renders from the document state and discards the browser mutation.
   - For browser-applied edits—plain typing, composition updates, and inline deletes—the editor defers DOM re-rendering between `beforeinput` and `input`; any layout measurement during that window observes the previous render.
 - **Paste and copy**:
-  - Pasting HTML preserves headings, flat and nested lists, quotes, tables, task items (`aria-checked` or GitHub task-list markup), code blocks (`data-language`), links (`href`, `title`), and images (`src`, `alt`, `title`).
+  - Pasting HTML preserves headings, flat and nested lists, quotes, tables, task items (`aria-checked` or GitHub task-list markup), code blocks (`data-language`), rendered formulas carrying TeX annotations (`application/x-tex` or `data-equation`), links (`href`, `title`), and images (`src`, `alt`, `title`).
   - Microsoft Word list paragraphs (`mso-list` styles) become nested lists: the `mso-list` level sets the nesting, a new list id starts a new list, a numbered or lettered marker makes the list numbered, a first number other than 1 becomes the list's `start`, and the typed marker text is removed.
   - Inline formatting recognizes vocabulary format tags plus `<b>`, `<i>`, `<del>`, and `<strike>`; CSS `font-weight` maps to bold only for `bold` and `700`.
   - Inline styles retain only `text-transform` and alignment (`data-align` or `text-align`, ignoring `start` and mapping `end` to `right`); all other inline styles and all block styles are stripped.
@@ -742,6 +725,7 @@ In the block menu, `转换为` (Turn into) supports paragraphs, headings, code b
 | `header`, `footer` | `ReactNode` | — | Custom content rendered before and after the page body |
 | `insertMenu` | `(prepareInsertion: () => void) => ReactNode` | — | Host actions in the left insert menu. Call `prepareInsertion` before inserting host content to restore the insertion caret. |
 | `toolbar` | `ReactNode` | The default toolbar | Pass `null` to hide the toolbar; custom nodes render inside the editor context. |
+| `slashTrigger` | `'auto' \| 'always' \| 'never'` | `'auto'` | Controls the compact bottom-right `/` trigger button (`'auto'` renders it when the editor shell is `<= 640 px` wide). |
 | `children` | `ReactNode` | — | Additional nodes rendered inside the editor context with access to `useEditor` and `useEditorState`. |
 
 Host re-renders, updated callbacks, and `labels` changes update the mounted view in place without recreating the editor instance, and changing `labels` never alters document text, selection, or undo history. Internally, `labels` uses `PhraseSet` while hosts own locale selection and translation catalogs; explicit `ariaLabel` and `placeholder` props take precedence over matching keys in `labels`. Slash-menu search matches translated block titles and descriptions alongside fixed English keyword aliases. The UI descriptions below cite the default Chinese labels.
@@ -760,15 +744,15 @@ Because `onChange` can fire before the DOM reflects the update, reading layout i
 User interface controls:
 
 - **Default toolbar**: contains `插入` (Insert), `当前 Block 菜单` (Current Block menu), the hint `选中文字设置格式 · / 添加内容` ("Select text to format it · Type / to add content"), `撤销` (Undo), and `重做` (Redo).
-- **Selection toolbar**: appears whenever a non-whitespace selection lies outside code blocks. Its controls are 28px and fall into groups separated by dividers, in this order: `问 Agent` (Ask Agent, when the host supplies `askAgent`); the block type, a labelled menu that names the type every selected block shares (or `转换为` when they differ) and turns all of them into the chosen type in one undo step, shown only when every selected block can convert; bold, italic, underline, strikethrough, inline code, and highlight, with `aria-pressed` states reflecting the selection; link followed by comment (when the host supplies `requestComment`); and, when the selection stays inside a single HTTP(S) link, the `视图` (View) menu (`链接视图`, `标题视图`, plus `卡片视图` and `预览视图` in Document pages). Code selections and read-only documents offer only Ask Agent and comment. The toolbar keeps its place while the block type or link view menu is open, and on screens narrower than 480px Ask Agent shows only its icon. It hides during IME composition, when focus moves into an input field, when the selection scrolls out of view, or when the user presses Escape. After Ask Agent or comment hands off the selection, it stays hidden until the next editor update, so selecting the same text again reopens it.
+- **Selection toolbar**: appears whenever a non-whitespace selection lies outside code blocks. Its controls are 28px and fall into groups separated by dividers, in this order: `问 Agent` (Ask Agent, when the host supplies `askAgent`); the block type, a labelled menu that names the type every selected block shares (or `转换为` when they differ) and turns all of them into the chosen type in one undo step, shown only when every selected block can convert; bold, italic, underline, strikethrough, inline code, highlight, and `行内公式` (Inline equation, in Document pages when the selection lies within one text block), with `aria-pressed` states reflecting the selection; link followed by comment (when the host supplies `requestComment`); and, when the selection stays inside a single HTTP(S) link, the `视图` (View) menu (`链接视图`, `标题视图`, plus `卡片视图` and `预览视图` in Document pages). Code selections and read-only documents offer only Ask Agent and comment. The toolbar keeps its place while the block type or link view menu is open, and on screens narrower than 480px Ask Agent shows only its icon. It hides during IME composition, when focus moves into an input field, when the selection scrolls out of view, or when the user presses Escape. After Ask Agent or comment hands off the selection, it stays hidden until the next editor update, so selecting the same text again reopens it.
 - **Floating link bar, mention bar, and link form**: placing a collapsed caret at an inline link or hovering over an inline link in an editable document opens the `链接` (Link) toolbar above the link, offering a clickable truncated label (`打开链接`, Open link, displaying the host's resolved page title or canonical URL for `ankole:page/…` links via `describePageLink`), `编辑链接` (Edit link), `移除链接` (Remove link), and, for HTTP(S) links, the `视图` (View) menu (`链接视图`, `标题视图`, plus `卡片视图` and `预览视图` in Document pages). Placing a collapsed caret adjacent to an embeddable `<mention page="…" />` (`canEmbedPage`) opens a floating mention bar with page navigation and a `提及视图` / `嵌入视图` switcher that converts between `<mention page="…" />` and `<embed ref="…" />` in one undo step. Switching to `卡片视图`, `预览视图`, or `嵌入视图`, or switching views from a resource block's toolbar, leaves a text caret on the line after the block rather than selecting it: at the start of the text block that follows, or in an empty paragraph that the same undo step adds after the block when no text block follows. The link form opens from the selection toolbar, the floating link bar, or `⌘K`. Internal page URLs matched by `matchPageUrl` normalize to `ankole:page/<id>`, URLs starting with `http://`, `https://`, `mailto:`, `tel:`, `ankole:page/`, `ankole:asset/`, `/`, or `#` are saved verbatim, bare email addresses receive a `mailto:` prefix, and bare domain names with a TLD (such as `example.com`) receive an `https://` prefix; all other inputs display a validation error and leave the document unchanged. Editing an existing link offers `移除链接` (Remove link) and, when the link wraps plain text, a `链接文本` (Link text) field.
-- **Slash menu**: opens when typing `/` at the start of a text run (for instance at block start or immediately after bold text or a link), after whitespace, or after `(`, except inside code blocks where `/` is literal text. Queries after `/` are capped at 75 characters, allow spaces (for example `/2 columns`), break on line breaks, tabs or any character in `.,+*?$@|#{}()^-[]\/!%'"~=<>_:;`, and filter options case-insensitively by title, description, and keyword aliases. A query that matches no option keeps the menu open on a `没有匹配的 Block` (No matching blocks) row, where Enter and Tab edit the text as usual; the menu closes once such a query contains a space, or on Escape. Picking an option deletes `/query` and applies the block type in a single undo step.
+- **Slash menu**: opens when typing `/` at the start of a text run (for instance at block start or immediately after bold text or a link), after whitespace, or after `(`, except inside code blocks where `/` is literal text. Queries after `/` are capped at 75 characters, allow spaces (for example `/2 columns`), break on line breaks, tabs or any character in `.,+*?$@|#{}()^-[]\/!%'"~=<>_:;`, and filter options case-insensitively by title, description, and keyword aliases. A query that matches no option keeps the menu open on a `没有匹配的 Block` (No matching blocks) row, where Enter and Tab edit the text as usual; the menu closes once such a query contains a space, or on Escape. Picking an option deletes `/query` and applies the block type in a single undo step. When `slashTrigger` is `'always'`—or `'auto'` while an editable editor shell measures `640 px` wide or narrower—the editor also places a `36 × 36 px` circular ceramic `/` button in its visible bottom-right corner. Activating that button opens the slash menu at the current selection without inserting a literal `/` character into the document, filters options as the user types, dismisses cleanly on Backspace over an empty query or Escape, and morphs the menu surface out of and back into the `36 × 36 px` circle (skipping the morph when `prefers-reduced-motion: reduce` is active).
 - **Insert menu**: `插入` (Insert) in the toolbar runs the chosen block-type command at the caret. The left `+` appears on an empty paragraph and opens insertion choices for that paragraph. Existing blocks expose Add below in their block menu; it prepares a paragraph below the target (above with Alt/Option-click) and switches the popup to insertion choices while keeping its anchor. The menu filters translated titles, descriptions, and English aliases, and shows the same no-match row as the slash menu when nothing matches. Enter in the search field chooses its first result, arrows navigate the options, and Escape closes the menu and returns to the insertion caret. Closing without choosing keeps the paragraph.
 - **Block menu**: provides `转换为` (Turn into, disabled when the block cannot convert), `创建副本` (Duplicate), `上移` (Move up), `下移` (Move down), `在下方添加 Block` (Add below, or above with Alt/Option-click), and `删除 Block` (Delete Block). Invoking `当前 Block 菜单` in the toolbar or pressing `⌘/` targets the current block or list item; clicking its type icon or grip targets the hovered block. When that block belongs to a whole-block selection, the menu acts on the selection. All entry points show the same actions.
 - **Block handle**: the left gutter shows `+` for an empty paragraph and the current type icon for a typed or nonempty block, followed by the grip. The handle centres on the block's first line inside the block's top border and padding; a code block's first line is its toolbar. The type icon and grip share one menu state and target. Only the grip starts dragging. The gutter remains a continuous pointer target, and controls stay on their block while its menu is open or a drag is active. A visible insertion line identifies a valid drop boundary. Preview and release use the same measured-target decision, which returns a valid block edit together with its insertion line. The React view measures block faces and ancestor bounds; `blockDrop` in `react/block-geometry.ts` selects the boundary and asks `relocation` or `columnDrop` for the edit. Dragging a selected block moves the selected group with its children, preserving order and block types in one undo step. A paragraph dropped between list items splits the list; a list item keeps its marker even when dropped into a list of another type. Moving right below an item nests the dragged blocks, and moving left lifts the boundary through list levels. Dragging near the scroll container's edge reveals further drop targets; Escape cancels. Read-only views hide the controls.
 - **Code toolbar**: each code block renders a 48px toolbar with `代码块` (Code block), the current language label, `自动换行` (Wrap text), and `复制` (Copy). The language label opens a picker whose search field takes focus; results filter as the reader types, ArrowUp/ArrowDown move the active option, Enter chooses it, and Escape closes the picker. Choosing a language updates the block's highlight immediately and returns focus to the editor. Copy reports `已复制` (Copied) for a moment and never writes markup to the clipboard. Clicking non-button areas of the toolbar focuses the block without displacing an existing selection inside it. The toolbar's buttons are focusable and respond to Enter and Space.
-- **Mermaid block toolbar**: each Mermaid block shows `模板` (Templates), `视图` (View), `展开` (Expand), `主题` (Theme), and `帮助` (Help) on the right side of its header. The menus are ceramic surfaces anchored to their button; view and theme choices are single-step block changes, and a template replaces the source in one undo step and focuses the block (placing the caret at the end of the source, or selecting the block in diagram-only view). Clicking non-button areas of the toolbar focuses the block without displacing an existing selection inside it. The full-window view is a native modal dialog: it takes focus on its close button, traps focus, and closes with Escape or the close button. Read-only views keep expand and help, and hide editing actions.
-- **Formula editor**: clicking a formula block or activating it from the keyboard opens a ceramic panel below the block with the `LaTeX 公式` (LaTeX formula) title, an input, the hint `按 ESC 完成输入` ("Press ESC to finish"), and a `查看帮助文档` (View help) link. The header reads `无效公式` (Invalid formula) and the field uses the destructive colour while Temml cannot parse the draft. Each draft update replaces the block's source immediately, so the page preview follows the input. Enter or Escape closes the panel, selects the formula block, and returns focus to the editor; a click outside also closes it.
+- **Mermaid block toolbar**: each Mermaid block highlights its source with Kirari and shows `视图` (View), `展开` (Expand), `主题` (Theme), and `帮助` (Help) on the right side of its header, plus `模板` (Templates) when the source is empty. The menus are ceramic surfaces anchored to their button; view and theme choices are single-step block changes, and a template replaces the source in one undo step and focuses the block (placing the caret at the end of the source, or selecting the block in diagram-only view). Clicking non-button areas of the toolbar focuses the block without displacing an existing selection inside it. The full-window view is a native modal dialog: it takes focus on its close button, traps focus, and closes with Escape or the close button. Read-only views keep expand and help, and hide editing actions.
+- **Formula editor**: clicking a display formula block or inline formula, or activating a selected formula from the keyboard, highlights the edited formula and opens a ceramic panel below it with the `LaTeX 公式` (LaTeX formula) title, an input, a `完成` (Done) submit button, the hint `按 Enter 或 ESC 完成` ("Press Enter or ESC to finish"), and a `查看帮助文档` (View help) link. Validation and live preview unwrap matching outer math delimiters (`$…$`, `$$…$$`, `\(…\)`, and `\[…\]`) before calling Temml; the header reads `无效公式` (Invalid formula) and the field uses the destructive colour while Temml cannot parse the unwrapped draft. Each draft update replaces the formula's source immediately, so the page preview follows the input without flashing raw LaTeX text. Submitting with `完成`, pressing Enter or Escape (outside IME composition), clicking outside, or switching to another formula normalizes outer math delimiters out of an edited formula's stored source, isolates undo history, closes the panel, and returns focus to the editor—selecting the block for a display formula, or placing a collapsed caret immediately after an inline formula; dismissing an untouched formula leaves the document unchanged.
 - **Resource blocks**: inserting a new external `embed` (either iframe preview or `view="card"` webpage card) or `media` block opens a compact single-line URL creation bar (with file upload on `media`); activating an existing configured block with `编辑` (Edit) from its floating ceramic toolbar, Space on a single selected block, or `⌘Enter` opens the full metadata override form and focuses the address field. Submitting with `保存` (Save) or Enter (outside IME composition) saves the block and returns focus to the editor; `取消` (Cancel) or Escape closes the form, selects the block, and returns focus to the editor. Hovering or selecting a configured block opens a portaled ceramic toolbar above the block with `刷新预览` (Refresh preview) and `在新窗口打开` (Open in new window) for iframe previews, the `视图` (View) switcher (`链接视图`, `标题视图`, `卡片视图`, `预览视图` for external HTTP(S) `embed` blocks, or `链接视图`, `卡片视图`, `预览视图` for `media`), and `编辑` (Edit). External `embed` iframes include a bottom resize handle supporting pointer drag and Up/Down Arrow adjustments (`160`–`1600` px) that persist `height` in one undo step. Clicking the non-interactive frame of a configured resource block selects that block.
 - **File upload panel**: choosing `文件` (File) opens a ceramic panel below the caret with a drop zone labelled `选择或拖入文件` (Choose or drop files) and the hint `可以一次选择多个文件` (You can choose several files at once); the host decides what each file becomes and may supply its own wording. The drop zone takes focus; activating it opens the system file picker with multiple selection, and dropping files on it hands them over directly. The panel passes every file to the host's `acceptFiles` at once and reads `正在上传…` (Uploading…) until the host settles. Success closes the panel and returns focus to the editor; a rejection keeps the panel open with the host's message so the reader can try again. Escape or a click outside closes the panel while no upload is in flight.
 - **Whole-block selection**: Escape selects the current block, and pressing Escape while blocks are selected clears the block selection and places a collapsed caret at the end of the last selected editable block (or immediately after a non-editable block). Inside a table cell, the first Escape selects that cell and a second Escape selects the whole table; arrow keys move a cell selection across the table grid and Enter edits the selected cell at its end. Shift+Up/Down and Shift-click extend or shrink the selection across paragraphs and list items. Dragging from the surrounding page whitespace draws a marquee and selects intersecting block faces. A parent's face includes its descendants in the selection; intersecting only a child's face selects that child. Across columns, the selection contains only intersecting blocks, even when unselected blocks lie between them in document order. The marquee scrolls at viewport edges, and Escape restores the preceding selection. A drag starting in text keeps text-selection behavior. Partially selected lists retain their unselected items. Up/Down select the adjacent block, and pressing Down on the final block of the page appends an empty root paragraph in one undo step and selects it (reusing an existing trailing empty root paragraph). Command/Control+A selects the whole document. Enter edits the first selected editable block at its end, opens the formula editor for a single selected formula block, or inserts an empty paragraph below a single non-editable block (`divider`, `embed`, `media`, diagram-only `mermaid`, or block-level read-only element); Shift+Enter inserts an empty paragraph above the first selected block and places the caret inside it, and Space opens the inline editor for a single selected formula or external resource block (`embed` with `href`, or `media`). Left/Right enter an editable block at its start or end, or place the caret before or after a non-editable block. Duplicate, move, delete, and menu actions use the selected blocks. Copy and cut preserve their structure and list wrappers. Typing, starting an IME composition, pasting, or inserting an image replaces the first selected range and removes the other selected ranges, preserving unselected blocks. An IME can replace selected paragraphs without a preceding keydown. Candidate updates commit once; canceling entered preedit text leaves an empty paragraph, and one undo restores the replaced selection. The selected blocks use a background highlight without a duplicate native text highlight. A host page embed (`embed` with `ref`), a Mermaid block, a table, and a divider instead show a ring around the block, and an external resource block (`embed` with `href`, or `media`) shows a highlighted border, because their own surfaces would cover a background highlight or leave it visible only in their gaps.
@@ -813,11 +797,12 @@ Insert and slash menu options appear in this order:
 16. `媒体` (Media)
 17. `网页卡片` (Webpage card)
 18. `公式` (Equation)
-19. `Mermaid流程图` (Mermaid flowchart)
-20. `Infographic` (Infographic)
-21. `Chart` (Chart, when `host.insertChart` is supplied)
+19. `行内公式` (Inline equation)
+20. `Mermaid流程图` (Mermaid flowchart)
+21. `Infographic` (Infographic)
+22. `Chart` (Chart, when `host.insertChart` is supplied)
 
-`公式` and `Mermaid流程图` are inserted only from the menus; neither converts an existing text block (`turnInto` is false).
+`公式`, `行内公式`, and `Mermaid流程图` are inserted only from the menus; none of them converts an existing text block (`turnInto` is false).
 
 | Action | Shortcut |
 | --- | --- |
@@ -833,6 +818,7 @@ Insert and slash menu options appear in this order:
 | Close an open menu, cancel link editing, or toggle whole-block selection | Escape |
 | Bold, italic, underline | ⌘B, ⌘I, ⌘U |
 | Inline code | ⌘E |
+| Inline equation (inserts an inline formula or wraps selected text and opens the formula editor) | ⌘Shift+E |
 | Strikethrough | ⌘Shift+S or ⌘Shift+X |
 | Highlight | ⌘Shift+H |
 | Undo, redo | ⌘Z, ⌘Shift+Z (plus Ctrl+Y for redo on non-Apple platforms) |
@@ -886,8 +872,8 @@ Whenever `apply` throws, the current document remains untouched. Revision number
 | Entry point | Exports |
 | --- | --- |
 | `@ankole/block-editor` | `BlockEditor`, `useEditor`, and type `EditorHandle` |
-| `@ankole/block-editor/document` | `parseMarkdown`, `importMarkdownDocument`, `printMarkdown`, `parseXml`, `printXml`, `resourceContent`, `resourceText`, `validateKnowledge` |
-| `@ankole/block-editor/editor` | `editorPhrases`, `PageSession`, `PageCollaboration`, `pageDocument`, `replaceTree`, `foldedHeadings`, `headingSections`, `toggleHeading`, `pasteTextAtDocumentStart`, `splitPastedDocumentTitle`, `remoteSelections`, `insertEmbed`, `commitMention`, `insertMention`, `mentionField`, `insertImage`, `insertResource`, `toggleFormat`, `undo`, `commentSelection`, `trackCommentSelection`, `commentRanges`, `revealComment`, `EditorSelection`, and types `EditorLabels`, `Editor`, `EditorHost`, `EmbedAttributes`, `LinkMetadata`, `MentionTarget`, `MentionCategory`, `MentionSession`, `MentionItem`, `MentionQueryResult`, `MountMentionOptions`, `ResourceAttributes`, `ResourceKind`, `PageChanges`, `RemoteSelection`, `CommentSelection`, `CommentRange` |
+| `@ankole/block-editor/document` | `parseMarkdown`, `importMarkdownDocument`, `printMarkdown`, `parseXml`, `printXml`, `resourceContent`, `resourceText`, `unwrapMathDelimiters`, `validateKnowledge` |
+| `@ankole/block-editor/editor` | `editorPhrases`, `PageSession`, `PageCollaboration`, `pageDocument`, `replaceTree`, `foldedHeadings`, `headingSections`, `toggleHeading`, `pasteTextAtDocumentStart`, `splitPastedDocumentTitle`, `remoteSelections`, `insertEmbed`, `commitMention`, `insertMention`, `mentionField`, `insertImage`, `insertInlineMath`, `insertResource`, `toggleFormat`, `undo`, `commentSelection`, `trackCommentSelection`, `commentRanges`, `revealComment`, `EditorSelection`, and types `EditorLabels`, `Editor`, `EditorHost`, `EmbedAttributes`, `LinkMetadata`, `MentionTarget`, `MentionCategory`, `MentionSession`, `MentionItem`, `MentionQueryResult`, `MountMentionOptions`, `ResourceAttributes`, `ResourceKind`, `PageChanges`, `RemoteSelection`, `CommentSelection`, `CommentRange` |
 | `@ankole/block-editor/reader` | `KnowledgeReader` and type `KnowledgeReaderProps` |
 | `@ankole/block-editor/styles.css` | Styles scoped to the editor and its overlays |
 
@@ -899,7 +885,7 @@ Passing the optional `host` prop to `BlockEditor` wires `EditorHost` integration
 | --- | --- |
 | `uploadAsset(file)` | Stores bytes in the host's real asset store and returns a durable `src` with optional title, MIME type, and size. Rejection leaves the resource form open with an error. |
 | `acceptFiles(files)` | Receives the files chosen or dropped in the file upload panel and stores them as host resources; the document stays unchanged. Resolution closes the panel and returns focus to the editor, while a rejection keeps the panel open and shows its message. |
-| `mountEmbed(attributes, container, update, remove, collapseToMention)` | Mounts the referenced resource into `container` and returns a teardown callback; calling `update` mutates only the embed's reference attributes via an editor transaction, `remove` deletes the embed block, and `collapseToMention` converts a page `embed` (`ref`) back into an inline `<mention page="…" />` in one undo step. During composition, the editor defers `update` calls until cleanup and normalization finish, then applies each in its own undo step. Removed or disconnected targets and read-only completion discard their pending updates. |
+| `mountEmbed(attributes, container, update, remove, collapseToMention)` | Mounts the referenced resource into `container` and returns a teardown callback or `{ update?, dispose }` handle. For the same container and `ref`, the editor calls the handle's `update` with current attributes, preserving the mounted instance. Calling the host callback `update` changes only supplied attribute marks (`undefined` removes a mark), `remove` deletes the embed block, and `collapseToMention` converts a page `embed` (`ref`) back into an inline `<mention page="…" />` in one undo step. During composition, the editor defers attribute patches until cleanup and normalization finish, then applies each in its own undo step. Removed or disconnected targets and read-only completion discard their pending updates. |
 | `mountMention(target, container, options)` | Mounts an inline `mention` leaf (`{ page }` or `{ principal }`) into `container` (`options` includes `readOnly`, `openPage`, and `embedPage` to expand a page mention into `<embed ref="…" />`) and returns an optional teardown callback. |
 | `queryMentions(request)` | Returns ranked `MentionItem` candidates for the inline `@` / `＠` picker across `all`, `page`, and `principal` tabs without moving focus out of the document. |
 | `mentionText(target)` | Supplies the plain-text label for clipboard `text/plain` serialization of an inline `mention`. |
@@ -989,7 +975,7 @@ JavaScript and CSS build targets are `chrome132`, `firefox160`, and `safari18`.
 
 | Scope | Requirement | Automated check |
 | --- | --- | --- |
-| Chromium 126 and later | Required | Playwright Chromium, plus the same scenarios against built output on Chrome for Testing `126.0.6478.182`. |
+| Chromium 132 and later | Required | Playwright Chromium, plus the same scenarios against built output on Chrome for Testing `132.0.6834.159`. |
 | Latest Firefox ESR | Required | Playwright Firefox, plus WebDriver scenarios on native Firefox `153.4.0esr`. |
 | Safari 17 and later | Required | Not covered in CI (Playwright WebKit is not Safari). |
 | Mobile browsers | Best effort | Manual verification only |
@@ -1034,12 +1020,12 @@ Pinned compatibility browser versions live in `compat/browsers.json` and install
   - Native drag-selection tests run only in Firefox.
 
   Any uncaught page exception or console error fails the test. Setting `E2E_PREVIEW=1` runs against the prebuilt `dist/` output.
-- `E2E_PREVIEW=1 bun run test:chromium126` runs the Playwright suite against Chrome for Testing 126.
+- `E2E_PREVIEW=1 bun run test:chromium132` runs the Playwright suite against Chrome for Testing 132.
 - `bun run test:native` runs WebDriver scenarios against native Firefox ESR on port `3147` (or Safari when `NATIVE_BROWSER=safari`).
 - `bun run generate:corpus` regenerates the shared golden file in `corpus/rust`, and `bun run test:corpus` verifies the committed golden file without modifying it. The corpus stores valid pages, rejected inputs, exact limit-boundary cases, and multi-step local edit batches produced by the production transaction pipeline, checking that an in-memory client stays identical to an XML-persisting server after every batch (any divergence fails preflight). `FC_SEED` overrides the generation or property-test seed; see `corpus/rust/README.md` for format v2 details.
 - `bun run test:package` packs `@ankole/block-editor` and `@ankole/uikit` into tarballs, installs them into a clean consumer project, verifies public TypeScript types and headless reads/writes, builds the consumer bundle, and runs the three-browser embedding suite covering `PageSession`, `PageCollaboration`, `EditorHost` hooks, caret-position image insertion, and undo.
 - `bun run type-check`, `bun run fmt:check`, and `bun run build` verify TypeScript types, formatting, and workspace build checks.
-- `bun run test:e2e:install` and `bun run test:compat:install chromium126 firefox-esr` download Playwright and pinned compatibility browsers.
+- `bun run test:e2e:install` and `bun run test:compat:install chromium132 firefox-esr` download Playwright and pinned compatibility browsers.
 
 When `E2E_PREVIEW=1` is set (and always for `test:native`), tests serve the existing `dist/` directory without rebuilding, so run `bun run build:playground` beforehand. No test suite retries failed cases automatically.
 
@@ -1057,8 +1043,8 @@ Because automated drivers cannot exercise native OS input methods or system clip
 
 | Scope | Environment | Pass condition |
 | --- | --- | --- |
-| Desktop | Windows with Chromium 126 or Firefox ESR; Microsoft Pinyin, Japanese, and Korean IMEs | Pick candidates, page through candidate lists, commit with Enter, and cancel with Escape inside an empty paragraph, at a bold boundary, and inside a list, callout, and table: no duplicated text, premature block splits, or lost formatting. |
-| Desktop | macOS with Chromium 126, Firefox ESR, or Safari 17; macOS Pinyin, Japanese, and Korean IMEs | Trigger focus changes, mouse selections, Tab, undo, and redo mid-composition; reloading the page afterward shows identical persisted content. |
+| Desktop | Windows with Chromium 132 or Firefox ESR; Microsoft Pinyin, Japanese, and Korean IMEs | Pick candidates, page through candidate lists, commit with Enter, and cancel with Escape inside an empty paragraph, at a bold boundary, and inside a list, callout, and table: no duplicated text, premature block splits, or lost formatting. |
+| Desktop | macOS with Chromium 132, Firefox ESR, or Safari 17; macOS Pinyin, Japanese, and Korean IMEs | Trigger focus changes, mouse selections, Tab, undo, and redo mid-composition; reloading the page afterward shows identical persisted content. |
 | Desktop | Browsers in section 10.1 with Latin dead keys, accents, emoji/ZWJ sequences, and bidirectional text | Backspace and Delete remove the exact units specified in section 7.5 (Delete), selection boundaries stay logically sound, and screenshots confirm caret placement in bidi text and at line wraps. |
 | Desktop | System clipboard pastes from Word, web browsers, and Office apps | Inline formatting, nested lists, tables, links, and paragraph breaks survive both pasting from the external app and re-exporting to Markdown. |
-| Mobile | Safari on iOS/iPadOS 17; Chromium 126 on Android with Gboard or the system IME | Candidate selection, autocorrect, dictation, continuous composition, touch selection handles, virtual keyboard viewport resizing, pinch-zoom, and scrolling all work without corrupting content or losing the caret. |
+| Mobile | Safari on iOS/iPadOS 17; Chromium 132 on Android with Gboard or the system IME | Candidate selection, autocorrect, dictation, continuous composition, touch selection handles, virtual keyboard viewport resizing, pinch-zoom, and scrolling all work without corrupting content or losing the caret. |

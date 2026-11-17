@@ -145,6 +145,41 @@ defmodule Ankole.Connectors.DatabaseConnectorsTest do
     assert orders["amount"]["profile"]["min"] == "1.25"
   end
 
+  test "a catalog scan cannot restore samples after its connection configuration changes", ctx do
+    assert {:ok, _} = Databases.refresh(ctx.admin, ctx.config.id)
+    {:ok, adapter} = Databases.adapter(ctx.config)
+    {:ok, secret} = Ankole.Connectors.Credentials.secret(ctx.config)
+
+    assert {:ok, %{"tables" => tables, "complete" => complete?}} =
+             adapter.fetch_catalog(ctx.config, secret, [])
+
+    assert {:ok, _} =
+             Store.update_auth_config(ctx.admin, ctx.config.id, %{
+               "public_metadata" =>
+                 Map.put(ctx.config.public_metadata, "sample_exclusions", ["customers.city"])
+             })
+
+    assert {:ok, :discarded} = Databases.replace_catalog(ctx.config, tables, complete?)
+
+    assert {:ok, customers} = call(ctx.actor, "describe_table", %{"table" => "customers"})
+    city = Enum.find(customers["columns"], &(&1["name"] == "city"))
+    assert city["sensitive"]
+    assert city["profile"] == nil
+  end
+
+  test "catalog replacement discards snapshots for renamed, disabled, and deleted connections",
+       ctx do
+    for changes <- [%{"slug" => "renamed"}, %{"status" => "disabled"}] do
+      {:ok, before} = Store.get_auth_config_for_configuration(ctx.config.id)
+      assert {:ok, _} = Store.update_auth_config(ctx.admin, ctx.config.id, changes)
+      assert {:ok, :discarded} = Databases.replace_catalog(before, [], true)
+    end
+
+    {:ok, before} = Store.get_auth_config_for_configuration(ctx.config.id)
+    assert {:ok, _} = Ankole.Ash.destroy(before, :destroy)
+    assert {:ok, :discarded} = Databases.replace_catalog(before, [], true)
+  end
+
   test "query returns an evidence envelope that marks truncation and fan-out", ctx do
     assert {:ok, result} =
              call(ctx.actor, "query", %{

@@ -10,6 +10,7 @@ tags:
   - 读一下
   - 深读
 ankole-runtime: any
+default_enabled: true
 ---
 
 # Applied reading

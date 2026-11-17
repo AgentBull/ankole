@@ -42,6 +42,8 @@ defmodule Ankole.Observability.Trace do
     |> put_present("session.id", context.session_id)
     |> put_present("gen_ai.conversation.id", context.session_id)
     |> put_present("ankole.signal.id", Map.get(context, :signal_id))
+    |> put_present("channel.adapter", Map.get(context, :channel_adapter))
+    |> put_present("channel.kind", Map.get(context, :channel_kind))
   end
 
   @doc "Adds the durable tenant identity when a root span starts."
@@ -106,7 +108,7 @@ defmodule Ankole.Observability.Trace do
   def sanitize(value), do: value
 
   @spec release() :: String.t() | nil
-  def release, do: text(System.get_env("ANKOLE_VERSION"))
+  def release, do: text(System.get_env("ANKOLE_VERSION")) || text(Ankole.Version.current())
 
   def tracer, do: :opentelemetry.get_tracer(:ankole, :undefined, :undefined)
 

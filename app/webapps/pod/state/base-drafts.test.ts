@@ -112,21 +112,310 @@ test('input refetch preserves a dirty string; Escape resets to the current autho
   expect(model.dirty.value).toBe(false)
 })
 
-test('a shared view draft preserves its captured version; changing view resets pagination and draft', () => {
+test('a shared view draft preserves its captured version; changing view resets draft and newRecord', () => {
   const model = new TableWorkspaceModel()
   model.load('grid')
   model.configure({ sort: [] }, 1)
   model.configure({ visible_fields: ['price'] }, 2)
+  model.newRecord.value = true
   expect(model.draft.value?.version).toBe(1)
-  model.next('cursor-1')
-  model.next('cursor-2')
-  model.previous()
-  expect(model.pageToken.value).toBe('cursor-1')
   model.select('gallery')
   expect(model.draft.value).toBeUndefined()
-  expect(model.history.value).toEqual([])
-  expect(model.pageToken.value).toBeUndefined()
+  expect(model.newRecord.value).toBe(false)
   expect(model.viewID.value).toBe('gallery')
+})
+
+test('acknowledgeDraft clears only the matching save sequence and preserves newer queued chart edits', () => {
+  const model = new TableWorkspaceModel()
+  try {
+    model.load('chart')
+
+    const seqA = model.configure({ chart: { chart_type: 'bar' } }, 1)
+    const seqB = model.configure({ chart: { chart_type: 'line' } }, 1)
+
+    expect(seqB).toBeGreaterThan(seqA)
+    // Save A completes after Edit B has already been queued/dispatched: B's draft must survive.
+    model.acknowledgeDraft(seqA)
+    expect(model.draft.value).toEqual({
+      config: { chart: { chart_type: 'line' } },
+      version: 1,
+      seq: seqB
+    })
+
+    // Save B completes when no newer edit occurred: draft clears.
+    model.acknowledgeDraft(seqB)
+    expect(model.draft.value).toBeUndefined()
+  } finally {
+    model[Symbol.dispose]()
+  }
+})
+
+test('chart auto-save debounces edits, suppresses stale in-flight failure when a newer edit is queued, and surfaces terminal errors', async () => {
+  const model = new TableWorkspaceModel({ autoSaveDelayMs: 20 })
+  try {
+    model.load('chart-1')
+    model.observeViewVersions([{ id: 'chart-1', version: 3 }])
+
+    const calls: Array<{ seq: number; targetVersion: number; chartType: string | undefined }> = []
+    const gateA = Promise.withResolvers<void>()
+    const gateB = Promise.withResolvers<void>()
+
+    // Rapid edits coalesce within the debounce window.
+    model.scheduleChartAutoSave({
+      viewId: 'chart-1',
+      config: { chart: { chart_type: 'bar' } },
+      fallbackVersion: 3,
+      persist: async (payload, targetVersion) => {
+        calls.push({ seq: payload.seq, targetVersion, chartType: payload.config.chart?.chart_type })
+      }
+    })
+    const seqA = model.scheduleChartAutoSave({
+      viewId: 'chart-1',
+      config: { chart: { chart_type: 'area' } },
+      fallbackVersion: 3,
+      persist: async (payload, targetVersion) => {
+        calls.push({ seq: payload.seq, targetVersion, chartType: payload.config.chart?.chart_type })
+        await gateA.promise
+        throw new Error('Stale version conflict on A')
+      }
+    })
+
+    await Bun.sleep(35)
+    expect(calls).toEqual([{ seq: seqA, targetVersion: 3, chartType: 'area' }])
+
+    // While A is still in flight, user makes edit B and its debounce timer fires so B is readyToSend.
+    const seqB = model.scheduleChartAutoSave({
+      viewId: 'chart-1',
+      config: { chart: { chart_type: 'line' } },
+      fallbackVersion: 3,
+      persist: async (payload, targetVersion) => {
+        calls.push({ seq: payload.seq, targetVersion, chartType: payload.config.chart?.chart_type })
+        await gateB.promise
+        return { version: 5 }
+      }
+    })
+    await Bun.sleep(35)
+
+    // Now A rejects! Because B is already queued, A's stale error is suppressed and B starts immediately.
+    gateA.resolve()
+    await Bun.sleep(10)
+    expect(model.autoSaveError.value).toBeUndefined()
+    expect(model.draft.value?.config).toEqual({ chart: { chart_type: 'line' } })
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toEqual({ seq: seqB, targetVersion: 3, chartType: 'line' })
+
+    // B succeeds -> version advances to 5 and draft clears cleanly.
+    gateB.resolve()
+    await model.flushChartAutoSave()
+    expect(model.draft.value).toBeUndefined()
+    expect(model.autoSaveError.value).toBeUndefined()
+    expect(model.knownViewVersion('chart-1', 3)).toBe(5)
+
+    // Subsequent edit C fails with no newer edit queued -> error surfaces and draft remains for retry/discard.
+    model.scheduleChartAutoSave({
+      viewId: 'chart-1',
+      config: { chart: { chart_type: 'pie' } },
+      fallbackVersion: 5,
+      persist: async (payload, targetVersion) => {
+        calls.push({ seq: payload.seq, targetVersion, chartType: payload.config.chart?.chart_type })
+        throw new Error('Terminal conflict on C')
+      }
+    })
+    await model.flushChartAutoSave()
+    expect(calls[2]?.targetVersion).toBe(5)
+    expect(model.autoSaveError.value).toBeInstanceOf(Error)
+    expect((model.autoSaveError.value as Error).message).toBe('Terminal conflict on C')
+    expect(model.draft.value?.config).toEqual({ chart: { chart_type: 'pie' } })
+
+    // Explicit discard clears both draft and surfaced error.
+    model.discard()
+    expect(model.draft.value).toBeUndefined()
+    expect(model.autoSaveError.value).toBeUndefined()
+  } finally {
+    model[Symbol.dispose]()
+  }
+})
+
+test('flushChartAutoSave before switching views preserves trailing queued chart save in order', async () => {
+  const model = new TableWorkspaceModel({ autoSaveDelayMs: 500 })
+  try {
+    model.load('chart-1')
+    model.observeViewVersions([
+      { id: 'chart-1', version: 1 },
+      { id: 'grid-2', version: 1 }
+    ])
+
+    const saved: Array<{ viewId: string; chartType: string | undefined; targetVersion: number }> = []
+    const gateA = Promise.withResolvers<void>()
+
+    model.scheduleChartAutoSave({
+      viewId: 'chart-1',
+      config: { chart: { chart_type: 'bar' } },
+      fallbackVersion: 1,
+      persist: async (payload, targetVersion) => {
+        saved.push({ viewId: payload.viewId, chartType: payload.config.chart?.chart_type, targetVersion })
+        await gateA.promise
+        return { version: 2 }
+      }
+    })
+    // Trigger A immediately, then queue B while A is in flight, then flush + switch view to grid-2.
+    const flushA = model.flushChartAutoSave()
+    await Bun.sleep(5)
+    expect(saved).toHaveLength(1)
+
+    model.scheduleChartAutoSave({
+      viewId: 'chart-1',
+      config: { chart: { chart_type: 'line' } },
+      fallbackVersion: 1,
+      persist: async (payload, targetVersion) => {
+        saved.push({ viewId: payload.viewId, chartType: payload.config.chart?.chart_type, targetVersion })
+        return { version: 3 }
+      }
+    })
+    const flushB = model.flushChartAutoSave()
+    model.select('grid-2')
+    expect(model.viewID.value).toBe('grid-2')
+    expect(model.draft.value).toBeUndefined()
+
+    gateA.resolve()
+    await Promise.all([flushA, flushB])
+    expect(saved).toEqual([
+      { viewId: 'chart-1', chartType: 'bar', targetVersion: 1 },
+      { viewId: 'chart-1', chartType: 'line', targetVersion: 2 }
+    ])
+    expect(model.knownViewVersion('chart-1', 1)).toBe(3)
+  } finally {
+    model[Symbol.dispose]()
+  }
+})
+
+test('switching from chart-1 after flushChartAutoSave and immediately editing chart-2 preserves chart-1 flushed save', async () => {
+  const model = new TableWorkspaceModel({ autoSaveDelayMs: 500 })
+  try {
+    model.load('chart-1')
+    model.observeViewVersions([
+      { id: 'chart-1', version: 1 },
+      { id: 'chart-2', version: 1 }
+    ])
+    const gateA = Promise.withResolvers<void>()
+    const saved: Array<{ viewId: string; chartType: string | undefined }> = []
+
+    model.scheduleChartAutoSave({
+      viewId: 'chart-1',
+      config: { chart: { chart_type: 'bar' } },
+      fallbackVersion: 1,
+      persist: async payload => {
+        saved.push({ viewId: payload.viewId, chartType: payload.config.chart?.chart_type })
+        await gateA.promise
+        return { version: 2 }
+      }
+    })
+    const flushA = model.flushChartAutoSave()
+    await Bun.sleep(5)
+
+    model.scheduleChartAutoSave({
+      viewId: 'chart-1',
+      config: { chart: { chart_type: 'line' } },
+      fallbackVersion: 1,
+      persist: async payload => {
+        saved.push({ viewId: payload.viewId, chartType: payload.config.chart?.chart_type })
+        return { version: 3 }
+      }
+    })
+    const flushB = model.flushChartAutoSave()
+    model.select('chart-2')
+    model.scheduleChartAutoSave({
+      viewId: 'chart-2',
+      config: { chart: { chart_type: 'pie' } },
+      fallbackVersion: 1,
+      persist: async payload => {
+        saved.push({ viewId: payload.viewId, chartType: payload.config.chart?.chart_type })
+        return { version: 2 }
+      }
+    })
+    gateA.resolve()
+    await Promise.all([flushA, flushB])
+    await model.flushChartAutoSave()
+
+    expect(saved).toEqual([
+      { viewId: 'chart-1', chartType: 'bar' },
+      { viewId: 'chart-1', chartType: 'line' },
+      { viewId: 'chart-2', chartType: 'pie' }
+    ])
+  } finally {
+    model[Symbol.dispose]()
+  }
+})
+
+test('switching across three views while the first save is in flight retains every flushed view save and drains queued work on dispose', async () => {
+  const model = new TableWorkspaceModel({ autoSaveDelayMs: 500 })
+  model.load('chart-1')
+  model.observeViewVersions([
+    { id: 'chart-1', version: 1 },
+    { id: 'chart-2', version: 1 },
+    { id: 'chart-3', version: 1 }
+  ])
+  const gate = Promise.withResolvers<void>()
+  const saved: Array<{ viewId: string; chartType: string | undefined }> = []
+
+  model.scheduleChartAutoSave({
+    viewId: 'chart-1',
+    config: { chart: { chart_type: 'bar' } },
+    fallbackVersion: 1,
+    persist: async payload => {
+      saved.push({ viewId: payload.viewId, chartType: payload.config.chart?.chart_type })
+      await gate.promise
+      return { version: 2 }
+    }
+  })
+  const flush1 = model.flushChartAutoSave()
+  await Bun.sleep(5)
+
+  model.scheduleChartAutoSave({
+    viewId: 'chart-1',
+    config: { chart: { chart_type: 'line' } },
+    fallbackVersion: 1,
+    persist: async payload => {
+      saved.push({ viewId: payload.viewId, chartType: payload.config.chart?.chart_type })
+      return { version: 3 }
+    }
+  })
+  const flush2 = model.flushChartAutoSave()
+  model.select('chart-2')
+
+  model.scheduleChartAutoSave({
+    viewId: 'chart-2',
+    config: { chart: { chart_type: 'pie' } },
+    fallbackVersion: 1,
+    persist: async payload => {
+      saved.push({ viewId: payload.viewId, chartType: payload.config.chart?.chart_type })
+      return { version: 2 }
+    }
+  })
+  const flush3 = model.flushChartAutoSave()
+  model.select('chart-3')
+
+  model.scheduleChartAutoSave({
+    viewId: 'chart-3',
+    config: { chart: { chart_type: 'area' } },
+    fallbackVersion: 1,
+    persist: async payload => {
+      saved.push({ viewId: payload.viewId, chartType: payload.config.chart?.chart_type })
+      return { version: 2 }
+    }
+  })
+
+  // Unmount/dispose while chart-1:bar is still in flight and chart-1:line, chart-2:pie, chart-3:area are queued.
+  model[Symbol.dispose]()
+  gate.resolve()
+  await Promise.all([flush1, flush2, flush3, model.flushChartAutoSave()])
+
+  expect(saved).toEqual([
+    { viewId: 'chart-1', chartType: 'bar' },
+    { viewId: 'chart-1', chartType: 'line' },
+    { viewId: 'chart-2', chartType: 'pie' },
+    { viewId: 'chart-3', chartType: 'area' }
+  ])
 })
 
 test('ending an unchanged or cancelled cell edit releases its stale baseline', async () => {

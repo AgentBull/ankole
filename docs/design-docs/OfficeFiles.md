@@ -189,8 +189,11 @@ or a concurrent sort or merge intersects the target range, `apply` returns
 `office_conflict`. Auto-sized rows recompute their height from cell font sizes
 and wrapped line counts using GridCraft's glyph-width estimator so the control
 plane and browser Workers agree on row heights until an author sets an explicit
-pixel size with `line.resize`. Volatile functions such as `NOW()` recalculate on
-each compaction export.
+pixel size with `line.resize`. Changing row visibility through a filter, hide,
+unhide, or an explicit resize recalculates the workbook, including `SUBTOTAL`
+and `AGGREGATE` references to spilled values. A column resize or a row-height
+change that preserves visibility does not trigger formula recalculation.
+Volatile functions such as `NOW()` recalculate on each compaction export.
 
 - **Operations and range tools.** Operations cover typed values (`cell.set`,
   `range.set_values`), formats, merges, row/column inserts and resizes, cell
@@ -206,8 +209,9 @@ each compaction export.
   `image.insert`, `image.update`, `image.delete`, `cell.picture`,
   `image.to_cell`, and `image.from_cell` (larger or non-PNG/JPEG images are
   downscaled in the browser up to 2048 px on their longest edge to fit). The
-  editor assigns a fresh `image_id` so follow-up moves or resizes can address a
-  floating picture before its insert acknowledgement returns.
+  editor assigns a fresh `image_id`—persisted round-trip in the OOXML drawing's
+  `<xdr:cNvPr>` attributes across `.xlsx` compaction—so follow-up moves or
+  resizes address the same floating picture before and after compaction.
 - **Grid viewport, formulas, and data tools.** `ankole_spreadsheet_wasm` returns
   high-DPI canvas viewports carrying cell values, table styles, conditional
   formatting, data bars, icon sets, notes, filters, validation dropdowns, and
@@ -295,6 +299,13 @@ table cell selection and column resize, image/textbox manipulation), positions a
 hidden native textarea at the caret for keyboard and IME input (`Session::run_ime`),
 supports `Ctrl+C` / `Cmd+C` plain-text and HTML copy plus `Ctrl+F` / `Cmd+F`
 and `searchTarget` page jumps via `find`, and exports PDFs in the Worker.
+The view caches completed page bitmaps for the current document session,
+document version, font epoch, and raster scale even when scrolling moves a page
+outside the viewport. It discards pending results when that rendering context
+changes or the view unmounts; scrolling alone does not invalidate them.
+Office and Spreadsheet sessions synchronize their committed revision when the
+page channel rejoins, clear the connection error after successful synchronization,
+and resume sending queued local edits.
 Personal Undo captures the prior `Arc<Block>` slice before a block edit and
 submits a restoring `blocks.splice`, clearing the stack on document-wide or
 conflicting remote commits. When a file contains unsupported image formats that
@@ -461,12 +472,51 @@ conversion request.
 | Bulleted and numbered lists with nesting | `BulletList`, `OrderedList`, `ListItem` |
 | Tables with header rows, merged cells, column widths, and cell shading | `Table` with `HeaderCell` (`<th>`) and `TableCell` (`<td>`), `colspan` and `rowspan` (omitting covered shadow cells), integer pixel `widths` clamped to `1..=9999`, and `#RRGGBB` `background` |
 | Standalone paragraph pictures and small inline images | Block `Media` (`<media src="ankole:asset/<sha256>/<name>" kind="image" view="preview" mime="…" size="…" />`) for standalone pictures; inline `Image` (`<img>`) for small inline icons (custom display dimensions count under `downgraded`) |
-| Display equations vs inline equations | Standalone paragraph equations convert to block `Math` (`<math>`) via WordCraft's LaTeX converter; inline equations inside text paragraphs convert to `Code` spans holding LaTeX source (counted under `downgraded`) |
+| Display equations vs inline equations | Standalone paragraph equations convert to block `Math` (`<math>`) and inline equations inside text paragraphs convert to `InlineMath` (`<inline-math>`) via WordCraft's LaTeX converter |
 | Footnotes and endnotes | Appended numbered list at the end of the document with `[n]` inline references |
 | Tracked changes | Accepted text |
 
 Headers, footers, page setup, page and section breaks, floating text boxes and
 shapes, charts, SmartArt, and Word comments count under `omitted`.
+
+## Exporting Document and Knowledge Pages to Word and PDF
+
+Editable Document Pages (including unacknowledged local OT drafts), read-only
+Document Pages, and Knowledge Pages export print-ready `.docx` and `.pdf` files
+directly in the browser through a disposable `ankole_word_wasm` Web Worker:
+
+1. **Single-tree frontend enrichment.** Pod parses the `<page>` XML once with
+   `@ankole/block-editor/document`, unwraps `<comment>` markers, and propagates
+   net container widths (`475.28 pt` A4 root body width minus single-step
+   container deductions across `<block>`, `<blockquote>`, `<callout>`,
+   `<columns>`, lists, and `<table>` cells). Within that single tree, Pod
+   materializes `<mermaid>` and `<infographic>` blocks in a light print palette
+   and rasterizes them to 300-DPI PNG assets sized to their placement width,
+   tokenizes `<pre>` blocks into `github-light` `{text, color, bold, italic}`
+   runs via Shiki, unwraps outer math delimiters and validates `<math>` and
+   `<inline-math>` formulas with KaTeX before WordCraft's native LaTeX-to-OMML
+   parser compiles them, fetches accessible `<media>` and
+   `<img>` binaries (falling back to clean reader cards without
+   `authentication_ref` when an image returns `403`, `404`, or a cross-origin
+   error), and rasterizes color Emoji grapheme clusters to inline PNGs on the
+   PDF branch while keeping `☐`, `☑`, and typographic symbols on bundled vector
+   faces (`Source Sans 3`, `Inter`, `JetBrains Mono`).
+2. **Atomic kernel compilation.** `PageExportSession::from_page` compiles the
+   enriched `<page>` tree, resolved Page/Principal maps, and optional Knowledge
+   property rows into a styled A4 `WordDoc` in one stateless step: headings keep
+   `keep_next` and `keep_lines`, `<callout>` tones and `<pre>` code boxes map to
+   shaded tables (with `cant_split` gated on estimated wrapped height),
+   `<columns>` map to borderless fixed grids, and `<table>` blocks reconstruct
+   `gridSpan`, `VMerge::Restart`/`Continue`, `tblHeader`, and water-filling
+   column widths bounded to the parent container width across `1..=63` columns.
+3. **Format-specific serialization and Worker teardown.** On the `.docx` branch,
+   the Worker serializes lightweight ECMA-376 OOXML without running layout or
+   downloading site fonts. On the `.pdf` branch, Pod queries
+   `PageExportSession::font_needs` and registers site font blobs from
+   `/fonts/office/manifest.json` until pending families empty or `FontDb`
+   generation stabilizes—cloning rather than transferring cached font
+   `ArrayBuffer`s so `office-fonts.ts` retains reusable buffers across exports—
+   before emitting vector-text PDF bytes and terminating the Worker.
 
 ## Agents
 
@@ -523,3 +573,4 @@ files (for Background Agent Jobs) carry this routing rule.
 | `ankole-pod office.*` via `RPCBroker` + Worker `OfficeCLI` for `/workspace` | Control-plane MCP server replacing `OfficeCLI` | `RPCBroker` already owns Pod authorization and replay for main and background Agents, while `/workspace` generation pipelines still operate on local files that have no Pod Page row. |
 | Non-purging `SyncFileCache` enqueue on Word/Presentation compaction | Synchronous search purge before background extraction | Updating `PageSearchDocument` in place when extraction finishes avoids a search visibility gap every 30 seconds during active editing. |
 | Sibling document Page creation with Private-root fallback | Mutating `Page.type` in place or requiring parent write access | Keeping the Word Page intact preserves links, `.docx` downloads, and history, while Private-root fallback lets read-only viewers convert shared Word files. |
+| Disposable `ankole_word_wasm` Worker compilation from normalized `<page>` tree to `.docx` and `.pdf` | Headless browser print-to-PDF or server-side Pandoc/LibreOffice | Compiling one enriched `<page>` tree into `WordDoc` captures unacknowledged local drafts, produces native OOXML tables and OMML equations alongside vector PDFs with running headers and `PAGE / NUMPAGES` footers, and reclaims WASM and font memory on Worker termination without server load. |

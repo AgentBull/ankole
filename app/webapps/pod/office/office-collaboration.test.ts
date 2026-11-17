@@ -218,6 +218,24 @@ async function openSaveModel(engine: ReturnType<typeof makeFakeEngine>, sock: Re
 }
 
 describe('OfficeCollaborationModel', () => {
+  it('rejoining clears connection errors and sends locally queued edits', async () => {
+    const engine = makeFakeEngine()
+    const sock = makeFakeChannel(async (_event, payload) => acknowledge(1, payload))
+    const { model } = await openSaveModel(engine, sock)
+    const failure = new Error('join timed out')
+    sock.channel.ready = Promise.reject(failure)
+    model.sync()
+    await until(() => model.error.value === failure)
+    await model.mutate(async () => ({ result: true, snapshot: engine.typeText('kept edit'), commit: true }))
+    expect(model.pending.value).toBe(1)
+    sock.channel.ready = Promise.resolve({})
+    sock.emit('rejoined', {})
+    await until(() => model.pending.value === 0)
+    expect(model.error.value).toBeUndefined()
+    expect(sock.applies()).toHaveLength(1)
+    expect(model.snapshot.value?.text).toBe('kept edit')
+  })
+
   it('saves the last draft and waits for server acknowledgement of both edits before leaving', async () => {
     const engine = makeFakeEngine()
     const first = Promise.withResolvers<unknown>()
@@ -581,5 +599,76 @@ describe('OfficeCollaborationModel', () => {
     syncGates[0]!.resolve()
     expect(await cleanSave).toBe(true)
     expect(sock.pushes.filter(p => p.event === 'office:sync')).toHaveLength(syncCountBefore + 1)
+  })
+
+  it('retries sync when rejoined arrives before an earlier failing office:sync rejects', async () => {
+    const engine = makeFakeEngine()
+    const sock = makeFakeChannel()
+    const { model } = await openSaveModel(engine, sock)
+
+    let syncCalls = 0
+    const firstSync = Promise.withResolvers<void>()
+    const originalPush = sock.channel.push
+    sock.channel.push = async <T>(event: string, payload: object) => {
+      if (event === 'office:sync') {
+        syncCalls++
+        if (syncCalls === 1) {
+          await firstSync.promise
+          throw new Error('stale sync failed')
+        }
+      }
+      return originalPush<T>(event, payload)
+    }
+
+    const savePromise = model.saveNow()
+    await until(() => syncCalls === 1)
+    sock.emit('rejoined', {})
+    firstSync.reject(new Error('stale sync failed'))
+    expect(await savePromise).toBe(true)
+    expect(syncCalls).toBe(2)
+    expect(model.error.value).toBeUndefined()
+  })
+
+  it('announces initial presence on start, respects 200ms office_busy backoff under savePending, and resolves saveNow on dispose', async () => {
+    const engine = makeFakeEngine()
+    let busyCount = 0
+    const sock = makeFakeChannel(async (_event, payload) => {
+      if (busyCount < 2) {
+        busyCount++
+        throw { payload: { reason: 'office_busy' } }
+      }
+      return acknowledge(1, payload)
+    })
+    const { model } = await openSaveModel(engine, sock)
+    // Initial presenceSelection from opened snapshot is announced on transition to active.
+    await until(() => sock.presences().length >= 1)
+    expect(sock.presences()[0]?.payload.selection).toEqual({ story: 'body', block: 0 })
+
+    // office_busy still waits 200ms between attempts even when savePending() is waiting.
+    await model.mutate(async () => ({ result: true, snapshot: engine.typeText('busy-edit') }))
+    const applyTimes: number[] = []
+    const origPush = sock.channel.push
+    sock.channel.push = async <T>(event: string, payload: object) => {
+      if (event === 'office:apply') applyTimes.push(Date.now())
+      return origPush<T>(event, payload)
+    }
+    expect(await model.savePending()).toBe(true)
+    expect(applyTimes).toHaveLength(3)
+    expect(applyTimes[1]! - applyTimes[0]!).toBeGreaterThanOrEqual(180)
+    expect(applyTimes[2]! - applyTimes[1]!).toBeGreaterThanOrEqual(180)
+
+    // Disposing while saveNow() awaits office:sync settles the waiter cleanly instead of hanging.
+    const heldSync = Promise.withResolvers<void>()
+    sock.channel.push = async <T>(event: string, payload: object) => {
+      if (event === 'office:sync') {
+        await heldSync.promise
+      }
+      return origPush<T>(event, payload)
+    }
+    const danglingSave = model.saveNow()
+    await Bun.sleep(10)
+    model[Symbol.dispose]()
+    expect(await danglingSave).toBe(false)
+    heldSync.resolve()
   })
 })

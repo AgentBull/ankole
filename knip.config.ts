@@ -110,7 +110,13 @@ const config: KnipConfig = {
       project: ['src/**/*.{ts,tsx}!', 'scripts/*.ts!', 'playground/*.{ts,tsx}!']
     },
     'tools/devkit': {
-      entry: ['src/main.ts!', 'src/schematics/**/index.ts!', 'src/changelog-release.ts!', 'src/runtime-image-pair.ts!'],
+      entry: [
+        'src/main.ts!',
+        'src/oxlint/anti-slop/index.ts!',
+        'src/schematics/**/index.ts!',
+        'src/changelog-release.ts!',
+        'src/runtime-image-pair.ts!'
+      ],
       project: ['src/**/*.ts!', '!src/**/*.test.ts!']
     }
   },

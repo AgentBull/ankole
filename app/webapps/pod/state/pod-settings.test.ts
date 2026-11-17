@@ -55,6 +55,44 @@ test('PodSettingsModel tracks dirty state across normalized loginPolicy and doma
   expect(model.dirty.value).toBe(true)
 })
 
+test('PodSettingsModel.captureSave advances baseline without discarding in-flight edits', () => {
+  const model = new PodSettingsModel()
+  model.initialize('pod-1', {
+    displayName: 'Acme Space',
+    defaultLocale: 'en-US',
+    allowExternalGuests: false,
+    emailAvailable: true,
+    loginPolicy: {
+      allow_email_otp: true,
+      allow_member_credential_change: true,
+      require_sso_for_members: false,
+      allow_invite_links: true,
+      allowed_email_domains: ['example.com']
+    }
+  })
+
+  model.displayName.value = 'Acme HQ'
+  model.domains.value = 'EXAMPLE.COM, partner.org'
+  const first = model.captureSave()
+
+  // User continues editing displayName and toggling SSO policy while save is in flight.
+  model.displayName.value = 'Acme Global HQ'
+  model.policy.value = { ...model.policy.value, require_sso_for_members: true }
+
+  expect(first.acknowledge()).toBe(true)
+  // In-flight edits remain intact and dirty against the updated baseline.
+  expect(model.displayName.value).toBe('Acme Global HQ')
+  expect(model.policy.value.require_sso_for_members).toBe(true)
+  // Untouched domains field normalizes cleanly to the saved list.
+  expect(model.domains.value).toBe('example.com, partner.org')
+  expect(model.dirty.value).toBe(true)
+
+  // Saving the remaining edits clears dirty once acknowledged without further edits.
+  const second = model.captureSave()
+  expect(second.acknowledge()).toBe(true)
+  expect(model.dirty.value).toBe(false)
+})
+
 test('invitation maxUses defaults to unlimited for links and 1 for email invites unless customized', () => {
   const model = new PodSettingsModel()
   expect(model.expiryPreset.value).toBe('7d')
@@ -126,7 +164,8 @@ test('routeSidebarTab and podRouteTitle preserve sidebar context and format rout
   expect(routeSidebarTab('/content/space')).toBe('home')
   expect(routeSidebarTab('/meta')).toBe('home')
   expect(routeSidebarTab('/meta/brain')).toBe('home')
-  expect(routeSidebarTab('/')).toBe('chat')
+  expect(routeSidebarTab('/')).toBe('home')
+  expect(routeSidebarTab('/', { keepSidebarTab: 'chat' })).toBe('chat')
   expect(routeSidebarTab('/conversations/abc')).toBe('chat')
   expect(routeSidebarTab('/me')).toBeUndefined()
   expect(routeSidebarTab('/settings')).toBeUndefined()
@@ -143,7 +182,7 @@ test('routeSidebarTab and podRouteTitle preserve sidebar context and format rout
   expect(podRouteTitle('/meta/skills', t)).toBe('Meta Ankole · Ankole')
   expect(podRouteTitle('/me', t)).toBe('pod.account.title · Ankole')
   expect(podRouteTitle('/settings', t)).toBe('pod.settings.title · Ankole')
-  expect(podRouteTitle('/', t)).toBe('pod.sidebar.tabs.chat · Ankole')
+  expect(podRouteTitle('/', t)).toBe('pod.sidebar.tabs.home · Ankole')
   expect(podRouteTitle('/conversations/abc', t, 'Design review')).toBe('Design review · Ankole')
   expect(podRouteTitle('/conversations/abc', t, '   ')).toBe('pod.sidebar.tabs.chat · Ankole')
   expect(podRouteTitle('/dm/legal', t, '法务合规')).toBe('法务合规 · Ankole')

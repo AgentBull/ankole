@@ -465,3 +465,109 @@ test('the selection toolbar turns the selected blocks into another type in one s
   await page.getByRole('button', { name: '撤销', exact: true }).click()
   await expect(page.locator('.editor-content h2')).toHaveCount(0)
 })
+
+test('clicking elsewhere collapses the previous DOM selection after an empty compositionstart or unfocused click', async ({
+  page
+}) => {
+  const paragraph =
+    '多人在群里交替发言，导致上下文缓存不断失效； Agent 为了对齐信息反复重读，更危险的是权限泄露。如果群机器人绑定了店铺的高权限接口，随便哪位成员问一句采购金额时就可能把保密的供应商底价带出来。'
+  await openDocument(page, paragraph)
+  const content = page.locator('.editor-content')
+
+  const points = await content.evaluate(element => {
+    const textNode = element.querySelector('p')!.firstChild as Text
+    const text = textNode.data
+    const start = text.indexOf('发言，导致上下文缓')
+    const end = start + '发言，导致上下文缓'.length
+    const target = text.indexOf('店铺') + 2
+    const rectAt = (from: number, to: number) => {
+      const range = document.createRange()
+      range.setStart(textNode, from)
+      range.setEnd(textNode, to)
+      return range.getBoundingClientRect()
+    }
+    const rStart = rectAt(start, start + 1)
+    const rEnd = rectAt(end - 1, end)
+    const rTarget = rectAt(target, target + 1)
+    return {
+      dragStart: { x: rStart.left + 1, y: (rStart.top + rStart.bottom) / 2 },
+      dragEnd: { x: rEnd.right - 1, y: (rEnd.top + rEnd.bottom) / 2 },
+      clickTarget: { x: rTarget.left + 1, y: (rTarget.top + rTarget.bottom) / 2 }
+    }
+  })
+
+  // 1. Orphaned empty compositionstart before refocusing elsewhere by pointer click
+  await page.mouse.move(points.dragStart.x, points.dragStart.y)
+  await page.mouse.down()
+  await page.mouse.move(points.dragEnd.x, points.dragEnd.y, { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(() => page.evaluate(() => window.getSelection()!.toString())).toBe('发言，导致上下文缓')
+
+  await content.evaluate(el => {
+    el.dispatchEvent(new CompositionEvent('compositionstart', { data: '', bubbles: true }))
+  })
+  await page.mouse.click(points.clickTarget.x, points.clickTarget.y)
+  await expect.poll(() => page.evaluate(() => window.getSelection()!.isCollapsed)).toBe(true)
+  await expect(page.locator('wg-cursor')).toBeVisible()
+
+  // 2. Clicking into the editor while document focus arrives asynchronously after mousedown's frame
+  await page.mouse.move(points.dragStart.x, points.dragStart.y)
+  await page.mouse.down()
+  await page.mouse.move(points.dragEnd.x, points.dragEnd.y, { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(() => page.evaluate(() => window.getSelection()!.toString())).toBe('发言，导致上下文缓')
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false })
+    window.dispatchEvent(new Event('blur'))
+  })
+  await page.waitForTimeout(30)
+  await page.mouse.move(points.clickTarget.x, points.clickTarget.y)
+  await page.mouse.down()
+  await page.waitForTimeout(30)
+  await page.evaluate(() => {
+    delete (document as { hasFocus?: () => boolean }).hasFocus
+    window.dispatchEvent(new Event('focus'))
+  })
+  await page.mouse.up()
+  await expect.poll(() => page.evaluate(() => window.getSelection()!.isCollapsed)).toBe(true)
+  await expect(page.locator('wg-cursor')).toBeVisible()
+})
+
+test('narrow editor surfaces the bottom-right / trigger and morphs the slash menu without leaving stray / text', async ({
+  page
+}) => {
+  await openDocument(page, 'Compact note')
+  const trigger = page.locator('[data-slash-corner-trigger]')
+  await expect(trigger).toHaveCount(0)
+
+  await page.setViewportSize({ width: 520, height: 640 })
+  await expect(trigger).toBeVisible()
+  await expect(trigger).toHaveCSS('width', '36px')
+  await expect(trigger).toHaveCSS('height', '36px')
+
+  await caret(page.locator('.editor-content > p'), 'end')
+  await page.keyboard.press('Enter')
+  await trigger.click()
+
+  const slash = page.getByRole('listbox', { name: '插入 Block', exact: true })
+  await expect(slash).toBeVisible()
+  await expect(slash).toHaveAttribute('data-compact', '')
+  await expect.poll(() => slash.getAttribute('data-morph')).toBe('open')
+  await expect(page.locator('.editor-content > p').nth(1)).toHaveText('')
+
+  // Dismissing with Escape morphs closed without leaving a literal `/` in the paragraph.
+  await page.keyboard.press('Escape')
+  await expect(slash).toHaveCount(0)
+  await expect(page.locator('.editor-content > p').nth(1)).toHaveText('')
+
+  // Re-opening from the corner button filters as the user types and applies the chosen block cleanly.
+  await trigger.click()
+  await expect(slash).toBeVisible()
+  await page.keyboard.type('h2')
+  await expect(slash.getByRole('option')).toHaveCount(1)
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('Compact Section')
+  await expect(page.locator('.editor-content > h2')).toHaveText('Compact Section')
+  await expect(slash).toHaveCount(0)
+})

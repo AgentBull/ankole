@@ -13,7 +13,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
   # PostgreSQL foreign keys; Agent and Worker rows use their lifecycle owner.
   @tables ~w(
     base_records base_views base_fields base_tables
-    pod_files pod_applet_envs pod_applet_approvals message_attachments delivery_attachments
+    pod_files pod_applet_revision_files pod_applet_revisions pod_applet_bindings pod_applet_envs pod_applet_approvals pod_applet_idempotency_keys message_attachments delivery_attachments
     drive_vfs_exports
     web_push_subscriptions page_user_states page_changes page_comments page_snapshots page_daily_activity page_search_documents page_contents
     pod_search_queries pod_office_ops pod_office_checkpoints pod_file_caches permission_grants
@@ -27,10 +27,10 @@ defmodule Ankole.Tenants.Jobs.Delete do
     signal_bindings automation_job_runs signal_webhook_endpoints automation_jobs agent_routines
     background_agent_job_turn_items brain_metric_revisions brain_dataset_bindings
     brain_entity_identifiers brain_chunks brain_take_domain_assignments
-    brain_contradictions brain_links brain_merge_suggestions brain_object_aliases
+    brain_contradictions brain_links brain_object_aliases brain_merge_suggestions
     brain_timelines brain_slug_aliases brain_tags brain_schema_suggestions
     brain_schema_calibration_domains brain_schema_link_types brain_schema_types
-    brain_sources pages authn_challenges browser_oidc_states oidc_authorization_requests browser_pod_authentications browser_authentications session_tool_receipts session_round_states
+    service_accounts brain_sources pages authn_challenges browser_oidc_states oidc_authorization_requests browser_pod_authentications browser_authentications session_tool_receipts session_round_states
     human_access_events human_access_restrictions principal_site_credentials pod_invitations
     identity_directory_events identity_directory_states identity_mapping_requests
     oidc_authorization_codes oidc_client_groups oidc_refresh_tokens oidc_refresh_token_families oidc_logout_requests
@@ -38,7 +38,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
     principal_group_external_bindings principal_group_memberships deliveries
     conversation_inbound_batches conversation_input_tombstones
     connector_db_catalog_columns connector_db_catalog_tables
-    connector_auth_waits connector_triggers connector_oauth_sessions connector_connected_accounts connector_auth_configs
+    connector_write_receipts connector_auth_waits connector_triggers connector_oauth_sessions connector_connected_accounts connector_auth_configs
     workflow_agent_calls delivery_previews signals ai_gateway_messages
     background_agent_job_turns brain_claims brain_schema_packs oidc_sessions conversations principal_groups
     workflow_runs ai_gateway_conversations background_agent_jobs
@@ -141,7 +141,12 @@ defmodule Ankole.Tenants.Jobs.Delete do
 
   defp delete_agents(agents) do
     Enum.reduce_while(agents, {:snooze, 1}, fn principal, result ->
-      case Ankole.Principals.delete_agent(principal.uid) do
+      step_result =
+        if principal.status == :active,
+          do: Ankole.Principals.disable_agent(principal.uid),
+          else: Ankole.Principals.delete_agent(principal.uid)
+
+      case step_result do
         {:ok, _} -> {:cont, result}
         {:error, _} = error -> {:halt, error}
       end

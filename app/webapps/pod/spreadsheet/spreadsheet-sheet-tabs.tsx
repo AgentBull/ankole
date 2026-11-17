@@ -16,7 +16,8 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-  Input
+  Input,
+  ScrollFade
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import { AddRegular, ChevronDownRegular } from '@ankole/uikit/icons'
@@ -98,11 +99,12 @@ export function SpreadsheetSheetTabs({ model }: { model: SpreadsheetSession }) {
   return (
     <nav
       aria-label={t('pod.spreadsheet.sheets')}
-      className="flex min-h-9 items-center gap-1 overflow-x-auto border-t border-border-subtle bg-layer-01 px-2 py-1">
+      className="flex min-h-9 items-center gap-1 border-t border-border-subtle bg-layer-01 px-2 py-1">
       {editable && (
         <Button
           size="icon-xs"
           variant="ghost"
+          className="shrink-0"
           aria-label={t('pod.spreadsheet.add_sheet')}
           title={t('pod.spreadsheet.add_sheet')}
           onClick={() =>
@@ -113,87 +115,89 @@ export function SpreadsheetSheetTabs({ model }: { model: SpreadsheetSession }) {
           <AddRegular />
         </Button>
       )}
-      {visible.map(sheet => {
-        const active = sheet.sheet_id === activeID
-        if (renaming?.id === sheet.sheet_id) {
-          return (
-            <Input
-              key={sheet.sheet_id}
-              autoFocus
-              aria-label={t('pod.spreadsheet.sheet_name')}
-              className="h-7 w-36"
-              value={renaming.name}
-              onChange={event => setRenaming({ id: sheet.sheet_id, name: event.target.value })}
-              onBlur={() => rename(sheet.sheet_id, renaming.name)}
-              onKeyDown={event => {
-                if (event.nativeEvent.isComposing) return
-                if (event.key === 'Enter') rename(sheet.sheet_id, renaming.name)
-                if (event.key === 'Escape') setRenaming(undefined)
+      <ScrollFade className="flex min-w-0 flex-1 items-center gap-1">
+        {visible.map(sheet => {
+          const active = sheet.sheet_id === activeID
+          if (renaming?.id === sheet.sheet_id) {
+            return (
+              <Input
+                key={sheet.sheet_id}
+                autoFocus
+                aria-label={t('pod.spreadsheet.sheet_name')}
+                className="h-7 w-36"
+                value={renaming.name}
+                onChange={event => setRenaming({ id: sheet.sheet_id, name: event.target.value })}
+                onBlur={() => rename(sheet.sheet_id, renaming.name)}
+                onKeyDown={event => {
+                  if (event.nativeEvent.isComposing) return
+                  if (event.key === 'Enter') rename(sheet.sheet_id, renaming.name)
+                  if (event.key === 'Escape') setRenaming(undefined)
+                }}
+              />
+            )
+          }
+          const tab = (
+            <Button
+              size="xs"
+              variant={active ? 'outline' : 'ghost'}
+              aria-pressed={active}
+              className={cn('max-w-48 shrink-0 border-b-2', !active && 'border-b-transparent')}
+              style={sheet.tab_color ? { borderBottomColor: sheet.tab_color } : undefined}
+              {...{ [SHEET_TAB_ATTRIBUTE]: '' }}
+              onPointerDown={() => {
+                const focused = document.activeElement
+                caret.current =
+                  focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement
+                    ? (focused.selectionStart ?? undefined)
+                    : undefined
               }}
-            />
+              onClick={event => {
+                model.showSheet(sheet.sheet_id, caret.current)
+                // A formula still waiting for a reference continues in the formula bar on this sheet.
+                const editing = model.draft.peek()
+                if (!editing) return
+                const bar = event.currentTarget
+                  .closest(`[${WORKSPACE_ATTRIBUTE}]`)
+                  ?.querySelector<HTMLInputElement>(`[${FORMULA_BAR_ATTRIBUTE}]`)
+                const at = caret.current ?? editing.text.length
+                bar?.focus()
+                requestAnimationFrame(() => bar?.setSelectionRange(at, at))
+              }}
+              onDoubleClick={() => editable && setRenaming({ id: sheet.sheet_id, name: sheet.name })}>
+              <span className="truncate">{sheet.name}</span>
+            </Button>
           )
-        }
-        const tab = (
-          <Button
-            size="xs"
-            variant={active ? 'outline' : 'ghost'}
-            aria-pressed={active}
-            className={cn('max-w-48 shrink-0 border-b-2', !active && 'border-b-transparent')}
-            style={sheet.tab_color ? { borderBottomColor: sheet.tab_color } : undefined}
-            {...{ [SHEET_TAB_ATTRIBUTE]: '' }}
-            onPointerDown={() => {
-              const focused = document.activeElement
-              caret.current =
-                focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement
-                  ? (focused.selectionStart ?? undefined)
-                  : undefined
-            }}
-            onClick={event => {
-              model.showSheet(sheet.sheet_id, caret.current)
-              // A formula still waiting for a reference continues in the formula bar on this sheet.
-              const editing = model.draft.peek()
-              if (!editing) return
-              const bar = event.currentTarget
-                .closest(`[${WORKSPACE_ATTRIBUTE}]`)
-                ?.querySelector<HTMLInputElement>(`[${FORMULA_BAR_ATTRIBUTE}]`)
-              const at = caret.current ?? editing.text.length
-              bar?.focus()
-              requestAnimationFrame(() => bar?.setSelectionRange(at, at))
-            }}
-            onDoubleClick={() => editable && setRenaming({ id: sheet.sheet_id, name: sheet.name })}>
-            <span className="truncate">{sheet.name}</span>
-          </Button>
-        )
-        if (!editable) return <span key={sheet.sheet_id}>{tab}</span>
-        return (
-          <span key={sheet.sheet_id} className="flex shrink-0 items-center">
-            <ContextMenu>
-              <ContextMenuTrigger render={tab} />
-              <ContextMenuContent aria-label={t('pod.spreadsheet.sheet_actions', { sheet: sheet.name })}>
-                {actions(sheet)}
-              </ContextMenuContent>
-            </ContextMenu>
-            {active && (
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      size="icon-xs"
-                      variant="ghost"
-                      aria-label={t('pod.spreadsheet.sheet_actions', { sheet: sheet.name })}
-                      title={t('pod.spreadsheet.sheet_actions', { sheet: sheet.name })}
-                    />
-                  }>
-                  <ChevronDownRegular />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-52">
+          if (!editable) return <span key={sheet.sheet_id}>{tab}</span>
+          return (
+            <span key={sheet.sheet_id} className="flex shrink-0 items-center">
+              <ContextMenu>
+                <ContextMenuTrigger render={tab} />
+                <ContextMenuContent aria-label={t('pod.spreadsheet.sheet_actions', { sheet: sheet.name })}>
                   {actions(sheet)}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </span>
-        )
-      })}
+                </ContextMenuContent>
+              </ContextMenu>
+              {active && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label={t('pod.spreadsheet.sheet_actions', { sheet: sheet.name })}
+                        title={t('pod.spreadsheet.sheet_actions', { sheet: sheet.name })}
+                      />
+                    }>
+                    <ChevronDownRegular />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-52">
+                    {actions(sheet)}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </span>
+          )
+        })}
+      </ScrollFade>
       <Dialog open={!!deleting} onOpenChange={open => !open && setDeleting(undefined)}>
         <DialogContent className="pod-dialog" closeLabel={t('common.close')}>
           <DialogTitle>{t('pod.spreadsheet.delete_sheet')}</DialogTitle>

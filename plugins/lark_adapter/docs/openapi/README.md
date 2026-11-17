@@ -329,7 +329,7 @@ Feishu signals rate limiting with business code `99991400`, which can arrive in 
 
 The client detects all three forms, waits, and retries the request once; if the retry is rate-limited again, it returns `{:error, %FeishuOpenAPI.Error{code: :rate_limited}}`.
 
-To choose the backoff delay, the client checks Feishu's `x-ogw-ratelimit-reset` header first, falls back to standard `Retry-After`, and uses ~1 second when neither header is present, clamping the wait to at most 30 seconds.
+To choose the backoff delay, the client checks Feishu's `x-ogw-ratelimit-reset` header first, falls back to standard `Retry-After`, and uses ~1 second when neither header is present, clamping the wait to at most 2 seconds.
 
 Each retry emits a `[:feishu_openapi, :request, :rate_limited]` telemetry event with metadata `:method`, `:path`, `:app_id`, `:http_status`, `:source` (`:x_ogw_ratelimit_reset` | `:retry_after` | `:default`), `:limit` (from `x-ogw-ratelimit-limit` when present), and `:log_id`. See [Feishu's rate-limit documentation](https://open.feishu.cn/document/server-docs/api-call-guide/rate-limit) for per-endpoint quotas.
 

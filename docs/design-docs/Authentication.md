@@ -127,7 +127,7 @@ in-memory rate windows without resetting any challenge's attempt count.
 For browser rendering, the Auth HTML shell embeds public feature-flag decisions
 in its `ankole-features` meta element—evaluating flags in the site context for
 site login and in the tenant context for tenant-targeted login—and includes the
-target tenant's display name when a target tenant is resolved so SaaS sign-in
+target tenant's display name when a target tenant is resolved so sign-in
 pages can show the destination before login. The official OpenFeature provider loads this feature
 snapshot before the first render, whereas backend consumers evaluate features at
 their own operation boundaries. A build can also wrap the Auth SPA with

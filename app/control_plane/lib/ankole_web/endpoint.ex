@@ -12,10 +12,7 @@ defmodule AnkoleWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :ankole
 
   @http_entry Application.compile_env(:ankole, :http_entry, AnkoleWeb.Router)
-  @rewrite_on if(Application.compile_env(:ankole, :edition) == :saas,
-                do: [:x_forwarded_proto, :x_forwarded_for],
-                else: [:x_forwarded_proto]
-              )
+  @rewrite_on Application.compile_env(:ankole, :http_rewrite_on, [:x_forwarded_proto])
   @static_cors_headers [
     {"access-control-allow-origin", "*"},
     {"timing-allow-origin", "*"}
@@ -27,9 +24,10 @@ defmodule AnkoleWeb.Endpoint do
   # derived under a named context, isolating it from other Kernel-derived keys.
 
   # An OIDC callback URL must carry the scheme the browser used. This trusts
-  # `x-forwarded-proto` from every caller. SaaS also uses the ingress-supplied
-  # client IP. The ingress must remove incoming forwarded
-  # headers, set its own values, and be the only public path to this process.
+  # `x-forwarded-proto` from every caller. Deployments that also trust the client
+  # IP can add `:x_forwarded_for` to `:http_rewrite_on` at build time. Their ingress
+  # must remove incoming forwarded headers, set its own values, and be the only
+  # public path to this process.
   plug :reset_tenant
   plug :internal_health
 
@@ -140,8 +138,8 @@ defmodule AnkoleWeb.Endpoint do
 
   defp internal_health(conn, _opts), do: AnkoleWeb.EndpointDrain.call_health_plug(conn)
 
-  # Dedicated CDN / static hosts (`cdn.<saas_domain>` and optional `ANKOLE_SAAS_CDN_HOST`)
-  # resolve only static files; root `/` and all dynamic or internal endpoints return 404.
+  # Hosts classified as static by the selected host policy serve only static files;
+  # root `/` and all dynamic or internal endpoints return 404.
   defp static_host_admission(conn, _opts) do
     {conn, classification} = AnkoleWeb.Plugs.RequestHost.classify_conn(conn)
 

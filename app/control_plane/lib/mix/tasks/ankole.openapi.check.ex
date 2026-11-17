@@ -29,14 +29,17 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
       )
 
     try do
-      for {name, module} <-
-            [
-              {"browser-v2", AnkoleWeb.JSONAPI.BrowserRouter},
-              {"console-v2", AnkoleWeb.JSONAPI.ConsoleRouter},
-              {"pod-v2", AnkoleWeb.JSONAPI.PodRouter},
-              {"site-v2", AnkoleWeb.JSONAPI.SiteRouter}
-            ] ++ edition_specs() do
-        committed_path = committed_spec_path(name)
+      public_specs =
+        [
+          {"browser-v2", AnkoleWeb.JSONAPI.BrowserRouter},
+          {"console-v2", AnkoleWeb.JSONAPI.ConsoleRouter},
+          {"pod-v2", AnkoleWeb.JSONAPI.PodRouter},
+          {"site-v2", AnkoleWeb.JSONAPI.SiteRouter}
+        ]
+        |> Enum.map(fn {name, module} -> {committed_spec_path(name), module} end)
+
+      for {committed_path, module} <-
+            public_specs ++ Application.get_env(:ankole, :openapi_specs, []) do
         generated = module.spec() |> OpenAPI.to_map() |> normalize()
 
         if args == ["--write"] do
@@ -52,7 +55,7 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
             )
           end
 
-          Mix.shell().info("#{name} OpenAPI document is current")
+          Mix.shell().info("#{Path.basename(committed_path)} OpenAPI document is current")
         end
       end
     after
@@ -68,29 +71,6 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
     |> Ankole.JSON.encode!()
     |> Ankole.JSON.decode!()
     |> Map.delete("servers")
-  end
-
-  defp edition_specs do
-    for {name, module} <- [
-          {"saas-v2", Ankole.SaaSWeb.JSONAPIRouter},
-          {"saas-pod-v2", Ankole.SaaSWeb.PodJSONAPIRouter},
-          {"saas-site-v2", Ankole.SaaSWeb.SiteJSONAPIRouter}
-        ],
-        Code.ensure_loaded?(module),
-        do: {name, module}
-  end
-
-  defp committed_spec_path(name) when name in ["saas-v2", "saas-pod-v2", "saas-site-v2"] do
-    control_plane_root = Path.dirname(Mix.Project.project_file())
-
-    internals_root =
-      case System.get_env("ANKOLE_INTERNALS_PATH") do
-        nil -> Path.expand("../../internals", control_plane_root)
-        "" -> Path.expand("../../internals", control_plane_root)
-        path -> Path.expand(path, control_plane_root)
-      end
-
-    Path.expand("webapps/openapi/#{name}.json", internals_root)
   end
 
   defp committed_spec_path(name) do

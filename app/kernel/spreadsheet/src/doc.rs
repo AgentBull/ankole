@@ -76,17 +76,12 @@ impl SpreadsheetDoc {
     pub(crate) fn execute(&self, op: &mut Op) -> Result<Self, Error> {
         let mut wb = (*self.wb).clone();
         let outcome = ops::execute(&mut wb, op)?;
-        let calc = if outcome.structural {
-            let mut calc = Calc::new();
+        let mut calc = self.calc.clone();
+        if outcome.structural || row_visibility_changed(&self.wb, &wb) {
             calc.recalc_all(&mut wb);
-            calc
-        } else {
-            let mut calc = self.calc.clone();
-            if !outcome.changed.is_empty() {
-                calc.cells_changed(&mut wb, &outcome.changed);
-            }
-            calc
-        };
+        } else if !outcome.changed.is_empty() {
+            calc.cells_changed(&mut wb, &outcome.changed);
+        }
         // Rows whose content or fonts changed take their automatic height from the new values.
         let rows = autofit::touched_rows(&wb, op);
         autofit::fit_rows(&mut wb, &rows);
@@ -96,6 +91,27 @@ impl SpreadsheetDoc {
             source: Arc::clone(&self.source),
         })
     }
+}
+
+fn row_visibility_changed(before: &Workbook, after: &Workbook) -> bool {
+    before.sheets.len() != after.sheets.len()
+        || before
+            .sheets
+            .iter()
+            .zip(after.sheets.iter())
+            .any(|(prev, next)| sheet_row_visibility_changed(prev, next))
+}
+
+fn sheet_row_visibility_changed(before: &Sheet, after: &Sheet) -> bool {
+    before.rows.iter().any(|(&row, info)| {
+        info.hidden
+            && (!after.is_row_hidden(row)
+                || before.is_row_filtered(row) != after.is_row_filtered(row))
+    }) || after.rows.iter().any(|(&row, info)| {
+        info.hidden
+            && (!before.is_row_hidden(row)
+                || before.is_row_filtered(row) != after.is_row_filtered(row))
+    })
 }
 
 /// The position of the sheet whose `sheet_id` is `id`.

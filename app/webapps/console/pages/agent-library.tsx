@@ -515,6 +515,9 @@ function SkillCard({
       <CardContent className="mt-auto grid gap-4 border-t border-border-subtle pt-4">
         <div className="flex flex-wrap gap-2">
           {skill.source_kind === 'custom' ? <Badge variant="secondary">{t('pod.meta.source_custom')}</Badge> : null}
+          {skill.has_upstream_update ? (
+            <Badge variant="warning">{t('pod.meta.upstream_update_available')}</Badge>
+          ) : null}
           {!parentEnabled ? (
             <Badge variant="outline">{t('console.agent_library_capabilities.parent_disabled')}</Badge>
           ) : null}

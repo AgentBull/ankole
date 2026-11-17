@@ -7,23 +7,13 @@ defmodule Ankole.Sessions.Run do
   Terminal input, domain outcomes and visible replies commit under this fence.
   """
 
-  alias Ankole.AIGateway
-  alias Ankole.AIGateway.ResponseItems
-  alias Ankole.AIGateway.ToolResultJournal
-  alias Ankole.Sessions.RoundState
+  alias Ankole.{AIGateway, Repo}
+  alias Ankole.AIGateway.{ResponseItems, ToolResultJournal}
+  alias Ankole.Conversations.ActionCards
+  alias Ankole.Sessions.{Fence, ModelHistory, Notices, Outcome, Presentation, Queue, Receipt}
+  alias Ankole.Sessions.{Receipts, RoundState, SessionWorkspace, ToolResult}
   alias Ankole.Sessions.Run.Tape
-  alias Ankole.Sessions.Fence
-  alias Ankole.Sessions.Receipt
-  alias Ankole.Sessions.Receipts
-  alias Ankole.Sessions.Notices
-  alias Ankole.Sessions.Outcome
-  alias Ankole.Sessions.Presentation
-  alias Ankole.Sessions.ToolResult
-  alias Ankole.Repo
   alias Ankole.Signals.Signal
-  alias Ankole.Sessions.Queue
-  alias Ankole.Sessions.ModelHistory
-  alias Ankole.Sessions.SessionWorkspace
 
   @type t :: %__MODULE__{}
 
@@ -167,16 +157,13 @@ defmodule Ankole.Sessions.Run do
 
   @doc "Returns the retry Signal for publication by the transaction owner after commit."
   def defer_retry_in_tx(run, error, now) do
-    capacity? = Ankole.AIGateway.FailureDiagnostics.provider_capacity?(error)
-
     with :ok <- Fence.check_in_tx(run),
          %Signal{} = event <- Ankole.Signals.lock_signal_in_tx(run.signal_id) do
       if event.available_at != run.event.available_at do
         {:ok, event}
       else
-        count = event.provider_capacity_attempt_count + if(capacity?, do: 1, else: 0)
-        attempt = if capacity?, do: count, else: event.attempt_count - count
-        class = if capacity?, do: :provider_capacity, else: :execution
+        {class, attempt} =
+          Ankole.Sessions.TurnErrorClassifier.classify_conversation_retry(event, error, now)
 
         due =
           Ankole.Sessions.TurnErrorClassifier.credential_pool_retry_at(
@@ -187,7 +174,8 @@ defmodule Ankole.Sessions.Run do
         with {:ok, event} <-
                Ankole.Signals.transition_in_tx(event, :defer, %{
                  available_at: due,
-                 provider_capacity?: capacity?
+                 provider_capacity?: class == :provider_capacity,
+                 infrastructure?: class == :infrastructure
                }),
              :ok <-
                Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
@@ -566,10 +554,7 @@ defmodule Ankole.Sessions.Run do
              snapshot.human_uid | humans
            ]),
          {:ok, _} <-
-           Ankole.Sessions.Workspaces.ensure_in_tx(
-             snapshot.agent_uid,
-             snapshot.session_id
-           ),
+           Ankole.Sessions.Workspaces.ensure_in_tx(snapshot.agent_uid, snapshot.session_id),
          workspace <- Fence.lock_workspace_in_tx(snapshot),
          %Signal{} = event <- Ankole.Signals.lock_signal_in_tx(snapshot.id) do
       if event.status not in [:queued, :running] do
@@ -750,8 +735,7 @@ defmodule Ankole.Sessions.Run do
         )
 
       # Withdrawal deletes input, but its tool history remains authoritative.
-      events =
-        Enum.map(ids, &Ankole.Signals.lock_signal_in_tx(&1)) |> Enum.reject(&is_nil/1)
+      events = Enum.map(ids, &Ankole.Signals.lock_signal_in_tx(&1)) |> Enum.reject(&is_nil/1)
 
       if Enum.all?(
            events,
@@ -764,17 +748,9 @@ defmodule Ankole.Sessions.Run do
     end
   end
 
-  defp commit_terminal_in_tx(
-         _run,
-         events,
-         reply_event,
-         completion,
-         :dead_letter,
-         reason,
-         now
-       ) do
-    with {:ok, _} <-
-           update_events(events, &Queue.mark_event_dead_letter_in_tx(&1, now, reason)),
+  defp commit_terminal_in_tx(_run, events, reply_event, completion, :dead_letter, reason, now) do
+    with :ok <- cancel_unattached_cards_in_tx(events, nil),
+         {:ok, _} <- update_events(events, &Queue.mark_event_dead_letter_in_tx(&1, now, reason)),
          {:ok, notice} <- Notices.commit_dead_letter_notice_in_tx(reply_event, reason, completion) do
       {:ok, notice}
     end
@@ -784,22 +760,16 @@ defmodule Ankole.Sessions.Run do
          _run,
          events,
          reply_event,
-         %{execution: _} = completion,
+         %{execution: _} = comp,
          :stopped,
-         reason,
+         nil,
          now
-       )
-       when is_nil(reason) do
+       ) do
     text = Ankole.I18n.t("conversations.delivery.reply.command_stopped")
 
-    with {:ok, notice} <-
-           Notices.post_in_tx(
-             reply_event,
-             :stopped,
-             text,
-             %{"reason" => reason},
-             completion
-           ),
+    with :ok <- cancel_unattached_cards_in_tx(events, nil),
+         {:ok, notice} <-
+           Notices.post_in_tx(reply_event, :stopped, text, %{"reason" => nil}, comp),
          {:ok, _} <- update_events(events, &Queue.mark_event_completed_in_tx(&1, now)) do
       {:ok, notice}
     end
@@ -818,6 +788,11 @@ defmodule Ankole.Sessions.Run do
              outcome: visible_outcome,
              now: now
            }),
+         :ok <-
+           cancel_unattached_cards_in_tx(
+             events,
+             attached_card_id(visible_outcome, completion, posted)
+           ),
          {:ok, posted} <-
            if(Outcome.class(outcome) == :silent,
              do:
@@ -849,6 +824,16 @@ defmodule Ankole.Sessions.Run do
       {:ok, posted}
     end
   end
+
+  defp attached_card_id(outcome, comp, posted) do
+    if outcome != :silent and is_nil(comp[:clarify_prompt]) and
+         (posted.messages != [] or posted.intents != []),
+       do: get_in(comp, [:action_card_prompt, "card_id"])
+  end
+
+  defp cancel_unattached_cards_in_tx(events, keep_id),
+    do:
+      ActionCards.cancel_unattached_prepared_for_signals_in_tx(Enum.map(events, & &1.id), keep_id)
 
   defp extract_turn_summary(run, completion, outcome) do
     terminating =
@@ -965,8 +950,12 @@ defmodule Ankole.Sessions.Run do
 
   def text(%{model_response: nil}), do: ""
 
-  def text(run),
-    do: Ankole.Conversations.Delivery.Text.visible_text(response_output(run.model_response)) || ""
+  def text(run) do
+    Ankole.Conversations.Delivery.Text.response_text(
+      response_output(run.model_response),
+      run.model_response.metadata
+    )
+  end
 
   def user(text),
     do: %{"role" => "user", "content" => [%{"type" => "input_text", "text" => text}]}

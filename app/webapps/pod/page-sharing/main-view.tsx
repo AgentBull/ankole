@@ -1,3 +1,4 @@
+import { type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AvatarGroup,
@@ -14,7 +15,6 @@ import {
 import {
   BuildingRegular,
   ChevronRightRegular,
-  LinkRegular,
   LockClosedRegular,
   SettingsRegular,
   ShieldCheckmarkRegular
@@ -29,11 +29,15 @@ import {
   type SharingScopeTab,
   type SharingSubject
 } from '../state/page-sharing'
+import { PageShareLinkField } from './share-preview'
 import { shareTitle, spaceScopeDescription, SubjectAvatar } from './sharing-primitives'
 import { SubjectPicker } from './subject-picker'
 import type { PageSharingMutations } from './use-page-sharing'
 
 export function MainSharingView({
+  pageID,
+  pageTitle,
+  preview: previewCard,
   pageType,
   hasParent,
   model,
@@ -44,12 +48,14 @@ export function MainSharingView({
   roles,
   canManage,
   mutations,
-  copyLink,
   onOpenCollaborators,
   onOpenSettings,
   onOpenExplain,
   onStageSubject
 }: {
+  pageID: string
+  pageTitle?: string | null
+  preview?: ReactNode
   pageType?: PageType
   hasParent: boolean
   model: InstanceType<typeof PageSharingModel>
@@ -60,7 +66,6 @@ export function MainSharingView({
   roles: Partial<Record<PageRole, string>>
   canManage: boolean
   mutations: PageSharingMutations
-  copyLink(): Promise<void>
   onOpenCollaborators(): void
   onOpenSettings(): void
   onOpenExplain(): void
@@ -89,6 +94,11 @@ export function MainSharingView({
       </div>
 
       <div className="grid gap-4 overflow-y-auto px-4 pb-3.5">
+        <section className="grid gap-2">
+          {previewCard}
+          <PageShareLinkField pageID={pageID} title={pageTitle} />
+        </section>
+
         <section className="grid gap-2">
           <div className="flex min-h-7 items-center justify-between gap-2">
             <span className="text-65 font-medium text-fg-primary">
@@ -162,11 +172,7 @@ export function MainSharingView({
         <ContentError error={mutations.error} />
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-border-subtle px-4 py-2.5">
-        <Button variant="outline" size="sm" onClick={() => void copyLink()}>
-          <LinkRegular aria-hidden className="size-4" />
-          {t('pod.content.copy_link')}
-        </Button>
+      <div className="flex items-center justify-end gap-2 border-t border-border-subtle px-4 py-2.5">
         <Button variant="ghost" size="sm" disabled={mutations.pending} onClick={onOpenExplain}>
           <ShieldCheckmarkRegular aria-hidden className="size-4" />
           {t('pod.sharing.check_access')}

@@ -159,7 +159,7 @@ defmodule Ankole.AIGateway.ResponseChain do
 
   "Visible leaf" = a `complete` message that no other `complete` message
   references as `previous_message_id`. If there are multiple leaves (branching),
-  the latest one by insertion order is returned deterministically (see plan §3.3).
+  the latest one by insertion order is returned deterministically.
   """
   @spec latest_visible_leaf(binary()) :: binary() | nil
   def latest_visible_leaf(conversation_id) do
@@ -665,7 +665,7 @@ defmodule Ankole.AIGateway.ResponseChain do
   end
 
   # Validates that an anchor message exists, is complete, and belongs to the
-  # given conversation. Per plan §3.3: only complete, non-retracted anchors.
+  # given conversation; only complete, non-retracted messages serve as anchors.
   defp validate_anchor(conversation_id, message_id) do
     case Message
          |> Ash.Query.filter(

@@ -5,6 +5,7 @@ defmodule AnkoleWeb.AIGatewayMediaJobsTest do
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1]
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.Jobs.RunMediaJob
   alias Ankole.AIGateway.MediaJobs
   alias Ankole.AIGateway.ModelProfiles
@@ -253,6 +254,108 @@ defmodule AnkoleWeb.AIGatewayMediaJobsTest do
              ctx.conn |> get(~p"/api/v1/ai-gateway/videos/#{id}") |> json_response(200)
   end
 
+  for {capability, provider_id, model, route, upstream_path} <- [
+        {"video", "openrouter-main", "google/veo-3.1", "/api/v1/ai-gateway/videos", "v1/videos"},
+        {"music", "cloudflare-main", "minimax/music-2.6", "/api/v1/ai-gateway/audio/music",
+         "accounts/acct-1/ai/run"}
+      ],
+      status <- [502, 503, 504] do
+    test "#{capability} submission is not replayed after HTTP #{status}", ctx do
+      profile(unquote(capability), unquote(provider_id), unquote(model))
+
+      id =
+        ctx.conn
+        |> post(unquote(route), %{"model" => "default", "prompt" => "A quiet beach"})
+        |> json_response(202)
+        |> Map.fetch!("id")
+
+      failure = {:json, unquote(status), %{"error" => %{"message" => "Upstream unavailable"}}}
+      answer(ctx, failure)
+      answer(ctx, failure)
+      assert :ok = run(id)
+      assert_receive {:upstream, %{method: :post, path: unquote(upstream_path)}}
+      refute_received {:upstream, _request}
+      assert Agent.get(ctx.answers, &length/1) == 1
+
+      assert %{"status" => "failed"} =
+               ctx.conn |> get(unquote(route) <> "/" <> id) |> json_response(200)
+
+      assert :ok = run(id)
+      refute_received {:upstream, _request}
+    end
+  end
+
+  for status <- [401, 429] do
+    test "a video submission rotates credentials after HTTP #{status}", ctx do
+      assert {:ok, _provider} =
+               ProviderConfigs.create_provider(%{
+                 provider_id: "video-pool",
+                 provider_kind: "openrouter",
+                 base_url: ctx.base_url <> "/v1",
+                 credential_pool: %{
+                   "entries" => [
+                     %{"label" => "First", "api_key" => "sk-first"},
+                     %{"label" => "Second", "api_key" => "sk-second"}
+                   ]
+                 }
+               })
+
+      profile("video", "video-pool", "google/veo-3.1")
+
+      id =
+        ctx.conn
+        |> post(~p"/api/v1/ai-gateway/videos", %{"model" => "default", "prompt" => "A kite"})
+        |> json_response(202)
+        |> Map.fetch!("id")
+
+      answer(ctx, {:json, unquote(status), %{"error" => %{"message" => "Request rejected"}}})
+      answer(ctx, {:json, 202, %{"id" => "gen-accepted", "status" => "pending"}})
+      assert {:snooze, 10} = run(id)
+      assert_receive {:upstream, %{method: :post, path: "v1/videos"} = first}
+      assert_receive {:upstream, %{method: :post, path: "v1/videos"} = second}
+      refute first.headers["authorization"] == second.headers["authorization"]
+      refute_received {:upstream, _request}
+    end
+  end
+
+  test "video polling retries a route failure and a failed download resumes from its link", ctx do
+    profile("video", "openrouter-main", "google/veo-3.1")
+
+    id =
+      ctx.conn
+      |> post(~p"/api/v1/ai-gateway/videos", %{"model" => "default", "prompt" => "A kite"})
+      |> json_response(202)
+      |> Map.fetch!("id")
+
+    answer(ctx, {:json, 202, %{"id" => "gen-retry", "status" => "pending"}})
+    assert {:snooze, 10} = run(id)
+    assert_receive {:upstream, %{method: :post, path: "v1/videos"}}
+
+    answer(ctx, {:json, 503, %{"error" => %{"message" => "Temporarily unavailable"}}})
+
+    answer(
+      ctx,
+      {:json, 200,
+       %{
+         "id" => "gen-retry",
+         "status" => "completed",
+         "unsigned_urls" => [ctx.base_url <> "/files/video.mp4"]
+       }}
+    )
+
+    answer(ctx, {:json, 503, %{"error" => %{"message" => "Download unavailable"}}})
+    assert {:error, _reason} = run(id)
+    assert_receive {:upstream, %{method: :get, path: "v1/videos/gen-retry"}}
+    assert_receive {:upstream, %{method: :get, path: "v1/videos/gen-retry"}}
+    assert_receive {:upstream, %{method: :get, path: "files/video.mp4"}}
+
+    answer(ctx, {:raw, 200, "video/mp4", @mp4})
+    assert :ok = run(id)
+    assert_receive {:upstream, %{method: :get, path: "files/video.mp4"}}
+    refute_received {:upstream, _request}
+    assert response(get(ctx.conn, ~p"/api/v1/ai-gateway/videos/#{id}/content"), 200) == @mp4
+  end
+
   test "a request needs a prompt and a configured profile", ctx do
     assert %{"error" => %{"code" => "model_profile_not_configured"}} =
              ctx.conn
@@ -352,5 +455,171 @@ defmodule AnkoleWeb.AIGatewayMediaJobsTest do
       assert %{"error" => %{"code" => "unsupported_parameter"}} =
                ctx.conn |> post(path, payload) |> json_response(400)
     end
+  end
+
+  test "video polling and same-origin download stay pinned to the accepting credential", ctx do
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "video-pinned-pool",
+               provider_kind: "openrouter",
+               base_url: ctx.base_url <> "/v1",
+               credential_pool: %{
+                 "strategy" => "round_robin",
+                 "entries" => [
+                   %{"label" => "First", "api_key" => "sk-first"},
+                   %{"label" => "Second", "api_key" => "sk-second"}
+                 ]
+               }
+             })
+
+    [first_entry, second_entry] = provider.credential_pool["entries"]
+    profile("video", "video-pinned-pool", "google/veo-3.1")
+
+    id =
+      ctx.conn
+      |> post(~p"/api/v1/ai-gateway/videos", %{"model" => "default", "prompt" => "A kite"})
+      |> json_response(202)
+      |> Map.fetch!("id")
+
+    # Reset pool state after create-time request validation so submission starts on sk-first.
+    :ok = CredentialPool.reset_for_test()
+
+    # Submission fails over from sk-first to sk-second after HTTP 429.
+    answer(ctx, {:json, 429, %{"error" => %{"message" => "Rate limited"}}})
+    answer(ctx, {:json, 202, %{"id" => "gen-pinned", "status" => "pending"}})
+    assert {:snooze, 10} = run(id)
+    assert_receive {:upstream, %{method: :post, path: "v1/videos"} = post_1}
+    assert_receive {:upstream, %{method: :post, path: "v1/videos"} = post_2}
+    assert post_1.headers["authorization"] == "Bearer sk-first"
+    assert post_2.headers["authorization"] == "Bearer sk-second"
+    refute first_entry["id"] == second_entry["id"]
+    assert Ankole.Repo.get!(MediaJob, id).credential_id == second_entry["id"]
+
+    # Simulate cross-node execution / restart by clearing all pool memory.
+    :ok = CredentialPool.reset_for_test()
+
+    # Polling hits 429 on sk-second: it must NOT rotate to sk-first.
+    answer(ctx, {:json, 429, %{"error" => %{"message" => "Poll rate limited"}}})
+    assert {:error, _reason} = run(id)
+    assert_receive {:upstream, %{method: :get, path: "v1/videos/gen-pinned"} = poll_429}
+    assert poll_429.headers["authorization"] == "Bearer sk-second"
+    refute_received {:upstream, _request}
+
+    # Next attempt succeeds while sk-second is still marked exhausted in CredentialPool,
+    # and same-origin download also uses sk-second.
+    answer(
+      ctx,
+      {:json, 200,
+       %{
+         "id" => "gen-pinned",
+         "status" => "completed",
+         "unsigned_urls" => ["#{ctx.base_url}/v1/videos/gen-pinned/content?index=0"]
+       }}
+    )
+
+    answer(ctx, {:raw, 200, "video/mp4", @mp4})
+    assert :ok = run(id)
+    assert_receive {:upstream, %{method: :get, path: "v1/videos/gen-pinned"} = poll_ok}
+    assert_receive {:upstream, %{method: :get, path: "v1/videos/gen-pinned/content"} = download}
+    assert poll_ok.headers["authorization"] == "Bearer sk-second"
+    assert download.headers["authorization"] == "Bearer sk-second"
+    assert response(get(ctx.conn, ~p"/api/v1/ai-gateway/videos/#{id}/content"), 200) == @mp4
+  end
+
+  test "music failover pins the winning credential for immediate and retried same-origin downloads",
+       ctx do
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "music-pinned-pool",
+               provider_kind: "cloudflare",
+               base_url: ctx.base_url,
+               connection_options: %{"account_id" => "acct-1"},
+               credential_pool: %{
+                 "entries" => [
+                   %{"label" => "First", "api_key" => "cf-first"},
+                   %{"label" => "Second", "api_key" => "cf-second"}
+                 ]
+               }
+             })
+
+    [_first_entry, second_entry] = provider.credential_pool["entries"]
+    profile("music", "music-pinned-pool", "minimax/music-2.6")
+
+    id =
+      ctx.conn
+      |> post(~p"/api/v1/ai-gateway/audio/music", %{
+        "model" => "music.default",
+        "prompt" => "Slow piano"
+      })
+      |> json_response(202)
+      |> Map.fetch!("id")
+
+    link = ctx.base_url <> "/files/song.mp3"
+    answer(ctx, {:json, 429, %{"error" => %{"message" => "Rate limited"}}})
+    answer(ctx, {:json, 200, %{"state" => "Completed", "result" => %{"audio" => link}}})
+    answer(ctx, {:json, 503, %{"error" => %{"message" => "Download temporarily unavailable"}}})
+
+    assert {:error, {:media_download_failed, _reason}} = run(id)
+    assert_receive {:upstream, %{method: :post, path: "accounts/acct-1/ai/run"} = post_1}
+    assert_receive {:upstream, %{method: :post, path: "accounts/acct-1/ai/run"} = post_2}
+    assert_receive {:upstream, %{method: :get, path: "files/song.mp3"} = download_1}
+    assert post_1.headers["authorization"] == "Bearer cf-first"
+    assert post_2.headers["authorization"] == "Bearer cf-second"
+    assert download_1.headers["authorization"] == "Bearer cf-second"
+    assert Ankole.Repo.get!(MediaJob, id).credential_id == second_entry["id"]
+
+    # Retry on a clean pool node still uses cf-second.
+    :ok = CredentialPool.reset_for_test()
+    answer(ctx, {:raw, 200, "audio/mpeg", @mp3})
+    assert :ok = run(id)
+    assert_receive {:upstream, %{method: :get, path: "files/song.mp3"} = download_2}
+    assert download_2.headers["authorization"] == "Bearer cf-second"
+    assert response(get(ctx.conn, ~p"/api/v1/ai-gateway/audio/music/#{id}/content"), 200) == @mp3
+  end
+
+  test "removing the pinned credential fails the job instead of switching to another entry",
+       ctx do
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "video-removed-pool",
+               provider_kind: "openrouter",
+               base_url: ctx.base_url <> "/v1",
+               credential_pool: %{
+                 "entries" => [
+                   %{"label" => "First", "api_key" => "sk-first"},
+                   %{"label" => "Second", "api_key" => "sk-second"}
+                 ]
+               }
+             })
+
+    [first_entry, second_entry] = provider.credential_pool["entries"]
+    profile("video", "video-removed-pool", "google/veo-3.1")
+
+    id =
+      ctx.conn
+      |> post(~p"/api/v1/ai-gateway/videos", %{"model" => "default", "prompt" => "A kite"})
+      |> json_response(202)
+      |> Map.fetch!("id")
+
+    answer(ctx, {:json, 202, %{"id" => "gen-removed", "status" => "pending"}})
+    assert {:snooze, 10} = run(id)
+    assert_receive {:upstream, %{method: :post, path: "v1/videos"} = submission}
+    assert submission.headers["authorization"] == "Bearer sk-first"
+    assert Ankole.Repo.get!(MediaJob, id).credential_id == first_entry["id"]
+
+    assert {:ok, _updated} =
+             ProviderConfigs.update_provider("video-removed-pool", %{
+               "credential_pool" => %{
+                 "entries" => [%{"id" => second_entry["id"]}]
+               }
+             })
+
+    assert :ok = run(id)
+    refute_received {:upstream, _request}
+
+    assert %{
+             "status" => "failed",
+             "error" => %{"code" => "credential_removed"}
+           } = ctx.conn |> get(~p"/api/v1/ai-gateway/videos/#{id}") |> json_response(200)
   end
 end

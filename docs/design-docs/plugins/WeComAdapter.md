@@ -93,7 +93,9 @@ with the bot credentials and sends heartbeats every 30 seconds:
   sharing a `req_id` one at a time because ACKs identify only `req_id`. If an
   ACK times out, the client closes the socket and fails queued sends so a late
   ACK can never misconfirm a subsequent frame under the same `req_id`, after
-  which standard reconnect and Delivery recovery apply.
+  which standard reconnect and Delivery recovery apply. Queued frames that
+  never reached the socket return `not_connected`; other unacknowledged frames
+  return a transport error because WeCom may already have accepted them.
 - Inbound push frames carry no client-side ACK; instead, the adapter persists
   each observation immediately and relies on `msgid` uniqueness keys to
   deduplicate platform redeliveries.
@@ -185,6 +187,11 @@ flag alongside the pinned `req_id`, last recoverable presentation, and
 on final updates or updates without visible reasoning). Sealed pages never
 mutate, throttled updates retain the last confirmed snapshot in the ledger, and
 newly opened tail pages bypass throttling.
+
+Before sending a final presentation card, Ankole saves the confirmed stream
+pages. A transport failure or server error during a plain fallback or template
+card send settles as `unknown`, preserving confirmed progress without
+automatically repeating the non-idempotent send.
 
 ## Import People and Sign In
 

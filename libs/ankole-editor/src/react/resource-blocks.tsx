@@ -618,6 +618,46 @@ export function ExternalEmbedBlock({
     !draggingResize &&
     (readOnly ? hasFramePreview && ctrl.activeHoverOrFocus : ctrl.activeHoverOrFocus || ctrl.showToolbarForSelection)
 
+  const summaryLink =
+    src && webLinkSwitchable && view === 'card' ? (
+      <a className="resource-summary resource-bookmark-card" href={src} target="_blank" rel="noopener noreferrer">
+        {coverUrl && !coverFailed && (
+          <img className="resource-cover" src={coverUrl} alt="" loading="lazy" onError={() => setCoverFailed(true)} />
+        )}
+        <span className="resource-copy">
+          <span className="resource-meta">
+            {faviconUrl && !iconFailed ? (
+              <img
+                className="resource-favicon"
+                src={faviconUrl}
+                alt=""
+                loading="lazy"
+                onError={() => setIconFailed(true)}
+              />
+            ) : (
+              <GlobeRegular className="resource-favicon-fallback" aria-hidden="true" />
+            )}
+            <small className="resource-url">{attrs.href ?? src}</small>
+          </span>
+          <span className="resource-name">{title}</span>
+          {attrs.description && <span className="resource-description">{attrs.description}</span>}
+        </span>
+      </a>
+    ) : src ? (
+      <a className="resource-summary" href={src} target="_blank" rel="noopener noreferrer">
+        <LinkRegular className="resource-symbol" aria-hidden="true" />
+        <span className="resource-copy">
+          <span className="resource-name">{title}</span>
+          {view === 'card' && (
+            <>
+              {attrs.description && <span className="resource-description">{attrs.description}</span>}
+              <small>{resourceHostname(src)}</small>
+            </>
+          )}
+        </span>
+      </a>
+    ) : null
+
   return (
     <>
       <ResourceFloatingToolbar
@@ -714,53 +754,8 @@ export function ExternalEmbedBlock({
           </ResourceEditForm>
         ) : preview ? (
           preview
-        ) : src ? (
-          webLinkSwitchable && view === 'card' ? (
-            <a className="resource-summary resource-bookmark-card" href={src} target="_blank" rel="noopener noreferrer">
-              {coverUrl && !coverFailed && (
-                <img
-                  className="resource-cover"
-                  src={coverUrl}
-                  alt=""
-                  loading="lazy"
-                  onError={() => setCoverFailed(true)}
-                />
-              )}
-              <span className="resource-copy">
-                <span className="resource-meta">
-                  {faviconUrl && !iconFailed ? (
-                    <img
-                      className="resource-favicon"
-                      src={faviconUrl}
-                      alt=""
-                      loading="lazy"
-                      onError={() => setIconFailed(true)}
-                    />
-                  ) : (
-                    <GlobeRegular className="resource-favicon-fallback" aria-hidden="true" />
-                  )}
-                  <small className="resource-url">{attrs.href ?? src}</small>
-                </span>
-                <span className="resource-name">{title}</span>
-                {attrs.description && <span className="resource-description">{attrs.description}</span>}
-              </span>
-            </a>
-          ) : (
-            <a className="resource-summary" href={src} target="_blank" rel="noopener noreferrer">
-              <LinkRegular className="resource-symbol" aria-hidden="true" />
-              <span className="resource-copy">
-                <span className="resource-name">{title}</span>
-                {view === 'card' && (
-                  <>
-                    {attrs.description && <span className="resource-description">{attrs.description}</span>}
-                    <small>{resourceHostname(src)}</small>
-                  </>
-                )}
-              </span>
-            </a>
-          )
         ) : (
-          <p className="resource-empty">{label(titleKey)}</p>
+          (summaryLink ?? <p className="resource-empty">{label(titleKey)}</p>)
         )}
       </ResourceBlockContainer>
     </>

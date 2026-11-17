@@ -794,7 +794,16 @@ defmodule Ankole.PodBrowserAgentActions do
 
           {"POST", ["publish"]} ->
             body = conn.body_params
-            Ankole.Pod.Files.publish(actor, body["page_id"], body["base_revision"], body["files"])
+
+            Ankole.Pod.Files.publish(
+              actor,
+              body["page_id"],
+              body["base_revision"],
+              body["files"],
+              nil,
+              draft: body["draft"] == true,
+              summary: body["summary"]
+            )
 
           _ ->
             {:error, :not_found}

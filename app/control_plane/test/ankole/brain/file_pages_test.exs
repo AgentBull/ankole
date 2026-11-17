@@ -294,19 +294,63 @@ defmodule Ankole.Brain.FilePagesTest do
       end)
 
     Agent.update(ctx.output, fn _ ->
-      %{"items" => [%{"date" => "2024-03-01", "summary" => "Plant opened"}]}
+      %{
+        "items" => [
+          %{"date" => "2024-03-01", "summary" => "Plant opened"},
+          %{"date" => "2024-04-01", "summary" => "Production began"}
+        ]
+      }
     end)
 
-    assert %{status: :ok, timelines: 1} = Dreaming.phase_extract_timelines()
+    test_pid = self()
+    handler = "timeline-reconcile-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler,
+      [:ankole, :repo, :query],
+      fn _, _, metadata, _ ->
+        if String.starts_with?(metadata.query, "SELECT") and
+             String.contains?(metadata.query, ~s(FROM "brain_timelines")) do
+          send(test_pid, :timeline_projection_read)
+        end
+      end,
+      nil
+    )
+
+    try do
+      assert %{status: :ok, timelines: 2} = Dreaming.phase_extract_timelines()
+      assert_received :timeline_projection_read
+      refute_received :timeline_projection_read
+    after
+      :telemetry.detach(handler)
+    end
+
     assert Enum.any?(prompts(), &(&1 =~ "The plant opened on 2024-03-01."))
 
-    assert [%{date: ~D[2024-03-01], provenance: provenance}] =
-             Repo.all(from t in Timeline, where: t.source_node_id == ^page.id)
+    assert [%{date: ~D[2024-03-01], provenance: provenance}, %{date: ~D[2024-04-01]}] =
+             Repo.all(from t in Timeline, where: t.source_node_id == ^page.id, order_by: t.date)
 
     assert provenance == "page:#{page.id}:#{object.content_hash}"
 
     assert %{status: :ok, timelines: 0} = Dreaming.phase_extract_timelines()
     assert prompts() == []
+
+    {:ok, _} =
+      Files.upload(
+        ctx.actor,
+        page.id,
+        "file",
+        page.object_id,
+        "notes.md",
+        "There are no dated events in this corrected report.",
+        "text/markdown"
+      )
+
+    assert Enum.any?(chunks(page.id), &(&1.content_kind == :timeline))
+    Agent.update(ctx.output, fn _ -> %{"items" => []} end)
+    assert %{status: :ok, timelines: 0} = Dreaming.phase_extract_timelines()
+    refute Repo.exists?(from t in Timeline, where: t.source_node_id == ^page.id)
+    assert Enum.map(chunks(page.id), & &1.content_kind) == [:body]
   end
 
   test "a Word document is chunked and learned per section", ctx do

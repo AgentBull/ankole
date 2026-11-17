@@ -1,50 +1,39 @@
 defmodule WeComOpenAPI.Bot.Client do
   @moduledoc """
-  Supervised WeCom AI-bot long connection.
+  Supervised WeCom AI-bot long connection implemented as an OTP `:gen_statem`.
 
-  Lifecycle per the long-connection protocol:
+  Explicit connection states:
 
-    1. Open the WebSocket to `wss://openws.work.weixin.qq.com` (no
-       registration step or ticket) and send the auth frame
-       `{cmd: "aibot_subscribe", headers: {req_id}, body: {bot_id, secret}}`.
-       The ack (`{headers: {req_id}, errcode, errmsg}`) carries the result; a
-       non-zero errcode is a fatal credential error.
-    2. Heartbeat with `{cmd: "ping"}` every 30s; three heartbeats without an
-       ack mark the connection dead and trigger a backoff reconnect.
-    3. Push frames (`aibot_msg_callback` / `aibot_event_callback`) dispatch in
-       a supervised task. The protocol has no client ack for pushes — ingress
-       persistence plus `msgid` uniqueness absorb platform re-delivery.
-    4. Outbound frames (`aibot_respond_msg`, `aibot_send_msg`, media upload)
-       each await their ack frame, correlated by `req_id`. Replies reuse the
-       inbound `req_id`, so acks for one `req_id` are indistinguishable from
-       each other — replies to the same `req_id` are therefore queued and sent
-       one in flight at a time (same discipline as the official Node SDK).
+    * `:disconnected` — no open socket; connects immediately on startup or waits
+      on a `:state_timeout` backoff timer between reconnect attempts.
+    * `:upgrading` — TCP/TLS connection opened via `IMTransport.WebSocket`,
+      awaiting the HTTP/1 WebSocket upgrade response.
+    * `:authenticating` — WebSocket upgrade completed and `aibot_subscribe` sent,
+      guarded by an authentication `:state_timeout`.
+    * `:connected` — authenticated (`errcode: 0`); runs periodic `{cmd: "ping"}`
+      heartbeats, dispatches inbound callback pushes in supervised tasks, and
+      tracks per-`req_id` outbound ACK timers and serialized reply queues.
 
-  The platform allows exactly one live connection per bot and kicks the older
-  one when a new connection subscribes, announced by a `disconnected_event`
-  event frame. Reconnecting would kick the newer holder back, so the client
-  stops with `{:shutdown, :connection_contended}` instead of fighting — the
-  official SDK does the same. Plain socket loss still reconnects with backoff.
-
-  The WeCom gateway requires canonical HTTP/1 upgrade header names.
-  `IMTransport.WebSocket` owns the Mint connection. This module owns WeCom
-  authentication, acknowledgements, and reconnect timing.
+  The platform allows one live connection per bot and kicks the older holder with
+  `disconnected_event` when a newer connection subscribes. The client stops with
+  `{:shutdown, :connection_contended}` instead of fighting the newer holder, while
+  ordinary socket failures reconnect with exponential backoff.
   """
 
-  use GenServer
+  @behaviour :gen_statem
 
   require Logger
 
+  alias IMTransport.WebSocket
   alias WeComOpenAPI.Bot.{Dispatcher, Event}
   alias WeComOpenAPI.Error
-  alias IMTransport.WebSocket
 
   @default_ws_url "wss://openws.work.weixin.qq.com"
   @user_agent "wecom_openapi-elixir/0.1"
-  @heartbeat_interval_ms :timer.seconds(30)
+  @default_heartbeat_interval_ms :timer.seconds(30)
   @max_missed_pongs 3
-  @auth_timeout_ms :timer.seconds(15)
-  @ack_timeout_ms :timer.seconds(10)
+  @default_auth_timeout_ms :timer.seconds(15)
+  @default_ack_timeout_ms :timer.seconds(10)
   @reconnect_cap_s 30
 
   defstruct bot_id: nil,
@@ -53,25 +42,33 @@ defmodule WeComOpenAPI.Bot.Client do
             dispatcher: nil,
             task_supervisor: nil,
             auto_reconnect: true,
+            heartbeat_interval_ms: @default_heartbeat_interval_ms,
+            auth_timeout_ms: @default_auth_timeout_ms,
+            ack_timeout_ms: @default_ack_timeout_ms,
+            reconnect_base_ms: 1_000,
             socket: nil,
-            status: :disconnected,
             reconnect_attempt: 0,
-            reconnect_timer: nil,
-            heartbeat_timer: nil,
             missed_pongs: 0,
             auth_req_id: nil,
-            auth_timer: nil,
             pending: %{},
-            pending_seq: 0,
             reply_queues: %{},
             dispatch_tasks: %{}
 
+  @type state_name :: :disconnected | :upgrading | :authenticating | :connected
   @type t :: %__MODULE__{}
 
-  @spec start_link(keyword()) :: GenServer.on_start()
+  @impl :gen_statem
+  def callback_mode, do: :handle_event_function
+
+  @spec start_link(keyword()) :: :gen_statem.start_ret()
   def start_link(opts) do
     opts = validate_opts!(opts)
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
+
+    case Keyword.get(opts, :name) do
+      nil -> :gen_statem.start_link(__MODULE__, opts, [])
+      atom when is_atom(atom) -> :gen_statem.start_link({:local, atom}, __MODULE__, opts, [])
+      registered -> :gen_statem.start_link(registered, __MODULE__, opts, [])
+    end
   end
 
   def child_spec(opts) do
@@ -87,12 +84,10 @@ defmodule WeComOpenAPI.Bot.Client do
   Send a fresh-`req_id` frame (`aibot_send_msg`, media upload) and await its
   ack. Returns the full ack frame on `errcode` 0.
   """
-  @spec request(GenServer.server(), String.t(), map(), timeout()) ::
+  @spec request(:gen_statem.server_ref(), String.t(), map(), timeout()) ::
           {:ok, map()} | {:error, Error.t()}
   def request(server, cmd, body, timeout \\ :timer.seconds(15)) do
-    GenServer.call(server, {:send_frame, cmd, generate_req_id(cmd), body}, timeout)
-  catch
-    :exit, {:timeout, _call} -> {:error, %Error{reason: :ack_timeout}}
+    call_send_frame(server, {:send_frame, cmd, generate_req_id(cmd), body}, timeout)
   end
 
   @doc """
@@ -102,21 +97,34 @@ defmodule WeComOpenAPI.Bot.Client do
     * `:cmd` — reply command (default `"aibot_respond_msg"`).
     * `:timeout` — caller-side wait (default 15s, above the 10s ack timeout).
   """
-  @spec reply(GenServer.server(), String.t(), map(), keyword()) ::
+  @spec reply(:gen_statem.server_ref(), String.t(), map(), keyword()) ::
           {:ok, map()} | {:error, Error.t()}
   def reply(server, req_id, body, opts \\ []) do
     cmd = Keyword.get(opts, :cmd, "aibot_respond_msg")
     timeout = Keyword.get(opts, :timeout, :timer.seconds(15))
-    GenServer.call(server, {:send_frame, cmd, req_id, body}, timeout)
-  catch
-    :exit, {:timeout, _call} -> {:error, %Error{reason: :ack_timeout}}
+
+    deadline_ms =
+      if is_integer(timeout), do: System.monotonic_time(:millisecond) + timeout, else: nil
+
+    call_send_frame(server, {:send_frame, cmd, req_id, body, deadline_ms}, timeout)
   end
 
-  @spec status(GenServer.server()) :: atom()
-  def status(server), do: GenServer.call(server, :status)
+  defp call_send_frame(server, message, timeout) do
+    :gen_statem.call(server, message, {:clean_timeout, timeout})
+  catch
+    :exit, {:timeout, _call} -> {:error, %Error{reason: :ack_timeout}}
+    :exit, {{:nodedown, _node}, _call} -> {:error, %Error{reason: :transport, raw: :nodedown}}
+    :exit, {:noproc, _call} -> {:error, %Error{reason: :not_connected}}
+    :exit, {:normal, _call} -> {:error, %Error{reason: :not_connected}}
+    :exit, {:shutdown, _call} -> {:error, %Error{reason: :not_connected}}
+    :exit, {{:shutdown, reason}, _call} -> {:error, %Error{reason: :not_connected, raw: reason}}
+  end
 
-  @spec stop(GenServer.server()) :: :ok
-  def stop(server), do: GenServer.stop(server)
+  @spec status(:gen_statem.server_ref()) :: state_name()
+  def status(server), do: :gen_statem.call(server, :status)
+
+  @spec stop(:gen_statem.server_ref()) :: :ok
+  def stop(server), do: :gen_statem.stop(server)
 
   @doc false
   @spec generate_req_id(String.t()) :: String.t()
@@ -125,284 +133,343 @@ defmodule WeComOpenAPI.Bot.Client do
     "#{prefix}_#{System.system_time(:millisecond)}_#{random}"
   end
 
-  @impl true
+  @impl :gen_statem
   def init(opts) do
     Process.flag(:trap_exit, true)
 
-    state = %__MODULE__{
+    data = %__MODULE__{
       bot_id: Keyword.fetch!(opts, :bot_id),
       secret_fn: wrap_secret(Keyword.fetch!(opts, :secret)),
       ws_url: Keyword.get(opts, :ws_url, @default_ws_url),
       dispatcher: Keyword.fetch!(opts, :dispatcher),
       task_supervisor: Keyword.get(opts, :task_supervisor, WeComOpenAPI.EventTaskSupervisor),
-      auto_reconnect: Keyword.get(opts, :auto_reconnect, true)
+      auto_reconnect: Keyword.get(opts, :auto_reconnect, true),
+      heartbeat_interval_ms:
+        Keyword.get(opts, :heartbeat_interval_ms, @default_heartbeat_interval_ms),
+      auth_timeout_ms: Keyword.get(opts, :auth_timeout_ms, @default_auth_timeout_ms),
+      ack_timeout_ms: Keyword.get(opts, :ack_timeout_ms, @default_ack_timeout_ms),
+      reconnect_base_ms: Keyword.get(opts, :reconnect_base_ms, 1_000)
     }
 
-    send(self(), :connect)
-    {:ok, state}
+    {:ok, :disconnected, data, [{:next_event, :internal, :connect}]}
   end
 
-  @impl true
-  def handle_call(:status, _from, state), do: {:reply, state.status, state}
-
-  def handle_call({:send_frame, _cmd, _req_id, _body}, _from, %{status: status} = state)
-      when status != :connected do
-    {:reply, {:error, %Error{reason: :not_connected}}, state}
+  @impl :gen_statem
+  def handle_event({:call, from}, :status, state, _data) do
+    {:keep_state_and_data, [{:reply, from, state}]}
   end
 
-  def handle_call({:send_frame, cmd, req_id, body}, from, state) do
-    if Map.has_key?(state.pending, req_id) do
-      # An ack for this req_id is already outstanding; queue behind it so acks
-      # stay attributable (the ack frame carries only the req_id).
-      queue = Map.get(state.reply_queues, req_id, :queue.new())
-      {:noreply, put_in(state.reply_queues[req_id], :queue.in({from, cmd, body}, queue))}
-    else
-      {:noreply, send_tracked_frame(state, req_id, cmd, body, from)}
-    end
+  def handle_event({:call, from}, {:send_frame, cmd, req_id, body}, state, data) do
+    handle_send_frame(from, cmd, req_id, body, nil, state, data)
   end
 
-  @impl true
-  def handle_info(:connect, %{socket: socket} = state) when not is_nil(socket),
-    do: {:noreply, state}
-
-  def handle_info(:connect, state) do
-    state = clear_reconnect_timer(state)
-
-    case connect(state) do
-      {:ok, connected} -> {:noreply, connected}
-      {:error, reason} -> maybe_schedule_reconnect(state, reason)
-    end
+  def handle_event({:call, from}, {:send_frame, cmd, req_id, body, deadline_ms}, state, data) do
+    handle_send_frame(from, cmd, req_id, body, deadline_ms, state, data)
   end
 
-  def handle_info(:reconnect, state) do
-    state = clear_reconnect_timer(state)
-    send(self(), :connect)
-    {:noreply, state}
+  def handle_event(:internal, :connect, :disconnected, data), do: attempt_connect(data)
+  def handle_event(:state_timeout, :reconnect, :disconnected, data), do: attempt_connect(data)
+
+  def handle_event(:state_timeout, :upgrade_timeout, :upgrading, data) do
+    emit([:disconnect], %{duration_ms: 0}, %{reason: :upgrade_timeout})
+    disconnect_transition(data, :upgrade_timeout, [])
   end
 
-  def handle_info({:shutdown_socket, reason}, state), do: {:stop, {:shutdown, reason}, state}
+  def handle_event(:state_timeout, :auth_timeout, :authenticating, data) do
+    emit([:disconnect], %{duration_ms: 0}, %{reason: :auth_timeout})
+    disconnect_transition(data, :auth_timeout, [])
+  end
 
-  def handle_info(:heartbeat, %{status: :connected} = state) do
-    if state.missed_pongs >= @max_missed_pongs do
+  def handle_event({:timeout, :heartbeat}, :ping, :connected, data) do
+    if data.missed_pongs >= @max_missed_pongs do
       emit([:disconnect], %{duration_ms: 0}, %{reason: :heartbeat_timeout})
-      state = state |> drop_conn(:heartbeat_timeout)
-      maybe_schedule_reconnect(state, :heartbeat_timeout)
+      disconnect_transition(data, :heartbeat_timeout, [])
     else
       req_id = generate_req_id("ping")
+      frame = {:text, Torque.encode!(%{"cmd" => "ping", "headers" => %{"req_id" => req_id}})}
 
-      state =
-        send_ws_frame(
-          {:text, Torque.encode!(%{"cmd" => "ping", "headers" => %{"req_id" => req_id}})},
-          state
-        )
+      case WebSocket.send_frame(data.socket, frame) do
+        {:ok, socket} ->
+          next_data = %{data | socket: socket, missed_pongs: data.missed_pongs + 1}
+          {:keep_state, next_data, [heartbeat_action(next_data)]}
 
-      state = schedule_heartbeat(%{state | missed_pongs: state.missed_pongs + 1})
-      {:noreply, state}
+        {:error, socket, reason} ->
+          disconnect_transition(%{data | socket: socket}, reason, [])
+      end
     end
   end
 
-  def handle_info(:heartbeat, state), do: {:noreply, state}
+  def handle_event({:timeout, :heartbeat}, :ping, _state, _data), do: :keep_state_and_data
 
-  def handle_info(:auth_timeout, %{status: :authenticating} = state) do
-    emit([:disconnect], %{duration_ms: 0}, %{reason: :auth_timeout})
-    state = drop_conn(state, :auth_timeout)
-    maybe_schedule_reconnect(state, :auth_timeout)
-  end
+  def handle_event({:timeout, {:ack, req_id}}, :ack_timeout, :connected, data) do
+    case Map.pop(data.pending, req_id) do
+      {nil, _pending} ->
+        :keep_state_and_data
 
-  def handle_info(:auth_timeout, state), do: {:noreply, state}
-
-  def handle_info({:ack_timeout, req_id, seq}, state) do
-    case Map.get(state.pending, req_id) do
-      {^seq, from, _timer} ->
-        state = %{state | pending: Map.delete(state.pending, req_id)}
-        GenServer.reply(from, {:error, %Error{reason: :ack_timeout}})
-        # An ACK has no sequence number. Close the connection before this
-        # req_id can identify another frame.
-        state = drop_conn(state, :ack_timeout)
-        maybe_schedule_reconnect(state, :ack_timeout)
-
-      _other ->
-        {:noreply, state}
+      {from, rest} ->
+        next_data = %{data | pending: rest}
+        reply = {:reply, from, {:error, %Error{reason: :ack_timeout}}}
+        # Close the socket on ACK timeout before this req_id can be reused.
+        disconnect_transition(next_data, :ack_timeout, [reply])
     end
   end
+
+  def handle_event({:timeout, {:ack, _req_id}}, :ack_timeout, _state, _data),
+    do: :keep_state_and_data
 
   # A dispatch task finished (telemetry only; the protocol has no push ack).
-  def handle_info({ref, result}, %{dispatch_tasks: tasks} = state) when is_reference(ref) do
+  def handle_event(:info, {ref, result}, _state, %{dispatch_tasks: tasks} = data)
+      when is_reference(ref) do
     case Map.pop(tasks, ref) do
       {nil, _rest} ->
-        {:noreply, state}
+        :keep_state_and_data
 
       {{kind, started_at}, rest} ->
         Process.demonitor(ref, [:flush])
         duration = System.monotonic_time(:millisecond) - started_at
         emit([:frame], %{duration_ms: duration}, %{kind: kind, result: outcome_kind(result)})
-        {:noreply, %{state | dispatch_tasks: rest}}
+        {:keep_state, %{data | dispatch_tasks: rest}}
     end
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{dispatch_tasks: tasks} = state)
+  def handle_event(
+        :info,
+        {:DOWN, ref, :process, _pid, reason},
+        _state,
+        %{dispatch_tasks: tasks} = data
+      )
       when is_reference(ref) do
     case Map.pop(tasks, ref) do
       {nil, _rest} ->
-        {:noreply, state}
+        :keep_state_and_data
 
       {{kind, started_at}, rest} ->
         duration = System.monotonic_time(:millisecond) - started_at
         Logger.error("wecom_openapi bot dispatch crashed: #{inspect(reason)}")
         emit([:frame], %{duration_ms: duration}, %{kind: kind, result: :crashed})
-        {:noreply, %{state | dispatch_tasks: rest}}
+        {:keep_state, %{data | dispatch_tasks: rest}}
     end
   end
 
-  def handle_info(_message, %{socket: nil} = state), do: {:noreply, state}
+  def handle_event(:info, _message, :disconnected, _data), do: :keep_state_and_data
+  def handle_event(:info, _message, _state, %{socket: nil}), do: :keep_state_and_data
 
-  def handle_info(message, state) do
-    case WebSocket.stream(state.socket, message) do
-      {:ok, socket, frames} ->
-        just_opened = is_nil(state.socket.websocket) and not is_nil(socket.websocket)
-        state = %{state | socket: socket}
-        state = if just_opened, do: send_auth(state), else: state
-        reduce_frames(frames, state)
-
-      {:error, socket, {:websocket_decode, reason}} ->
-        Logger.warning("wecom_openapi bot decode failed: #{inspect(reason)}")
-        {:noreply, %{state | socket: socket}}
-
-      {:error, socket, reason} ->
-        reason = unwrap_upgrade(reason)
-        state = %{state | socket: socket} |> drop_conn(reason)
-        maybe_schedule_reconnect(state, reason)
-
-      :unknown ->
-        {:noreply, state}
-    end
+  def handle_event(:info, message, state, data) do
+    stream_socket_message(message, state, data)
   end
 
-  @impl true
-  def terminate(_reason, state) do
-    drop_conn(state, :terminate)
+  @impl :gen_statem
+  def terminate(_reason, _state, data) do
+    Enum.each(Map.keys(data.dispatch_tasks), &Process.demonitor(&1, [:flush]))
+    {_clean_data, _cancel_actions, reply_actions} = drop_conn(data, :terminate)
+    Enum.each(reply_actions, fn {:reply, from, reply} -> :gen_statem.reply(from, reply) end)
     :ok
   end
 
-  defp connect(state) do
-    case WebSocket.connect(state.ws_url,
+  defp handle_send_frame(from, _cmd, _req_id, _body, _deadline_ms, state, _data)
+       when state != :connected do
+    {:keep_state_and_data, [{:reply, from, {:error, %Error{reason: :not_connected}}}]}
+  end
+
+  defp handle_send_frame(from, cmd, req_id, body, deadline_ms, :connected, data) do
+    if Map.has_key?(data.pending, req_id) do
+      queue = Map.get(data.reply_queues, req_id, :queue.new())
+
+      {:keep_state,
+       put_in(data.reply_queues[req_id], :queue.in({from, cmd, body, deadline_ms}, queue))}
+    else
+      case send_tracked_frame(data, req_id, cmd, body, from) do
+        {:ok, next_data, actions} ->
+          {:keep_state, next_data, actions}
+
+        {:disconnect, reason, next_data, actions} ->
+          disconnect_transition(next_data, reason, actions)
+      end
+    end
+  end
+
+  defp attempt_connect(data) do
+    case WebSocket.connect(data.ws_url,
            headers: [{"User-Agent", @user_agent}],
            upgrade: :canonical,
            mint_options: [case_sensitive_headers: true]
          ) do
       {:ok, socket} ->
-        emit([:connect], %{duration_ms: 0}, %{host: URI.parse(state.ws_url).host})
-        {:ok, %{state | socket: socket, status: :upgrading, reconnect_timer: nil}}
+        emit([:connect], %{duration_ms: 0}, %{host: URI.parse(data.ws_url).host})
+
+        {:next_state, :upgrading, %{data | socket: socket},
+         [{:state_timeout, data.auth_timeout_ms, :upgrade_timeout}]}
 
       {:error, reason} ->
-        {:error, reason}
+        disconnect_transition(data, reason, [])
     end
   end
 
-  defp reduce_frames(frames, state) do
-    Enum.reduce_while(frames, {:noreply, state}, fn frame, {:noreply, acc} ->
-      case handle_frame(frame, acc) do
-        {:stop, _reason, _state} = stop -> {:halt, stop}
-        next -> {:cont, {:noreply, next}}
-      end
-    end)
-  end
+  defp stream_socket_message(message, state, data) do
+    case WebSocket.stream(data.socket, message) do
+      {:ok, socket, frames} ->
+        just_opened =
+          state == :upgrading and is_nil(data.socket.websocket) and not is_nil(socket.websocket)
 
-  defp unwrap_upgrade({:upgrade, reason}), do: reason
-  defp unwrap_upgrade(reason), do: reason
+        next_data = %{data | socket: socket}
 
-  defp handle_frame({:text, json}, state) do
-    sanitized = String.replace(json, ~r/[\x00-\x08\x0B-\x1F]/, "")
+        with {:ok, cur_state, cur_data, actions} <-
+               maybe_begin_auth(just_opened, state, next_data) do
+          apply_frames(frames, state, cur_state, cur_data, actions)
+        end
 
-    case Torque.decode(sanitized) do
-      {:ok, frame} when is_map(frame) -> route_frame(frame, state)
-      _other -> state
+      {:error, socket, {:websocket_decode, reason}} when state == :upgrading ->
+        disconnect_transition(%{data | socket: socket}, {:websocket_decode, reason}, [])
+
+      {:error, socket, {:websocket_decode, reason}} ->
+        Logger.warning("wecom_openapi bot decode failed: #{inspect(reason)}")
+        {:keep_state, %{data | socket: socket}}
+
+      {:error, socket, reason} ->
+        disconnect_transition(%{data | socket: socket}, unwrap_upgrade(reason), [])
+
+      :unknown ->
+        :keep_state_and_data
     end
   end
 
-  defp handle_frame({:ping, payload}, state), do: send_ws_frame({:pong, payload}, state)
-  defp handle_frame({:pong, _payload}, state), do: state
+  defp maybe_begin_auth(false, state, data), do: {:ok, state, data, []}
 
-  defp handle_frame({:close, _code, _reason}, state) do
-    state |> drop_conn(:peer_close) |> schedule_reconnect_async(:peer_close)
-  end
-
-  defp handle_frame(_frame, state), do: state
-
-  defp route_frame(%{"cmd" => cmd} = frame, state)
-       when cmd in ["aibot_msg_callback", "aibot_event_callback"] do
-    event = Event.from_frame(frame)
-
-    if event.event_type == "disconnected_event" do
-      # A new connection subscribed with this bot's credentials and the server
-      # is dropping this one. Reconnecting would kick the new holder back, so
-      # stop instead (official SDK semantics) and let the owner surface it.
-      emit([:kick], %{duration_ms: 0}, %{bot_id: state.bot_id})
-      {:stop, {:shutdown, :connection_contended}, drop_conn(state, :connection_contended)}
-    else
-      kind = event.event_type || event.msgtype || event.cmd
-      started_at = System.monotonic_time(:millisecond)
-
-      task =
-        Task.Supervisor.async_nolink(state.task_supervisor, fn ->
-          Dispatcher.dispatch(state.dispatcher, event)
-        end)
-
-      %{state | dispatch_tasks: Map.put(state.dispatch_tasks, task.ref, {kind, started_at})}
-    end
-  end
-
-  defp route_frame(%{"headers" => %{"req_id" => req_id}} = frame, state)
-       when is_binary(req_id) do
-    cond do
-      req_id == state.auth_req_id -> handle_auth_ack(frame, state)
-      String.starts_with?(req_id, "ping_") -> handle_ping_ack(frame, state)
-      Map.has_key?(state.pending, req_id) -> handle_call_ack(frame, req_id, state)
-      true -> state
-    end
-  end
-
-  defp route_frame(_frame, state), do: state
-
-  defp send_auth(state) do
+  defp maybe_begin_auth(true, _state, data) do
     req_id = generate_req_id("aibot_subscribe")
 
     frame = %{
       "cmd" => "aibot_subscribe",
       "headers" => %{"req_id" => req_id},
-      "body" => %{"bot_id" => state.bot_id, "secret" => state.secret_fn.()}
+      "body" => %{"bot_id" => data.bot_id, "secret" => data.secret_fn.()}
     }
 
-    auth_timer = Process.send_after(self(), :auth_timeout, @auth_timeout_ms)
-    state = %{state | status: :authenticating, auth_req_id: req_id, auth_timer: auth_timer}
-    send_ws_frame({:text, Torque.encode!(frame)}, state)
-  end
+    case WebSocket.send_frame(data.socket, {:text, Torque.encode!(frame)}) do
+      {:ok, socket} ->
+        next_data = %{data | socket: socket, auth_req_id: req_id}
+        {:ok, :authenticating, next_data, [{:state_timeout, data.auth_timeout_ms, :auth_timeout}]}
 
-  defp handle_auth_ack(frame, state) do
-    if state.auth_timer, do: Process.cancel_timer(state.auth_timer)
-    state = %{state | auth_req_id: nil, auth_timer: nil}
-
-    case Map.get(frame, "errcode") do
-      0 ->
-        emit([:authenticated], %{duration_ms: 0}, %{bot_id: state.bot_id})
-
-        %{state | status: :connected, reconnect_attempt: 0, missed_pongs: 0}
-        |> schedule_heartbeat()
-
-      _errcode ->
-        # Bad credentials will not heal by retrying; stop so the owner can
-        # mark the runtime configuration unavailable.
-        error = %Error{Error.from_ack(frame) | reason: :auth}
-        {:stop, {:shutdown, error}, drop_conn(state, :auth_rejected)}
+      {:error, socket, reason} ->
+        disconnect_transition(%{data | socket: socket}, reason, [])
     end
   end
 
-  defp handle_ping_ack(_frame, state), do: %{state | missed_pongs: 0}
+  defp apply_frames(frames, initial_state, cur_state, cur_data, actions) do
+    outcome =
+      Enum.reduce_while(frames, {:ok, cur_state, cur_data, actions}, fn frame,
+                                                                        {:ok, st, dt, acts} ->
+        case handle_frame(frame, st, dt, acts) do
+          {:ok, next_st, next_dt, next_acts} -> {:cont, {:ok, next_st, next_dt, next_acts}}
+          terminal -> {:halt, terminal}
+        end
+      end)
 
-  defp handle_call_ack(frame, req_id, state) do
-    {{_seq, from, timer}, pending} = Map.pop(state.pending, req_id)
-    if timer, do: Process.cancel_timer(timer)
-    state = %{state | pending: pending}
+    case outcome do
+      {:ok, ^initial_state, final_data, final_actions} ->
+        {:keep_state, final_data, final_actions}
+
+      {:ok, next_state, final_data, final_actions} ->
+        {:next_state, next_state, final_data, final_actions}
+
+      {:disconnect, reason, final_data, final_actions} ->
+        disconnect_transition(final_data, reason, final_actions)
+
+      {:stop_terminal, stop_reason, final_data, final_actions} ->
+        stop_with_actions(stop_reason, final_data, final_actions)
+    end
+  end
+
+  defp unwrap_upgrade({:upgrade, reason}), do: reason
+  defp unwrap_upgrade(reason), do: reason
+
+  defp handle_frame({:text, json}, state, data, actions) do
+    sanitized = String.replace(json, ~r/[\x00-\x08\x0B-\x1F]/, "")
+
+    case Torque.decode(sanitized) do
+      {:ok, frame} when is_map(frame) -> route_frame(frame, state, data, actions)
+      _other -> {:ok, state, data, actions}
+    end
+  end
+
+  defp handle_frame({:ping, payload}, state, data, actions) do
+    case send_ws_frame({:pong, payload}, data) do
+      {:ok, next_data} -> {:ok, state, next_data, actions}
+      {:disconnect, reason, next_data} -> {:disconnect, reason, next_data, actions}
+    end
+  end
+
+  defp handle_frame({:pong, _payload}, state, data, actions), do: {:ok, state, data, actions}
+
+  defp handle_frame({:close, _code, _reason}, _state, data, actions) do
+    {:disconnect, :peer_close, data, actions}
+  end
+
+  defp handle_frame(_frame, state, data, actions), do: {:ok, state, data, actions}
+
+  defp route_frame(%{"cmd" => cmd} = frame, state, data, actions)
+       when cmd in ["aibot_msg_callback", "aibot_event_callback"] do
+    event = Event.from_frame(frame)
+
+    if event.event_type == "disconnected_event" do
+      emit([:kick], %{duration_ms: 0}, %{bot_id: data.bot_id})
+      {clean_data, _cancel_actions, reply_actions} = drop_conn(data, :connection_contended)
+      {:stop_terminal, {:shutdown, :connection_contended}, clean_data, actions ++ reply_actions}
+    else
+      kind = event.event_type || event.msgtype || event.cmd
+      started_at = System.monotonic_time(:millisecond)
+
+      task =
+        Task.Supervisor.async_nolink(data.task_supervisor, fn ->
+          Dispatcher.dispatch(data.dispatcher, event)
+        end)
+
+      next_data = %{
+        data
+        | dispatch_tasks: Map.put(data.dispatch_tasks, task.ref, {kind, started_at})
+      }
+
+      {:ok, state, next_data, actions}
+    end
+  end
+
+  defp route_frame(%{"headers" => %{"req_id" => req_id}} = frame, state, data, actions)
+       when is_binary(req_id) do
+    cond do
+      state == :authenticating and req_id == data.auth_req_id ->
+        handle_auth_ack(frame, data, actions)
+
+      state == :connected and Map.has_key?(data.pending, req_id) ->
+        handle_call_ack(frame, req_id, data, actions)
+
+      String.starts_with?(req_id, "ping_") ->
+        {:ok, state, %{data | missed_pongs: 0}, actions}
+
+      true ->
+        {:ok, state, data, actions}
+    end
+  end
+
+  defp route_frame(_frame, state, data, actions), do: {:ok, state, data, actions}
+
+  defp handle_auth_ack(frame, data, actions) do
+    next_data = %{data | auth_req_id: nil}
+
+    case Map.get(frame, "errcode") do
+      0 ->
+        emit([:authenticated], %{duration_ms: 0}, %{bot_id: next_data.bot_id})
+        connected_data = %{next_data | reconnect_attempt: 0, missed_pongs: 0}
+        {:ok, :connected, connected_data, actions ++ [heartbeat_action(connected_data)]}
+
+      _errcode ->
+        error = %Error{Error.from_ack(frame) | reason: :auth}
+        {clean_data, _cancel_actions, reply_actions} = drop_conn(next_data, :auth_rejected)
+        {:stop_terminal, {:shutdown, error}, clean_data, actions ++ reply_actions}
+    end
+  end
+
+  defp handle_call_ack(frame, req_id, data, actions) do
+    {from, pending} = Map.pop!(data.pending, req_id)
+    next_data = %{data | pending: pending}
 
     result =
       case Map.get(frame, "errcode") do
@@ -410,80 +477,77 @@ defmodule WeComOpenAPI.Bot.Client do
         _errcode -> {:error, Error.from_ack(frame)}
       end
 
-    GenServer.reply(from, result)
     emit([:reply], %{duration_ms: 0}, %{result: elem(result, 0)})
-    advance_reply_queue(state, req_id)
+    ack_actions = actions ++ [{{:timeout, {:ack, req_id}}, :cancel}, {:reply, from, result}]
+    advance_reply_queue(next_data, req_id, ack_actions)
   end
 
-  defp advance_reply_queue(state, req_id) do
-    queue = Map.get(state.reply_queues, req_id, :queue.new())
+  defp advance_reply_queue(data, req_id, actions) do
+    queue = Map.get(data.reply_queues, req_id, :queue.new())
+    now_ms = System.monotonic_time(:millisecond)
+    advance_reply_queue_loop(data, req_id, queue, actions, now_ms)
+  end
 
+  defp advance_reply_queue_loop(data, req_id, queue, actions, now_ms) do
     case :queue.out(queue) do
       {:empty, _queue} ->
-        %{state | reply_queues: Map.delete(state.reply_queues, req_id)}
+        {:ok, :connected, %{data | reply_queues: Map.delete(data.reply_queues, req_id)}, actions}
 
-      {{:value, {from, cmd, body}}, rest} ->
-        state =
+      {{:value, {from, _cmd, _body, deadline_ms}}, rest}
+      when is_integer(deadline_ms) and now_ms >= deadline_ms ->
+        # The caller already timed out before this queued frame was written to the socket.
+        reply = {:reply, from, {:error, %Error{reason: :not_connected}}}
+        advance_reply_queue_loop(data, req_id, rest, actions ++ [reply], now_ms)
+
+      {{:value, {from, cmd, body, _deadline_ms}}, rest} ->
+        next_data =
           if :queue.is_empty(rest) do
-            %{state | reply_queues: Map.delete(state.reply_queues, req_id)}
+            %{data | reply_queues: Map.delete(data.reply_queues, req_id)}
           else
-            put_in(state.reply_queues[req_id], rest)
+            put_in(data.reply_queues[req_id], rest)
           end
 
-        send_tracked_frame(state, req_id, cmd, body, from)
+        case send_tracked_frame(next_data, req_id, cmd, body, from) do
+          {:ok, sent_data, send_actions} ->
+            {:ok, :connected, sent_data, actions ++ send_actions}
+
+          {:disconnect, reason, failed_data, fail_actions} ->
+            {:disconnect, reason, failed_data, actions ++ fail_actions}
+        end
     end
   end
 
-  defp send_tracked_frame(state, req_id, cmd, body, from) do
+  defp send_tracked_frame(%{socket: %{websocket: websocket}} = data, req_id, cmd, body, from)
+       when not is_nil(websocket) do
     frame = %{"cmd" => cmd, "headers" => %{"req_id" => req_id}, "body" => body}
-    seq = state.pending_seq + 1
-    timer = Process.send_after(self(), {:ack_timeout, req_id, seq}, @ack_timeout_ms)
 
-    state = %{
-      state
-      | pending_seq: seq,
-        pending: Map.put(state.pending, req_id, {seq, from, timer})
-    }
-
-    send_ws_frame({:text, Torque.encode!(frame)}, state)
-  end
-
-  defp schedule_heartbeat(state) do
-    if state.heartbeat_timer, do: Process.cancel_timer(state.heartbeat_timer)
-    timer = Process.send_after(self(), :heartbeat, @heartbeat_interval_ms)
-    %{state | heartbeat_timer: timer}
-  end
-
-  defp send_ws_frame(_frame, %{socket: nil} = state), do: state
-  defp send_ws_frame(_frame, %{socket: %{websocket: nil}} = state), do: state
-
-  defp send_ws_frame(frame, state) do
-    case WebSocket.send_frame(state.socket, frame) do
+    case WebSocket.send_frame(data.socket, {:text, Torque.encode!(frame)}) do
       {:ok, socket} ->
-        %{state | socket: socket}
+        next_data = %{data | socket: socket, pending: Map.put(data.pending, req_id, from)}
+        {:ok, next_data, [{{:timeout, {:ack, req_id}}, data.ack_timeout_ms, :ack_timeout}]}
 
       {:error, socket, reason} ->
-        %{state | socket: socket}
-        |> drop_conn(reason)
-        |> schedule_reconnect_async(reason)
+        reply = {:reply, from, {:error, %Error{reason: :transport, raw: reason}}}
+        {:disconnect, reason, %{data | socket: socket}, [reply]}
     end
   end
 
-  defp reconnect_action(state) do
-    cond do
-      not state.auto_reconnect ->
-        {:stop, state}
+  defp send_tracked_frame(data, _req_id, _cmd, _body, from) do
+    {:ok, data, [{:reply, from, {:error, %Error{reason: :not_connected}}}]}
+  end
 
-      state.reconnect_timer ->
-        {:schedule, state}
+  defp send_ws_frame(_frame, %{socket: nil} = data), do: {:ok, data}
+  defp send_ws_frame(_frame, %{socket: %{websocket: nil}} = data), do: {:ok, data}
 
-      true ->
-        delay = :timer.seconds(backoff_seconds(state.reconnect_attempt))
-        ref = Process.send_after(self(), :reconnect, delay)
-
-        {:schedule,
-         %{state | reconnect_attempt: state.reconnect_attempt + 1, reconnect_timer: ref}}
+  defp send_ws_frame(frame, data) do
+    case WebSocket.send_frame(data.socket, frame) do
+      {:ok, socket} -> {:ok, %{data | socket: socket}}
+      {:error, socket, reason} -> {:disconnect, reason, %{data | socket: socket}}
     end
+  end
+
+  defp heartbeat_action(data) do
+    {{:timeout, :heartbeat}, data.heartbeat_interval_ms, :ping}
   end
 
   # Same bounds as the official SDK.
@@ -491,63 +555,64 @@ defmodule WeComOpenAPI.Bot.Client do
     min(Bitwise.bsl(1, min(attempt, 5)), @reconnect_cap_s)
   end
 
-  defp maybe_schedule_reconnect(state, reason) do
-    case reconnect_action(state) do
-      {:schedule, state} -> {:noreply, state}
-      {:stop, state} -> {:stop, {:shutdown, reason}, state}
+  defp disconnect_transition(data, reason, prior_actions) do
+    {clean_data, cancel_actions, reply_actions} = drop_conn(data, reason)
+
+    if clean_data.auto_reconnect do
+      delay_ms = clean_data.reconnect_base_ms * backoff_seconds(clean_data.reconnect_attempt)
+      scheduled_data = %{clean_data | reconnect_attempt: clean_data.reconnect_attempt + 1}
+
+      {:next_state, :disconnected, scheduled_data,
+       prior_actions ++
+         cancel_actions ++ reply_actions ++ [{:state_timeout, delay_ms, :reconnect}]}
+    else
+      replies = Enum.filter(prior_actions, &match?({:reply, _, _}, &1)) ++ reply_actions
+      stop_with_replies({:shutdown, reason}, clean_data, replies)
     end
   end
 
-  defp schedule_reconnect_async(state, reason) do
-    case reconnect_action(state) do
-      {:schedule, state} ->
-        state
-
-      {:stop, state} ->
-        send(self(), {:shutdown_socket, reason})
-        state
-    end
+  defp stop_with_actions(stop_reason, data, actions) do
+    stop_with_replies(stop_reason, data, Enum.filter(actions, &match?({:reply, _, _}, &1)))
   end
 
-  defp clear_reconnect_timer(state) do
-    if state.reconnect_timer, do: Process.cancel_timer(state.reconnect_timer)
-    %{state | reconnect_timer: nil}
-  end
+  defp stop_with_replies(stop_reason, data, []), do: {:stop, stop_reason, data}
 
-  defp drop_conn(state, reason) do
-    WebSocket.close(state.socket)
-    if state.heartbeat_timer, do: Process.cancel_timer(state.heartbeat_timer)
-    if state.auth_timer, do: Process.cancel_timer(state.auth_timer)
-    Enum.each(Map.keys(state.dispatch_tasks), &Process.demonitor(&1, [:flush]))
-    fail_pending(state, reason)
+  defp stop_with_replies(stop_reason, data, replies),
+    do: {:stop_and_reply, stop_reason, replies, data}
 
-    %{
-      state
+  defp drop_conn(data, reason) do
+    WebSocket.close(data.socket)
+
+    cancel_actions =
+      [
+        {{:timeout, :heartbeat}, :cancel}
+        | Enum.map(data.pending, fn {req_id, _from} -> {{:timeout, {:ack, req_id}}, :cancel} end)
+      ]
+
+    pending_replies =
+      Enum.map(data.pending, fn {_req_id, from} ->
+        {:reply, from, {:error, %Error{reason: :transport, raw: reason}}}
+      end)
+
+    queued_replies =
+      Enum.flat_map(data.reply_queues, fn {_req_id, queue} ->
+        queue
+        |> :queue.to_list()
+        |> Enum.map(fn {from, _cmd, _body, _deadline_ms} ->
+          {:reply, from, {:error, %Error{reason: :not_connected, raw: reason}}}
+        end)
+      end)
+
+    clean_data = %{
+      data
       | socket: nil,
-        status: :disconnected,
-        heartbeat_timer: nil,
-        auth_timer: nil,
         auth_req_id: nil,
         missed_pongs: 0,
         pending: %{},
-        reply_queues: %{},
-        dispatch_tasks: %{}
+        reply_queues: %{}
     }
-  end
 
-  defp fail_pending(state, reason) do
-    error = {:error, %Error{reason: :not_connected, raw: reason}}
-
-    Enum.each(state.pending, fn {_req_id, {_seq, from, timer}} ->
-      if timer, do: Process.cancel_timer(timer)
-      GenServer.reply(from, error)
-    end)
-
-    Enum.each(state.reply_queues, fn {_req_id, queue} ->
-      queue
-      |> :queue.to_list()
-      |> Enum.each(fn {from, _cmd, _body} -> GenServer.reply(from, error) end)
-    end)
+    {clean_data, cancel_actions, pending_replies ++ queued_replies}
   end
 
   defp outcome_kind(:ok), do: :ok
@@ -571,7 +636,11 @@ defmodule WeComOpenAPI.Bot.Client do
         :ws_url,
         :auto_reconnect,
         :name,
-        :task_supervisor
+        :task_supervisor,
+        :heartbeat_interval_ms,
+        :auth_timeout_ms,
+        :ack_timeout_ms,
+        :reconnect_base_ms
       ])
 
     unless is_binary(Keyword.fetch!(opts, :bot_id)),

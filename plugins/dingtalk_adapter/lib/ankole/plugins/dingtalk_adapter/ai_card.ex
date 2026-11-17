@@ -49,7 +49,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   alias Ankole.Conversations.Delivery.PreviewAdapter.Request
   alias DingTalkOpenAPI.Card
   alias DingTalkOpenAPI.Error
-  alias DingTalkOpenAPI.Robot
 
   @checkpoint_version 2
   # Conservative single-card source budget; the platform recommends ≤3K total per
@@ -774,19 +773,30 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     with {:ok, space} <- resolve_space(event) do
       {records, failure} = deliver_plain_chunks(client, robot_code, space, chunks, ledger)
 
+      outcome =
+        case failure do
+          nil ->
+            :ok
+
+          {:error, %Error{} = error} ->
+            if Delivery.uncertain?(error), do: :unknown, else: {:error, error}
+        end
+
+      settled? = not match?({:error, _}, outcome)
+
       checkpoint =
         checkpoint
         |> Map.merge(%{
           "degraded" => true,
           "plain_chunks" => records,
-          "streaming_state" => "closed"
+          "streaming_state" => if(settled?, do: "closed", else: "open")
         })
-        |> merge_common(presentation, request, true)
+        |> merge_common(presentation, request, settled?)
 
       with {:ok, _event} <-
              PreviewStates.put_checkpoint(event.id, checkpoint) do
-        case failure do
-          nil ->
+        case outcome do
+          :ok ->
             {:ok,
              %{
                created_provider_message_id: first_process_query_key(records),
@@ -804,8 +814,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
                raw_payload: %{"plain_chunks" => length(records)}
              }}
 
-          {:error, _reason} = error ->
-            error
+          other ->
+            other
         end
       end
     end
@@ -847,42 +857,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
         "sampleText" -> %{"content" => chunk}
       end
 
-    result =
-      case space do
-        {:dm, user_id} ->
-          Robot.batch_send_oto(client,
-            robot_code: robot_code,
-            user_ids: [user_id],
-            msg_key: msg_key,
-            msg_param: msg_param
-          )
-
-        {:group, conversation_id} ->
-          Robot.send_group_message(client,
-            open_conversation_id: conversation_id,
-            robot_code: robot_code,
-            msg_key: msg_key,
-            msg_param: msg_param
-          )
-      end
-
-    case result do
-      {:ok, %{"flowControlledStaffIdList" => [_ | _]} = body} ->
-        {:error,
-         %DingTalkOpenAPI.Error{
-           reason: :rate_limited,
-           message: "per-user flow control",
-           raw: body
-         }}
-
-      {:ok, %{"processQueryKey" => pqk}} when is_binary(pqk) ->
-        {:ok, pqk}
-
-      {:ok, _body} ->
-        {:ok, nil}
-
-      {:error, _reason} = error ->
-        error
+    case Delivery.send_robot_message(client, robot_code, space, msg_key, msg_param) do
+      {:ok, %{created_provider_message_id: pqk}} -> {:ok, pqk}
+      {:ok, _} -> {:ok, nil}
+      {:error, _reason} = error -> error
     end
   end
 

@@ -102,10 +102,10 @@ test(`${source}10 copies only the selected rule`, async ({ page }) => {
   await expect(page.locator('.editor-content')).not.toContainText('b')
 })
 
-// A list item is copied only when the selection covers all of its text, as in Notion. The selection
+// A list item is copied only when the selection covers all of its text. The selection
 // ends in the item's second paragraph: the first pasted paragraph joins the text before the caret,
 // the second the text after it.
-test(`${source}18 partial list text pastes inline [Notion adaptation]`, async ({ page }) => {
+test(`${source}18 partial list text pastes inline`, async ({ page }) => {
   await openDocument(page, '> - foo\n>\n>   bar')
   await selectText(page, 'foo', 2, 'bar', 1)
   const data = await clipboard(page.locator('.editor-content'), 'copy')

@@ -315,10 +315,14 @@ defmodule Ankole.MixProject do
         compile: [&compile_with_lock/1],
         "ecto.migrate": [
           fn args ->
+            Process.delete(:ankole_migrated_versions)
             Mix.Task.run("loadpaths", args)
             Mix.Tasks.Ecto.Migrate.run(args, &Ankole.Migrations.migrate/4)
 
             if Mix.env() == :dev and
+                 Process.get(:ankole_migrated_versions, []) != [] and
+                 not is_nil(System.find_executable("pg_dump")) and
+                 (edition() == :foss or not is_nil(System.find_executable("pg-schema-diff"))) and
                  Enum.all?(args, &(&1 in ["--all", "--quiet", "--no-compile", "--no-deps-check"])) do
               Mix.Task.run("ankole.schema.check", ["--write"])
             end

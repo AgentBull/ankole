@@ -19,6 +19,7 @@
     "@angular-devkit/schematics-cli": "^22.2.7",
     "@crustjs/core": "^0.6.0",
     "@crustjs/extensions": "^0.6.0",
+    "@oxlint/plugins": "1.93.0",
     "chalk": "^6.0.1",
     "jsonc": "^3.0.0",
     "pino-pretty": "^13.2.0",

@@ -88,9 +88,16 @@ function EmailOtpFields({
   const { t } = useTranslation()
   const model = useModel(LoginModel)
   const lockout = model.formError.value
+  const lockoutUntil = lockout?.kind === 'locked' ? lockout.until : 0
+  const announcedLockoutUntil = useRef(0)
+  useEffect(() => {
+    announcedLockoutUntil.current = lockoutUntil
+  }, [lockoutUntil])
   useEffect(() => {
     if (lockout?.kind !== 'locked') return
-    const timer = setTimeout(() => model.advanceLockout(), 1000)
+    const remainingMs = lockout.until - Date.now()
+    const delay = remainingMs <= 0 ? 0 : remainingMs % 1000 || 1000
+    const timer = setTimeout(() => model.advanceLockout(), delay)
     return () => clearTimeout(timer)
   }, [model, lockout])
   const [restored] = useState(() => {
@@ -101,6 +108,38 @@ function EmailOtpFields({
     }
     return saved
   })
+  const expiresAtRef = useRef<number | undefined>(
+    (() => {
+      const parsed = restored ? Date.parse(restored.expiresAt) : Number.NaN
+      return Number.isFinite(parsed) ? parsed : undefined
+    })()
+  )
+  // An accepted code starts a navigation. The form holds its accepted state until the browser leaves, and returns
+  // to rest when the browser restores this page from its back-forward cache.
+  const [redirecting, setRedirecting] = useState(false)
+  const [challengeID, setChallengeID] = useState<string | undefined>(restored?.challengeID)
+  useEffect(() => {
+    const update = (event?: Event) => {
+      if (event instanceof PageTransitionEvent && event.persisted) setRedirecting(false)
+      model.advanceLockout()
+      model.updateResendCooldown()
+      if (expiresAtRef.current !== undefined && expiresAtRef.current <= Date.now()) {
+        expiresAtRef.current = undefined
+        setChallengeID(undefined)
+        if (persistChallenge) saveChallenge(scope)
+        model.resetCode()
+        onStepChange?.('email')
+      }
+    }
+    document.addEventListener('visibilitychange', update)
+    window.addEventListener('focus', update)
+    window.addEventListener('pageshow', update)
+    return () => {
+      document.removeEventListener('visibilitychange', update)
+      window.removeEventListener('focus', update)
+      window.removeEventListener('pageshow', update)
+    }
+  }, [model, onStepChange, persistChallenge, scope])
   useEffect(() => {
     if (restored) onStepChange?.('code')
   }, [onStepChange, restored])
@@ -113,16 +152,6 @@ function EmailOtpFields({
   }, [model, resendUntil])
   const emailID = useId()
   const codeID = useId()
-  // An accepted code starts a navigation. The form holds its accepted state until the browser leaves, and returns
-  // to rest when the browser restores this page from its back-forward cache.
-  const [redirecting, setRedirecting] = useState(false)
-  useEffect(() => {
-    const restore = (event: PageTransitionEvent) => {
-      if (event.persisted) setRedirecting(false)
-    }
-    window.addEventListener('pageshow', restore)
-    return () => window.removeEventListener('pageshow', restore)
-  }, [])
   const challengeEnabled = slot !== undefined
   const [attempt, setAttempt] = useState({ enabled: challengeEnabled, number: 0 })
   if (attempt.enabled !== challengeEnabled) {
@@ -133,7 +162,6 @@ function EmailOtpFields({
   const currentAttempt = useRef(attemptKey)
   currentAttempt.current = attemptKey
   const [challenge, setChallenge] = useState<AuthChallengeState & { attemptKey: string }>()
-  const [challengeID, setChallengeID] = useState<string | undefined>(restored?.challengeID)
   const challengeReady = !challengeEnabled || (challenge?.attemptKey === attemptKey && challenge.ready)
   const onChallengeStateChange = useCallback(
     (state: AuthChallengeState) => {
@@ -150,6 +178,8 @@ function EmailOtpFields({
       }),
     onSettled: resetAttempt,
     onSuccess: (result, resend) => {
+      const parsed = Date.parse(result.expiresAt)
+      expiresAtRef.current = Number.isFinite(parsed) ? parsed : undefined
       setChallengeID(result.challengeID)
       model.resetCode()
       if (resendCooldownSeconds) model.startResendCooldown(resendCooldownSeconds)
@@ -221,7 +251,13 @@ function EmailOtpFields({
       className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5"
       onSubmit={event => {
         event.preventDefault()
-        if (pending || waiting || (!challengeID && !challengeReady) || (challengeID && model.code.value.length !== 6)) {
+        model.advanceLockout()
+        if (
+          pending ||
+          model.formError.peek()?.kind === 'locked' ||
+          (!challengeID && !challengeReady) ||
+          (challengeID && model.code.value.length !== 6)
+        ) {
           return
         }
         model.clearFormError()
@@ -277,7 +313,12 @@ function EmailOtpFields({
         </SlotBoundary>
       )}
       {errorText && (
-        <p role="alert" className="text-sm text-destructive-fg">
+        <p
+          role="alert"
+          aria-live={
+            formError?.kind === 'locked' && announcedLockoutUntil.current === formError.until ? 'off' : undefined
+          }
+          className="text-sm text-destructive-fg">
           {errorText}
         </p>
       )}
@@ -314,6 +355,7 @@ function EmailOtpFields({
             onClick={() => {
               request.reset()
               verify.reset()
+              expiresAtRef.current = undefined
               setChallengeID(undefined)
               if (persistChallenge) saveChallenge(scope)
               model.resetCode()

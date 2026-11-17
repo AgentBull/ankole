@@ -90,7 +90,7 @@ jobs:
           # is correct only when nothing that reaches the images changed since.
           runtime_changes="$(
             git diff --name-only "${tag_sha}" "${RELEASE_REVISION}" \
-              | grep -Ev '^([^/]+\.md|app/website/.*|docs/.*|\.github/workflows/website-pages\.yml)$' || true
+              | grep -Ev '^([^/]+\.md|app/website/.*|docs/.*|\.github/.*)$' || true
           )"
           if [[ -n "${runtime_changes}" ]]; then
             echo "CHANGELOG.md still names ${release_version}, released from ${tag_sha}, but these files changed since:" >&2
@@ -98,7 +98,7 @@ jobs:
             exit 1
           fi
 
-          echo "Only documentation changed since ${release_tag}; there is nothing to release"
+          echo "Only documentation or CI configuration changed since ${release_tag}; there is nothing to release"
           echo "admitted=false" >> "${GITHUB_OUTPUT}"
 
   # Image builds run alongside `checks` and push only staging tags. The jobs
@@ -763,6 +763,54 @@ jobs:
             --worker-metadata "${RUNNER_TEMP}/worker-image.json" \
             --function-runtime-ref "${FUNCTION_RUNTIME_IMAGE}:${RELEASE_REVISION}" \
             --function-runtime-metadata "${RUNNER_TEMP}/function-runtime-image.json"
+
+      - name: Smoke-test built RuntimeFabric images
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run --rm --entrypoint /bin/bash "${WORKER_IMAGE}:${RELEASE_REVISION}" -lc '
+            set -euo pipefail
+            bun --version
+            node --version
+            codex --version
+            mcporter --version
+            ankole-rclone version
+            python3 --version
+          '
+
+          export COMPOSE_PROJECT_NAME="ankole_release_smoke_${GITHUB_RUN_ID}"
+          export ANKOLE_CONTROL_PLANE_IMAGE="${CONTROL_PLANE_IMAGE}:${RELEASE_REVISION}"
+          export ANKOLE_FUNCTION_RUNTIME_IMAGE="${FUNCTION_RUNTIME_IMAGE}:${RELEASE_REVISION}"
+          export ANKOLE_SECRET_BASE="$(openssl rand -hex 64)"
+          export RELEASE_COOKIE="$(openssl rand -hex 32)"
+          export POSTGRES_PASSWORD="release-smoke-password"
+          export ANKOLE_HOST="ankole.localhost"
+          export ANKOLE_FUNCTION_RUNTIME_TOKEN="release-smoke-fn-token"
+          export ACME_EMAIL="smoke@example.invalid"
+          export ANKOLE_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+
+          cleanup() {
+            docker compose -f tools/deploy/docker-compose/compose.yaml down -v --remove-orphans || true
+          }
+          trap cleanup EXIT
+
+          docker compose -f tools/deploy/docker-compose/compose.yaml up -d postgresql function-runtime
+          docker compose -f tools/deploy/docker-compose/compose.yaml run --rm migrate
+          docker compose -f tools/deploy/docker-compose/compose.yaml up -d --no-deps control-plane
+
+          cp_cid="$(docker compose -f tools/deploy/docker-compose/compose.yaml ps -q control-plane)"
+          for attempt in $(seq 1 60); do
+            if docker exec "${cp_cid}" /app/bin/ankole rpc "IO.puts(Ankole.Repo.in_transaction?())" >/dev/null 2>&1; then
+              echo "Control-plane container booted and connected cleanly on attempt ${attempt}"
+              break
+            fi
+            if [[ "${attempt}" -eq 60 ]]; then
+              docker compose -f tools/deploy/docker-compose/compose.yaml logs >&2
+              exit 1
+            fi
+            sleep 2
+          done
 
       - name: Publish latest RuntimeFabric image pair
         if: ${{ github.ref == 'refs/heads/main' }}

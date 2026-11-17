@@ -1,4 +1,4 @@
-import { Button, cn, Spinner, Toggle, toast, useIsMobile } from '@ankole/uikit'
+import { Button, cn, ScrollFade, Spinner, Toggle, toast, useIsMobile } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
   ChevronLeftRegular,
@@ -633,8 +633,11 @@ function PresentationPreviewWorkspace({
 
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           {!isMobile && railOpen && (
-            <aside className="w-44 shrink-0 overflow-y-auto border-r border-border-subtle bg-layer-03/20 p-2">
-              <ol aria-label={t('pod.presentation.slides_rail')} className="flex flex-col gap-1.5">
+            <aside className="flex min-h-0 w-44 shrink-0 flex-col border-r border-border-subtle bg-layer-03/20 p-2">
+              <ScrollFade
+                axis="y"
+                render={<ol aria-label={t('pod.presentation.slides_rail')} />}
+                className="flex min-h-0 flex-1 flex-col gap-1.5">
                 {slides.map(slide => (
                   <PreviewThumbnailItem
                     key={slide.slide_id}
@@ -647,7 +650,7 @@ function PresentationPreviewWorkspace({
                     onSelect={idx => void goToSlide(idx)}
                   />
                 ))}
-              </ol>
+              </ScrollFade>
             </aside>
           )}
 
@@ -700,8 +703,10 @@ function PresentationPreviewWorkspace({
           </div>
 
           {isMobile && railOpen && (
-            <aside className="shrink-0 overflow-x-auto border-t border-border-subtle bg-layer-03/20 p-2">
-              <ol aria-label={t('pod.presentation.slides_rail')} className="flex items-center gap-2">
+            <aside className="shrink-0 border-t border-border-subtle bg-layer-03/20 p-2">
+              <ScrollFade
+                render={<ol aria-label={t('pod.presentation.slides_rail')} />}
+                className="flex items-center gap-2">
                 {slides.map(slide => (
                   <PreviewThumbnailItem
                     key={slide.slide_id}
@@ -714,7 +719,7 @@ function PresentationPreviewWorkspace({
                     onSelect={idx => void goToSlide(idx)}
                   />
                 ))}
-              </ol>
+              </ScrollFade>
             </aside>
           )}
         </div>

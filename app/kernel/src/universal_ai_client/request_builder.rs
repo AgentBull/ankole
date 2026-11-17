@@ -70,7 +70,7 @@ pub(crate) fn prepare_model_upstream(spec: &ModelRequestSpec) -> Result<Upstream
     Ok(upstream)
 }
 
-fn context_with_header_anthropic_version(
+pub(crate) fn context_with_header_anthropic_version(
     api_resolver: &APIResolverKind,
     context: &ResponseContext,
     upstream: &UpstreamSpec,

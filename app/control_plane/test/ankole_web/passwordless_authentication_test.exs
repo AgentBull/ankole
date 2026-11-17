@@ -577,8 +577,7 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
   end
 
   defp accounts_conn(conn) do
-    site = URI.parse(AnkoleWeb.PodURL.site_origin(conn))
-    host = String.replace_prefix(site.host, "console.", "accounts.")
-    %{conn | host: host, port: site.port, scheme: String.to_existing_atom(site.scheme)}
+    login = URI.parse(AnkoleWeb.PodURL.login_url(conn, nil))
+    %{conn | host: login.host, port: login.port, scheme: String.to_existing_atom(login.scheme)}
   end
 end

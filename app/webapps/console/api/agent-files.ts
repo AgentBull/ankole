@@ -7,7 +7,7 @@ export function uploadDriveFile(tenantID: string, parentID: string, name: string
     url: '/api/v2/drive/{tenant_id}/uploads',
     path: { tenant_id: tenantID },
     body: { parent_id: parentID, name, file },
-    headers: { 'Content-Type': null, accept: 'application/json' }
+    headers: { 'Content-Type': null, accept: 'application/json', 'x-ankole-tenant': tenantID }
   })
 }
 
@@ -16,6 +16,6 @@ export function downloadDriveFile(tenantID: string, nodeID: string) {
     url: '/api/v2/drive/{tenant_id}/nodes/{id}/content',
     path: { tenant_id: tenantID, id: nodeID },
     parseAs: 'blob',
-    headers: { accept: 'application/json' }
+    headers: { accept: 'application/json', 'x-ankole-tenant': tenantID }
   })
 }

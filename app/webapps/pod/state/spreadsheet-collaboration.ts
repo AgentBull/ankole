@@ -1,5 +1,13 @@
 import { equal, uuidV4 } from '@agentbull/active-support'
 import { batch, computed, createModel, effect, signal } from '@preact/signals-react'
+import { waitFor } from 'xstate'
+import { createActorSignal } from '../../common/xstate-signals'
+import {
+  COLLAB_SEND_DELAY_MS,
+  createCollaborationMachine,
+  type CollaborationLoadOutcome,
+  type CollaborationPushOutcome
+} from './collaboration-machine'
 import {
   cellName,
   cellSelection,
@@ -172,11 +180,9 @@ const cellKey = ({ row, col }: CellAddress) => row * MAX_COLS + col
 type Entry = { op: SpreadsheetOp; undo?: UndoRecord; request?: SheetRequest; busy: number }
 type PresenceMeta = { name?: string | null; mode?: string | null; selection?: PresenceSelection | null }
 
-const SEND_DELAY_MS = 30
 const BUSY_DELAY_MS = 200
 const BUSY_RETRIES = 5
 const RETRY_DELAY_MS = 1000
-const PRESENCE_INTERVAL_MS = 250
 /** Server replies that end the session's current document; the model loads it again. */
 const RELOAD_REASONS = new Set([
   'client_sequence_conflict',
@@ -242,19 +248,34 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   const localEdits = new Set<symbol>()
   let sequence = 0
   let applyCount = 0
-  let pushing = false
-  let timer: ReturnType<typeof setTimeout> | undefined
   let undoStack: UndoRecord[] = []
   let redoStack: UndoRecord[] = []
-  let syncTask: Promise<boolean> | undefined
-  let syncAgain = false
-  let presenceTimer: ReturnType<typeof setTimeout> | undefined
-  let presenceSentAt = Number.NEGATIVE_INFINITY
-  let presenceNext: PresenceSelection | null = null
   let functionList: Promise<FunctionInfo[]> | undefined
   /** The undo step of this tab's latest fill, which a fill in another mode replaces. */
   let lastFill: UndoRecord | undefined
   let saveAttempt: PromiseWithResolvers<boolean> | undefined
+  let syncWaiter: PromiseWithResolvers<boolean> | undefined
+  let pendingResetLoad: Promise<CollaborationLoadOutcome> | undefined
+
+  const loadWorkbookBody = async (): Promise<CollaborationLoadOutcome> => {
+    if (disposed || revoked.peek()) return { kind: 'aborted' }
+    const source = await options.load()
+    if (disposed || revoked.peek()) return { kind: 'aborted' }
+    if (source.kind === 'too_large') return { kind: 'too_large' }
+    engine ??= options.createEngine()
+    await engine.open(source.bytes, source.ops)
+    if (disposed || revoked.peek()) return { kind: 'aborted' }
+    await refreshSheets()
+    batch(() => {
+      revision.value = source.revision
+      unsupported.value = source.unsupported
+      error.value = undefined
+      // Views that read the document while it loaded got nothing, so they read it again now.
+      version.value++
+    })
+    publishCounts()
+    return { kind: 'loaded', editable: options.canEdit }
+  }
 
   const finishSave = (saved: boolean) => {
     if (!saveAttempt) return
@@ -327,11 +348,6 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     })
   }
 
-  const schedule = (delay = SEND_DELAY_MS) => {
-    clearTimeout(timer)
-    timer = setTimeout(() => void flush(), delay)
-  }
-
   /** Rebuilds the local document from the confirmed one and keeps the pending operations that still apply. */
   const rebuild = async (foreign: SpreadsheetOp[]) => {
     const entries = [...(inFlight ? [inFlight] : []), ...queue]
@@ -360,67 +376,64 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     })
   }
 
-  const load = async () => {
-    status.value = 'loading'
-    try {
-      const source = await options.load()
-      if (disposed) return
-      if (source.kind === 'too_large') {
-        status.value = 'too_large'
-        return
-      }
-      engine ??= options.createEngine()
-      await engine.open(source.bytes, source.ops)
-      if (disposed) return
-      await refreshSheets()
-      batch(() => {
-        revision.value = source.revision
-        unsupported.value = source.unsupported
-        error.value = undefined
-        status.value = options.canEdit ? 'ready' : 'read_only'
-        // Views that read the document while it loaded got nothing, so they read it again now.
-        version.value++
-      })
-      publishCounts()
-      // Changes committed between the bootstrap and the channel join reach this tab here.
-      void sync()
-    } catch (failure) {
-      if (disposed) return
-      batch(() => {
-        error.value = failure
-        status.value = 'error'
-      })
-    }
-  }
-
-  const reset = async () => {
+  const resetInSerial = async () => {
+    if (disposed || revoked.peek()) return
     const discarded = localEdits.size + (inFlight ? 1 : 0) + queue.length
     finishSave(false)
     localEdits.clear()
     inFlight = undefined
     queue = []
     painter.value = null
-    clearTimeout(timer)
     clearHistory()
+    status.value = 'loading'
     publishCounts()
     if (discarded) options.notify({ kind: 'discarded', count: discarded })
-    await load()
+    const reload = loadWorkbookBody()
+    pendingResetLoad = reload
+    session.send({ type: 'RESET' })
+    await reload.catch(() => undefined)
   }
 
   const loaded = () => status.peek() === 'ready' || status.peek() === 'read_only'
 
+  /** Keeps the selection and an open cell editor on the same content when another editor moves lines. */
+  const followStructure = (ops: SpreadsheetOp[]) => {
+    const sheetID = activeSheetID.peek()
+    for (const op of ops) {
+      if (op.sheet_id !== sheetID) continue
+      const current = selection.peek()
+      selection.value = { anchor: shiftCell(current.anchor, op), focus: shiftCell(current.focus, op) }
+      const editing = draft.peek()
+      if (editing?.sheetID === sheetID) draft.value = { ...editing, cell: shiftCell(editing.cell, op) }
+    }
+  }
+
+  const requestSync = (repeatIfRunning = true): Promise<boolean> => {
+    if (disposed || !channel || !session.snapshot.peek().matches('active')) return Promise.resolve(false)
+    const hadWaiter = Boolean(syncWaiter)
+    syncWaiter ??= Promise.withResolvers<boolean>()
+    session.send({ type: 'SYNC_REQUEST', repeatIfRunning: repeatIfRunning || !hadWaiter })
+    return syncWaiter.promise
+  }
+
   /** Applies committed entries that continue this tab's revision; a gap asks for a sync. */
-  const receive = async (payload: SheetChanges, sent?: Entry) => {
-    if (disposed || !engine || !loaded()) return
-    if (payload.reset_required) return reset()
+  const receive = async (payload: SheetChanges, sent?: Entry): Promise<boolean> => {
+    if (disposed || revoked.peek() || !engine || !loaded()) return false
+    if (payload.reset_required) {
+      await resetInSerial()
+      return true
+    }
     const fresh = payload.changes
       .filter(entry => entry.revision > revision.peek())
       .sort((a, b) => a.revision - b.revision)
     if (fresh.some((entry, index) => entry.revision !== revision.peek() + index + 1)) {
-      void sync()
-      return
+      void requestSync(true)
+      return false
     }
-    if (fresh.some(entry => entry.kind === 'reset' || !entry.op)) return reset()
+    if (fresh.some(entry => entry.kind === 'reset' || !entry.op)) {
+      await resetInSerial()
+      return true
+    }
     try {
       const committed = fresh.map(entry => entry.op!)
       if (committed.length) await engine.commit(committed)
@@ -448,48 +461,11 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     } catch (failure) {
       // The confirmed document no longer matches the server, so start over from the file.
       options.notify({ kind: 'failed', error: failure })
-      return reset()
+      await resetInSerial()
+      return true
     }
-    if (payload.revision > revision.peek()) void sync()
-  }
-
-  /** Keeps the selection and an open cell editor on the same content when another editor moves lines. */
-  const followStructure = (ops: SpreadsheetOp[]) => {
-    const sheetID = activeSheetID.peek()
-    for (const op of ops) {
-      if (op.sheet_id !== sheetID) continue
-      const current = selection.peek()
-      selection.value = { anchor: shiftCell(current.anchor, op), focus: shiftCell(current.focus, op) }
-      const editing = draft.peek()
-      if (editing?.sheetID === sheetID) draft.value = { ...editing, cell: shiftCell(editing.cell, op) }
-    }
-  }
-
-  const sync = (repeatIfRunning = true): Promise<boolean> => {
-    if (disposed || !channel) return Promise.resolve(false)
-    if (syncTask) {
-      if (repeatIfRunning) syncAgain = true
-      return syncTask
-    }
-    const run = (async () => {
-      try {
-        do {
-          syncAgain = false
-          await channel!.ready
-          if (disposed || !loaded()) return false
-          const reply = await channel!.push<SheetChanges>('office:sync', { revision: revision.peek() })
-          await serial(() => receive(reply))
-        } while (syncAgain && !disposed)
-        return !disposed
-      } catch (failure) {
-        if (!disposed) error.value = failure
-        return false
-      } finally {
-        syncTask = undefined
-      }
-    })()
-    syncTask = run
-    return run
+    if (payload.revision > revision.peek()) void requestSync(true)
+    return false
   }
 
   const take = async () => {
@@ -501,58 +477,9 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     return next
   }
 
-  const flush = async () => {
-    if (disposed || pushing || !channel || !loaded()) return
-    pushing = true
-    let delay: number | undefined = saveAttempt ? 0 : SEND_DELAY_MS
-    let sent: Entry | undefined
-    try {
-      sent = await serial(take)
-      if (!sent) return
-      applyCount++
-      const reply = await channel.push<SheetChanges>('office:apply', sent.request!)
-      await serial(() => receive(reply, sent))
-      error.value = undefined
-    } catch (failure) {
-      delay = sent ? await failed(sent, failure) : RETRY_DELAY_MS
-      if (delay === RETRY_DELAY_MS || delay === undefined) finishSave(false)
-    } finally {
-      pushing = false
-      if (!disposed && delay !== undefined && (inFlight || queue.length)) schedule(delay)
-    }
-  }
-
-  /** Decides what a failed request means and returns the delay before the next send. */
-  const failed = async (sent: Entry, failure: unknown): Promise<number | undefined> => {
-    const reason = failureReason(failure)
-    if (reason === 'office_busy') {
-      sent.busy++
-      if (sent.busy <= BUSY_RETRIES) return BUSY_DELAY_MS
-      error.value = failure
-      return RETRY_DELAY_MS
-    }
-    if (reason === 'office_conflict') {
-      const details = (failure as { payload: { details: { reason: string; changes: SheetEntry[] } } }).payload.details
-      await serial(() => drop(sent, details.changes, { kind: 'conflict', op: sent.op, reason: details.reason }))
-      return SEND_DELAY_MS
-    }
-    if (reason === 'invalid_operation' || reason === 'invalid_request' || reason === 'office_full') {
-      await serial(() => drop(sent, [], { kind: 'rejected', op: sent.op, message: failureMessage(failure), reason }))
-      return SEND_DELAY_MS
-    }
-    if (reason && RELOAD_REASONS.has(reason)) {
-      if (reason !== 'client_sequence_conflict') options.notify({ kind: 'failed', error: failure })
-      await serial(reset)
-      return undefined
-    }
-    // The connection failed or timed out; the same request is safe to repeat.
-    error.value = failure
-    return RETRY_DELAY_MS
-  }
-
   /** Gives up the request in flight after the server refused it, keeping the queue behind it. */
-  const drop = async (sent: Entry, missed: SheetEntry[], notice: SpreadsheetNotice) => {
-    if (inFlight !== sent || !engine) return
+  const drop = async (sent: Entry, missed: SheetEntry[], notice: SpreadsheetNotice): Promise<boolean> => {
+    if (disposed || revoked.peek() || inFlight !== sent || !engine) return false
     finishSave(false)
     const fresh = missed.filter(entry => entry.revision > revision.peek()).sort((a, b) => a.revision - b.revision)
     if (
@@ -560,7 +487,8 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
         (entry, index) => entry.kind === 'reset' || !entry.op || entry.revision !== revision.peek() + index + 1
       )
     ) {
-      return reset()
+      await resetInSerial()
+      return true
     }
     inFlight = undefined
     forget(sent.undo)
@@ -576,10 +504,44 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       await refreshSheets()
     } catch (failure) {
       options.notify({ kind: 'failed', error: failure })
-      return reset()
+      await resetInSerial()
+      return true
     }
     publishCounts()
     options.notify(notice)
+    return false
+  }
+
+  /** Decides what a failed request means and returns the next push machine transition. */
+  const failed = async (sent: Entry, failure: unknown): Promise<CollaborationPushOutcome> => {
+    if (disposed || revoked.peek()) return { kind: 'idle' }
+    const reason = failureReason(failure)
+    if (reason === 'office_busy') {
+      sent.busy++
+      if (sent.busy <= BUSY_RETRIES) return { kind: 'backoff', delayMs: BUSY_DELAY_MS }
+      error.value = failure
+      return { kind: 'backoff', delayMs: RETRY_DELAY_MS }
+    }
+    if (reason === 'office_conflict') {
+      const details = (failure as { payload: { details: { reason: string; changes: SheetEntry[] } } }).payload.details
+      const wasReset = await serial(() =>
+        drop(sent, details.changes, { kind: 'conflict', op: sent.op, reason: details.reason })
+      )
+      return wasReset ? { kind: 'reset' } : { kind: 'continue', delayMs: COLLAB_SEND_DELAY_MS }
+    }
+    if (reason === 'invalid_operation' || reason === 'invalid_request' || reason === 'office_full') {
+      const wasReset = await serial(() =>
+        drop(sent, [], { kind: 'rejected', op: sent.op, message: failureMessage(failure), reason })
+      )
+      return wasReset ? { kind: 'reset' } : { kind: 'continue', delayMs: COLLAB_SEND_DELAY_MS }
+    }
+    if (reason && RELOAD_REASONS.has(reason)) {
+      if (reason !== 'client_sequence_conflict') options.notify({ kind: 'failed', error: failure })
+      return { kind: 'reset' }
+    }
+    // The connection failed or timed out; the same request is safe to repeat.
+    error.value = failure
+    return { kind: 'backoff', delayMs: RETRY_DELAY_MS }
   }
 
   /**
@@ -601,7 +563,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     if (isStructural(applied)) clearHistory()
     await refreshSheets()
     publishCounts()
-    schedule()
+    session.send({ type: 'SCHEDULE_FLUSH', delayMs: COLLAB_SEND_DELAY_MS })
     return applied
   }
 
@@ -677,6 +639,10 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       for (const op of from === 'undo' ? record.inverse : record.forward) applied = await applyEdit(op)
       return applied
     })
+
+  const announce = (next: PresenceSelection | null) => {
+    session.send({ type: 'PRESENCE_UPDATE', selection: next, immediate: next === null })
+  }
 
   const select = (next: Selection) => {
     selection.value = { anchor: clampCell(next.anchor), focus: clampCell(next.focus) }
@@ -756,23 +722,6 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   /** A new floating picture's id: random and high, so two editors never pick the same one in practice. */
   const newImageID = () => 0x0100_0000 + (crypto.getRandomValues(new Uint32Array(1))[0]! % 0x7e00_0000)
 
-  const sendPresence = () => {
-    presenceTimer = undefined
-    presenceSentAt = Date.now()
-    void channel?.push('office:presence', { selection: presenceNext }).catch(() => undefined)
-  }
-
-  const announce = (next: PresenceSelection | null) => {
-    presenceNext = next
-    if (next === null) {
-      clearTimeout(presenceTimer)
-      sendPresence()
-      return
-    }
-    if (presenceTimer) return
-    presenceTimer = setTimeout(sendPresence, Math.max(0, presenceSentAt + PRESENCE_INTERVAL_MS - Date.now()))
-  }
-
   const publishMembers = () => {
     const listed = (channel?.presence() ?? []).map(({ id: uid, metas }) => {
       const entries = metas as PresenceMeta[]
@@ -791,18 +740,25 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   const revoke = () => {
     if (revoked.peek()) return
     finishSave(false)
+    localEdits.clear()
+    inFlight = undefined
+    queue = []
     options.notify({ kind: 'revoked' })
     batch(() => {
       revoked.value = true
       status.value = 'error'
     })
-    clearTimeout(timer)
+    publishCounts()
+    session.send({ type: 'REVOKE' })
     channel?.close()
     channel = undefined
   }
 
-  const start = async () => {
-    try {
+  const machine = createCollaborationMachine<PresenceSelection>({
+    hasChannel: () => Boolean(channel),
+    hasQueuedWork: () => Boolean(inFlight || queue.length > 0),
+    hasSaveWaiter: () => Boolean(saveAttempt),
+    connect: async () => {
       const connected = await options.connect()
       if (disposed) {
         connected.close()
@@ -812,28 +768,107 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       connected.on('office:changes', payload => void serial(() => receive(payload as SheetChanges)))
       connected.on('presence', publishMembers)
       connected.on('access_revoked', revoke)
+      connected.on('rejoined', () => {
+        void requestSync(true).then(synced => {
+          if (!synced || disposed) return
+          error.value = undefined
+          session.send({ type: 'FLUSH_NOW' })
+        })
+      })
       void connected.ready.catch(failure => {
         if (!disposed) error.value = failure
       })
-    } catch (failure) {
-      batch(() => {
+    },
+    load: () => {
+      if (pendingResetLoad) {
+        const current = pendingResetLoad
+        pendingResetLoad = undefined
+        return current
+      }
+      return serial(loadWorkbookBody)
+    },
+    syncOnce: async () => {
+      if (disposed || !channel) return
+      await channel.ready
+      if (disposed || !loaded()) return
+      const reply = await channel.push<SheetChanges>('office:sync', { revision: revision.peek() })
+      await serial(() => receive(reply))
+    },
+    onSyncSettled: (succeeded, failure) => {
+      if (!succeeded && failure !== undefined && !disposed) {
         error.value = failure
-        status.value = 'error'
-      })
-      return
+      }
+      const waiter = syncWaiter
+      syncWaiter = undefined
+      waiter?.resolve(succeeded && !disposed)
+    },
+    pushOnce: async (): Promise<CollaborationPushOutcome> => {
+      if (disposed || revoked.peek() || !channel || !loaded()) return { kind: 'idle' }
+      let sent: Entry | undefined
+      try {
+        sent = await serial(take)
+        if (!sent) return { kind: 'idle' }
+        applyCount++
+        const reply = await channel.push<SheetChanges>('office:apply', sent.request!)
+        const wasReset = await serial(() => receive(reply, sent))
+        if (wasReset) return { kind: 'reset' }
+        if (disposed || revoked.peek()) return { kind: 'idle' }
+        error.value = undefined
+        return inFlight || queue.length > 0
+          ? { kind: 'continue', delayMs: saveAttempt ? 0 : COLLAB_SEND_DELAY_MS }
+          : { kind: 'idle' }
+      } catch (failure) {
+        const outcome = sent ? await failed(sent, failure) : ({ kind: 'backoff', delayMs: RETRY_DELAY_MS } as const)
+        if (outcome.kind === 'reset' || (outcome.kind === 'backoff' && outcome.delayMs === RETRY_DELAY_MS)) {
+          finishSave(false)
+        }
+        return outcome
+      }
+    },
+    onResetFromPush: () => serial(resetInSerial),
+    sendPresence: nextSelection => {
+      void channel?.push('office:presence', { selection: nextSelection }).catch(() => undefined)
+    },
+    onError: failure => {
+      if (!disposed) error.value = failure
+    },
+    onStatusChange: nextStatus => {
+      if (disposed) return
+      if (revoked.peek() && nextStatus !== 'error') return
+      status.value = nextStatus
     }
-    await serial(load)
+  })
+
+  const session = createActorSignal(machine, undefined, actor => {
+    disposed = true
+    finishSave(false)
+    actor.send({ type: 'DISPOSE' })
+  })
+
+  const waitForBootstrapSettled = () =>
+    waitFor(
+      session.actor,
+      snap => !snap.matches('unstarted') && !snap.matches('connecting') && !snap.matches('loading')
+    ).then(
+      () => undefined,
+      () => undefined
+    )
+
+  const start = async () => {
+    session.send({ type: 'START' })
+    await waitForBootstrapSettled()
   }
 
   effect(() => () => {
     disposed = true
     finishSave(false)
+    const waiter = syncWaiter
+    syncWaiter = undefined
+    waiter?.resolve(false)
     localEdits.clear()
     inFlight = undefined
     queue = []
     publishCounts()
-    clearTimeout(timer)
-    clearTimeout(presenceTimer)
     if (channel) {
       void channel.push('office:presence', { selection: null }).catch(() => undefined)
       channel.close()
@@ -864,12 +899,11 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
     revoke,
     /** Catches up after the page version moved, for instance after the socket reconnected. */
     sync() {
-      if (loaded()) void sync()
+      if (loaded()) void requestSync(true)
     },
     retry() {
       if (status.peek() !== 'error' || revoked.peek()) return
-      if (channel) void serial(load)
-      else void start()
+      session.send({ type: 'RETRY' })
     },
     viewport(sheetID: number, rect: Rect) {
       return engine && loaded() ? engine.viewport(sheetID, rect) : Promise.resolve(undefined)
@@ -1431,8 +1465,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       if (!editable.peek() || !channel || !loaded()) return pending.peek() === 0
       const attempt = Promise.withResolvers<boolean>()
       saveAttempt = attempt
-      clearTimeout(timer)
-      void flush()
+      session.send({ type: 'FLUSH_NOW' })
       return attempt.promise
     },
     /** Flushes uncommitted or queued edits, or runs a single sync round-trip when already saved. */
@@ -1445,7 +1478,7 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       if (disposed) return false
       if (applyCount > beforeApplies || hadPending) return true
       if (hadDraft || !syncIfClean) return false
-      return sync(false)
+      return requestSync(false)
     }
   }
 })

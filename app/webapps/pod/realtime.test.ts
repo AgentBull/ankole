@@ -31,8 +31,10 @@ describe('realtime connection ownership', () => {
   let connect: ReturnType<typeof spyOn<Socket, 'connect'>>
   let join: ReturnType<typeof spyOn<Channel, 'join'>>
   let push: ReturnType<typeof spyOn<Channel, 'push'>>
+  let joinedChannels: Array<Channel & { trigger(event: string, payload: object): void }>
 
   beforeEach(() => {
+    joinedChannels = []
     originalConfig = client.getConfig()
     Object.defineProperty(globalThis, 'document', {
       configurable: true,
@@ -42,7 +44,8 @@ describe('realtime connection ownership', () => {
     globalThis.fetch = (async (_request: Request) =>
       Response.json({ token: 'socket-token', principal: { uid: 'human' } })) as typeof fetch
     connect = spyOn(Socket.prototype, 'connect').mockImplementation(() => {})
-    join = spyOn(Channel.prototype, 'join').mockImplementation(() => {
+    join = spyOn(Channel.prototype, 'join').mockImplementation(function (this: Channel) {
+      joinedChannels.push(this as Channel & { trigger(event: string, payload: object): void })
       joining = controlledPush()
       return joining.push
     })
@@ -137,5 +140,47 @@ describe('realtime connection ownership', () => {
     await expect(remaining).resolves.toEqual({ revision: 0, changes: [] })
     second.close()
     expect(secondStates.at(-1)).toBe('disconnected')
+  })
+
+  test.each(['error', 'timeout'] as const)('a topic recovers readiness after its first join %s', async failure => {
+    const handle = await realtime.join('page:document')
+    const originalReady = handle.ready
+    joining.reply(failure)
+    await expect(originalReady).rejects.toBeInstanceOf(Error)
+    joining.reply('ok', { revision: 3 })
+    await expect(handle.ready).resolves.toEqual({ revision: 3 })
+    const sent = handle.push('office:sync', { revision: 1 })
+    await Promise.resolve()
+    request.reply('ok', { revision: 3 })
+    await expect(sent).resolves.toEqual({ revision: 3 })
+    handle.close()
+  })
+
+  test('Applet broadcasts and revocation listeners survive a failed first join', async () => {
+    const handle = await realtime.join('applet:page:room')
+    const channel = realtime.channel('page', 'room')
+    const received: unknown[] = []
+    let presenceNotifications = 0
+    channel.on('changed', payload => received.push(payload))
+    channel.subscribe(() => {
+      presenceNotifications++
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    joining.reply('timeout')
+    await expect(handle.ready).rejects.toBeInstanceOf(Error)
+    joining.reply('ok')
+    joinedChannels[0]!.trigger('broadcast', { event: 'changed', payload: { value: 3 } })
+    expect(received).toEqual([{ value: 3 }])
+    const beforeRevoke = presenceNotifications
+    joinedChannels[0]!.trigger('access_revoked', {})
+    expect(channel.presence()).toEqual([])
+    expect(presenceNotifications).toBeGreaterThan(beforeRevoke)
+    joinedChannels[0]!.trigger('presence_state', { alice: { metas: [{ phx_ref: '1', name: 'Alice' }] } })
+    expect(channel.presence()).toEqual([])
+    expect(presenceNotifications).toBe(beforeRevoke + 1)
+    await expect(channel.broadcast('changed', {})).rejects.toBeInstanceOf(Error)
+    handle.close()
+    channel.close()
   })
 })

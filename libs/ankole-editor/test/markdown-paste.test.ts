@@ -62,7 +62,7 @@ function monacoHtmlFromText(source: string): string {
 const lifecycleDocPath = resolve(import.meta.dir, '../../../docs/design-docs/overview.md')
 const lifecycleMarkdown = readFileSync(lifecycleDocPath, 'utf8')
 
-describe('Notion-aligned smart Markdown and IDE clipboard paste', () => {
+describe('smart Markdown and IDE clipboard paste', () => {
   test('parses design-docs/overview.md across plain text, VS Code, JetBrains <pre>, and chat <div> wrappers', () => {
     for (const payload of [
       { 'text/plain': lifecycleMarkdown },
@@ -251,7 +251,7 @@ describe('Notion-aligned smart Markdown and IDE clipboard paste', () => {
       '',
       '$$E = mc^2$$',
       '',
-      'Inline $$x^2 + y^2$$ stays literal prose.',
+      'Inline $$x^2 + y^2$$ becomes an inline formula.',
       '',
       '<img src="https://example.com/diagram.png" width="480" alt="Diagram" />',
       '',
@@ -277,14 +277,20 @@ describe('Notion-aligned smart Markdown and IDE clipboard paste', () => {
     expect(md).toContain('**bold**, *italic*, ~~old~~, and `⌘K`')
     expect(md).toContain('- [ ] Pending item\n- [x] Completed item')
     expect(md).toContain('$$\nE = mc^2\n$$')
-    expect(md).toContain('Inline \\$\\$x^2 + y^2\\$\\$ stays literal prose.')
+    expect(xml).toContain('<p>Inline <inline-math>x^2 + y^2</inline-math> becomes an inline formula.</p>')
+    expect(md).toContain('Inline $$x^2 + y^2$$ becomes an inline formula.')
     expect(md).toContain('![Diagram](https://example.com/diagram.png)')
     expect(md).toContain('### Nested Heading')
 
-    // Also succeeds cleanly in Knowledge mode (downgrading <math> to <pre lang="math">).
+    // Also succeeds cleanly in Knowledge mode (downgrading <math> to <pre lang="math"> and <inline-math> to <code>).
     const knowledgePage = parsePastedMarkdown(raw, 'knowledge')
     expect(knowledgePage).not.toBeNull()
     expect(printXml(knowledgePage!)).toContain('<pre lang="math">E = mc^2</pre>')
+    expect(printXml(knowledgePage!)).toContain('<code>x^2 + y^2</code>')
+
+    // Single-line pasted $$…$$ stays inline so pasting mid-sentence inserts an inline formula.
+    const singleInline = parsePastedMarkdown('$$a^2 + b^2$$', 'doc')
+    expect(printXml(singleInline!)).toBe('<page><p><inline-math>a^2 + b^2</inline-math></p></page>')
 
     // Preserves horizontal rules when `---` is not YAML frontmatter.
     const withRule = parsePastedMarkdown('---\n\nParagraph text\n\n---', 'doc')
@@ -426,5 +432,9 @@ describe('Notion-aligned smart Markdown and IDE clipboard paste', () => {
       title: 'Untitled note',
       xml: '<page />'
     })
+
+    // Oversized or overly nested imports surface structured DocumentError codes instead of falling back to plain text.
+    expect(() => importMarkdownDocument(`${'> '.repeat(130)}x`, 'Deep')).toThrow('[limit_exceeded]')
+    expect(() => importMarkdownDocument('a'.repeat(8 * 1024 * 1024 + 1), 'Huge')).toThrow('[source_too_large]')
   })
 })

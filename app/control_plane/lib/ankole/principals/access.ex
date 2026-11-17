@@ -12,6 +12,7 @@ defmodule Ankole.Principals.Access do
     allow(:show, resource: "site_console:principal:{uid}", action: "read")
     allow(:disable, resource: "site_console:principal:{uid}", action: "update")
     allow(:restore, resource: "site_console:principal:{uid}", action: "update")
+    allow(:recover_pod_admin, resource: "site_console:principal:{uid}", action: "update")
     allow(:clear_restriction, resource: "site_console:principal:{uid}", action: "update")
     allow(:retry_cleanup, resource: "site_console:principal:{uid}", action: "update")
     allow(:unresolved_work, resource: "site_console:principals", action: "update")
@@ -76,6 +77,23 @@ defmodule Ankole.Principals.Access do
     end
 
     action :restore, Ankole.Principals.AccessView do
+      argument(:uid, :string, allow_nil?: false)
+
+      argument(:reason, :string,
+        allow_nil?: false,
+        constraints: [min_length: 1, max_length: 2000]
+      )
+
+      argument(:operation_id, :string,
+        allow_nil?: false,
+        constraints: [min_length: 1, max_length: 200]
+      )
+
+      transaction?(false)
+      run(__MODULE__.Actions)
+    end
+
+    action :recover_pod_admin, Ankole.Principals.AccessView do
       argument(:uid, :string, allow_nil?: false)
 
       argument(:reason, :string,

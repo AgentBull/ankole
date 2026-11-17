@@ -508,17 +508,136 @@ defmodule Ankole.Sessions.TurnTest do
     assert :resolve_worker in commands
     {waiting, _} = Turn.step(opening, {:completed, :worker_resolve, {:wait, :capacity}}, 200)
     assert {:waiting, :capacity, 100} = waiting.acquisition
-    {expired, _} = Turn.step(waiting, {:worker_timeout, :expired}, 60_100)
+    {expired, _} = Turn.step(waiting, {:worker_timeout, :expired}, 150_100)
     assert expired.run.results["c1"].is_error
     assert expired.run.results["c1"].output =~ "busy with other tasks"
-    {recording, [:record]} = Turn.step(expired, :tools, 60_101)
+    {recording, [:record]} = Turn.step(expired, :tools, 150_101)
 
     {committed, _} =
-      Turn.step(recording, {:completed, :record, {:ok, %{message: %{id: "journal"}}}}, 60_102)
+      Turn.step(recording, {:completed, :record, {:ok, %{message: %{id: "journal"}}}}, 150_102)
 
-    assert {^committed, []} = Turn.step(committed, {:worker_timeout, :check}, 60_103)
+    assert {^committed, []} = Turn.step(committed, {:worker_timeout, :check}, 150_103)
     payload = %{run: Worker.ref(run), reason: :READY, error: ""}
-    assert {^committed, []} = Turn.step(committed, {:worker, :workspace_ready, payload}, 60_104)
+    assert {^committed, []} = Turn.step(committed, {:worker, :workspace_ready, payload}, 150_104)
+  end
+
+  test "Round 1 pre-warms Worker only on explicit signals and cancels cleanly on text-only replies" do
+    base_tool_run = tool_run([])
+
+    qa_run = %{
+      base_tool_run
+      | context: %{worker_used_in_conversation?: false},
+        event: %{
+          base_tool_run.event
+          | data: %{"entry" => %{"text" => "What is the capital of France?"}}
+        }
+    }
+
+    {qa_req, qa_cmds} = Turn.step(turn(qa_run, :boundary), :request, 100)
+    assert qa_req.acquisition == :idle
+
+    assert [
+             {:present,
+              [
+                %{
+                  "kind" => "turn.phase",
+                  "payload" => %{
+                    "label_key" => "conversations.delivery.reply.activity.turn_understanding"
+                  }
+                }
+              ]},
+             :open_model
+           ] = qa_cmds
+
+    artifact_run = %{
+      qa_run
+      | event: %Signal{
+          producer: :kernel,
+          type: "conversation.message.addressed",
+          data: %{"entry" => %{"text" => "导出最近一周的数据到 report.xlsx"}}
+        }
+    }
+
+    {prewarmed, prewarm_cmds} = Turn.step(turn(artifact_run, :boundary), :request, 100)
+    assert {:opening, :starting, 100, nil} = prewarmed.acquisition
+    assert :open_model in prewarm_cmds
+    assert :resolve_worker in prewarm_cmds
+    assert {:observe_worker, {:phase, :starting}} in prewarm_cmds
+    # Pre-warming during model streaming must not overwrite turn_understanding phase.
+    refute Enum.any?(
+             prewarm_cmds,
+             &match?(
+               {:present,
+                [
+                  %{
+                    "kind" => "turn.phase",
+                    "payload" => %{
+                      "label_key" => "conversations.delivery.reply.activity.starting_computer"
+                    }
+                  }
+                ]},
+               &1
+             )
+           )
+
+    for non_worker_text <- [
+          "What is the capital of France?",
+          "Explain this snippet:\n```ts\nconst x = 1\n```\nin main.ts",
+          "生成一份本周工作总结报告"
+        ] do
+      non_worker_run = %{
+        qa_run
+        | event: %{qa_run.event | data: %{"entry" => %{"text" => non_worker_text}}}
+      }
+
+      {no_prewarm, _cmds} = Turn.step(turn(non_worker_run, :boundary), :request, 100)
+      assert no_prewarm.acquisition == :idle
+    end
+
+    # When Round 1 pre-warming runs alongside a quick control-plane tool round (`:record`
+    # pauses acquisition at `{:idle, :requested}`), Round 2 `:request` resumes `:acquire`.
+    {non_worker_round, _} =
+      Turn.step(prewarmed, {:completed, :model_response, {:ok, response("", [])}}, 150)
+
+    assert non_worker_round.acquisition == {:idle, :requested}
+    {round2_req, round2_cmds} = Turn.step(non_worker_round, :request, 160)
+    assert {:opening, :starting, 160, nil} = round2_req.acquisition
+    assert :resolve_worker in round2_cmds
+
+    # Recovered Worker rounds mark worker_used? immediately alongside workspace_open_attempted?.
+    recovered_run = %{tool_run([call("c1")]) | recovered?: true}
+
+    {resumed, _cmds} =
+      Turn.step(turn(recovered_run, :boundary), {:resume, 1, :executing_tools}, 400)
+
+    assert resumed.workspace_open_attempted?
+    assert resumed.worker_used?
+
+    {settled_text_only, cancel_cmds} =
+      Turn.step(prewarmed, {:completed, :model_response, {:ok, response("Done", [])}}, 200)
+
+    assert settled_text_only.acquisition == {:idle, :requested}
+    assert :cancel_round_tasks in cancel_cmds
+    refute settled_text_only.worker_used?
+
+    # Pre-warmed ready Worker dispatches the tool call immediately and marks worker_used?.
+    history_run = %{qa_run | context: %{worker_used_in_conversation?: true}}
+    {hist_req, hist_cmds} = Turn.step(turn(history_run, :boundary), :request, 300)
+    assert {:opening, :starting, 300, nil} = hist_req.acquisition
+    assert :resolve_worker in hist_cmds
+
+    row = %{transport_route: "prewarmed-route"}
+    {opened, _} = Turn.step(hist_req, {:completed, :worker_resolve, {:ok, row, :envelope}}, 310)
+    {ready, ready_cmds} = Turn.step(opened, {:completed, :worker, :ready}, 320)
+    assert {:ready, ^row} = ready.acquisition
+    refute {:next, :tools} in ready_cmds
+
+    {exec_turn, _} =
+      Turn.step(ready, {:completed, :model_response, {:ok, response("", [call("c1")])}}, 330)
+
+    {dispatched, dispatch_cmds} = Turn.step(exec_turn, :tools, 331)
+    assert dispatched.worker_used?
+    assert Enum.any?(dispatch_cmds, &match?({:send_tool, _, ^row, _}, &1))
   end
 
   test "each Worker acquisition becomes one observed episode with its phases and outcome" do
@@ -537,7 +656,7 @@ defmodule Ankole.Sessions.TurnTest do
 
     assert [{:observe_worker, {:phase, :capacity}}] = observed.(commands)
 
-    {_expired, commands} = Turn.step(waiting, {:worker_timeout, :expired}, 60_100)
+    {_expired, commands} = Turn.step(waiting, {:worker_timeout, :expired}, 150_100)
     assert [{:observe_worker, {:finish, {:timeout, :capacity}}}] = observed.(commands)
 
     {opened, commands} =
@@ -551,7 +670,7 @@ defmodule Ankole.Sessions.TurnTest do
     {reacquiring, commands} =
       Turn.step(ready, {:completed, :worker_check, {:ok, :changed}}, 270)
 
-    assert {:opening, _since, _row} = reacquiring.acquisition
+    assert {:opening, :starting, _since, _row} = reacquiring.acquisition
     assert [{:observe_worker, :start} | _phases] = observed.(commands)
 
     {abandoned, commands} =

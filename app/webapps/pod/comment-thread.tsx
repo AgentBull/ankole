@@ -23,7 +23,7 @@ import { useResolvePageHref } from './use-page-metadata'
 import { completionAt } from './chat/composer-completion'
 import { pageAPI } from './content-api'
 import { ContentError } from './content-primitives'
-import { formatFileAnchorLabel, parseFileCommentAnchor, type FileCommentAnchor } from './file-comment-anchors'
+import { formatPageElementAnchor, parsePageElementAnchor, type PageElementAnchor } from './page-comment-anchors'
 import type { PageCommentsModel } from './state/page-comments'
 
 type Comments = InstanceType<typeof PageCommentsModel>
@@ -53,13 +53,13 @@ export function CommentThread({
   hasSelection: boolean
   anchorPending: boolean
   refresh(): Promise<unknown>
-  reveal(anchor?: FileCommentAnchor | null): void
+  reveal(anchor?: PageElementAnchor | null): void
   selectAnchor(): void
   reanchor(): Promise<void>
 }) {
   const { t } = useTranslation()
   const [replying, setReplying] = useState(false)
-  const parsedAnchor = parseFileCommentAnchor(thread.anchor ?? null)
+  const parsedAnchor = parsePageElementAnchor(thread.anchor ?? null)
   const action = useMutation({
     mutationFn: async (kind: 'resolve' | 'anchor') => {
       if (kind === 'anchor') await reanchor()
@@ -88,7 +88,7 @@ export function CommentThread({
                 disabled={!thread.anchor_present}
                 onClick={() => reveal(parsedAnchor)}
                 className="inline-flex items-center rounded border border-border-subtle bg-layer-03/50 px-1.5 py-0.5 font-mono text-50 text-fg-secondary enabled:cursor-pointer enabled:hover:border-border-strong enabled:hover:text-fg-primary disabled:opacity-60">
-                {formatFileAnchorLabel(parsedAnchor, t)}
+                {formatPageElementAnchor(parsedAnchor, t)}
               </button>
               {thread.anchor_outdated && (
                 <Badge variant="outline" className="text-warning-fg">

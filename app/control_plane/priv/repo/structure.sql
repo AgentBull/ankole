@@ -1146,6 +1146,7 @@ CREATE TABLE public.ai_gateway_media_jobs (
     expires_at timestamp without time zone NOT NULL,
     inserted_at timestamp without time zone NOT NULL,
     updated_at timestamp without time zone NOT NULL,
+    credential_id text,
     CONSTRAINT ai_gateway_media_jobs_capability_check CHECK ((capability = ANY (ARRAY['video'::text, 'music'::text]))),
     CONSTRAINT ai_gateway_media_jobs_completed_object_check CHECK (((status = 'completed'::text) = (object_id IS NOT NULL))),
     CONSTRAINT ai_gateway_media_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'in_progress'::text, 'completed'::text, 'failed'::text])))
@@ -1332,6 +1333,7 @@ CREATE TABLE public.ai_gateway_usage_records (
     unit text,
     quantity bigint,
     provider_cost numeric,
+    service_uid text,
     CONSTRAINT ai_gateway_usage_records_attempt_check CHECK (((attempt IS NULL) OR (attempt >= 0))),
     CONSTRAINT ai_gateway_usage_records_cache_creation_input_tokens_check CHECK (((cache_creation_input_tokens IS NULL) OR (cache_creation_input_tokens >= 0))),
     CONSTRAINT ai_gateway_usage_records_cached_input_tokens_check CHECK (((cached_input_tokens IS NULL) OR (cached_input_tokens >= 0))),
@@ -2428,6 +2430,8 @@ CREATE TABLE public.brain_sources (
     extracted_through_at timestamp without time zone,
     extracted_through_seq bigint,
     default_source_node_id uuid,
+    attention_reason text,
+    CONSTRAINT brain_sources_attention_reason_present CHECK (((attention_reason IS NULL) OR (length(btrim(attention_reason)) > 0))),
     CONSTRAINT brain_sources_config_object CHECK ((jsonb_typeof(config) = 'object'::text)),
     CONSTRAINT brain_sources_kind_present CHECK ((btrim(kind) <> ''::text)),
     CONSTRAINT brain_sources_name_present CHECK ((btrim(name) <> ''::text)),
@@ -2785,7 +2789,32 @@ CREATE TABLE public.connector_triggers (
     last_error jsonb,
     inserted_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_verified_at timestamp with time zone,
+    consecutive_failures integer DEFAULT 0 NOT NULL,
+    CONSTRAINT connector_triggers_consecutive_failures_non_negative CHECK ((consecutive_failures >= 0)),
     CONSTRAINT connector_triggers_status_check CHECK ((status = ANY (ARRAY['provisioning'::text, 'active'::text, 'degraded'::text, 'paused'::text, 'deleting'::text])))
+);
+
+
+--
+-- Name: connector_write_receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.connector_write_receipts (
+    tenant_id uuid NOT NULL,
+    id uuid NOT NULL,
+    authority_scope text NOT NULL,
+    toolkit text NOT NULL,
+    tool_name text NOT NULL,
+    args_sha256 text NOT NULL,
+    status text NOT NULL,
+    http_status integer,
+    external_ref text,
+    expires_at timestamp without time zone NOT NULL,
+    inserted_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL,
+    CONSTRAINT connector_write_receipts_scope_present CHECK ((length(btrim(authority_scope)) > 0)),
+    CONSTRAINT connector_write_receipts_status_check CHECK ((status = ANY (ARRAY['in_flight'::text, 'succeeded'::text, 'outcome_unknown'::text])))
 );
 
 
@@ -2814,10 +2843,14 @@ CREATE TABLE public.conversation_action_cards (
     notified_senders jsonb DEFAULT '[]'::jsonb NOT NULL,
     inserted_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT conversation_action_cards_action_kind_check CHECK ((action_kind = ANY (ARRAY['brain.object.create'::text, 'pod.knowledge.save'::text, 'pod.page.set_sharing'::text, 'pod.page.delete'::text, 'pod.page.restore'::text, 'pod.base.delete_table'::text, 'conversation.add_participants'::text, 'library.skill.save'::text]))),
+    execution_claim_id uuid,
+    execution_claim_expires_at timestamp with time zone,
+    execution_attempts integer DEFAULT 0 NOT NULL,
+    CONSTRAINT conversation_action_cards_action_kind_check CHECK ((action_kind = ANY (ARRAY['brain.object.create'::text, 'pod.knowledge.save'::text, 'pod.page.set_sharing'::text, 'pod.page.delete'::text, 'pod.page.restore'::text, 'pod.base.delete_table'::text, 'conversation.add_participants'::text, 'library.skill.save'::text, 'connectors.tool.call'::text]))),
+    CONSTRAINT conversation_action_cards_execution_attempts_check CHECK ((execution_attempts >= 0)),
     CONSTRAINT conversation_action_cards_notified_senders_shape CHECK ((jsonb_typeof(notified_senders) = 'array'::text)),
-    CONSTRAINT conversation_action_cards_resolution_shape CHECK ((((status = 'prepared'::text) AND (resolved_at IS NULL)) OR ((status <> 'prepared'::text) AND (resolved_at IS NOT NULL)))),
-    CONSTRAINT conversation_action_cards_status_check CHECK ((status = ANY (ARRAY['prepared'::text, 'executed'::text, 'stale'::text, 'cancelled'::text]))),
+    CONSTRAINT conversation_action_cards_resolution_shape CHECK ((((status = 'prepared'::text) AND (resolved_at IS NULL) AND (execution_claim_id IS NULL) AND (execution_claim_expires_at IS NULL) AND (execution_attempts = 0)) OR ((status = 'executing'::text) AND (resolved_at IS NULL) AND (execution_claim_id IS NOT NULL) AND (execution_claim_expires_at IS NOT NULL) AND (execution_attempts >= 1)) OR ((status = ANY (ARRAY['executed'::text, 'execution_uncertain'::text, 'failed'::text, 'stale'::text, 'cancelled'::text])) AND (resolved_at IS NOT NULL) AND (execution_claim_id IS NULL) AND (execution_claim_expires_at IS NULL)))),
+    CONSTRAINT conversation_action_cards_status_check CHECK ((status = ANY (ARRAY['prepared'::text, 'executing'::text, 'executed'::text, 'execution_uncertain'::text, 'failed'::text, 'stale'::text, 'cancelled'::text]))),
     CONSTRAINT conversation_action_cards_summary_check CHECK ((((char_length(summary) >= 1) AND (char_length(summary) <= 500)) AND (summary ~ '[^[:space:]]'::text)))
 );
 
@@ -3902,6 +3935,7 @@ CREATE TABLE public.page_comments (
     activity_at timestamp without time zone NOT NULL,
     activity_by text NOT NULL,
     anchor jsonb,
+    mentioned_uids text[] DEFAULT '{}'::text[] NOT NULL,
     CONSTRAINT page_comments_anchor_shape CHECK ((((anchor IS NULL) AND ((quote IS NULL) = (anchor_revision IS NULL)) AND ((anchor_revision IS NULL) OR (anchor_revision >= 0))) OR ((anchor IS NOT NULL) AND (root_id IS NULL) AND (anchor_revision IS NULL) AND (jsonb_typeof(anchor) = 'object'::text) AND (octet_length((anchor)::text) <= 1024) AND ((quote IS NULL) OR ((char_length(quote) <= 1000) AND (octet_length(quote) <= 4096)))))),
     CONSTRAINT page_comments_body_shape CHECK ((((deleted_at IS NULL) AND (deleted_by IS NULL) AND (body IS NOT NULL) AND (char_length(body) <= 20000) AND (body ~ '[^[:space:]]'::text)) OR ((deleted_at IS NOT NULL) AND (deleted_by IS NOT NULL) AND (body IS NULL)))),
     CONSTRAINT page_comments_resolution_shape CHECK (((resolved_at IS NULL) = (resolved_by IS NULL))),
@@ -3960,7 +3994,6 @@ CREATE TABLE public.page_user_states (
     favorited_at timestamp with time zone,
     visited_at timestamp with time zone,
     comments_read_at timestamp without time zone,
-    hide_visits boolean DEFAULT false NOT NULL,
     edited_at timestamp without time zone
 );
 
@@ -4081,6 +4114,24 @@ CREATE TABLE public.pod_applet_approvals (
 
 
 --
+-- Name: pod_applet_bindings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pod_applet_bindings (
+    tenant_id uuid NOT NULL,
+    page_id uuid NOT NULL,
+    slot_key text NOT NULL,
+    table_id uuid,
+    field_overrides jsonb DEFAULT '{}'::jsonb NOT NULL,
+    updated_by text NOT NULL,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT pod_applet_bindings_field_overrides_check CHECK ((jsonb_typeof(field_overrides) = 'object'::text)),
+    CONSTRAINT pod_applet_bindings_slot_key_check CHECK ((length(slot_key) > 0))
+);
+
+
+--
 -- Name: pod_applet_envs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4094,6 +4145,62 @@ CREATE TABLE public.pod_applet_envs (
     inserted_at timestamp without time zone NOT NULL,
     updated_at timestamp without time zone NOT NULL,
     CONSTRAINT pod_applet_envs_name_check CHECK ((name ~ '^[A-Za-z_][A-Za-z0-9_]*$'::text))
+);
+
+
+--
+-- Name: pod_applet_idempotency_keys; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pod_applet_idempotency_keys (
+    tenant_id uuid NOT NULL,
+    page_id uuid NOT NULL,
+    scope_uid text NOT NULL,
+    idempotency_key text NOT NULL,
+    request_hash text NOT NULL,
+    status_code integer NOT NULL,
+    response_body jsonb NOT NULL,
+    expires_at timestamp without time zone NOT NULL,
+    inserted_at timestamp without time zone NOT NULL,
+    CONSTRAINT pod_applet_idempotency_keys_key_present CHECK (((length(btrim(idempotency_key)) > 0) AND (length(idempotency_key) <= 255)))
+);
+
+
+--
+-- Name: pod_applet_revision_files; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pod_applet_revision_files (
+    tenant_id uuid NOT NULL,
+    revision_id uuid NOT NULL,
+    path text NOT NULL,
+    object_id uuid NOT NULL,
+    content_type text NOT NULL,
+    mode integer DEFAULT 420 NOT NULL,
+    CONSTRAINT pod_applet_revision_files_mode_check CHECK (((mode >= 0) AND (mode <= 511)))
+);
+
+
+--
+-- Name: pod_applet_revisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pod_applet_revisions (
+    tenant_id uuid NOT NULL,
+    id uuid NOT NULL,
+    page_id uuid NOT NULL,
+    is_draft boolean DEFAULT false NOT NULL,
+    revision bigint,
+    base_revision bigint NOT NULL,
+    summary text,
+    published_by text,
+    routes_signature jsonb DEFAULT '[]'::jsonb NOT NULL,
+    actions_signature jsonb DEFAULT '{}'::jsonb NOT NULL,
+    restored_from_revision bigint,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT pod_applet_revisions_base_revision_check CHECK ((base_revision >= 0)),
+    CONSTRAINT pod_applet_revisions_state CHECK (((is_draft AND (revision IS NULL)) OR ((NOT is_draft) AND (revision > 0))))
 );
 
 
@@ -4583,6 +4690,31 @@ CREATE TABLE public.schema_migrations (
 
 
 --
+-- Name: service_accounts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.service_accounts (
+    tenant_id uuid NOT NULL,
+    uid text NOT NULL,
+    kind text NOT NULL,
+    applet_page_id uuid,
+    options jsonb DEFAULT '{}'::jsonb NOT NULL,
+    inserted_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL,
+    CONSTRAINT service_accounts_applet_page_shape CHECK (((applet_page_id IS NULL) OR (kind = 'applet'::text))),
+    CONSTRAINT service_accounts_kind_check CHECK ((kind = ANY (ARRAY['brain'::text, 'applet'::text, 'external_bot'::text, 'platform'::text]))),
+    CONSTRAINT service_accounts_options_object CHECK ((jsonb_typeof(options) = 'object'::text))
+);
+
+
+--
+-- Name: TABLE service_accounts; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.service_accounts IS 'Tenant service Principals owning Brain, Applet, and external Bot budgets and metadata.';
+
+
+--
 -- Name: session_ambient_judgments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4691,9 +4823,11 @@ CREATE TABLE public.signal_bindings (
     auth_config_id uuid,
     agent_routine_id uuid,
     "coalesce" jsonb,
+    external_bot_policy text DEFAULT 'ignore'::text NOT NULL,
     CONSTRAINT signal_bindings_adapter_present CHECK ((length(btrim(adapter)) > 0)),
     CONSTRAINT signal_bindings_coalesce_object CHECK ((("coalesce" IS NULL) OR (jsonb_typeof("coalesce") = 'object'::text))),
     CONSTRAINT signal_bindings_config_ref_present CHECK ((length(btrim(config_ref)) > 0)),
+    CONSTRAINT signal_bindings_external_bot_policy_check CHECK ((external_bot_policy = ANY (ARRAY['ignore'::text, 'record_only'::text, 'allow'::text]))),
     CONSTRAINT signal_bindings_filters_object CHECK ((jsonb_typeof(filters) = 'object'::text)),
     CONSTRAINT signal_bindings_name_present CHECK ((length(btrim(name)) > 0)),
     CONSTRAINT signal_bindings_routine_mode_check CHECK (((agent_routine_id IS NULL) OR ((routing_mode = 'ai_colleague'::text) AND (automation_job_id IS NULL)))),
@@ -4864,8 +4998,9 @@ CREATE TABLE public.signals (
     status text DEFAULT 'queued'::text NOT NULL,
     reply_binding_id uuid,
     turn_summary text,
+    infrastructure_attempt_count integer DEFAULT 0 NOT NULL,
     CONSTRAINT signals_attempt_count_non_negative CHECK ((attempt_count >= 0)),
-    CONSTRAINT signals_capacity_attempt_count_check CHECK (((provider_capacity_attempt_count >= 0) AND (provider_capacity_attempt_count <= attempt_count))),
+    CONSTRAINT signals_capacity_attempt_count_check CHECK (((provider_capacity_attempt_count >= 0) AND (infrastructure_attempt_count >= 0) AND ((provider_capacity_attempt_count + infrastructure_attempt_count) <= attempt_count))),
     CONSTRAINT signals_completion_anchor_check CHECK ((((final_response_id IS NULL) AND (turn_outcome IS NULL)) OR ((final_response_id IS NULL) AND (turn_outcome = 'silent'::text) AND (completed_at IS NOT NULL)) OR ((final_response_id IS NOT NULL) AND (final_response_id ~~ 'resp_%'::text) AND (turn_outcome IS NOT NULL) AND (completed_at IS NOT NULL)))),
     CONSTRAINT signals_lifecycle_check CHECK ((((status = 'completed'::text) AND (completed_at IS NOT NULL) AND (dead_letter_at IS NULL) AND (dead_letter_reason IS NULL)) OR ((status = 'dead_letter'::text) AND (completed_at IS NULL) AND (dead_letter_at IS NOT NULL) AND (dead_letter_reason IS NOT NULL) AND (jsonb_typeof(dead_letter_reason) = 'object'::text)) OR ((status = ANY (ARRAY['queued'::text, 'running'::text])) AND (completed_at IS NULL) AND (dead_letter_at IS NULL) AND (dead_letter_reason IS NULL) AND ((status <> 'running'::text) OR (last_attempt_at IS NOT NULL))))),
     CONSTRAINT signals_producer_check CHECK ((producer = ANY (ARRAY['kernel'::text, 'external'::text]))),
@@ -5108,6 +5243,8 @@ CREATE TABLE public.worker_providers (
     is_default boolean DEFAULT false NOT NULL,
     inserted_at timestamp without time zone NOT NULL,
     updated_at timestamp without time zone NOT NULL,
+    prepared_digest text,
+    prepared_verified_at timestamp without time zone,
     CONSTRAINT worker_providers_credentials_object CHECK ((jsonb_typeof(credentials) = 'object'::text)),
     CONSTRAINT worker_providers_id_format CHECK ((provider_id ~ '^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$'::text))
 );
@@ -5782,6 +5919,14 @@ ALTER TABLE ONLY public.connector_triggers
 
 
 --
+-- Name: connector_write_receipts connector_write_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.connector_write_receipts
+    ADD CONSTRAINT connector_write_receipts_pkey PRIMARY KEY (tenant_id, id);
+
+
+--
 -- Name: conversation_action_cards conversation_action_cards_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6150,11 +6295,43 @@ ALTER TABLE ONLY public.pod_applet_approvals
 
 
 --
+-- Name: pod_applet_bindings pod_applet_bindings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_bindings
+    ADD CONSTRAINT pod_applet_bindings_pkey PRIMARY KEY (tenant_id, page_id, slot_key);
+
+
+--
 -- Name: pod_applet_envs pod_applet_envs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.pod_applet_envs
     ADD CONSTRAINT pod_applet_envs_pkey PRIMARY KEY (tenant_id, page_id, name);
+
+
+--
+-- Name: pod_applet_idempotency_keys pod_applet_idempotency_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_idempotency_keys
+    ADD CONSTRAINT pod_applet_idempotency_keys_pkey PRIMARY KEY (tenant_id, page_id, scope_uid, idempotency_key);
+
+
+--
+-- Name: pod_applet_revision_files pod_applet_revision_files_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_revision_files
+    ADD CONSTRAINT pod_applet_revision_files_pkey PRIMARY KEY (tenant_id, revision_id, path);
+
+
+--
+-- Name: pod_applet_revisions pod_applet_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_revisions
+    ADD CONSTRAINT pod_applet_revisions_pkey PRIMARY KEY (tenant_id, id);
 
 
 --
@@ -6307,6 +6484,14 @@ ALTER TABLE ONLY public.scheduled_events
 
 ALTER TABLE ONLY public.schema_migrations
     ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (version);
+
+
+--
+-- Name: service_accounts service_accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.service_accounts
+    ADD CONSTRAINT service_accounts_pkey PRIMARY KEY (tenant_id, uid);
 
 
 --
@@ -6800,6 +6985,13 @@ CREATE INDEX ai_gateway_providers_provider_kind_index ON public.ai_gateway_provi
 --
 
 CREATE INDEX ai_gateway_usage_records_job_id_index ON public.ai_gateway_usage_records USING btree (job_id) WHERE (job_id IS NOT NULL);
+
+
+--
+-- Name: ai_gateway_usage_records_service_uid_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ai_gateway_usage_records_service_uid_idx ON public.ai_gateway_usage_records USING btree (tenant_id, service_uid, inserted_at) WHERE (service_uid IS NOT NULL);
 
 
 --
@@ -7482,6 +7674,13 @@ CREATE INDEX brain_sources_active_idx ON public.brain_sources USING btree (tenan
 
 
 --
+-- Name: brain_sources_default_source_node_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX brain_sources_default_source_node_idx ON public.brain_sources USING btree (tenant_id, default_source_node_id) WHERE (default_source_node_id IS NOT NULL);
+
+
+--
 -- Name: brain_sources_kind_upstream_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7710,6 +7909,20 @@ CREATE INDEX connector_connected_accounts_proactive_refresh_idx ON public.connec
 --
 
 CREATE INDEX connector_db_catalog_tables_bm25_idx ON public.connector_db_catalog_tables USING bm25 (id, tenant_id, auth_config_id, ((search_text)::pdb.icu)) WITH (key_field=id);
+
+
+--
+-- Name: connector_write_receipts_expires_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX connector_write_receipts_expires_idx ON public.connector_write_receipts USING btree (tenant_id, expires_at);
+
+
+--
+-- Name: connector_write_receipts_scope_call_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX connector_write_receipts_scope_call_uidx ON public.connector_write_receipts USING btree (tenant_id, authority_scope, toolkit, tool_name, args_sha256);
 
 
 --
@@ -8039,6 +8252,13 @@ CREATE INDEX delivery_attachments_node_index ON public.delivery_attachments USIN
 --
 
 CREATE INDEX delivery_attachments_object_index ON public.delivery_attachments USING btree (tenant_id, object_id) WHERE (object_id IS NOT NULL);
+
+
+--
+-- Name: drive_vfs_exports_object_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX drive_vfs_exports_object_index ON public.drive_vfs_exports USING btree (tenant_id, object_id);
 
 
 --
@@ -8490,6 +8710,13 @@ CREATE INDEX page_comments_activity ON public.page_comments USING btree (tenant_
 
 
 --
+-- Name: page_comments_mentioned_uids_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX page_comments_mentioned_uids_idx ON public.page_comments USING gin (mentioned_uids);
+
+
+--
 -- Name: page_comments_page_roots; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8570,7 +8797,7 @@ CREATE INDEX page_user_states_tenant_id_page_id_index ON public.page_user_states
 -- Name: page_user_states_viewers; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX page_user_states_viewers ON public.page_user_states USING btree (tenant_id, page_id, visited_at, principal_uid) WHERE ((visited_at IS NOT NULL) AND (NOT hide_visits));
+CREATE INDEX page_user_states_viewers ON public.page_user_states USING btree (tenant_id, page_id, visited_at, principal_uid) WHERE (visited_at IS NOT NULL);
 
 
 --
@@ -8753,6 +8980,34 @@ CREATE UNIQUE INDEX permission_grants_userset_natural_index ON public.permission
 --
 
 CREATE UNIQUE INDEX pod_applet_approvals_request_index ON public.pod_applet_approvals USING btree (tenant_id, page_id, request_key);
+
+
+--
+-- Name: pod_applet_idempotency_keys_expires_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX pod_applet_idempotency_keys_expires_idx ON public.pod_applet_idempotency_keys USING btree (tenant_id, expires_at);
+
+
+--
+-- Name: pod_applet_revision_files_tenant_id_object_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX pod_applet_revision_files_tenant_id_object_id_index ON public.pod_applet_revision_files USING btree (tenant_id, object_id);
+
+
+--
+-- Name: pod_applet_revisions_draft_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX pod_applet_revisions_draft_index ON public.pod_applet_revisions USING btree (tenant_id, page_id) WHERE is_draft;
+
+
+--
+-- Name: pod_applet_revisions_tenant_id_page_id_revision_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX pod_applet_revisions_tenant_id_page_id_revision_index ON public.pod_applet_revisions USING btree (tenant_id, page_id, revision);
 
 
 --
@@ -9043,6 +9298,13 @@ CREATE INDEX scheduled_events_tenant_id_index ON public.scheduled_events USING b
 
 
 --
+-- Name: service_accounts_applet_page_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX service_accounts_applet_page_uidx ON public.service_accounts USING btree (tenant_id, applet_page_id) WHERE (applet_page_id IS NOT NULL);
+
+
+--
 -- Name: session_ambient_judgments_asked_by_message_id_index; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9306,6 +9568,13 @@ CREATE UNIQUE INDEX site_app_configurations_scope_key_unique ON public.site_app_
 --
 
 CREATE UNIQUE INDEX site_worker_envs_scope_name_unique ON public.site_worker_envs USING btree (scope, name);
+
+
+--
+-- Name: skill_files_object_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX skill_files_object_index ON public.skill_files USING btree (tenant_id, object_id);
 
 
 --
@@ -10243,7 +10512,7 @@ ALTER TABLE ONLY public.brain_slug_aliases
 --
 
 ALTER TABLE ONLY public.brain_sources
-    ADD CONSTRAINT brain_sources_default_source_node_id_fkey FOREIGN KEY (tenant_id, default_source_node_id) REFERENCES public.pages(tenant_id, id) ON DELETE RESTRICT;
+    ADD CONSTRAINT brain_sources_default_source_node_id_fkey FOREIGN KEY (tenant_id, default_source_node_id) REFERENCES public.pages(tenant_id, id) ON DELETE SET NULL (default_source_node_id);
 
 
 --
@@ -10419,7 +10688,7 @@ ALTER TABLE ONLY public.connector_auth_waits
 --
 
 ALTER TABLE ONLY public.connector_auth_waits
-    ADD CONSTRAINT connector_auth_waits_auth_config_fkey FOREIGN KEY (tenant_id, auth_config_id) REFERENCES public.connector_auth_configs(tenant_id, id) ON DELETE SET NULL;
+    ADD CONSTRAINT connector_auth_waits_auth_config_fkey FOREIGN KEY (tenant_id, auth_config_id) REFERENCES public.connector_auth_configs(tenant_id, id) ON DELETE SET NULL (auth_config_id);
 
 
 --
@@ -10540,6 +10809,14 @@ ALTER TABLE ONLY public.connector_triggers
 
 ALTER TABLE ONLY public.connector_triggers
     ADD CONSTRAINT connector_triggers_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: connector_write_receipts connector_write_receipts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.connector_write_receipts
+    ADD CONSTRAINT connector_write_receipts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
 
 
 --
@@ -11575,6 +11852,22 @@ ALTER TABLE ONLY public.pod_applet_approvals
 
 
 --
+-- Name: pod_applet_bindings pod_applet_bindings_page_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_bindings
+    ADD CONSTRAINT pod_applet_bindings_page_fkey FOREIGN KEY (tenant_id, page_id) REFERENCES public.pages(tenant_id, id) ON DELETE CASCADE;
+
+
+--
+-- Name: pod_applet_bindings pod_applet_bindings_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_bindings
+    ADD CONSTRAINT pod_applet_bindings_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: pod_applet_envs pod_applet_envs_page_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11588,6 +11881,62 @@ ALTER TABLE ONLY public.pod_applet_envs
 
 ALTER TABLE ONLY public.pod_applet_envs
     ADD CONSTRAINT pod_applet_envs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: pod_applet_idempotency_keys pod_applet_idempotency_keys_page_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_idempotency_keys
+    ADD CONSTRAINT pod_applet_idempotency_keys_page_fkey FOREIGN KEY (tenant_id, page_id) REFERENCES public.pages(tenant_id, id) ON DELETE CASCADE;
+
+
+--
+-- Name: pod_applet_idempotency_keys pod_applet_idempotency_keys_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_idempotency_keys
+    ADD CONSTRAINT pod_applet_idempotency_keys_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: pod_applet_revision_files pod_applet_revision_files_object_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_revision_files
+    ADD CONSTRAINT pod_applet_revision_files_object_fkey FOREIGN KEY (tenant_id, object_id) REFERENCES public.file_objects(tenant_id, id);
+
+
+--
+-- Name: pod_applet_revision_files pod_applet_revision_files_revision_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_revision_files
+    ADD CONSTRAINT pod_applet_revision_files_revision_fkey FOREIGN KEY (tenant_id, revision_id) REFERENCES public.pod_applet_revisions(tenant_id, id) ON DELETE CASCADE;
+
+
+--
+-- Name: pod_applet_revision_files pod_applet_revision_files_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_revision_files
+    ADD CONSTRAINT pod_applet_revision_files_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: pod_applet_revisions pod_applet_revisions_page_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_revisions
+    ADD CONSTRAINT pod_applet_revisions_page_fkey FOREIGN KEY (tenant_id, page_id) REFERENCES public.pages(tenant_id, id) ON DELETE CASCADE;
+
+
+--
+-- Name: pod_applet_revisions pod_applet_revisions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_applet_revisions
+    ADD CONSTRAINT pod_applet_revisions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
 
 
 --
@@ -11876,6 +12225,30 @@ ALTER TABLE ONLY public.scheduled_events
 
 ALTER TABLE ONLY public.scheduled_events
     ADD CONSTRAINT scheduled_events_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: service_accounts service_accounts_applet_page_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.service_accounts
+    ADD CONSTRAINT service_accounts_applet_page_fkey FOREIGN KEY (tenant_id, applet_page_id) REFERENCES public.pages(tenant_id, id) ON DELETE CASCADE;
+
+
+--
+-- Name: service_accounts service_accounts_principal_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.service_accounts
+    ADD CONSTRAINT service_accounts_principal_fkey FOREIGN KEY (tenant_id, uid) REFERENCES public.principals(tenant_id, uid) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: service_accounts service_accounts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.service_accounts
+    ADD CONSTRAINT service_accounts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
 
 
 --

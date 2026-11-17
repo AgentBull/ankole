@@ -61,29 +61,23 @@ defmodule Ankole.IdentityProviders.Console.Actions do
     do: {:ok, DirectoryAccess.console_view(args.provider_id)}
 
   defp action(:approve_directory, args, context) do
-    with {:ok, _} <-
-           DirectoryAccess.approve_snapshot(
-             args.provider_id,
-             args.snapshot_fingerprint,
-             actor(context),
-             args.reason,
-             args.confirm_removals
-           ),
-         do: {:ok, DirectoryAccess.console_view(args.provider_id)}
+    DirectoryAccess.approve_directory_view(
+      args.provider_id,
+      args.snapshot_fingerprint,
+      actor(context),
+      args.reason,
+      args.confirm_removals
+    )
   end
 
   defp action(:review_event, args, context) do
-    case DirectoryAccess.get_event(args.event_id) do
-      %{provider_id: provider_id} when provider_id == args.provider_id ->
-        case DirectoryAccess.review_event(args.event_id, actor(context), args.reason, args.action) do
-          :ok -> {:ok, DirectoryAccess.console_view(args.provider_id)}
-          {:ok, _} -> {:ok, DirectoryAccess.console_view(args.provider_id)}
-          error -> error
-        end
-
-      _ ->
-        {:error, :not_found}
-    end
+    DirectoryAccess.review_event_view(
+      args.provider_id,
+      args.event_id,
+      actor(context),
+      args.reason,
+      args.action
+    )
   end
 
   defp actor(context), do: Ankole.ActorRef.from_actor(context.actor)

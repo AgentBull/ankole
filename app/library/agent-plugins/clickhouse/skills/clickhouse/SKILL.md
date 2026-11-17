@@ -1,6 +1,7 @@
 ---
 name: clickhouse
 description: "Answer questions from a tenant ClickHouse database with catalog search, value probes, plans, read-only queries, and published metrics."
+default_enabled: false
 ---
 
 # clickhouse

@@ -59,13 +59,13 @@
     "shiki": "4.6.0",
     "use-stick-to-bottom": "1.1.6",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "xstate": "5.33.4",
     "yaml": "2.9.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@babel/core": "8.1.2",
     "@playwright/test": "1.65.0",
-    "@posthog/cli": "0.20.0",
     "@rolldown/plugin-babel": "0.3.1",
     "@tailwindcss/postcss": "4.3.5",
     "@tailwindcss/vite": "4.3.5",

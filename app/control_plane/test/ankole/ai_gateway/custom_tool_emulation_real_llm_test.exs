@@ -2,9 +2,10 @@ defmodule Ankole.AIGateway.CustomToolEmulationRealLLMTest do
   @moduledoc """
   Real-provider verification of custom-tool emulation on the Responses wire.
 
-  Run with `ANKOLE_REAL_LLM_E2E=1 mix test --only real_llm` and the provider
-  keys exported. Both providers are `openai_compatible` Responses connections
-  that keep `supports_openai_tools` at its default `false`, so AIGateway sends
+  Set `ANKOLE_CUSTOM_TOOL_BASE_URL`, `ANKOLE_CUSTOM_TOOL_MODEL`, and
+  `ANKOLE_CUSTOM_TOOL_API_KEY`, then opt in with `ANKOLE_REAL_LLM_E2E=1`.
+  The configured upstream uses an `openai_compatible` Responses connection
+  with `supports_openai_tools` at its default `false`, so AIGateway sends
   the declared custom tool as a function tool and restores the answer to the
   official custom shape. Round one must produce a `custom_tool_call`; round
   two replays that call with its output and must complete normally.
@@ -15,49 +16,25 @@ defmodule Ankole.AIGateway.CustomToolEmulationRealLLMTest do
   @moduletag :real_llm
   @moduletag timeout: 300_000
 
-  @providers [
-    %{
-      id: "openrouter-deepseek-emulation",
-      env: "OPEN_ROUTER_API_KEY",
-      base_url: "https://openrouter.ai/api/v1",
-      model: "~deepseek/deepseek-v4-flash-latest"
-    },
-    %{
-      id: "ai-router-luna-emulation",
-      env: "AI_ROUTER_API_KEY",
-      base_url: "https://ai-router.yuma.host/v1",
-      model: "gpt-5.6-luna"
-    }
-  ]
-
-  for provider <- @providers do
-    test "emulated custom tool round trip on #{provider.id}" do
-      run_smoke(unquote(Macro.escape(provider)))
-    end
-  end
-
-  defp run_smoke(provider) do
+  test "emulated custom tool round trip on the configured upstream" do
+    base_url = required_env!("ANKOLE_CUSTOM_TOOL_BASE_URL")
+    model = required_env!("ANKOLE_CUSTOM_TOOL_MODEL")
+    api_key = required_env!("ANKOLE_CUSTOM_TOOL_API_KEY")
     %{principal: agent} = agent_fixture()
-
-    api_key = System.get_env(provider.env)
-
-    if api_key in [nil, ""] do
-      raise "#{provider.env} is required for the custom-tool emulation smoke"
-    end
 
     {:ok, _provider} =
       ProviderConfigs.create_provider(%{
-        provider_id: provider.id,
+        provider_id: "custom-tool-emulation",
         provider_kind: "openai_compatible",
-        base_url: provider.base_url,
+        base_url: base_url,
         connection_options: %{"endpoint_kind" => "responses"},
         credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => api_key}]}
       })
 
     {:ok, _profile} =
       ModelProfiles.put_model_profile(agent.uid, "primary", %{
-        provider_id: provider.id,
-        model: provider.model
+        provider_id: "custom-tool-emulation",
+        model: model
       })
 
     user_message = %{
@@ -142,6 +119,13 @@ defmodule Ankole.AIGateway.CustomToolEmulationRealLLMTest do
       |> Enum.join(" ")
 
     assert String.trim(text) != "", "round two returned no message text"
+  end
+
+  defp required_env!(name) do
+    case System.get_env(name) do
+      value when is_binary(value) and value != "" -> value
+      _missing -> raise "#{name} is required for the custom-tool emulation smoke"
+    end
   end
 
   defp stream!(agent, request) do

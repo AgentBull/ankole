@@ -27,6 +27,8 @@ export function executionStatusLabelKey(status?: string | null): string | undefi
     case 'waiting_on_user':
     case 'awaiting_input':
       return 'pod.chat_timeline.execution_waiting_user'
+    case 'incomplete':
+      return 'pod.chat_timeline.execution_incomplete'
     case 'sleeping':
       return 'pod.chat_timeline.execution_sleeping'
     case 'succeeded':
@@ -48,6 +50,7 @@ export function executionStatusTone(status?: string | null): ExecutionStatusTone
   switch (status) {
     case 'waiting_on_user':
     case 'awaiting_input':
+    case 'incomplete':
       return 'waiting'
     case 'sleeping':
       return 'sleeping'
@@ -64,21 +67,20 @@ export function executionStatusTone(status?: string | null): ExecutionStatusTone
   }
 }
 
+const EXECUTION_TONE_ICONS = {
+  waiting: QuestionCircleRegular,
+  sleeping: ClockRegular,
+  failed: DismissCircleRegular,
+  stopped: RecordStopRegular,
+  completed: CheckmarkRegular
+} as const
+
 export function ExecutionStatusMark({ status }: { status?: string | null }) {
   const tone = executionStatusTone(status)
   if (tone === 'running') {
     return <Spinner aria-hidden className="pod-chat-working-spinner" />
   }
-  const Icon =
-    tone === 'waiting'
-      ? QuestionCircleRegular
-      : tone === 'sleeping'
-        ? ClockRegular
-        : tone === 'failed'
-          ? DismissCircleRegular
-          : tone === 'stopped'
-            ? RecordStopRegular
-            : CheckmarkRegular
+  const Icon = EXECUTION_TONE_ICONS[tone]
   return <Icon className="pod-chat-exec-status-icon" data-tone={tone} aria-hidden />
 }
 

@@ -37,6 +37,10 @@ defmodule Ankole.Principals do
         route(:post, "/:uid/access-disables", :disable, name: "disable_human_access")
         route(:post, "/:uid/access-restorations", :restore, name: "restore_human_access")
 
+        route(:post, "/:uid/pod-admin-recoveries", :recover_pod_admin,
+          name: "recover_human_pod_admin"
+        )
+
         route(:post, "/:uid/access-restrictions/:restriction_id/clear", :clear_restriction,
           name: "clear_human_access_restriction"
         )
@@ -77,6 +81,7 @@ defmodule Ankole.Principals do
         route(:post, "/", :console_create, name: "create_agent")
         route(:patch, "/:uid", :console_update, name: "update_agent")
         route(:delete, "/:uid", :console_delete, name: "delete_agent")
+        route(:post, "/:uid/disable", :console_disable, name: "disable_agent")
         route(:post, "/:uid/enable", :console_enable, name: "enable_agent")
         route(:post, "/:uid/rename", :console_rename, name: "rename_agent")
       end
@@ -96,6 +101,11 @@ defmodule Ankole.Principals do
     resource Agent do
       define(:get_agent_record, action: :read, get_by: [:uid], not_found_error?: false)
       define(:options_agent, action: :options_in_tx)
+    end
+
+    resource Ankole.Principals.ServiceAccount do
+      define(:get_service_account_record, action: :read, get_by: [:uid], not_found_error?: false)
+      define(:options_service_account, action: :options_in_tx)
     end
 
     resource(HumanUser)
@@ -159,7 +169,25 @@ defmodule Ankole.Principals do
        []}
 
   def describe_refusal(:agent_must_be_disabled),
-    do: {:conflict, "Disable the Agent before renaming it.", []}
+    do: {:conflict, "Disable the Agent first.", []}
+
+  def describe_refusal(:agent_type_immutable),
+    do: {:conflict, "The Agent subtype cannot be changed.", []}
+
+  def describe_refusal(:personal_assistant_owner_immutable),
+    do: {:conflict, "The owner of a personal assistant cannot be changed.", []}
+
+  def describe_refusal(:agent_owner_must_be_human),
+    do: {"Choose a Human member as the Agent owner.", [field: :owner_principal_uid]}
+
+  def describe_refusal(:agent_owner_not_found),
+    do: {"The selected Agent owner was not found.", [field: :owner_principal_uid]}
+
+  def describe_refusal(:personal_assistant_requires_member),
+    do: {:conflict, "A personal assistant requires an active member owner.", []}
+
+  def describe_refusal(:cannot_disable_last_admin),
+    do: {:conflict, "Keep at least one active administrator in the tenant.", []}
 
   def describe_refusal(:system_uid_immutable), do: {"The system Principal cannot be renamed.", []}
 
@@ -274,6 +302,7 @@ defmodule Ankole.Principals do
   defdelegate update_agent(uid, attrs), to: Agents
   defdelegate update_agent_in_tx(uid, attrs), to: Agents
   defdelegate disable_agent(uid), to: Agents
+  defdelegate disable_agent_in_tx(uid), to: Agents
   defdelegate enable_agent(uid), to: Agents
   defdelegate enable_agent_in_tx(uid), to: Agents
   defdelegate delete_agent(uid), to: Agents

@@ -37,6 +37,14 @@ defmodule Ankole.Pod.Access.BlockedWaits do
     office.apply
     office.to_document
     applets.publish
+    applets.revisions
+    applets.promote_draft
+    applets.discard_draft
+    applets.rollback
+    applets.bindings.list
+    applets.bindings.put
+    applets.bindings.delete
+    applets.inspect_ticket
     applets.call
     base.tables
     base.create_table

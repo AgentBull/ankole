@@ -76,14 +76,53 @@ test('each view sizes the block to its visible content between the minimum and t
   // Long source stops at the cap and scrolls inside the block.
   await expect.poll(height).toBeLessThanOrEqual(558)
   expect(await pre.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+
+  // Diagram-only view expands the block height to fit a tall diagram without clipping.
+  const tallDiagram = [
+    'flowchart TD',
+    ...Array.from({ length: 14 }, (_, index) => `  N${index}[Step ${index}] --> N${index + 1}[Step ${index + 1}]`)
+  ].join('\n')
+  await openDocument(page, `<mermaid view="diagram">\n${fence(tallDiagram)}\n</mermaid>`)
+  await expect(block.locator('.mermaid-preview svg')).toBeVisible({ timeout: 10_000 })
+  await expect.poll(height).toBeGreaterThan(558)
+  expect(await block.locator('.mermaid-preview').evaluate(el => el.scrollHeight <= el.clientHeight)).toBe(true)
+
+  // Wide sequence diagrams scale to fit without wrapping labels into narrow vertical columns.
+  const wideSequence = [
+    'sequenceDiagram',
+    '  autonumber',
+    '  participant IM as 客户 / 外部渠道',
+    '  participant GW as 事件路由与执行账本',
+    '  participant BA as 售后 Business Agent',
+    '  participant DB as Base 共享表 + 指标层',
+    '  participant MGR as 客服主管 (人工审批)',
+    '  participant PAY as 零密钥连接器 / 支付接口',
+    '  IM->>GW: 发起 £160 售后退款诉求 (附外部单号)',
+    '  GW->>BA: 唯一事件号幂等去重后唤醒会话进程'
+  ].join('\n')
+  await openDocument(page, `<mermaid view="diagram">\n${fence(wideSequence)}\n</mermaid>`)
+  const seqSvg = block.locator('.mermaid-preview svg')
+  await expect(seqSvg.locator('text', { hasText: '唯一事件号幂等去重后唤醒会话进程' })).toBeVisible({
+    timeout: 10_000
+  })
+  const fitsHorizontally = await block.locator('.mermaid-preview').evaluate(el => {
+    const svg = el.querySelector('svg')
+    return (
+      Boolean(svg) && el.scrollWidth <= el.clientWidth + 1 && svg!.getBoundingClientRect().width <= el.clientWidth + 1
+    )
+  })
+  expect(fitsHorizontally).toBe(true)
 })
 
-test('templates replace the source in one step', async ({ page }) => {
-  await openDocument(page, fence(source))
-  await page.locator('[data-mermaid-action="template"]').click()
+test('templates appear only when source is empty and replace it in one step', async ({ page }) => {
+  await openDocument(page, '```mermaid\n```')
+  const templateButton = page.locator('[data-mermaid-action="template"]')
+  await expect(templateButton).toBeVisible()
+  await templateButton.click()
   await page.getByRole('menuitem', { name: '条件判断' }).click()
   await expect(page.locator('.mermaid-pre')).toContainText('是否继续')
   await expect(page.locator('.mermaid-preview svg')).toBeVisible()
+  await expect(templateButton).toBeHidden()
   await expectMarkdown(
     page,
     fence('flowchart TD\n  A[开始] --> B{是否继续?}\n  B -->|是| C[处理]\n  B -->|否| D[结束]')
@@ -283,29 +322,50 @@ test('the Mermaid extension renders in a standalone Wordgard view and reuses emp
   )
   expect(samePlaceholder).toBe(true)
 
-  const corePath = new URL('../src/core/editor/index.ts', import.meta.url).pathname
-  const extPath = new URL('../src/editor/extension.ts', import.meta.url).pathname
-  const standalone = await page.evaluate(
-    async ({ core, ext }) => {
-      const { Wordgard } = await import(new URL(`/@fs${core}`, location.origin).href)
-      const { editorExtension, initialState } = await import(new URL(`/@fs${ext}`, location.origin).href)
-      const host = document.createElement('div')
-      document.body.append(host)
-      const wg = Wordgard.create({
-        state: initialState('```mermaid\nflowchart TD\n  A --> B\n```', [editorExtension()]),
-        parent: host
-      })
-      const gutter = host.querySelector('.mermaid-gutter')?.textContent ?? ''
-      await new Promise(resolve => setTimeout(resolve, 400))
-      const hasSvg = Boolean(host.querySelector('.mermaid-preview svg'))
-      wg.dom.remove()
-      host.remove()
-      return { gutter, hasSvg }
-    },
-    { core: corePath, ext: extPath }
-  )
+  const standalone = await page.evaluate(async () => {
+    const core = '/src/core/editor/index.ts'
+    const state = '/src/core/state/index.ts'
+    const phrases = '/src/editor/phrases.ts'
+    const ext = '/src/editor/extension.ts'
+    const { Wordgard }: typeof import('../src/core/editor') = await import(core)
+    const { GardState }: typeof import('../src/core/state') = await import(state)
+    const { editorPhrases }: typeof import('../src/editor/phrases') = await import(phrases)
+    const { editorExtension, initialState }: typeof import('../src/editor/extension') = await import(ext)
+    const locale = GardState.Compartment.define()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const wg = Wordgard.create({
+      state: initialState(
+        [
+          '```mermaid\nflowchart TD\n  A --> B\n```',
+          '```infographic\ninfographic compare-swot\n```',
+          '```mermaid\n```'
+        ].join('\n\n'),
+        [locale.of([]), editorExtension()]
+      ),
+      parent: host
+    })
+    const gutter = host.querySelector('.mermaid-gutter')?.textContent ?? ''
+    await new Promise(resolve => setTimeout(resolve, 400))
+    const hasSvg = Boolean(host.querySelector('.mermaid-preview svg'))
+    // Rebuilding toolbars via label reconfiguration without docChanged preserves template button visibility.
+    wg.dispatch({ effects: locale.reconfigure(editorPhrases.translatePartial({ mermaid_template: '套用模板' })) })
+    wg.flush()
+    const templateButtons = [...host.querySelectorAll<HTMLButtonElement>('.mermaid-toolbar-template')].map(btn => ({
+      text: btn.textContent,
+      hidden: btn.hidden
+    }))
+    wg.dom.remove()
+    host.remove()
+    return { gutter, hasSvg, templateButtons }
+  })
   expect(standalone.gutter).toBe('1\n2')
   expect(standalone.hasSvg).toBe(true)
+  expect(standalone.templateButtons).toEqual([
+    { text: '套用模板', hidden: true },
+    { text: '套用模板', hidden: true },
+    { text: '套用模板', hidden: false }
+  ])
 })
 
 test('pasting into a selected Mermaid block updates its source and keeps its block attributes, while whole-block copy still replaces', async ({
@@ -415,10 +475,10 @@ test('same-editor cut of multi-paragraph commented text pastes into a Mermaid bl
       const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
       const texts: Text[] = []
       while (walker.nextNode()) texts.push(walker.currentNode as Text)
-      const anchor = texts.find(node => node.data === 'Anchored text')!
-      const focus = texts.find(node => node.data === 'Destination')!
+      const anchor = texts.find(node => node.data.startsWith('Anchored'))!
+      const focus = texts.find(node => node.data.endsWith('Destination'))!
       ;(element as HTMLElement).focus()
-      window.getSelection()!.setBaseAndExtent(anchor, 0, focus, 11)
+      window.getSelection()!.setBaseAndExtent(anchor, 0, focus, focus.data.length)
       document.dispatchEvent(new Event('selectionchange'))
     })
   }
@@ -462,14 +522,21 @@ test('clicking the Mermaid toolbar or choosing a template focuses the Mermaid bl
 
   await caret(page.locator('.editor-content > p').first(), 'end')
   await block.hover()
-  await block.locator('.mermaid-toolbar').click({ position: { x: 16, y: 18 } })
-  await clipboard(editor, 'paste', { 'text/plain': 'flowchart LR\n  T --> U' })
-  await expectMarkdown(page, `Intro\n\n${fence('flowchart LR\n  T --> U')}`)
-
-  await caret(page.locator('.editor-content > p').first(), 'end')
   await block.locator('[data-mermaid-action="template"]').click()
   await page.getByRole('menuitem', { name: '横向流程' }).click()
+  await expect(block.locator('[data-mermaid-action="template"]')).toBeHidden()
   await editor.press('Enter')
   await page.keyboard.type('  C --> D')
   await expectMarkdown(page, `Intro\n\n${fence('flowchart LR\n  A[输入] --> B[处理] --> C[输出]\n  C --> D')}`)
+
+  await caret(block.locator('.mermaid-pre'), 'end')
+  await page.keyboard.press('Meta+A')
+  await page.keyboard.press('Backspace')
+  await expect(block.locator('[data-mermaid-action="template"]')).toBeVisible()
+
+  await caret(page.locator('.editor-content > p').first(), 'end')
+  await block.hover()
+  await block.locator('.mermaid-toolbar').click({ position: { x: 16, y: 18 } })
+  await clipboard(editor, 'paste', { 'text/plain': 'flowchart LR\n  T --> U' })
+  await expectMarkdown(page, `Intro\n\n${fence('flowchart LR\n  T --> U')}`)
 })

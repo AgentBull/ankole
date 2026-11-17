@@ -17,7 +17,9 @@ defmodule Ankole.Principals.SystemServicesTest do
 
       assert {:ok, %{uid: "system"}} = Principals.system_principal()
       assert {:ok, _} = Repo.transact(fn -> Principals.ensure_system_principals_in_tx() end)
-      assert Repo.aggregate(from(p in Principal, where: p.type == :system), :count) == 2
+
+      assert Repo.aggregate(from(p in Principal, where: p.type == :system), :count) ==
+               length(SystemServices.uids())
     end)
   end
 

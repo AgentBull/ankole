@@ -1,4 +1,3 @@
-import { recordValue } from '@agentbull/active-support'
 import {
   Button,
   Dialog,
@@ -8,24 +7,20 @@ import {
   DialogHeader,
   DialogTitle,
   Input,
+  Spinner,
   Textarea,
-  toast,
-  Spinner
+  toast
 } from '@ankole/uikit'
 import { OpenRegular } from '@ankole/uikit/icons'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useModel } from '@preact/signals-react'
+import { useSignals } from '@preact/signals-react/runtime'
+import { useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorCode, requestErrorDetails, requestErrorMessage } from '../../common/request-errors'
-import {
-  completeChatgptBrowserLoginMutation as completeChatGPTBrowserLoginMutation,
-  pollChatgptLoginMutation as pollChatGPTLoginMutation,
-  startChatgptLoginMutation as startChatGPTLoginMutation
-} from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { DiscardConfirmDialog, LabeledField, ReadOnlyValue, useDialogDiscardGuard } from '../console-form'
-import type { AIGatewayProviderItem, AIGatewayCredentialPoolEntry } from '../state/provider-settings'
-
-type LoginPayload = Record<string, unknown>
+import { ChatGPTLoginModel } from '../state/chatgpt-login-model'
+import type { AIGatewayCredentialPoolEntry, AIGatewayProviderItem } from '../state/provider-settings'
 
 // Coded ChatGPT sign-in failures and whether their message interpolates the
 // upstream response. Each code's locale key is `console.providers.<code>`.
@@ -78,124 +73,66 @@ export function ChatGPTLoginDialog({
   open: boolean
   provider: AIGatewayProviderItem
 }) {
+  useSignals()
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [label, setLabel] = useState('')
-  const [priority, setPriority] = useState('0')
-  const [login, setLogin] = useState<LoginPayload>()
-  const [callbackURL, setCallbackURL] = useState('')
-  const [validationError, setValidationError] = useState<string>()
+  const model = useModel(ChatGPTLoginModel)
 
-  const finish = () => {
+  model.setOnCompleted(() => {
+    void queryClient.invalidateQueries()
     toast.success(t('console.providers.chatgpt_login_complete'))
     onOpenChange(false)
-  }
-  const start = useMutation({
-    meta: { invalidates: false },
-    ...startChatGPTLoginMutation(),
-    onSuccess: response => setLogin(recordValue(response) ?? undefined)
-  })
-  const poll = useMutation({
-    meta: { invalidates: false },
-    ...pollChatGPTLoginMutation(),
-    onSuccess: response => {
-      const update = recordValue(response) ?? {}
-      if (update.status === 'complete') {
-        void queryClient.invalidateQueries()
-        finish()
-      } else {
-        setLogin(current => ({ ...current, ...update }))
-      }
-    }
-  })
-  const complete = useMutation({
-    ...completeChatGPTBrowserLoginMutation(),
-    onSuccess: finish
   })
 
   useEffect(() => {
-    if (!open) return
-    setLabel(entry?.label ?? '')
-    setPriority(String(entry?.priority ?? 0))
-    setLogin(undefined)
-    setCallbackURL('')
-    setValidationError(undefined)
-    start.reset()
-    poll.reset()
-    complete.reset()
-  }, [entry, open])
-
-  const mode = textValue(login?.mode)
-  const status = textValue(login?.status)
-  const loginContext = recordValue(login?.login_context)
-  const retryAfter = numberValue(login?.retry_after) ?? numberValue(login?.interval) ?? 5
-
-  useEffect(() => {
-    if (!open || mode !== 'device' || status === 'complete' || !loginContext || poll.isPending) return
-    const timer = window.setTimeout(() => {
-      poll.mutate({
-        body: { data: { login_context: loginContext } },
-        path: { provider_id: provider.provider_id }
-      })
-    }, retryAfter * 1_000)
-    return () => window.clearTimeout(timer)
-    // `poll` itself is a fresh object every render; depending on it would clear
-    // and restart the countdown on every re-render. `mutate` and `isPending`
-    // are the stable parts this effect actually uses.
-  }, [loginContext, mode, open, poll.isPending, poll.mutate, provider.provider_id, retryAfter, status])
-
-  const startLogin = () => {
-    if (!label.trim()) {
-      setValidationError(t('console.providers.credential_label_required'))
+    if (!open) {
+      model.close()
       return
     }
-    setValidationError(undefined)
-    start.mutate({
-      body: {
-        data: {
-          id: entry?.id,
-          label: label.trim() || entry?.label || undefined,
-          priority: Number.parseInt(priority, 10) || 0
-        }
-      },
-      path: { provider_id: provider.provider_id }
+    model.open({
+      providerID: provider.provider_id,
+      entryID: entry?.id,
+      label: entry?.label ?? '',
+      priority: String(entry?.priority ?? 0)
     })
-  }
-  const completeBrowserLogin = () => {
-    if (!callbackURL.trim()) {
-      setValidationError(
-        t('common.field_required', {
-          field: t('console.providers.callback_url')
-        })
-      )
-      return
+    return () => {
+      model.close()
     }
-    if (!loginContext) return
-    setValidationError(undefined)
-    complete.mutate({
-      body: { data: { login_context: loginContext, callback_url: callbackURL.trim() } },
-      path: { provider_id: provider.provider_id }
-    })
-  }
-  const error = validationError ?? start.error ?? poll.error ?? complete.error
-  const pending = start.isPending || poll.isPending || complete.isPending
-  const dirty =
-    Boolean(login) ||
-    label !== (entry?.label ?? '') ||
-    priority !== String(entry?.priority ?? 0) ||
-    callbackURL.trim() !== ''
-  const guard = useDialogDiscardGuard({ dirty: open && dirty, pending, onOpenChange })
+  }, [entry, model, open, provider.provider_id])
+
+  const validationKey = model.validationError.value
+  const modelError = model.error.value
+  const submitting = model.submitting.value
+  const login = model.login.value
+  const label = model.label.value
+  const priority = model.priority.value
+  const callbackURL = model.callbackURL.value
+  const loginContext = model.loginContext.value
+  const dirty = model.dirty.value
+  const showingMetadataFields = model.showingMetadataFields.value
+  const showingDeviceFlow = model.showingDeviceFlow.value
+  const showingBrowserPaste = model.showingBrowserPaste.value
+  const polling = model.polling.value
+  const retryAfter = model.retryAfter.value
+  const isRestart = model.isRestart.value
+  const validationMessage =
+    validationKey === 'credential_label_required'
+      ? t('console.providers.credential_label_required')
+      : validationKey === 'callback_url_required'
+        ? t('common.field_required', { field: t('console.providers.callback_url') })
+        : undefined
+  const error = validationMessage ?? modelError
+  const guard = useDialogDiscardGuard({ dirty: open && dirty, pending: submitting, onOpenChange })
 
   return (
     <Dialog open={open} onOpenChange={guard.requestOpenChange}>
-      <DialogContent closeLabel={t('common.close')} showCloseButton={!pending}>
+      <DialogContent closeLabel={t('common.close')} showCloseButton={!submitting}>
         <form
           className="contents"
           noValidate
           onSubmit={event => {
             event.preventDefault()
-            if (!login) startLogin()
-            else if (mode === 'browser_paste') completeBrowserLogin()
+            model.submit()
           }}>
           <DialogHeader>
             <DialogTitle>
@@ -210,24 +147,23 @@ export function ChatGPTLoginDialog({
                 {chatGPTLoginErrorText(error, t)}
               </p>
             ) : null}
-            {!login ? (
+            {showingMetadataFields ? (
               <>
                 <LabeledField label={t('console.providers.credential_label')} required>
-                  <Input
-                    value={label}
-                    onChange={event => {
-                      setLabel(event.target.value)
-                      setValidationError(undefined)
-                    }}
-                  />
+                  <Input value={label} onChange={event => model.setLabel(event.target.value)} />
                 </LabeledField>
                 <LabeledField label={t('console.providers.priority')}>
-                  <Input type="number" step={1} value={priority} onChange={event => setPriority(event.target.value)} />
+                  <Input
+                    type="number"
+                    step={1}
+                    value={priority}
+                    onChange={event => model.setPriority(event.target.value)}
+                  />
                 </LabeledField>
               </>
             ) : null}
 
-            {mode === 'device' ? (
+            {showingDeviceFlow ? (
               <div className="grid gap-4 border border-border-subtle bg-layer-03/30 p-4">
                 <p className="text-sm">{t('console.providers.device_login_instructions')}</p>
                 <a
@@ -240,14 +176,14 @@ export function ChatGPTLoginDialog({
                 </a>
                 <ReadOnlyValue mono>{textValue(login?.user_code)}</ReadOnlyValue>
                 <p className="text-xs text-fg-secondary">
-                  {poll.isPending
+                  {polling
                     ? t('console.providers.device_login_polling')
                     : t('console.providers.device_login_waiting', { seconds: retryAfter })}
                 </p>
               </div>
             ) : null}
 
-            {mode === 'browser_paste' ? (
+            {showingBrowserPaste ? (
               <div className="grid gap-4 border border-border-subtle bg-layer-03/30 p-4">
                 <p className="text-sm">{t('console.providers.browser_login_instructions')}</p>
                 <a
@@ -262,10 +198,7 @@ export function ChatGPTLoginDialog({
                   <Textarea
                     className="min-h-24 font-mono text-xs"
                     value={callbackURL}
-                    onChange={event => {
-                      setCallbackURL(event.target.value)
-                      setValidationError(undefined)
-                    }}
+                    onChange={event => model.setCallbackURL(event.target.value)}
                   />
                 </LabeledField>
               </div>
@@ -273,22 +206,26 @@ export function ChatGPTLoginDialog({
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="ghost" disabled={pending} onClick={() => guard.requestOpenChange(false)}>
+            <Button type="button" variant="ghost" disabled={submitting} onClick={() => guard.requestOpenChange(false)}>
               {t('common.cancel')}
             </Button>
-            {!login ? (
-              <Button aria-busy={pending} type="submit" disabled={pending} incomplete={!label.trim() && !pending}>
-                {pending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
-                {t('console.providers.start_login')}
+            {showingMetadataFields ? (
+              <Button
+                aria-busy={submitting}
+                type="submit"
+                disabled={submitting}
+                incomplete={!label.trim() && !submitting}>
+                {submitting ? <Spinner aria-hidden data-icon="inline-start" /> : null}
+                {t(isRestart ? 'console.providers.restart_login' : 'console.providers.start_login')}
               </Button>
             ) : null}
-            {mode === 'browser_paste' ? (
+            {showingBrowserPaste ? (
               <Button
-                aria-busy={pending}
+                aria-busy={submitting}
                 type="submit"
-                disabled={pending || !loginContext}
-                incomplete={!callbackURL.trim() && !pending && Boolean(loginContext)}>
-                {pending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
+                disabled={submitting || !loginContext}
+                incomplete={!callbackURL.trim() && !submitting && Boolean(loginContext)}>
+                {submitting ? <Spinner aria-hidden data-icon="inline-start" /> : null}
                 {t('console.providers.complete_login')}
               </Button>
             ) : null}
@@ -302,8 +239,4 @@ export function ChatGPTLoginDialog({
 
 function textValue(value: unknown): string {
   return typeof value === 'string' ? value : ''
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }

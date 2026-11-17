@@ -1,0 +1,278 @@
+name: Nightly heavy verification matrix
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-heavy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  control-plane-full:
+    name: Full control-plane & database connector matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      MIX_ENV: test
+      ANKOLE_EDITION: foss
+      DATABASE_URL: ecto://postgres:nightly-checks@localhost:5432/postgres
+      ANKOLE_TEST_MYSQL_URL: mysql://root:nightly-checks@127.0.0.1:3306/ankole_test
+      ANKOLE_TEST_CLICKHOUSE_URL: http://default:nightly-checks@127.0.0.1:8123/default
+    services:
+      postgres:
+        image: ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:56457f8111e55e26fa15f750a32682560cbc8afc7a5bb03b706402b4ae7f9971
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: nightly-checks
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: nightly-checks
+          MYSQL_DATABASE: ankole_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pnightly-checks"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.8
+        env:
+          CLICKHOUSE_PASSWORD: nightly-checks
+        ports: ['8123:8123']
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: '29'
+          elixir-version: '1.20.4'
+      - name: Install protoc & Rust
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
+          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+          rustup toolchain install 1.99.1 --profile minimal && rustup default 1.99.1
+      - run: bun install --frozen-lockfile
+      - uses: ./.github/actions/postgres-client
+      - name: Start Function Runtime container
+        run: |
+          docker run -d --name ankole-fn-nightly -p 5435:9000 \
+            -e ANKOLE_FUNCTION_RUNTIME_TOKEN=dev-function-runtime-token \
+            ghcr.io/agentbull/ankole-function-runtime:canary
+      - run: mix local.hex --force && mix local.rebar --force && mix deps.get
+        working-directory: app/control_plane
+      - run: bun run control-plane:test
+      - run: bun run control-plane:test:plugins
+      - run: mix test integration --exclude cloud --exclude cluster --exclude external
+        working-directory: app/control_plane
+
+  browser-full:
+    name: Full Pod browser & multi-engine editor Playwright
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      MIX_ENV: test
+      ANKOLE_EDITION: foss
+      DATABASE_URL: ecto://postgres:nightly-checks@localhost:5432/postgres
+    services:
+      postgres:
+        image: ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:56457f8111e55e26fa15f750a32682560cbc8afc7a5bb03b706402b4ae7f9971
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: nightly-checks
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: '29'
+          elixir-version: '1.20.4'
+      - name: Install protoc & Rust
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
+          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+          rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown && rustup default 1.99.1
+      - run: bun install --frozen-lockfile
+      - run: mix local.hex --force && mix local.rebar --force && mix deps.get
+        working-directory: app/control_plane
+      - run: bunx playwright install --with-deps chromium firefox webkit
+        working-directory: libs/ankole-editor
+      - run: bunx playwright install chromium
+        working-directory: app/webapps
+      - run: bun run --filter @ankole/block-editor test:e2e
+      - name: Start Function Runtime & build assets for Pod Playwright
+        run: |
+          docker run -d --name ankole-fn-pod -p 5435:9000 \
+            -e ANKOLE_FUNCTION_RUNTIME_TOKEN=dev-function-runtime-token \
+            ghcr.io/agentbull/ankole-function-runtime:canary
+          bun run --filter @ankole/kernel build:wasm
+          bun run webapps:build
+      - name: Run Pod Playwright suites
+        run: |
+          export ANKOLE_FUNCTION_RUNTIME_URL=http://127.0.0.1:5435
+          export ANKOLE_FUNCTION_RUNTIME_TOKEN=dev-function-runtime-token
+          export POD_BROWSER_CONNECTOR_PROVIDER_URL=http://127.0.0.1:4199
+
+          SERVER_PID=""
+          ACTIVE_LOG=""
+          cleanup_pod_fixture() {
+            local status=$?
+            if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+              kill "$SERVER_PID" 2>/dev/null || true
+              wait "$SERVER_PID" 2>/dev/null || true
+            fi
+            if [ "$status" -ne 0 ] && [ -n "$ACTIVE_LOG" ] && [ -f "$ACTIVE_LOG" ]; then
+              echo "=== Pod browser fixture log ($ACTIVE_LOG) ===" >&2
+              tail -n 200 "$ACTIVE_LOG" >&2 || true
+            fi
+          }
+          trap cleanup_pod_fixture EXIT
+
+          wait_for_pod_fixture() {
+            local state_file="$1"
+            local log_file="$2"
+            for _ in $(seq 1 120); do
+              if [ -s "$state_file" ]; then
+                return 0
+              fi
+              if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+                echo "Pod browser fixture exited before writing $state_file" >&2
+                cat "$log_file" >&2 || true
+                exit 1
+              fi
+              sleep 1
+            done
+            echo "Timed out waiting 120s for Pod browser fixture state at $state_file" >&2
+            cat "$log_file" >&2 || true
+            exit 1
+          }
+
+          export MIX_TEST_PARTITION=pod_browser
+          export POD_BROWSER_STATE_PATH="$RUNNER_TEMP/pod-browser-state.json"
+          export POD_BROWSER_ACTIONS=true
+          ACTIVE_LOG="$RUNNER_TEMP/pod-browser.log"
+          rm -f "$POD_BROWSER_STATE_PATH" "$ACTIVE_LOG"
+          (cd app/control_plane && mix ecto.create --quiet && mix ecto.migrate --quiet)
+          (cd app/control_plane && exec mix run --no-start --no-halt integration/support/pod_browser_server.exs) > "$ACTIVE_LOG" 2>&1 &
+          SERVER_PID=$!
+          wait_for_pod_fixture "$POD_BROWSER_STATE_PATH" "$ACTIVE_LOG"
+          bun run --filter @ankole/webapps test:pod
+          kill "$SERVER_PID" 2>/dev/null || true
+          wait "$SERVER_PID" 2>/dev/null || true
+          SERVER_PID=""
+
+          # `POD_BROWSER_CHAT_WORKSPACE=true` leaves the backend Applet unpublished, so run the chat-workspace stories on an isolated partition and port.
+          unset POD_BROWSER_ACTIONS
+          export MIX_TEST_PARTITION=pod_browser_chat
+          export POD_BROWSER_PORT=4001
+          export POD_BROWSER_STATE_PATH="$RUNNER_TEMP/pod-browser-chat-state.json"
+          export POD_BROWSER_CHAT_WORKSPACE=true
+          ACTIVE_LOG="$RUNNER_TEMP/pod-browser-chat.log"
+          rm -f "$POD_BROWSER_STATE_PATH" "$ACTIVE_LOG"
+          (cd app/control_plane && mix ecto.create --quiet && mix ecto.migrate --quiet)
+          (cd app/control_plane && exec mix run --no-start --no-halt integration/support/pod_browser_server.exs) > "$ACTIVE_LOG" 2>&1 &
+          SERVER_PID=$!
+          wait_for_pod_fixture "$POD_BROWSER_STATE_PATH" "$ACTIVE_LOG"
+          (cd app/webapps && bun run test:pod chat- jobs.spec.ts)
+
+  worker-image-and-kind:
+    name: Worker container integration, kind K8s & FUSE VFS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      MIX_ENV: test
+      ANKOLE_EDITION: foss
+      DATABASE_URL: ecto://postgres:nightly-checks@localhost:5432/postgres
+    services:
+      postgres:
+        image: ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:56457f8111e55e26fa15f750a32682560cbc8afc7a5bb03b706402b4ae7f9971
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: nightly-checks
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: '29'
+          elixir-version: '1.20.4'
+      - name: Install protoc, Rust & kind
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
+          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+          rustup toolchain install 1.99.1 --profile minimal && rustup default 1.99.1
+          if ! command -v kind >/dev/null 2>&1; then
+            curl -fsSL -o "$RUNNER_TEMP/kind" https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+            chmod +x "$RUNNER_TEMP/kind" && mv "$RUNNER_TEMP/kind" "$RUNNER_TEMP/protoc/bin/kind"
+          fi
+      - run: bun install --frozen-lockfile
+      - run: mix local.hex --force && mix local.rebar --force && mix deps.get
+        working-directory: app/control_plane
+      - name: Build Worker image & run container + kind + FUSE suites
+        run: |
+          WORKER_DIR="$(mktemp -d)"
+          bun tools/devkit/src/local-worker-image.ts --scope complete --output "$WORKER_DIR/image"
+          export ANKOLE_WORKER_PROVIDER_TEST_IMAGE="$(cat "$WORKER_DIR/image")"
+          bun run --filter @ankole/agent-computer test:integration:docker
+          ANKOLE_VFS_FUSE_IMAGE="$ANKOLE_WORKER_PROVIDER_TEST_IMAGE" \
+            MIX_TEST_PARTITION=worker_drive_vfs \
+            bun run control-plane:test test/ankole/files/vfs_test.exs
+
+  formal-lean:
+    name: Formal Lean 4 proofs & model conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: '29'
+          elixir-version: '1.20.4'
+      - name: Install elan (Lean 4)
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Verify Lean proofs & conformance tests
+        working-directory: tools/formal
+        run: |
+          cd lean && lake build && cd ..
+          mix local.hex --force && mix local.rebar --force && mix deps.get
+          mix test

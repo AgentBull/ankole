@@ -39,6 +39,72 @@ defmodule Ankole.Brain.ClaimsTest do
     )
   end
 
+  for change <- [
+        :expired,
+        :superseded,
+        :consolidated,
+        :reparented,
+        :source_deleted,
+        :subject_deleted
+      ] do
+    test "consolidation rejects a candidate #{change} while its embedding was being prepared",
+         ctx do
+      {:ok, source} =
+        page_fixture_result(%{slug: "companies/source", title: "Source company"}, :system)
+
+      {:ok, %{claim: fact}} =
+        Claims.write_fact(fact_attrs(%{source_node_id: source.id}), :system, embed: false)
+
+      attrs = %{
+        subject_page_id: fact.subject_page_id,
+        source_node_id: fact.source_node_id,
+        claim: fact.claim,
+        kind: "take",
+        holder: "brain",
+        weight: 0.75,
+        provenance: "dreaming consolidation"
+      }
+
+      case unquote(change) do
+        :expired ->
+          {:ok, _} = Ankole.Brain.expire_fact(fact.id)
+
+        :superseded ->
+          {:ok, _} =
+            Claims.supersede_claim(fact.id, %{claim: "The round was cancelled"}, :system,
+              embedding: {nil, nil}
+            )
+
+        :consolidated ->
+          {:ok, _} =
+            Repo.transact_top_level(fn ->
+              Claims.consolidate_facts_in_tx(attrs, [fact.id], {nil, nil})
+            end)
+
+        :reparented ->
+          {:ok, target} =
+            page_fixture_result(%{slug: "companies/another", title: "Another company"}, :system)
+
+          {:ok, _} = Ankole.Ash.update(fact, :reparent, %{subject_page_id: target.id})
+
+        :source_deleted ->
+          {:ok, _} = Ankole.Brain.soft_delete_object(source.slug)
+
+        :subject_deleted ->
+          {:ok, _} = Ankole.Brain.soft_delete_object(ctx.object.slug)
+      end
+
+      claims_before = Repo.aggregate(Claim, :count)
+
+      assert {:error, :stale_facts} =
+               Repo.transact_top_level(fn ->
+                 Claims.consolidate_facts_in_tx(attrs, [fact.id], {nil, nil})
+               end)
+
+      assert Repo.aggregate(Claim, :count) == claims_before
+    end
+  end
+
   test "Principal audits include its slug holder without conflating an external person", ctx do
     agent = agent_fixture(%{owner_principal_uid: ctx.human.uid}).principal
 

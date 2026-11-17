@@ -128,6 +128,33 @@ defmodule AnkoleWeb.PodURL do
     if slug == "", do: "/pages/" <> short, else: "/pages/" <> slug <> "-" <> short
   end
 
+  def canonical_page_url(%Tenants.Tenant{} = tenant, %{id: id, domain: :brain})
+      when is_binary(id) do
+    String.trim_trailing(tenant_origin(tenant), "/") <> "/meta/brain/" <> id
+  end
+
+  def canonical_page_url(%Tenants.Tenant{} = tenant, %{id: id} = page) when is_binary(id) do
+    String.trim_trailing(tenant_origin(tenant), "/") <> page_path(id, Map.get(page, :title))
+  end
+
+  def page_id_from_url(raw_url, %Tenants.Tenant{} = tenant) when is_binary(raw_url) do
+    with true <- byte_size(raw_url) <= 2_048,
+         %URI{scheme: scheme, userinfo: nil} = uri when scheme in ["http", "https"] <-
+           URI.parse(raw_url),
+         true <- origin_matches?(uri, URI.parse(tenant_origin(tenant))),
+         {:ok, raw_segment} <- page_url_segment(uri.path),
+         segment <- URI.decode(raw_segment),
+         true <- String.valid?(segment),
+         {_normalized_segment, short} <- parse_page_segment(segment),
+         uuid when is_binary(uuid) <- Kernel.uuid_expand(short) do
+      {:ok, uuid}
+    else
+      _ -> :error
+    end
+  end
+
+  def page_id_from_url(_raw_url, _tenant), do: :error
+
   def conversation_path(id) when is_binary(id) do
     short = short_id(id) || raise ArgumentError, "invalid Conversation ID: #{inspect(id)}"
     "/conversations/" <> short
@@ -175,9 +202,9 @@ defmodule AnkoleWeb.PodURL do
   defp browser_path(["content", _scope]), do: {:ok, "/content/space"}
 
   defp browser_path(["pages", value]) do
-    case page_segment(value) do
+    case parse_page_segment(value) do
       nil -> {:error, :not_found}
-      segment -> {:ok, "/pages/" <> segment}
+      {segment, _short} -> {:ok, "/pages/" <> segment}
     end
   end
 
@@ -190,14 +217,20 @@ defmodule AnkoleWeb.PodURL do
 
   defp browser_path(_), do: {:error, :not_found}
 
-  defp page_segment(value) do
+  defp parse_page_segment(value) do
     case short_id(value) do
-      short when is_binary(short) -> short
-      nil -> slugged_page_segment(value)
+      short when is_binary(short) ->
+        {short, short}
+
+      nil ->
+        case slugged_page_parts(value) do
+          {slug, short} -> {slug <> "-" <> short, short}
+          nil -> nil
+        end
     end
   end
 
-  defp slugged_page_segment(value) when byte_size(value) > @short_uuid_len + 1 do
+  defp slugged_page_parts(value) when byte_size(value) > @short_uuid_len + 1 do
     prefix_len = byte_size(value) - @short_uuid_len - 1
 
     case value do
@@ -211,7 +244,7 @@ defmodule AnkoleWeb.PodURL do
             |> String.replace("_", "-")
             |> truncate_page_slug()
 
-          slug <> "-" <> short
+          {slug, short}
         else
           _ -> nil
         end
@@ -221,7 +254,36 @@ defmodule AnkoleWeb.PodURL do
     end
   end
 
-  defp slugged_page_segment(_), do: nil
+  defp slugged_page_parts(_), do: nil
+
+  defp page_url_segment(path) when is_binary(path) do
+    if String.contains?(path, "//") do
+      :error
+    else
+      trimmed = if byte_size(path) > 1, do: String.trim_trailing(path, "/"), else: path
+
+      case String.split(trimmed, "/") do
+        ["", "pages", segment] when segment != "" -> {:ok, segment}
+        ["", "pod", "pages", segment] when segment != "" -> {:ok, segment}
+        ["", "meta", "brain", segment] when segment != "" -> {:ok, segment}
+        ["", "pod", "meta", "brain", segment] when segment != "" -> {:ok, segment}
+        _ -> :error
+      end
+    end
+  end
+
+  defp page_url_segment(_), do: :error
+
+  defp origin_matches?(%URI{} = uri, %URI{} = expected) do
+    is_binary(uri.host) and
+      is_binary(expected.host) and
+      (is_nil(expected.scheme) or uri.scheme == expected.scheme) and
+      String.downcase(uri.host, :ascii) == String.downcase(expected.host, :ascii) and
+      (is_nil(expected.port) or effective_port(uri) == effective_port(expected))
+  end
+
+  defp effective_port(%URI{port: port}) when is_integer(port), do: port
+  defp effective_port(%URI{scheme: scheme}), do: URI.default_port(scheme)
 
   defp truncate_page_slug(slug) when byte_size(slug) <= @max_page_slug_len, do: slug
 

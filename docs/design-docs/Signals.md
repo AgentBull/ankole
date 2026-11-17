@@ -97,7 +97,10 @@ their own: `available_at` records the readiness deadline, and `last_attempt_at`
 records the latest admission (preserved across retry deferrals, though ambient
 triage retries leave `last_attempt_at` empty until a full turn begins). Each
 admission increments `attempt_count` once. Provider-capacity waits use a
-separate counter, and refunding an admission never decrements a capacity
+separate counter, infrastructure transport or Worker-readiness waits use a
+12-attempt `infrastructure_attempt_count` budget with exponential backoff so
+transient infrastructure restarts do not consume the Signal's 3-attempt model
+failure budget, and refunding an admission never decrements a capacity
 attempt.
 
 Database constraints tie evidence columns to queue state: PostgreSQL requires a
@@ -283,6 +286,10 @@ configuration and can repair a missing or broken stored value. Console edit
 reads strip encrypted secret values—listing only which secret paths are
 populated—and omitting or sending an empty secret field preserves the existing
 encrypted value.
+The Console submits an explicit `authConfigId` when the operator switches a
+Binding's connection, using `null` to enter credentials manually. It removes
+discarded credential edits from the pending patch and shows saved-secret hints
+only while the draft uses the Binding's stored connection.
 
 Disabling a Binding keeps its routing rule, configuration, and history intact.
 The Console Binding editor enables fields only after the Agent list, adapter

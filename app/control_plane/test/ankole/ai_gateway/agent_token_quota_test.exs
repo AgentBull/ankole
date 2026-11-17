@@ -264,8 +264,8 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
                  subject_type: "agent"
                )
 
-      # Deleting first disables the Agent and then removes it.
-      assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
+      # Deleting requires disabling the Agent first and then removing it.
+      assert {:ok, %{status: :disabled}} = Ankole.Principals.disable_agent(agent.uid)
       assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
       assert {:error, :not_found} = Ankole.Principals.get_agent(agent.uid)
       assert [%UsageRecord{input_tokens: 120, output_tokens: 30} = record] = usage_records()

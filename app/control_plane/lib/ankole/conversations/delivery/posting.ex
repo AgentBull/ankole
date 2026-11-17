@@ -13,6 +13,12 @@ defmodule Ankole.Conversations.Delivery.Posting do
     end
   end
 
+  def post_in_tx(_target, %Statement{outcome: :silent, signal: %Ankole.Signals.Signal{id: id}}) do
+    with :ok <- Ankole.Conversations.ActionCards.cancel_unattached_prepared_in_tx(id, nil) do
+      {:ok, %PostResult{}}
+    end
+  end
+
   def post_in_tx(_target, %Statement{outcome: :silent}), do: {:ok, %PostResult{}}
 
   def post_in_tx(
@@ -41,7 +47,23 @@ defmodule Ankole.Conversations.Delivery.Posting do
           intents -> {intents, []}
         end
 
-      {:ok, %PostResult{intents: attachments ++ replies, signals: signals}}
+      keep_card_id =
+        if Map.get(target, :primary) != false and is_nil(completion[:clarify_prompt]) and
+             replies != [] do
+          get_in(completion, [:action_card_prompt, "card_id"])
+        end
+
+      with :ok <-
+             if(Map.get(target, :primary) != false,
+               do:
+                 Ankole.Conversations.ActionCards.cancel_unattached_prepared_in_tx(
+                   signal.id,
+                   keep_card_id
+                 ),
+               else: :ok
+             ) do
+        {:ok, %PostResult{intents: attachments ++ replies, signals: signals}}
+      end
     end
   end
 

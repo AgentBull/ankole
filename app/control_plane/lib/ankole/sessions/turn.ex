@@ -21,7 +21,8 @@ defmodule Ankole.Sessions.Turn do
     pending: %{},
     observing?: false,
     acquisition: :idle,
-    workspace_open_attempted?: false
+    workspace_open_attempted?: false,
+    worker_used?: false
   ]
 
   @type t :: %__MODULE__{}
@@ -41,10 +42,23 @@ defmodule Ankole.Sessions.Turn do
 
   def step(turn, :admit, _now), do: {%{turn | stage: :admitting}, [:classify_input]}
 
-  def step(%{stage: stage} = turn, :request, _now)
+  def step(%{stage: stage} = turn, :request, now)
       when stage in [:boundary, :requesting_model] do
     run = %{turn.run | iteration: turn.run.iteration + 1}
-    {%{turn | stage: :requesting_model, run: run}, [phase("turn_understanding"), :open_model]}
+    turn = %{turn | stage: :requesting_model, run: run}
+
+    prewarm? =
+      (run.iteration == 1 and turn.acquisition == :idle and WorkerAcquisition.prewarm?(run)) or
+        turn.acquisition == {:idle, :requested}
+
+    if prewarm? do
+      {turn, worker_cmds} = transition_worker(turn, :acquire, now)
+
+      {turn,
+       [phase("turn_understanding"), :open_model] ++ worker_cmds ++ worker_timers(turn, now)}
+    else
+      {turn, [phase("turn_understanding"), :open_model]}
+    end
   end
 
   def step(%{stage: :boundary, run: %{epoch: epoch}} = turn, {:resume, epoch, stage}, now) do
@@ -69,23 +83,33 @@ defmodule Ankole.Sessions.Turn do
 
   def step(turn, {:inbox, id}, _now), do: {turn, [{:read_inbox, id}]}
 
-  def step(%{stage: :executing_tools} = turn, :worker_changed, now) do
+  def step(%{stage: stage} = turn, :worker_changed, now)
+      when stage in [:requesting_model, :executing_tools] do
     {turn, commands} = acquisition_event(turn, :check, now)
     {turn, [:cancel_worker_queries | commands]}
   end
 
-  def step(%{stage: :executing_tools} = turn, {:worker_timeout, event}, now),
-    do: acquisition_event(turn, event, now)
+  def step(%{stage: stage} = turn, {:worker_timeout, event}, now)
+      when stage in [:requesting_model, :executing_tools],
+      do: acquisition_event(turn, event, now)
 
   def step(%{stage: :executing_tools} = turn, {:worker_sends, ids}, _now),
     do: {%{turn | pending: PendingCall.worker_same(turn.pending, ids)}, []}
 
+  def step(%{stage: stage} = turn, {:worker, :workspace_ready, payload}, _now)
+      when stage in [:requesting_model, :executing_tools] do
+    if Worker.matches?(payload.run, turn.run) do
+      {turn, [{:decode_worker, :workspace_ready, payload}]}
+    else
+      {turn, []}
+    end
+  end
+
   def step(%{stage: :executing_tools} = turn, {:worker, type, payload}, _now)
-      when type in [:workspace_ready, :tool_status, :tool_progress, :tool_result] do
+      when type in [:tool_status, :tool_progress, :tool_result] do
     current? =
-      type == :workspace_ready or
-        (payload.response_id == Run.response_id(turn.run.model_response) and
-           Map.has_key?(turn.pending, payload.call_id))
+      payload.response_id == Run.response_id(turn.run.model_response) and
+        Map.has_key?(turn.pending, payload.call_id)
 
     if Worker.matches?(payload.run, turn.run) and current? do
       {turn, [{:decode_worker, type, payload}]}
@@ -247,9 +271,18 @@ defmodule Ankole.Sessions.Turn do
         recovered?: false
     }
 
-    if Run.truncated?(response) or run.round_calls == [],
-      do: {%{turn | stage: :boundary, run: %{run | calls: []}}, [{:next, :boundary}]},
-      else: enter_tools(%{turn | run: %{run | calls: run.round_calls}}, now)
+    if Run.truncated?(response) or run.round_calls == [] do
+      if turn.acquisition == :idle do
+        {%{turn | stage: :boundary, run: %{run | calls: []}}, [{:next, :boundary}]}
+      else
+        {turn, commands} = transition_worker(turn, :round_committed, now)
+
+        {%{turn | stage: :boundary, run: %{run | calls: []}},
+         [:cancel_round_tasks | commands] ++ worker_timers(turn, now) ++ [{:next, :boundary}]}
+      end
+    else
+      enter_tools(%{turn | run: %{run | calls: run.round_calls}}, now)
+    end
   end
 
   defp complete(turn, {:tool, id}, {:error, reason}, now),
@@ -425,15 +458,22 @@ defmodule Ankole.Sessions.Turn do
 
     # The previous Driver may have opened a workspace for a recovered Worker round,
     # so the finished turn owes that Signal a close even if this Driver sends no open.
-    opened? =
-      turn.workspace_open_attempted? or
-        (turn.run.recovered? and Enum.any?(turn.run.calls, &Tools.needs_worker?(turn.run, &1)))
+    recovered_worker? =
+      turn.run.recovered? and Enum.any?(turn.run.calls, &Tools.needs_worker?(turn.run, &1))
+
+    opened? = turn.workspace_open_attempted? or recovered_worker?
+    used? = turn.worker_used? or recovered_worker?
 
     {turn, commands} =
       Enum.reduce(
         turn.run.calls,
-        {%{turn | stage: :executing_tools, pending: pending, workspace_open_attempted?: opened?},
-         [:clear_phase]},
+        {%{
+           turn
+           | stage: :executing_tools,
+             pending: pending,
+             workspace_open_attempted?: opened?,
+             worker_used?: used?
+         }, [:clear_phase]},
         fn call, {turn, commands} ->
           id = Run.call_id(call)
 
@@ -639,7 +679,7 @@ defmodule Ankole.Sessions.Turn do
   end
 
   defp dispatch_worker(turn, id, now) do
-    turn = %{turn | pending: PendingCall.wait_worker(turn.pending, id)}
+    turn = %{turn | pending: PendingCall.wait_worker(turn.pending, id), worker_used?: true}
 
     case turn.acquisition do
       {:ready, row} ->
@@ -649,14 +689,28 @@ defmodule Ankole.Sessions.Turn do
       {:unavailable, reason} ->
         fail_worker_waits(turn, reason)
 
+      {:opening, origin, _since, _row} ->
+        {turn, commands} = transition_worker(turn, :acquire, now)
+
+        {turn,
+         [phase(WorkerAcquisition.phase_key(origin)) | commands] ++ worker_timers(turn, now)}
+
+      {:waiting, wait_phase, _since} ->
+        {turn, commands} = transition_worker(turn, :acquire, now)
+
+        {turn,
+         [phase(WorkerAcquisition.phase_key(wait_phase)) | commands] ++ worker_timers(turn, now)}
+
       _ ->
-        transition_worker(turn, :acquire, now)
+        {turn, commands} = transition_worker(turn, :acquire, now)
+        {turn, commands ++ worker_timers(turn, now)}
     end
   end
 
   defp acquisition_event(turn, event, now) do
     {turn, commands} = transition_worker(turn, event, now)
-    {turn, commands ++ worker_timers(turn, now) ++ [{:next, :tools}]}
+    next = if turn.stage == :executing_tools, do: [{:next, :tools}], else: []
+    {turn, commands ++ worker_timers(turn, now) ++ next}
   end
 
   defp transition_worker(turn, event, now) do
@@ -693,9 +747,7 @@ defmodule Ankole.Sessions.Turn do
     end
   end
 
-  defp acquiring?({:opening, _, _}), do: true
-  defp acquiring?({:waiting, _, _}), do: true
-  defp acquiring?(_state), do: false
+  defp acquiring?(state), do: WorkerAcquisition.acquiring?(state)
 
   defp worker_effect(turn, :request), do: {turn, [:request_worker]}
   defp worker_effect(turn, :resolve), do: {turn, [:resolve_worker]}
@@ -709,8 +761,10 @@ defmodule Ankole.Sessions.Turn do
 
   defp worker_effect(turn, {:check, row}), do: {turn, [{:check_worker, row}]}
 
-  defp worker_effect(turn, :ready),
-    do: {%{turn | pending: PendingCall.ready(turn.pending)}, [:clear_phase, :publish_activity]}
+  defp worker_effect(turn, :ready) do
+    ui = if turn.stage == :executing_tools, do: [:clear_phase, :publish_activity], else: []
+    {%{turn | pending: PendingCall.ready(turn.pending)}, ui}
+  end
 
   defp worker_effect(turn, :retry_calls),
     do:
@@ -720,8 +774,14 @@ defmodule Ankole.Sessions.Turn do
   defp worker_effect(turn, :probe), do: {turn, [:read_worker_sends]}
   defp worker_effect(turn, {:unavailable, reason}), do: fail_worker_waits(turn, reason)
 
-  defp worker_effect(turn, {:phase, name}),
-    do: {turn, [phase(WorkerAcquisition.phase_key(name)), {:observe_worker, {:phase, name}}]}
+  defp worker_effect(turn, {:phase, name}) do
+    ui =
+      if turn.stage == :executing_tools,
+        do: [phase(WorkerAcquisition.phase_key(name))],
+        else: []
+
+    {turn, ui ++ [{:observe_worker, {:phase, name}}]}
+  end
 
   defp worker_timers(turn, now),
     do:

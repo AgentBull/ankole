@@ -597,8 +597,13 @@ func (s *State) control(ctx context.Context, command string, in rc.Params) (rc.P
 		}
 	}
 	if command == "flush" && len(selected) > 64 {
+		pendingPaths := make([]string, 0, len(selected))
+		for name := range selected {
+			pendingPaths = append(pendingPaths, name)
+		}
+		slices.Sort(pendingPaths)
 		s.mu.Unlock()
-		return rc.Params{"background": true}, nil
+		return rc.Params{"background": true, "pending_paths": pendingPaths}, nil
 	}
 	for _, w := range selected {
 		w.Priority = true
@@ -627,6 +632,23 @@ func (s *State) control(ctx context.Context, command string, in rc.Params) (rc.P
 		}
 		select {
 		case <-ctx.Done():
+			s.mu.Lock()
+			pendingPaths := make([]string, 0, len(selected))
+			flushed := make([]Write, 0, len(selected))
+			for name, w := range selected {
+				if w.Done {
+					snapshot := *w
+					snapshot.state = nil
+					flushed = append(flushed, snapshot)
+				} else {
+					pendingPaths = append(pendingPaths, name)
+				}
+			}
+			s.mu.Unlock()
+			slices.Sort(pendingPaths)
+			if command == "flush" {
+				return rc.Params{"background": true, "pending_paths": pendingPaths, "files": flushed, "reason": ctx.Err().Error()}, nil
+			}
 			return nil, ctx.Err()
 		case <-time.After(20 * time.Millisecond):
 		}

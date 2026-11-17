@@ -86,6 +86,18 @@
   inherits: false;
 }
 
+@property --scroll-fade-start {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --scroll-fade-end {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
 /* A sheet of paper on the ground: the page, and a side panel beside it, take the same radius, fill, and edge. */
 @utility paper-sheet {
   border-radius: var(--radius-panel);
@@ -261,6 +273,130 @@
   @media (prefers-contrast: more) {
     --menu-scrollbar-thumb: var(--fg-tertiary);
   }
+}
+
+@keyframes ankole-scroll-fade-start {
+  to {
+    --scroll-fade-start: var(--scroll-fade-size);
+  }
+}
+
+@keyframes ankole-scroll-fade-end {
+  from {
+    --scroll-fade-end: var(--scroll-fade-size);
+  }
+}
+
+/* Fades a horizontal scroller's edges only while content extends past them. Subtracting only the edge bands from a
+   `no-clip` opaque mask leaves focus outlines and cross-axis shadows untouched. Engines with `scroll()` timelines
+   animate the bands on the compositor; Safari 18 transitions `--scroll-fade-start` and `--scroll-fade-end` from
+   `data-scroll-more-*` attributes maintained by `useScrollFadeRef`. */
+@utility scroll-fade-x {
+  --scroll-fade-size: --spacing(7);
+  --scroll-fade-dir: right;
+  --scroll-fade-start-pos: 0;
+  --scroll-fade-end-pos: 100%;
+  scroll-padding-inline: var(--scroll-fade-size);
+  mask:
+    linear-gradient(#000, #000) no-clip subtract,
+    linear-gradient(to var(--scroll-fade-dir), #000, transparent) var(--scroll-fade-start-pos) 0 /
+      var(--scroll-fade-start) 100% no-repeat no-clip,
+    linear-gradient(to var(--scroll-fade-dir), transparent, #000) var(--scroll-fade-end-pos) 0 / var(--scroll-fade-end)
+      100% no-repeat no-clip;
+
+  &:dir(rtl) {
+    --scroll-fade-dir: left;
+    --scroll-fade-start-pos: 100%;
+    --scroll-fade-end-pos: 0;
+  }
+
+  @supports (animation-timeline: scroll()) {
+    &:not([data-scroll-manual]) {
+      animation:
+        ankole-scroll-fade-start linear both,
+        ankole-scroll-fade-end linear both;
+      animation-timeline: scroll(self inline);
+      animation-range:
+        0 var(--scroll-fade-size),
+        calc(100% - var(--scroll-fade-size)) 100%;
+    }
+  }
+
+  @supports not (animation-timeline: scroll()) {
+    transition:
+      --scroll-fade-start 180ms ease-out,
+      --scroll-fade-end 180ms ease-out;
+  }
+
+  &[data-scroll-manual] {
+    transition:
+      --scroll-fade-start 180ms ease-out,
+      --scroll-fade-end 180ms ease-out;
+  }
+
+  &[data-scroll-more-start] {
+    --scroll-fade-start: var(--scroll-fade-size);
+  }
+
+  &[data-scroll-more-end] {
+    --scroll-fade-end: var(--scroll-fade-size);
+  }
+}
+
+/* Fades a vertical scroller's top and bottom edges only while content extends past them. */
+@utility scroll-fade-y {
+  --scroll-fade-size: --spacing(6);
+  scroll-padding-block: var(--scroll-fade-size);
+  mask:
+    linear-gradient(#000, #000) no-clip subtract,
+    linear-gradient(to bottom, #000, transparent) 0 0 / 100% var(--scroll-fade-start) no-repeat no-clip,
+    linear-gradient(to bottom, transparent, #000) 0 100% / 100% var(--scroll-fade-end) no-repeat no-clip;
+
+  @supports (animation-timeline: scroll()) {
+    &:not([data-scroll-manual]) {
+      animation:
+        ankole-scroll-fade-start linear both,
+        ankole-scroll-fade-end linear both;
+      animation-timeline: scroll(self block);
+      animation-range:
+        0 var(--scroll-fade-size),
+        calc(100% - var(--scroll-fade-size)) 100%;
+    }
+  }
+
+  @supports not (animation-timeline: scroll()) {
+    transition:
+      --scroll-fade-start 180ms ease-out,
+      --scroll-fade-end 180ms ease-out;
+  }
+
+  &[data-scroll-manual] {
+    transition:
+      --scroll-fade-start 180ms ease-out,
+      --scroll-fade-end 180ms ease-out;
+  }
+
+  &[data-scroll-more-start] {
+    --scroll-fade-start: var(--scroll-fade-size);
+  }
+
+  &[data-scroll-more-end] {
+    --scroll-fade-end: var(--scroll-fade-size);
+  }
+}
+
+/* Reserves cross-axis padding negated by an equal negative margin so hover elevation shadows and focus rings inside
+   an overflow scrollport are not clipped at the container's edge. */
+@utility scroll-bleed-y {
+  --scroll-bleed: --spacing(2);
+  padding-block: var(--scroll-bleed);
+  margin-block: calc(-1 * var(--scroll-bleed));
+}
+
+@utility scroll-bleed-x {
+  --scroll-bleed: --spacing(2);
+  padding-inline: var(--scroll-bleed);
+  margin-inline: calc(-1 * var(--scroll-bleed));
 }
 
 .ceramic-menu [data-disabled] > svg:first-child {

@@ -25,6 +25,7 @@ defmodule Ankole.Brain.Schemas.Source do
       :kind,
       :name,
       :default_source_node_id,
+      :attention_reason,
       :upstream_revision,
       :last_sync_at,
       :archived_at
@@ -42,6 +43,7 @@ defmodule Ankole.Brain.Schemas.Source do
       check_constraint(:kind, "brain_sources_kind_present")
       check_constraint(:name, "brain_sources_name_present")
       check_constraint(:config, "brain_sources_config_object")
+      check_constraint(:attention_reason, "brain_sources_attention_reason_present")
     end
   end
 
@@ -61,6 +63,7 @@ defmodule Ankole.Brain.Schemas.Source do
     attribute(:kind, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
     attribute(:name, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
     attribute(:default_source_node_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:attention_reason, :string, public?: true, constraints: [trim?: false])
     attribute(:config, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
     attribute(:upstream_revision, :string, public?: true, constraints: [trim?: false])
     attribute(:last_sync_at, :utc_datetime_usec, public?: true)
@@ -126,7 +129,16 @@ defmodule Ankole.Brain.Schemas.Source do
     update :set_default_scope do
       require_atomic?(true)
       accept([:default_source_node_id])
-      change(filter(expr(is_nil(archived_at) and kind == "oidc_client")))
+      change(filter(expr(is_nil(archived_at))))
+      change(set_attribute(:attention_reason, nil))
+      change(set_attribute(:updated_at, &DateTime.utc_now/0))
+    end
+
+    update :flag_scope_purged do
+      require_atomic?(true)
+      accept([])
+      change(set_attribute(:default_source_node_id, nil))
+      change(set_attribute(:attention_reason, "default_scope_purged"))
       change(set_attribute(:updated_at, &DateTime.utc_now/0))
     end
 

@@ -161,11 +161,14 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
              context,
              group_projection_options(namespace(config), chat_id, chat_attrs(config, chat))
            ),
-         {:ok, principal_uids} <- member_principal_uids(config, chat_id),
+         {:ok, principal_uids, unmapped?} <- member_principal_uids(binding, config, chat_id),
          # The API snapshot can be older than a just-arrived member event. The
          # per-chat lock keeps writes ordered; later events or refreshes converge
          # stale snapshots.
-         {:ok, replace} <- IMGroupMembers.replace_members(group.id, principal_uids) do
+         {:ok, replace} <-
+           IMGroupMembers.replace_members(group.id, principal_uids,
+             has_unmapped_members: unmapped?
+           ) do
       {:ok,
        %{
          group_id: group.id,
@@ -227,11 +230,18 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     case member_subject_candidates(content) do
       [_primary | _aliases] ->
         with {:ok, group} <- IMGroupProjection.get_group(namespace(config), chat_id),
-             {:ok, observed} <- upsert_member_principal(config, content),
-             {:ok, _membership} <-
-               AuthZ.add_synced_group_member(group.id, :im_group, observed.principal.uid) do
-          {:ok,
-           %{status: :member_added, principal_uid: observed.principal.uid, group_id: group.id}}
+             {:ok, resolution} <- resolve_member_principal(context.binding_id, config, content) do
+          case resolution do
+            {:mapped, principal} ->
+              with {:ok, _membership} <-
+                     AuthZ.add_synced_group_member(group.id, :im_group, principal.uid) do
+                {:ok, %{status: :member_added, principal_uid: principal.uid, group_id: group.id}}
+              end
+
+            :unmapped ->
+              {:ok, _} = IMGroupMembers.mark_group_has_unmapped_members(group.id)
+              {:ok, %{status: :member_unmapped, group_id: group.id}}
+          end
         else
           {:error, :not_found} ->
             enqueue_chat_refresh(context, config, chat_id, reason: "member_added_missing_group")
@@ -306,11 +316,15 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
                context,
                group_projection_options(namespace(config), chat_id, chat_attrs(config, chat))
              ),
-           {:ok, principal_uids} <- member_principal_uids(config, chat_id),
+           {:ok, principal_uids, unmapped?} <-
+             member_principal_uids(context.binding_id, config, chat_id),
            # Writes are serialized per chat, but the provider snapshot can still
            # be older than a just-arrived member event. Later member events or
            # refresh jobs converge the group again.
-           {:ok, _replace} <- IMGroupMembers.replace_members(group.id, principal_uids) do
+           {:ok, _replace} <-
+             IMGroupMembers.replace_members(group.id, principal_uids,
+               has_unmapped_members: unmapped?
+             ) do
         {:cont, {:ok, count + 1}}
       else
         {:error, reason} -> {:halt, {:error, reason}}
@@ -344,10 +358,10 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end
   end
 
-  defp member_principal_uid(config, chat_id, member) do
+  defp member_roster_entry(config, chat_id, member) do
     cond do
       ignored_member?(member) ->
-        {:ok, nil}
+        :ignored
 
       member_subject_candidates(member) == [] ->
         Logging.warning(
@@ -356,31 +370,19 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
           %{chat_id: chat_id, member: inspect(member)}
         )
 
-        {:ok, nil}
+        :ignored
 
       true ->
-        with {:ok, observed} <- upsert_member_principal(config, member),
-             do: {:ok, observed.principal.uid}
+        {:resolve, member_subject_attrs(config, member)}
     end
   end
 
-  defp member_principal_uids(config, chat_id) do
-    config
-    |> list_members(chat_id)
-    |> case do
+  defp member_principal_uids(binding_or_id, config, chat_id) do
+    case list_members(config, chat_id) do
       {:ok, members} ->
-        members
-        |> Enum.reduce_while({:ok, []}, fn member, {:ok, acc} ->
-          case member_principal_uid(config, chat_id, member) do
-            {:ok, nil} -> {:cont, {:ok, acc}}
-            {:ok, uid} -> {:cont, {:ok, [uid | acc]}}
-            {:error, _reason} = error -> {:halt, error}
-          end
+        IMGroupMembers.resolve_roster_members(binding_or_id, members, fn member ->
+          member_roster_entry(config, chat_id, member)
         end)
-        |> case do
-          {:ok, uids} -> {:ok, uids |> Enum.uniq() |> Enum.sort()}
-          {:error, reason} -> {:error, reason}
-        end
 
       {:error, _reason} = error ->
         error
@@ -493,7 +495,14 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end
   end
 
-  defp upsert_member_principal(config, member) do
+  defp resolve_member_principal(binding_or_id, config, member) do
+    case member_subject_attrs(config, member) do
+      nil -> {:error, :missing_platform_subject}
+      attrs -> IMGroupMembers.resolve_roster_member(binding_or_id, attrs)
+    end
+  end
+
+  defp member_subject_attrs(config, member) do
     identity = member_identity(member)
 
     case SubjectIdentity.candidates(identity) do
@@ -512,10 +521,9 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
             })
         }
         |> Ankole.Attrs.maybe_put(:email, identity["email"])
-        |> Principals.upsert_platform_subject_human()
 
       [] ->
-        {:error, :missing_platform_subject}
+        nil
     end
   end
 

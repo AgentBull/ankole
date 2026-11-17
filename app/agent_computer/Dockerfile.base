@@ -1,30 +1,57 @@
 # syntax=docker/dockerfile:1.7
 
-ARG MYSQL_VERSION=9.7.4
-# Oracle does not publish arm64 MySQL client packages for Debian 13. Use the
-# versioned official image as the source, and copy only the client executable.
-FROM mysql:${MYSQL_VERSION} AS mysql-client-source
+FROM oven/bun:1.4.4 AS pdf-inspector-builder
+
+WORKDIR /tmp/build
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_MIRROR=http://deb.debian.org/debian
+ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
+ARG RUST_TOOLCHAIN=1.99.1
+ARG PDF_INSPECTOR_VERSION=1.25.2
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+ENV CARGO_NET_RETRY=5
+ENV CARGO_HTTP_TIMEOUT=120
+
+RUN sed -i \
+    -e "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+    -e "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
+    /etc/apt/sources.list.d/debian.sources \
+  && apt-get -o Acquire::Retries=5 update \
+  && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    pkg-config \
+  && rm -rf /var/lib/apt/lists/* \
+  && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
+  && rustc --version \
+  && cargo --version
+
+# Build the same published release with the table-header geometry patch.
+# The patch digest is part of the base recipe used by local image selection.
+ADD --checksum=sha256:ef5970f05a55de82c8d6d6fd5f8ff162b50fc7828cc1fd0abd965abad6fcbc5b \
+  https://static.crates.io/crates/pdf-inspector/pdf-inspector-${PDF_INSPECTOR_VERSION}.crate /tmp/pdf-inspector.crate
+COPY app/agent_computer/scripts/pdf-inspector-1.25.2-tables.patch /tmp/pdf-inspector-tables.patch
+
+RUN test "${PDF_INSPECTOR_VERSION}" = 1.25.2 \
+  && echo "2c8f5b593492945f5ea080580ee67cf31cfd1fa322edadba0bf03d9225139da0  /tmp/pdf-inspector-tables.patch" | sha256sum -c - \
+  && mkdir /tmp/pdf-inspector-source \
+  && tar -xzf /tmp/pdf-inspector.crate --strip-components=1 -C /tmp/pdf-inspector-source \
+  && cd /tmp/pdf-inspector-source \
+  && git apply /tmp/pdf-inspector-tables.patch \
+  && cargo install --path . --locked --root /usr/local --bin detect-pdf --bin pdf2md
 
 FROM oven/bun:1.4.4
 
 WORKDIR /repo
 
-ARG CLICKHOUSE_VERSION=26.9.25.15
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
-ARG MYSQL_VERSION
-ARG POSTGRESQL_CLIENT_COMMON_VERSION=293.pgdg13+1
-ARG POSTGRESQL_CLIENT_VERSION=18.6
-ARG POSTGRESQL_MAJOR=18
-ARG POSTGRESQL_PACKAGE_VERSION=18.6-1.pgdg13+2
-ARG RUST_TOOLCHAIN=1.99.1
-ARG PDF_INSPECTOR_VERSION=1.25.2
-ARG TARGETARCH
-
-ENV PATH="/root/.cargo/bin:${PATH}"
-ENV CARGO_NET_RETRY=5
-ENV CARGO_HTTP_TIMEOUT=120
 
 RUN sed -i \
     -e "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
@@ -49,6 +76,7 @@ RUN sed -i \
     imagemagick \
     jq \
     less \
+    libicu-dev \
     lsof \
     openssh-client \
     pandoc \
@@ -76,35 +104,12 @@ RUN sed -i \
   && mkdir -p /agents \
   && chmod 0775 /agents
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-  | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
-  && rustc --version \
-  && cargo --version
+COPY --from=pdf-inspector-builder /usr/local/bin/detect-pdf /usr/local/bin/pdf2md /usr/local/bin/
 
-# Build the same published release with the table-header geometry patch.
-# The patch digest is part of the base recipe used by local image selection.
-ADD --checksum=sha256:ef5970f05a55de82c8d6d6fd5f8ff162b50fc7828cc1fd0abd965abad6fcbc5b \
-  https://static.crates.io/crates/pdf-inspector/pdf-inspector-${PDF_INSPECTOR_VERSION}.crate /tmp/pdf-inspector.crate
-COPY app/agent_computer/scripts/pdf-inspector-1.25.2-tables.patch /tmp/pdf-inspector-tables.patch
-
-RUN test "${PDF_INSPECTOR_VERSION}" = 1.25.2 \
-  && echo "2c8f5b593492945f5ea080580ee67cf31cfd1fa322edadba0bf03d9225139da0  /tmp/pdf-inspector-tables.patch" | sha256sum -c - \
-  && mkdir /tmp/pdf-inspector-source \
-  && tar -xzf /tmp/pdf-inspector.crate --strip-components=1 -C /tmp/pdf-inspector-source \
-  && cd /tmp/pdf-inspector-source \
-  && git apply /tmp/pdf-inspector-tables.patch \
-  && cargo install --path . --locked --root /usr/local --bin detect-pdf --bin pdf2md \
-  && cd /repo \
-  && rm -rf /tmp/pdf-inspector-source /tmp/pdf-inspector.crate /tmp/pdf-inspector-tables.patch \
-    /root/.cargo/registry /root/.cargo/git \
-  && gs -o /tmp/pdf-inspector-check.pdf -sDEVICE=pdfwrite -c showpage \
+RUN gs -o /tmp/pdf-inspector-check.pdf -sDEVICE=pdfwrite -c showpage \
   && detect-pdf /tmp/pdf-inspector-check.pdf --json | jq -e '.pdf_type' >/dev/null \
   && test -x /usr/local/bin/pdf2md \
   && rm -f /tmp/pdf-inspector-check.pdf
-
-RUN apt-get -o Acquire::Retries=5 update \
-  && apt-get -o Acquire::Retries=5 install -y --no-install-recommends libicu-dev \
-  && rm -rf /var/lib/apt/lists/*
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
   && python3 -m venv /opt/ankole-python \
@@ -271,55 +276,14 @@ python /tmp/ocr-smoke.py
 rm -f /tmp/ocr-smoke.py /tmp/ocr-smoke.png
 OCR_SMOKE
 
-COPY --from=mysql-client-source /usr/bin/mysql /usr/local/bin/mysql
-
-RUN set -eux; \
-  case "${TARGETARCH:-$(uname -m)}" in \
-    amd64|x86_64) \
-      package_arch=amd64 ;; \
-    arm64|aarch64) \
-      package_arch=arm64 ;; \
-    *) echo "Unsupported database client architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
-  esac; \
-  clickhouse_base_url=https://packages.clickhouse.com/deb/pool/main/c/clickhouse; \
-  clickhouse_client="clickhouse-client_${CLICKHOUSE_VERSION}_${package_arch}.deb"; \
-  clickhouse_common="clickhouse-common-static_${CLICKHOUSE_VERSION}_${package_arch}.deb"; \
-  curl -fsSL --retry 5 --retry-all-errors "${clickhouse_base_url}/${clickhouse_client}" \
-    -o "/tmp/${clickhouse_client}"; \
-  curl -fsSL --retry 5 --retry-all-errors "${clickhouse_base_url}/${clickhouse_common}" \
-    -o "/tmp/${clickhouse_common}"; \
-  postgresql_base_url=https://apt.postgresql.org/pub/repos/apt; \
-  libpq_package="libpq5_${POSTGRESQL_PACKAGE_VERSION}_${package_arch}.deb"; \
-  postgresql_client="postgresql-client-${POSTGRESQL_MAJOR}_${POSTGRESQL_PACKAGE_VERSION}_${package_arch}.deb"; \
-  postgresql_client_common="postgresql-client-common_${POSTGRESQL_CLIENT_COMMON_VERSION}_all.deb"; \
-  curl -fsSL --retry 5 --retry-all-errors \
-    "${postgresql_base_url}/pool/main/p/postgresql-${POSTGRESQL_MAJOR}/${libpq_package}" \
-    -o "/tmp/${libpq_package}"; \
-  curl -fsSL --retry 5 --retry-all-errors \
-    "${postgresql_base_url}/pool/main/p/postgresql-${POSTGRESQL_MAJOR}/${postgresql_client}" \
-    -o "/tmp/${postgresql_client}"; \
-  curl -fsSL --retry 5 --retry-all-errors \
-    "${postgresql_base_url}/pool/main/p/postgresql-common/${postgresql_client_common}" \
-    -o "/tmp/${postgresql_client_common}"; \
-  apt-get -o Acquire::Retries=5 update; \
-  apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
-    groff \
-    libncurses6 \
-    "/tmp/${clickhouse_client}" \
-    "/tmp/${clickhouse_common}" \
-    "/tmp/${libpq_package}" \
-    "/tmp/${postgresql_client}" \
-    "/tmp/${postgresql_client_common}"; \
-  clickhouse-client --version | grep -qF "ClickHouse client version ${CLICKHOUSE_VERSION}"; \
-  mysql --version | grep -qF "Ver ${MYSQL_VERSION} "; \
-  psql --version | grep -qF "psql (PostgreSQL) ${POSTGRESQL_CLIENT_VERSION}"; \
-  ! command -v clickhouse-server; \
-  ! command -v mysqld; \
-  ! command -v postgres; \
-  ! dpkg-query -W -f='${db:Status-Abbrev}' clickhouse-server 2>/dev/null | grep -q '^ii'; \
-  ! dpkg-query -W -f='${db:Status-Abbrev}' "postgresql-${POSTGRESQL_MAJOR}" 2>/dev/null | grep -q '^ii'; \
-  rm -rf /var/lib/apt/lists/* /tmp/*.deb
-
-RUN rm -f /usr/local/bin/node /usr/local/bun-node-fallback-bin/node \
-  && ! command -v node \
+RUN rm -f /usr/local/bun-node-fallback-bin/node /usr/local/bin/node \
+  && printf '%s\n' \
+    '#!/bin/bash' \
+    'if [[ "$#" -eq 1 && ( "$1" == "--version" || "$1" == "-v" ) ]]; then' \
+    '  exec /usr/local/bin/bun -p process.version' \
+    'fi' \
+    'exec -a node /usr/local/bin/bun "$@"' \
+    > /usr/local/bin/node \
+  && chmod 0755 /usr/local/bin/node \
+  && test "$(node --version)" = "$(node -p process.version)" && test "$(node -v)" = "$(node -p process.version)" \
   && bun -e 'if (typeof Bun.TOML.stringify !== "function") throw new Error("Bun.TOML.stringify is required")'

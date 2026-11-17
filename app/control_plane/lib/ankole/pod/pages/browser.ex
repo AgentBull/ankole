@@ -68,7 +68,7 @@ defmodule Ankole.Pod.Pages.Browser do
     name: [type: :string, allow_nil?: false],
     kind: [
       type: :atom,
-      constraints: [one_of: [:human, :agent, :group, :userset]],
+      constraints: [one_of: [:human, :agent, :service, :group, :userset]],
       allow_nil?: false
     ],
     avatar_url: [type: :string],
@@ -497,7 +497,6 @@ defmodule Ankole.Pod.Pages.Browser do
         fields: [
           created_at: [type: :utc_datetime_usec, allow_nil?: false],
           updated_at: [type: :utc_datetime_usec, allow_nil?: false],
-          hide_visits: [type: :boolean, allow_nil?: false],
           can_view_readers: [type: :boolean, allow_nil?: false],
           daily: [
             type: {:array, :map},
@@ -856,6 +855,32 @@ defmodule Ankole.Pod.Pages.Browser do
                 deleted: [type: :boolean]
               ]
             ]
+          ],
+          bindings: [type: Ankole.Ash.Types.JSONMap, allow_nil?: false],
+          bindings_digest: [type: :string, allow_nil?: false],
+          applet_draft: [
+            type: :map,
+            constraints: [
+              fields: [
+                id: [type: UUIDv7, allow_nil?: false],
+                base_revision: [type: :integer, allow_nil?: false],
+                summary: [type: :string, constraints: [allow_empty?: true]],
+                published_by: [type: :string],
+                updated_at: [type: Ankole.Ash.Types.Timestamptz, allow_nil?: false]
+              ]
+            ]
+          ],
+          applet_owner: [
+            type: :map,
+            constraints: [
+              fields: [
+                owner_uid: [type: PrincipalKey],
+                effective_uid: [type: PrincipalKey, allow_nil?: false],
+                effective_name: [type: :string, allow_nil?: false],
+                continuity_active: [type: :boolean, allow_nil?: false],
+                can_claim: [type: :boolean, allow_nil?: false]
+              ]
+            ]
           ]
         ]
       )
@@ -981,12 +1006,15 @@ defmodule Ankole.Pod.Pages.Browser do
     action :delete, :map do
       constraints(fields: [page: @page, descendant_count: [type: :integer, allow_nil?: false]])
       argument(:id, UUIDv7, allow_nil?: false)
+      argument(:force, :boolean, default: false)
 
       run(fn input, context ->
         # Count before the subtree is hidden; only Pages that the actor can view are counted.
         count = Pages.visible_descendant_count(context.actor, input.arguments.id)
 
-        Pages.delete(context.actor, input.arguments.id)
+        Pages.delete(context.actor, input.arguments.id, nil,
+          force: Map.get(input.arguments, :force, false)
+        )
         |> with_private_owners()
         |> APIError.result(&%{page: &1, descendant_count: count})
       end)
@@ -1036,7 +1064,6 @@ defmodule Ankole.Pod.Pages.Browser do
       argument(:id, UUIDv7, allow_nil?: false)
       argument(:favorite, :boolean)
       argument(:visited, :boolean)
-      argument(:hide_visits, :boolean)
 
       run(fn input, context ->
         Pages.state(context.actor, input.arguments.id, input.arguments)

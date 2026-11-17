@@ -1,6 +1,7 @@
 ---
 name: trello
 description: "Find and use trello operations through Ankole connections."
+default_enabled: false
 ---
 
 # trello

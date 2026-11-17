@@ -1,7 +1,8 @@
 import { describe, expect, spyOn, test } from 'bun:test'
-import { QueryClient, QueryObserver } from '@tanstack/react-query'
+import { QueryClient, QueryObserver, type InfiniteData } from '@tanstack/react-query'
 import type { BaseRecord, RecordsResult, TableEvent, TableSchema } from '@ankole/applet-sdk/types'
 import { createBaseAPI, baseHTTP, baseTablesQuery, prefetchBase } from '../base-api'
+import { INFINITE_RECORDS_SEGMENT } from '../use-infinite-base-records'
 import { InternalAPIError } from '../../common/internal-api-client'
 import { RealtimeRequestError, type PodRealtime, type TopicHandle } from '../realtime'
 
@@ -667,6 +668,137 @@ describe('versioned local base snapshots', () => {
       expect(context.querySpy).toHaveBeenCalledWith(tableID, {})
       expect(context.client.getQueryState([...context.api.key(tableID), 'snapshot'])?.isInvalidated).toBe(true)
     } finally {
+      context.dispose()
+    }
+  })
+
+  test('skips changed-ID HTTP delta fetch when all cached infinite queries have a version gap', async () => {
+    const context = fixture()
+    const queryKey = [...context.api.key(tableID), INFINITE_RECORDS_SEGMENT, {}] as const
+    try {
+      await context.subscribe()
+      context.client.setQueryData<InfiniteData<RecordsResult, string | undefined>>(queryKey, {
+        pages: [
+          { records: [record('a', 'v1')], data_version: 1, complete: false, page_token: 'c1' },
+          { records: [record('b', 'v1')], data_version: 1, complete: true, page_token: null }
+        ],
+        pageParams: [undefined, 'c1']
+      })
+
+      // Version gap 1 -> 3: must NOT issue baseHTTP.query(tableID, { ids: ['a'] })!
+      context.schemaSpy.mockResolvedValue(schema(3, 2, 'remote'))
+      context.querySpy.mockResolvedValue(records([record('a', 'v3')], 3))
+      context.realtime.emit('changed', { data_version: 3, changed_ids: ['a'] })
+      await context.notified(3)
+
+      expect(context.querySpy).not.toHaveBeenCalled()
+      expect(
+        context.client.getQueryData<InfiniteData<RecordsResult, string | undefined>>(queryKey)?.pages
+      ).toHaveLength(1)
+      expect(context.client.getQueryState(queryKey)?.isInvalidated).toBe(true)
+    } finally {
+      context.dispose()
+    }
+  })
+
+  test('own-write changed echo at N + 1 preserves all 5 infinite pages with zero HTTP refetches', async () => {
+    const context = fixture()
+    const write = spyOn(baseHTTP, 'write')
+    const queryKey = [...context.api.key(tableID), INFINITE_RECORDS_SEGMENT, { page_size: 2 }] as const
+    const initialPages = Array.from({ length: 5 }, (_, idx) => ({
+      records: [record(`r${idx * 2 + 1}`, `Row ${idx * 2 + 1}`), record(`r${idx * 2 + 2}`, `Row ${idx * 2 + 2}`)],
+      data_version: 4,
+      complete: idx === 4,
+      page_token: idx === 4 ? null : `c${idx + 1}`
+    }))
+    const initialPageParams: Array<string | undefined> = [undefined, 'c1', 'c2', 'c3', 'c4']
+    const updatedRow = record('r7', 'Edited Row 7')
+    const stop: (() => void)[] = []
+    try {
+      await context.subscribe()
+      context.client.setQueryData([...context.api.key(tableID), 'schema'], schema(4, 10, 'remote'))
+      context.client.setQueryData<InfiniteData<RecordsResult, string | undefined>>(queryKey, {
+        pages: initialPages,
+        pageParams: initialPageParams
+      })
+      stop.push(
+        new QueryObserver(context.client, {
+          queryKey,
+          queryFn: async () => {
+            throw new Error('Infinite query should not refetch on own-write echo')
+          }
+        }).subscribe(() => {})
+      )
+
+      write.mockResolvedValue({ records: [updatedRow], deleted_ids: [], data_version: 5 })
+      context.schemaSpy.mockResolvedValue(schema(5, 10, 'remote'))
+      context.querySpy.mockImplementation(async () => {
+        throw new Error('baseHTTP.query should not be called on own-write echo')
+      })
+
+      await context.api.write(tableID, {
+        updates: [{ id: 'r7', data: { name: 'Edited Row 7' }, expected_versions: { name: 1 } }]
+      })
+      expect(
+        context.client.getQueryData<TableSchema>([...context.api.key(tableID), 'schema'])?.table.data_version
+      ).toBe(5)
+
+      const afterWrite = context.client.getQueryData<InfiniteData<RecordsResult, string | undefined>>(queryKey)!
+      expect(afterWrite.pages).toHaveLength(5)
+      expect(afterWrite.pages.every(page => page.data_version === 5)).toBe(true)
+      expect(afterWrite.pages[3]?.records[0]?.data.name).toBe('Edited Row 7')
+
+      // 300ms later, Phoenix Channel delivers the own-write changed echo at data_version: 5.
+      context.realtime.emit('changed', { data_version: 5, changed_ids: ['r7'] })
+      await context.notified(5)
+      await turn()
+
+      expect(context.querySpy).not.toHaveBeenCalled()
+      const afterEcho = context.client.getQueryData<InfiniteData<RecordsResult, string | undefined>>(queryKey)!
+      expect(afterEcho.pages).toHaveLength(5)
+      expect(afterEcho.pageParams).toEqual(initialPageParams)
+      expect(afterEcho.pages.every(page => page.data_version === 5)).toBe(true)
+      expect(afterEcho.pages[3]?.records[0]?.data.name).toBe('Edited Row 7')
+      expect(context.client.getQueryState(queryKey)?.isInvalidated).toBe(false)
+    } finally {
+      for (const close of stop) close()
+      write.mockRestore()
+      context.dispose()
+    }
+  })
+
+  test('local mode snapshot already at N + 1 skips redundant snapshot and records refetches on changed echo at N + 1', async () => {
+    const context = fixture()
+    const snapshotQueryKey = [...context.api.key(tableID), 'snapshot'] as const
+    const recordsQuery = {
+      queryKey: [...context.api.key(tableID), 'records', {}],
+      queryFn: () => context.api.records(tableID, {})
+    }
+    const stop: (() => void)[] = []
+    try {
+      await context.subscribe()
+      context.schemaSpy.mockResolvedValue(schema(5, 2, 'local'))
+      context.querySpy.mockResolvedValue(records([record('a', 'Alpha v5'), record('b', 'Beta v5')], 5))
+
+      await context.client.fetchQuery(recordsQuery)
+      stop.push(new QueryObserver(context.client, recordsQuery).subscribe(() => {}))
+      expect(context.snapshot()?.data_version).toBe(5)
+      context.querySpy.mockClear()
+
+      context.realtime.emit('changed', { data_version: 5, changed_ids: ['a'] })
+      await context.notified(5)
+      await turn()
+
+      expect(context.querySpy).not.toHaveBeenCalled()
+      expect(context.client.getQueryState(snapshotQueryKey)?.isInvalidated).toBe(false)
+      expect(context.client.getQueryState(recordsQuery.queryKey)?.isInvalidated).toBe(false)
+      expect((await context.api.records(tableID, {})).records.map(row => row.data.name)).toEqual([
+        'Alpha v5',
+        'Beta v5'
+      ])
+      expect(context.querySpy).not.toHaveBeenCalled()
+    } finally {
+      for (const close of stop) close()
       context.dispose()
     }
   })

@@ -6,7 +6,9 @@ import type { MentionCategory } from './mention'
 import type { MentionTarget } from './schema'
 import type { CommentSelection } from './comments'
 
-export type EmbedAttributes = { ref?: string; table?: string; view?: string }
+export type EmbedAttributes = { ref?: string; table?: string; view?: string; props?: string }
+
+export type EmbedMount = { update?(attributes: EmbedAttributes): void; dispose(): void }
 
 export type LinkMetadata = {
   url?: string
@@ -45,7 +47,7 @@ export type EditorHost = {
     update: (attributes: EmbedAttributes) => void,
     remove: () => void,
     collapseToMention?: () => void
-  ): void | (() => void)
+  ): void | (() => void) | EmbedMount
   mountMention?(target: MentionTarget, container: HTMLElement, options: MountMentionOptions): void | (() => void)
   queryMentions?(request: {
     query: string

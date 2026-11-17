@@ -1,7 +1,7 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { TFunction } from 'i18next'
 import { requestErrorMessage } from '../../common/request-errors'
-import type { AppConfigurationItem, JsonValue } from '../api/configuration-types'
+import type { AppConfigurationItem } from '../api/configuration-types'
 import { formatJSON, parseJSON } from '../console-primitives'
 import { encryptedSettingValue } from './setting-editor-model'
 import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
@@ -30,7 +30,7 @@ import type { SettingGroupID } from './setting-groups'
 type GroupSource = { kind: SettingGroupID; items: AppConfigurationItem[] }
 type SavedSetting = {
   key: string
-  value: JsonValue
+  value: unknown
   text: string
   model?: BrainModelDraft
   headers?: ObservabilityHeaderRow[]
@@ -136,7 +136,7 @@ export const SettingGroupEditorModel = createModel(() => {
         validationError.value = undefined
       })
     },
-    async revealHeaders(request: () => Promise<JsonValue>, t: TFunction) {
+    async revealHeaders(request: () => Promise<unknown>, t: TFunction) {
       const requestedSource = source
       const requestedHeaders = headersSource
       const value = await request()
@@ -155,7 +155,7 @@ export const SettingGroupEditorModel = createModel(() => {
     async save(
       items: AppConfigurationItem[],
       t: TFunction,
-      request: (values: Record<string, JsonValue>) => Promise<unknown>,
+      request: (values: Record<string, unknown>) => Promise<unknown>,
       onSaved: (count: number, clean: boolean) => void
     ) {
       validationError.value = undefined

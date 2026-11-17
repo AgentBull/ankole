@@ -6,6 +6,13 @@ import {
   type JsonObject as JSONObject
 } from '@agentbull/active-support'
 import { errorMessage } from '../../../common/errors'
+import {
+  isConcreteDriveFilePath,
+  type DriveFlushedFile,
+  type DriveFlushResult,
+  type DriveView,
+  type DriveWriteError
+} from '../../../drive/mounts'
 import { jsonBytes } from '../../../fabric/envelope-proto'
 import type { BackgroundAgentJobTurnUpsertResponse } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { RPCRequestInit } from '../../../lanes/rpc-contract'
@@ -86,11 +93,12 @@ export async function persistTurnCheckpointWithRetry(
   upsert: (
     request: RPCRequestInit<'background_agent_job.turn.upsert'>
   ) => Promise<BackgroundAgentJobTurnUpsertResponse>,
-  request: RPCRequestInit<'background_agent_job.turn.upsert'>
+  request: RPCRequestInit<'background_agent_job.turn.upsert'>,
+  maxAttempts = 3
 ): Promise<void> {
   let persisted = false
   let lastError: unknown
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       await upsert(request)
       persisted = true
@@ -105,44 +113,58 @@ export async function persistTurnCheckpointWithRetry(
         }
       }
       lastError = error
-      if (attempt < 3) await Bun.sleep(50 * 2 ** (attempt - 1))
+      if (attempt < maxAttempts) await Bun.sleep(50 * 2 ** (attempt - 1))
     }
   }
   if (!persisted) throw new BackgroundAgentJobTurnPersistenceError(lastError)
 }
 
-export function buildTurnUpsertRequest(
+export function prepareTurnUpsertCheckpoint(
   jobID: string,
   attempt: number,
   turn: RuntimeTurn
-): RPCRequestInit<'background_agent_job.turn.upsert'> {
+): {
+  request: RPCRequestInit<'background_agent_job.turn.upsert'>
+  itemKeys: string[]
+} {
   const turnItems = pendingTurnItems(turn)
-  // Items leave memory before PostgreSQL acknowledges this request. Retries
-  // use this serialized request. A permanent failure makes flush() fail, so
-  // the Job attempt fails and the next attempt resumes the saved thread.
-  for (const entry of turnItems) {
-    turn.enqueuedItemKeys.add(entry.item_key)
-    if (entry.item_key !== turn.initialItemKey) {
-      turn.items.delete(entry.item_key)
-      turn.itemOrder = turn.itemOrder.filter(key => key !== entry.item_key)
-    }
+  const itemKeys = turnItems.map(entry => entry.item_key)
+  for (const key of itemKeys) {
+    turn.enqueuedItemKeys.add(key)
   }
 
   return {
-    jobId: jobID,
-    attempt,
-    runtimeThreadId: turn.runtimeThreadID,
-    runtimeTurnId: turn.runtimeTurnID,
-    kind: turn.kind,
-    status: turn.status,
-    revision: turn.revision,
-    trajectoryJson: jsonBytes(trajectoryHeader(turn)),
-    turnItemsJson: jsonBytes(turnItems),
-    progressJson: jsonBytes(progress(turn)),
-    ...(turn.usage ? { usageJson: jsonBytes(turn.usage) } : {}),
-    errorJson: jsonBytes(turn.error),
-    startedAt: turn.startedAt,
-    ...(turn.completedAt ? { completedAt: turn.completedAt } : {})
+    itemKeys,
+    request: {
+      jobId: jobID,
+      attempt,
+      runtimeThreadId: turn.runtimeThreadID,
+      runtimeTurnId: turn.runtimeTurnID,
+      kind: turn.kind,
+      status: turn.status,
+      revision: turn.revision,
+      trajectoryJson: jsonBytes(trajectoryHeader(turn)),
+      turnItemsJson: jsonBytes(turnItems),
+      progressJson: jsonBytes(progress(turn)),
+      ...(turn.usage ? { usageJson: jsonBytes(turn.usage) } : {}),
+      errorJson: jsonBytes(turn.error),
+      startedAt: turn.startedAt,
+      ...(turn.completedAt ? { completedAt: turn.completedAt } : {})
+    }
+  }
+}
+
+export function acknowledgeTurnItems(turn: RuntimeTurn | undefined, itemKeys: readonly string[]): void {
+  if (!turn || itemKeys.length === 0) return
+  const removable = new Set<string>()
+  for (const key of itemKeys) {
+    if (key !== turn.initialItemKey) {
+      turn.items.delete(key)
+      removable.add(key)
+    }
+  }
+  if (removable.size > 0) {
+    turn.itemOrder = turn.itemOrder.filter(key => !removable.has(key))
   }
 }
 
@@ -402,4 +424,135 @@ function persistenceRejectionDetails(
     rpc_code: response.code,
     ...(response.details ? { rpc_details: response.details } : {})
   }
+}
+
+const pendingPathsFlushTimeoutMs = 120_000
+const fallbackStatConcurrency = 8
+
+export function mergeDriveWindows(
+  retained: Map<string, number> | undefined,
+  current: Map<string, number> | undefined
+): Map<string, number> | undefined {
+  if (!retained) return current ? new Map(current) : undefined
+  if (!current) return new Map(retained)
+  const merged = new Map(retained)
+  for (const [mountKey, seq] of current) {
+    const prev = merged.get(mountKey)
+    merged.set(mountKey, prev === undefined ? seq : Math.min(prev, seq))
+  }
+  return merged
+}
+
+export function recordFlushedDriveDeliverables(
+  pendingDrivePaths: Set<string>,
+  driveDeliverables: Map<string, DriveFlushedFile>,
+  files: readonly DriveFlushedFile[]
+): void {
+  for (const file of files) {
+    pendingDrivePaths.delete(file.path)
+    driveDeliverables.set(file.path, file)
+  }
+}
+
+async function flushCandidateDrivePaths(
+  driveView: DriveView,
+  candidates: string[],
+  signal: AbortSignal
+): Promise<{ flushed: string[]; pending: string[]; files: DriveFlushedFile[]; errors?: DriveWriteError[] }> {
+  if (typeof driveView.flushPaths === 'function') {
+    const result = await driveView.flushPaths(candidates, signal)
+    return {
+      flushed: result.flushed,
+      pending: result.pending,
+      files: result.files ?? [],
+      ...(result.errors ? { errors: result.errors } : {})
+    }
+  }
+  const files: DriveFlushedFile[] = []
+  const flushed: string[] = []
+  const pending: string[] = []
+  let nextIndex = 0
+  const workerCount = Math.min(fallbackStatConcurrency, candidates.length)
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < candidates.length) {
+        const path = candidates[nextIndex++]!
+        try {
+          const nodeId = await driveView.flushPath(path, signal)
+          flushed.push(path)
+          files.push({ path, nodeId })
+        } catch {
+          pending.push(path)
+        }
+      }
+    })
+  )
+  return { flushed, pending, files }
+}
+
+export async function flushRecorderDriveWindow(
+  driveView: DriveView | undefined,
+  window: Map<string, number> | undefined,
+  pendingDrivePaths: Set<string>,
+  driveDeliverables: Map<string, DriveFlushedFile>
+): Promise<DriveFlushResult> {
+  if (!driveView) return { status: 'flushed', files: [] }
+
+  let files: DriveFlushedFile[] = []
+  let pendingReason: string | undefined
+  let flushIncomplete = false
+
+  if (window) {
+    const result = await driveView.flush(window)
+    recordFlushedDriveDeliverables(pendingDrivePaths, driveDeliverables, result.files)
+    files = [...result.files]
+    if (result.status === 'failed') {
+      for (const err of result.errors) pendingDrivePaths.delete(err.path)
+      return result
+    }
+    if (result.status === 'pending') {
+      for (const path of result.paths) {
+        if (isConcreteDriveFilePath(path)) pendingDrivePaths.add(path)
+      }
+      pendingReason = result.reason
+      if (result.flush_incomplete) flushIncomplete = true
+    }
+  }
+
+  for (const path of pendingDrivePaths) {
+    if (!isConcreteDriveFilePath(path)) pendingDrivePaths.delete(path)
+  }
+
+  if (pendingDrivePaths.size > 0) {
+    const candidates = [...pendingDrivePaths]
+    const signal = AbortSignal.timeout(pendingPathsFlushTimeoutMs)
+    const batch = await flushCandidateDrivePaths(driveView, candidates, signal)
+    if (batch.files.length > 0) {
+      recordFlushedDriveDeliverables(pendingDrivePaths, driveDeliverables, batch.files)
+      const existingPaths = new Set(files.map(file => file.path))
+      for (const file of batch.files) {
+        if (!existingPaths.has(file.path)) {
+          existingPaths.add(file.path)
+          files.push(file)
+        }
+      }
+    } else if (batch.flushed.length > 0) {
+      for (const path of batch.flushed) pendingDrivePaths.delete(path)
+    }
+    if (batch.errors?.length) {
+      for (const err of batch.errors) pendingDrivePaths.delete(err.path)
+      return { status: 'failed', errors: batch.errors, files }
+    }
+  }
+
+  if (pendingDrivePaths.size > 0 || flushIncomplete) {
+    return {
+      status: 'pending',
+      files,
+      paths: [...pendingDrivePaths],
+      ...(flushIncomplete ? { flush_incomplete: true } : {}),
+      ...(pendingReason ? { reason: pendingReason } : {})
+    }
+  }
+  return { status: 'flushed', files }
 }

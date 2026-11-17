@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Button } from '@ankole/uikit'
+import { Button, ScrollFade } from '@ankole/uikit'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { read, utils } from 'xlsx'
@@ -50,9 +50,9 @@ export default function LegacySpreadsheetPreview({ url, initialSheet }: { url: s
     <div className="space-y-3">
       <ContentError error={workbook.error} />
       {workbook.isPending && <p role="status">{t('pod.content.reading_spreadsheet')}</p>}
-      <nav
-        aria-label={t('pod.content.worksheet')}
-        className="flex flex-nowrap items-center gap-1 overflow-x-auto py-0.5">
+      <ScrollFade
+        render={<nav aria-label={t('pod.content.worksheet')} />}
+        className="flex flex-nowrap items-center gap-1 py-0.5">
         {workbook.data?.SheetNames.map(name => (
           <Button
             key={name}
@@ -64,7 +64,7 @@ export default function LegacySpreadsheetPreview({ url, initialSheet }: { url: s
             {name}
           </Button>
         ))}
-      </nav>
+      </ScrollFade>
       {selected && (
         <iframe
           title={t('pod.content.worksheet_2', { value1: selected })}

@@ -1,11 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import type { QueryClient } from '@tanstack/react-query'
+import { setDataTenantSoft } from '../common/browser-session'
+import { agentListOptions } from './api/agents'
 import { backgroundAgentJobsOptions } from './api/background-agent-jobs'
 import { resourceID } from './console-primitives'
 import { createConsoleRouteLoaders } from './console-route-loaders'
 import { conversationListOptions } from './pages/conversations'
 import { getGlobalLibraryCapabilitiesOptions } from './api/v2/generated/@tanstack/react-query.gen'
-import { listControlPlanePluginsOptions } from './api/v2-site/generated/@tanstack/react-query.gen'
+import {
+  listAiGatewayProvidersOptions,
+  listControlPlanePluginsOptions
+} from './api/v2-site/generated/@tanstack/react-query.gen'
+import { tenantQueryOptions } from './state/tenant-scope'
 
 describe('console route identifiers', () => {
   test('prefetches site library defaults without a tenant Agent catalog', async () => {
@@ -79,5 +85,42 @@ describe('console route identifiers', () => {
         cursor: 'abc'
       }).queryKey
     })
+  })
+
+  test('binds tenant-scoped loader prefetches to the active tenant cache key while keeping site queries unscoped', async () => {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, 'window')
+    const backing = new Map<string, string>()
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        sessionStorage: {
+          getItem: (key: string) => backing.get(key) ?? null,
+          setItem: (key: string, value: string) => backing.set(key, value),
+          removeItem: (key: string) => backing.delete(key)
+        }
+      }
+    })
+    setDataTenantSoft('tenant-b')
+
+    try {
+      const requests: Array<{ queryKey: unknown }> = []
+      const queryClient = {
+        ensureQueryData: (options: { queryKey: unknown }) => {
+          requests.push(options)
+          return Promise.resolve({})
+        }
+      } as unknown as QueryClient
+
+      const loaders = createConsoleRouteLoaders(queryClient)
+      await loaders.home({ location: { searchStr: '' } })
+
+      expect(requests.map(item => item.queryKey)).toContainEqual(
+        tenantQueryOptions(agentListOptions(), 'tenant-b').queryKey
+      )
+      expect(requests.map(item => item.queryKey)).toContainEqual(listAiGatewayProvidersOptions().queryKey)
+    } finally {
+      if (previous) Object.defineProperty(globalThis, 'window', previous)
+      else Reflect.deleteProperty(globalThis, 'window')
+    }
   })
 })

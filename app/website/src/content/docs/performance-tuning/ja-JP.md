@@ -17,7 +17,7 @@ order: 319
 |---|---|---|
 | `ANKOLE_MAX_CONCURRENT_SLOTS` | 12 | 1 Agent あたりの開いている環境ワークスペースと実行中の Codex Turn の合計 |
 | `POOL_SIZE`（Compose/Helm では `ANKOLE_DATABASE_POOL_SIZE`） | 10 | レプリカごとの `Ankole.Repo` コントロールプレーン DB 接続プール |
-| `BASE_DB_URLS`（`ankole_pool_size`） | FOSS 本番は 10、SaaS 本番は 5、dev/test は 2 | レプリカごとの各 `Ankole.Pod.BaseRepo` Base シャード接続プール |
+| `BASE_DB_URLS`（`ankole_pool_size`） | FOSS 本番は 10、dev/test は 2 | レプリカごとの各 `Ankole.Pod.BaseRepo` Base シャード接続プール |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | 300 | Postgres の `max_connections`（同梱サーバー利用時） |
 | `background_agent_jobs.max_running_per_agent` | 3 | Agent ごとの実行中 Background Agent Job の最大数（テナントスコープ） |
 | `idleReleaseAfter` | 全 6 プロバイダー共通で `15m`（`never` でアイドル停止を無効化） | Worker が停止して CPU とメモリを解放するまでのアイドル時間 |

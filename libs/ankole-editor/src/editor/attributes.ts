@@ -4,6 +4,7 @@
  * own elements.
  */
 import { type ChangeSet, Leaf, Mark, type Node, type Plot, ValidationError } from '../core/doc'
+import { GardSelection, type GardState } from '../core/state'
 import * as T from '../core/types'
 import { compareNames } from '../document/tree'
 import { vocabulary } from '../document/vocabulary'
@@ -109,4 +110,33 @@ export function codeNodes(value: string, marks: Mark.Set = Mark.none): Node[] {
     if (line) result.push(Leaf.text(line, marks))
   })
   return result
+}
+
+/** Inline format, style, link, and comment marks at `pos` that an atomic `target` leaf can inherit. */
+export function inheritedInlineMarks(
+  state: GardState,
+  pos: number,
+  target: Node.Type,
+  exclude?: Mark.Type
+): readonly Mark[] {
+  const keep = (mark: Mark) =>
+    mark.type !== Attrs && mark.type !== exclude && state.schema.markAllowed(mark.type, target)
+  if (
+    state.selection instanceof GardSelection.Text &&
+    state.selection.empty &&
+    state.selection.head === pos &&
+    state.selection.marks
+  ) {
+    return state.selection.marks.filter(keep)
+  }
+  const resolved = state.doc.resolve(pos)
+  const block = resolved.parent
+  if (!block.node.inlineContent) return []
+  let offset = block.start
+  for (const child of block.node.content) {
+    const next = offset + child.length
+    if (pos >= offset && pos < next) return child.marks.filter(keep)
+    offset = next
+  }
+  return resolved.nodeBefore ? resolved.nodeBefore.marks.filter(keep) : []
 }

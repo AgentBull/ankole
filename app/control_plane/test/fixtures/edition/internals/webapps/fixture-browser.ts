@@ -35,7 +35,7 @@ try {
   const tab = page.getByRole('tab', { name: 'Private catalog build fixture', exact: true })
   if (enabled) {
     await expect(tab).toBeVisible()
-    const settings = page.waitForResponse(response => response.url().endsWith('/api/v2/saas-pod/fixture-settings'))
+    const settings = page.waitForResponse(response => response.url().endsWith('/api/v2/fixture-pod/fixture-settings'))
     await tab.click()
     const response = await settings
     expect(response.status()).toBe(200)

@@ -37,7 +37,7 @@ async function mount(page: Page) {
     const { undo, redo }: typeof import('../src/editor/commands') = await import(commands)
     const updates = new Map<string, (attributes: { ref: string; view: string }) => void>()
     const editable = GardState.Compartment.define()
-    document.body.replaceChildren()
+    for (const child of document.body.children) if (child instanceof HTMLElement) child.hidden = true
     const editor = Wordgard.create({
       state: initialState(
         parseXml(

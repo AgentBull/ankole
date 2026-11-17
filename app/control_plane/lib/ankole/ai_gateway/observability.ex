@@ -25,6 +25,25 @@ defmodule Ankole.AIGateway.Observability do
   alias OpenTelemetry.Span
 
   @response_span_name "ai_gateway.response"
+
+  @provider_option_parameter_whitelist ~w(
+    reasoning
+    reasoning_effort
+    reasoningEffort
+    reasoningSummary
+    thinking
+    enable_thinking
+    thinking_budget
+    verbosity
+    textVerbosity
+    parallel_tool_calls
+    supportsParallelToolCalls
+    service_tier
+    serviceTier
+    speed
+    prompt_cache_retention
+    promptCacheRetention
+  )
   @failure_fields ~w(failure_kind provider_status http_status retryable retry_at error_stage provider_error_code provider_error_type)a
 
   defstruct response_span: nil,
@@ -113,6 +132,27 @@ defmodule Ankole.AIGateway.Observability do
   end
 
   @doc """
+  Records upstream continuation mode, byte counts, and pre-first-event fallback
+  facts on the active round span.
+  """
+  @spec record_round_transport(t() | nil, map()) :: t() | nil
+  def record_round_transport(nil, _attrs), do: nil
+
+  def record_round_transport(%__MODULE__{round_span: round_span} = observation, attrs)
+      when is_map(attrs) do
+    safe(observation, fn ->
+      if recording?(round_span) do
+        span_attrs = round_transport_span_attributes(attrs)
+        if map_size(span_attrs) > 0, do: Span.set_attributes(round_span, span_attrs)
+      end
+
+      observation
+    end)
+  end
+
+  def record_round_transport(%__MODULE__{} = observation, _attrs), do: observation
+
+  @doc """
   Records one credential-pool retry on the open provider round.
   """
   @spec record_credential_retry(t() | nil, term(), non_neg_integer() | nil) :: :ok
@@ -138,6 +178,8 @@ defmodule Ankole.AIGateway.Observability do
       headers = context_headers(opts)
       parent_context = response_parent_context(headers)
 
+      metadata = map_value(request, "metadata") || %{}
+
       context =
         %{
           principal_uid: subject_uid,
@@ -155,7 +197,13 @@ defmodule Ankole.AIGateway.Observability do
           caller: string_value(Keyword.get(opts, :caller)),
           release: release(),
           job_id: positive_integer(Map.get(request_context, "job_id")),
-          attempts: positive_integer(Map.get(request_context, "attempts"))
+          attempts: positive_integer(Map.get(request_context, "attempts")),
+          channel_adapter:
+            text(Map.get(request_context, "channel_adapter")) ||
+              text(Map.get(metadata, "channel_adapter")),
+          channel_kind:
+            text(Map.get(request_context, "channel_kind")) ||
+              text(Map.get(metadata, "channel_kind"))
         }
         |> Ankole.Observability.Trace.with_tenant()
 
@@ -208,7 +256,8 @@ defmodule Ankole.AIGateway.Observability do
     runtime = runtime(attempt_context)
     {input, truncated?} = encode_content(request)
     model = response_context_value(spec, "model")
-    model_parameters = model_parameters(request)
+    provider_options = response_context_value(spec, "provider_options")
+    model_parameters = model_parameters(request, provider_options)
 
     attributes =
       observation.trace_attributes
@@ -298,6 +347,7 @@ defmodule Ankole.AIGateway.Observability do
       attributes =
         observation.provider.output_attributes(output, :generation)
         |> Map.merge(usage_attributes(map_value(body, "usage")))
+        |> Map.merge(single_request_transport_attributes(response))
         |> put_present("gen_ai.response.id", map_value(body, "id"))
         |> put_present("gen_ai.response.model", map_value(body, "model"))
         |> maybe_put_true("ankole.observability.output_truncated", truncated?)
@@ -307,6 +357,30 @@ defmodule Ankole.AIGateway.Observability do
     end
 
     %{observation | round_span: nil, round_first_output?: false, round_started_at: nil}
+  end
+
+  defp single_request_transport_attributes(response) when is_map(response) do
+    telemetry = Map.get(response, :continuation_telemetry) || %{}
+
+    round_transport_span_attributes(
+      Map.put(telemetry, :request_bytes, Map.get(response, :request_bytes))
+    )
+  end
+
+  defp single_request_transport_attributes(_response), do: %{}
+
+  defp round_transport_span_attributes(attrs) when is_map(attrs) do
+    %{}
+    |> put_present("ankole.ai_gateway.continuation_mode", Map.get(attrs, :continuation_mode))
+    |> put_present("ankole.ai_gateway.request_bytes", Map.get(attrs, :request_bytes))
+    |> put_present(
+      "ankole.ai_gateway.logical_request_bytes",
+      Map.get(attrs, :logical_request_bytes)
+    )
+    |> put_present(
+      "ankole.ai_gateway.continuation_fallback_reason",
+      Map.get(attrs, :continuation_fallback_reason)
+    )
   end
 
   defp do_finish_response(observation, result) do
@@ -467,15 +541,26 @@ defmodule Ankole.AIGateway.Observability do
 
   defp usage_attributes(_usage), do: %{}
 
-  defp model_parameters(request) when is_map(request) do
-    request
-    |> Map.take(
-      ~w(max_output_tokens parallel_tool_calls reasoning service_tier temperature tool_choice top_p)
-    )
+  defp model_parameters(request, provider_options) when is_map(request) do
+    top_level =
+      Map.take(
+        request,
+        ~w(max_output_tokens parallel_tool_calls reasoning service_tier temperature tool_choice top_p)
+      )
+
+    raw_provider_options = provider_options || Map.get(request, "provider_options")
+
+    allowed_provider_options =
+      if is_map(raw_provider_options),
+        do: Map.take(raw_provider_options, @provider_option_parameter_whitelist),
+        else: %{}
+
+    top_level
+    |> Map.merge(allowed_provider_options)
     |> encode_map()
   end
 
-  defp model_parameters(_request), do: nil
+  defp model_parameters(_request, _provider_options), do: nil
 
   defp encode_map(map) when is_map(map) and map_size(map) > 0 do
     case Ankole.JSON.encode(sanitize(map)) do

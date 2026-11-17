@@ -57,8 +57,11 @@ for (const mobile of [false, true]) {
     const tabs = page.getByRole('tablist', { name: 'Sidebar sections', exact: true })
     const chat = tabs.getByRole('tab', { name: 'Chat', exact: true })
     const home = tabs.getByRole('tab', { name: 'Home', exact: true })
+    await expect(home).toHaveAttribute('aria-selected', 'true')
+    await home.focus()
+    await home.press('ArrowRight')
+    await expect(chat).toBeFocused()
     await expect(chat).toHaveAttribute('aria-selected', 'true')
-    await chat.focus()
     await chat.press('ArrowLeft')
     await expect(home).toBeFocused()
     await expect(home).toHaveAttribute('aria-selected', 'true')
@@ -156,6 +159,7 @@ test('Meta Ankole routes select Home, keep Meta Ankole collapsed until toggled, 
               assistant_enabled: false,
               runtime_assistant_enabled: false,
               enabled_for_all: false,
+              has_upstream_update: false,
               manifest_markdown: '# Ops Guide',
               manifest_xml: '<page><p>Ops Guide</p></page>',
               metadata: {},

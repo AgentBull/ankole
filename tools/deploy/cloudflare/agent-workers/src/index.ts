@@ -11,7 +11,19 @@ export default {
     const registry = env.REGISTRY.get(env.REGISTRY.idFromName(registryName))
     return handle(request, {
       token: env.ANKOLE_ADAPTER_TOKEN,
-      worker: agentUid => env.AGENT_WORKER.get(env.AGENT_WORKER.idFromName(agentUid)) as unknown as WorkerApi,
+      worker: agentUid => {
+        const stub = env.AGENT_WORKER.get(env.AGENT_WORKER.idFromName(agentUid))
+        return {
+          create: input => stub.create(input),
+          remove: (providerId, generation, req) => stub.remove(providerId, generation, req),
+          state: providerId => stub.state(providerId),
+          images: () => stub.images(),
+          restore: authorization => stub.restore(authorization),
+          backup: authorization => stub.backup(authorization),
+          storageRef: providerId => stub.storageRef(providerId),
+          deleteStorage: (uid, providerId) => stub.deleteStorage(uid, providerId)
+        } satisfies WorkerApi
+      },
       list: providerId => registry.list(providerId)
     })
   }

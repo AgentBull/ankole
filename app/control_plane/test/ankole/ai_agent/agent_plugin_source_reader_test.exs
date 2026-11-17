@@ -42,10 +42,10 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReaderTest do
     assert Enum.any?(github.skills, &(&1.name == "github"))
   end
 
-  test "GitHub stays disabled until the installation enables it" do
+  test "connectors stay disabled unless metadata opts in or an installation enables them" do
     source = Path.expand("../../../../library/agent-plugins/deep-research", __DIR__)
-    root = tmp_root!("github-default")
-    package_root = Path.join([root, "agent-plugins", "github"])
+    root = tmp_root!("plugin-default")
+    package_root = Path.join([root, "agent-plugins", "custom-connector"])
     File.mkdir_p!(Path.dirname(package_root))
     File.cp_r!(source, package_root)
 
@@ -55,9 +55,18 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReaderTest do
       manifest_path
       |> File.read!()
       |> Ankole.JSON.decode!()
-      |> Map.put("name", "github")
+      |> Map.put("name", "custom-connector")
 
     File.write!(manifest_path, Ankole.JSON.encode!(manifest))
+
+    skill_path = Path.join(package_root, "skills/create-deep-research/SKILL.md")
+
+    skill_content =
+      skill_path
+      |> File.read!()
+      |> String.replace("default_enabled: true\n", "")
+
+    File.write!(skill_path, skill_content)
 
     assert {:ok, [capability]} =
              AgentPlugins.global_capabilities(
@@ -67,6 +76,42 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReaderTest do
 
     refute capability["global_default_enabled"]
     refute capability["effective_enabled"]
+
+    builtin_root = Path.expand("../../../../library", __DIR__)
+
+    assert {:ok, builtin_capabilities} =
+             AgentPlugins.global_capabilities(
+               library_roots: [builtin_root],
+               agent_library_defaults: %{agent_plugins: %{}, skills: %{}}
+             )
+
+    by_id = Map.new(builtin_capabilities, &{&1["id"], &1})
+
+    for id <- ~w(brain deep-research methodology office) do
+      assert by_id[id]["global_default_enabled"], "expected #{id} to be default_enabled"
+    end
+
+    for id <- ~w(
+          calendly
+          clickhouse
+          figma
+          github
+          gitlab
+          google_analytics
+          googlecalendar
+          lark
+          linear
+          mysql
+          postgresql
+          salesforce
+          sentry
+          stripe
+          trello
+          typeform
+          zendesk
+        ) do
+      refute by_id[id]["global_default_enabled"], "expected #{id} to default to disabled"
+    end
   end
 
   test "standard manifest components outside Skills are left to Codex" do

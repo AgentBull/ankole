@@ -133,3 +133,54 @@ test('sharing approval renders deterministic current-access preview when explain
   expect(html).toContain('Research Colleague (@research): Denied — No matching grant on this restricted page.')
   expect(html).toContain('Alice Smith (@alice): Allowed (manage) — Space administrator retains management access.')
 })
+
+test('connector approval renders executing, recoverable executing, execution_uncertain, and failed states honestly', () => {
+  const executingHtml = render({
+    card_id: 'conn-exec',
+    action_kind: 'connectors.tool.call',
+    summary: 'Delete calendar event',
+    status: 'executing',
+    can_recover: false,
+    resolved_by_name: 'Alice Smith'
+  })
+  expect(executingHtml).toContain('Executing')
+  expect(executingHtml).toContain('Alice Smith')
+  expect(executingHtml).not.toContain('Confirm &amp; Execute')
+  expect(executingHtml).not.toContain('Cancel')
+
+  const recoverableHtml = render({
+    card_id: 'conn-rec',
+    action_kind: 'connectors.tool.call',
+    summary: 'Delete calendar event',
+    status: 'executing',
+    can_recover: true,
+    resolved_by_name: 'Alice Smith'
+  })
+  expect(recoverableHtml).toContain('Check &amp; Settle Outcome')
+  expect(recoverableHtml).not.toContain('>Cancel<')
+
+  const uncertainHtml = render({
+    card_id: 'conn-uncertain',
+    action_kind: 'connectors.tool.call',
+    summary: 'Delete calendar event',
+    status: 'execution_uncertain',
+    resolved_by_name: 'Alice Smith',
+    resolution_note:
+      'Feishu · calendar_delete_event failed (upstream outcome uncertain; inspect before retrying): HTTP 502'
+  })
+  expect(uncertainHtml).toContain('Outcome uncertain')
+  expect(uncertainHtml).toContain('data-tone="warning"')
+  expect(uncertainHtml).toContain('HTTP 502')
+
+  const failedHtml = render({
+    card_id: 'conn-failed',
+    action_kind: 'connectors.tool.call',
+    summary: 'Delete calendar event',
+    status: 'failed',
+    resolved_by_name: 'Alice Smith',
+    resolution_note: 'Feishu · calendar_delete_event failed: calendar not found'
+  })
+  expect(failedHtml).toContain('Execution failed')
+  expect(failedHtml).toContain('data-tone="warning"')
+  expect(failedHtml).toContain('calendar not found')
+})

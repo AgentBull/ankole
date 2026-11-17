@@ -91,7 +91,6 @@ export function createCommandTool(context: ComputerToolContext): WorkerAgentTool
       const truncation = truncateOutputDetailed(shaped.output)
       const shapingDroppedData =
         shaped.metrics.applied &&
-        shaped.metrics.family !== 'shell_cat' &&
         (shaped.metrics.family === 'curl_json' ||
           shaped.metrics.rawChars - shaped.metrics.shapedChars >= 512 ||
           truncateOutputDetailed(raw).omittedChars > 0)

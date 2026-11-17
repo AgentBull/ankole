@@ -94,10 +94,8 @@ export class DiagnosticsStore {
     try {
       await mkdir(localStagingDir, { recursive: true })
       const cdp = await browser.newBrowserCDPSession()
-      const emitter = cdp as unknown as {
-        on(event: string, listener: (payload: Record<string, unknown>) => void): void
-      }
-      emitter.on('Browser.downloadWillBegin', payload => {
+      const onCDPEvent: (event: string, listener: (payload: Record<string, unknown>) => void) => void = cdp.on.bind(cdp)
+      onCDPEvent('Browser.downloadWillBegin', payload => {
         const guid = typeof payload.guid === 'string' ? payload.guid : ''
         if (!guid) return
         const url = typeof payload.url === 'string' ? payload.url : ''
@@ -115,7 +113,7 @@ export class DiagnosticsStore {
         })
         this.registerDownloadTask(task)
       })
-      emitter.on('Browser.downloadProgress', payload => {
+      onCDPEvent('Browser.downloadProgress', payload => {
         const guid = typeof payload.guid === 'string' ? payload.guid : ''
         const state = typeof payload.state === 'string' ? payload.state : ''
         if (!guid || (state !== 'completed' && state !== 'canceled')) return

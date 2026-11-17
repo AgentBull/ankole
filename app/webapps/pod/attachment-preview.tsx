@@ -322,62 +322,61 @@ function AttachmentPreviewBody({
   const { name, type, size, url, conversationID, local } = file
   const kind = attachmentPreviewKind(name, type)
   const details = [type?.split(';')[0]?.trim(), formatFileBytes(size)].filter(Boolean).join(' · ')
-  return (
-    <Suspense fallback={<ContentLoading label={t('pod.content.loading_file')} />}>
-      {kind === 'pdf' ? (
-        <PdfPreview className="pod-attachment-pdf" url={url} title={stripBidi(name)} />
-      ) : kind === 'video' ? (
-        <video controls playsInline preload="metadata" className="max-h-[70dvh] w-full rounded" src={url} />
-      ) : kind === 'audio' ? (
-        <audio controls preload="metadata" className="w-full" src={url} />
-      ) : kind === 'table' ? (
-        <DelimitedTablePreview
-          cacheKey={conversationID ? podKeys.detail(conversationID) : podKeys.conversations}
-          url={url}
-          name={name}
-          local={local}
-          canComment={false}
-        />
-      ) : kind === 'spreadsheet' ? (
-        isOfficeSpreadsheetFile(name, previewMediaType(name, type)) ? (
+  const cacheKey = conversationID ? podKeys.detail(conversationID) : podKeys.conversations
+  const renderPreview = () => {
+    switch (kind) {
+      case 'pdf':
+        return <PdfPreview className="pod-attachment-pdf" url={url} title={stripBidi(name)} />
+      case 'video':
+        return <video controls playsInline preload="metadata" className="max-h-[70dvh] w-full rounded" src={url} />
+      case 'audio':
+        return <audio controls preload="metadata" className="w-full" src={url} />
+      case 'table':
+        return <DelimitedTablePreview cacheKey={cacheKey} url={url} name={name} local={local} canComment={false} />
+      case 'spreadsheet':
+        return isOfficeSpreadsheetFile(name, previewMediaType(name, type)) ? (
           <SpreadsheetWasmPreview url={url} local={local} />
         ) : (
           <LegacySpreadsheetPreview url={url} />
         )
-      ) : kind === 'word' ? (
-        <WordPreview url={url} local={local} />
-      ) : kind === 'presentation' ? (
-        <PresentationPreview url={url} local={local} />
-      ) : kind === 'html' ? (
-        <HtmlFilePreview
-          className="pod-attachment-html"
-          cacheKey={conversationID ? podKeys.detail(conversationID) : podKeys.conversations}
-          url={url}
-          downloadURL={file.downloadURL}
-          name={stripBidi(name)}
-          size={size}
-          local={local}
-          canComment={false}
-          layout={surface === 'panel' ? 'fill' : 'dialog'}
-        />
-      ) : kind ? (
-        <PreviewContent
-          url={url}
-          image={kind === 'image'}
-          markdown={kind === 'markdown'}
-          name={stripBidi(name)}
-          conversationID={conversationID}
-          local={local}
-        />
-      ) : (
-        <div className="flex flex-col items-center gap-2 py-8 text-center text-sm">
-          <DocumentRegular className="size-10 text-fg-tertiary" aria-hidden />
-          {details && <p className="text-fg-tertiary">{details}</p>}
-          <p>{t('pod.chat_attachments.preview_unavailable')}</p>
-        </div>
-      )}
-    </Suspense>
-  )
+      case 'word':
+        return <WordPreview url={url} local={local} />
+      case 'presentation':
+        return <PresentationPreview url={url} local={local} />
+      case 'html':
+        return (
+          <HtmlFilePreview
+            className="pod-attachment-html"
+            cacheKey={cacheKey}
+            url={url}
+            downloadURL={file.downloadURL}
+            name={stripBidi(name)}
+            size={size}
+            local={local}
+            canComment={false}
+            layout={surface === 'panel' ? 'fill' : 'dialog'}
+          />
+        )
+      default:
+        return kind ? (
+          <PreviewContent
+            url={url}
+            image={kind === 'image'}
+            markdown={kind === 'markdown'}
+            name={stripBidi(name)}
+            conversationID={conversationID}
+            local={local}
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2 py-8 text-center text-sm">
+            <DocumentRegular className="size-10 text-fg-tertiary" aria-hidden />
+            {details && <p className="text-fg-tertiary">{details}</p>}
+            <p>{t('pod.chat_attachments.preview_unavailable')}</p>
+          </div>
+        )
+    }
+  }
+  return <Suspense fallback={<ContentLoading label={t('pod.content.loading_file')} />}>{renderPreview()}</Suspense>
 }
 
 function PreviewContent({

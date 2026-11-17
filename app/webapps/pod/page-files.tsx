@@ -195,88 +195,107 @@ export function FilePage({
           {downloadLink}
         </div>
       )}
-      {manifest.isPending ? (
-        <ContentLoading label={t('pod.content.loading_file')} />
-      ) : officeKind === 'spreadsheet' ? (
-        // Compaction replaces the object while the editor stays open, so only the page resets it.
-        <ErrorBoundary variant="panel" resetKeys={[page.id]}>
-          <Suspense fallback={<ContentSkeleton variant="table" label={t('pod.spreadsheet.loading')} immediate />}>
-            <SpreadsheetPage
-              detail={detail}
-              initialSheet={searchTarget?.kind === 'sheet' ? searchTarget.sheet : undefined}
-              initialFind={findQuery || undefined}
-            />
-          </Suspense>
-        </ErrorBoundary>
-      ) : officeKind === 'word' ? (
-        <ErrorBoundary variant="panel" resetKeys={[page.id]}>
-          <Suspense fallback={<ContentSkeleton variant="page" label={t('pod.word.loading')} immediate />}>
-            <WordPage
-              detail={detail}
-              initialPage={searchTarget?.kind === 'page' ? searchTarget.page : undefined}
-              initialFind={findQuery || undefined}
-            />
-          </Suspense>
-        </ErrorBoundary>
-      ) : officeKind === 'presentation' ? (
-        <ErrorBoundary variant="panel" resetKeys={[page.id]}>
-          <Suspense fallback={<ContentSkeleton variant="page" label={t('pod.presentation.loading')} immediate />}>
-            <PresentationPage
-              detail={detail}
-              initialSlide={searchTarget?.kind === 'page' ? searchTarget.page : undefined}
-              initialFind={findQuery || undefined}
-            />
-          </Suspense>
-        </ErrorBoundary>
-      ) : file ? (
-        <ErrorBoundary variant="panel" resetKeys={[page.id, file.path, file.sha256]}>
-          <FilePreview
-            key={file.object_id}
-            pageID={page.id}
-            file={file}
-            canComment={canComment}
-            onRequestComment={onRequestComment}
-            previewRef={previewRef}
-            searchTarget={searchTarget}
-            searchFind={findQuery}
-            embedded={embedded}
-            fileMeta={
-              isHtml ? (
-                <span title={sanitizeFileName(name)}>
-                  <BdiLabel value={name} /> · {formatFileBytes(file.size)}
-                </span>
-              ) : undefined
-            }
-            fileActions={
-              isHtml ? (
-                <>
-                  {replaceButton}
-                  {downloadLink}
-                </>
-              ) : undefined
-            }
-          />
-        </ErrorBoundary>
-      ) : manifest.error ? null : canEdit ? (
-        <div
-          onClick={() => {
-            if (canUpload) input.current?.click()
-          }}
-          className={cn(
-            'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-control border-2 border-dashed px-6 py-12 text-center transition-colors',
-            dragOver
-              ? 'border-primary bg-layer-hover/50'
-              : 'border-border-subtle hover:border-border-strong hover:bg-layer-hover/30',
-            !canUpload && 'pointer-events-none opacity-60'
-          )}>
-          <CloudArrowUpRegular aria-hidden className="size-6 text-fg-tertiary" />
-          <p className="text-sm text-fg-secondary">{t('pod.content.upload_a_file_to_preview_and_download_it_here')}</p>
-        </div>
-      ) : (
-        <p className="rounded-control border border-dashed border-border-subtle px-6 py-10 text-center text-sm text-fg-tertiary">
-          {t('pod.content.upload_a_file_to_preview_and_download_it_here')}
-        </p>
-      )}
+      {(() => {
+        if (manifest.isPending) return <ContentLoading label={t('pod.content.loading_file')} />
+        if (officeKind === 'spreadsheet') {
+          // Compaction replaces the object while the editor stays open, so only the page resets it.
+          return (
+            <ErrorBoundary variant="panel" resetKeys={[page.id]}>
+              <Suspense fallback={<ContentSkeleton variant="table" label={t('pod.spreadsheet.loading')} immediate />}>
+                <SpreadsheetPage
+                  detail={detail}
+                  initialSheet={searchTarget?.kind === 'sheet' ? searchTarget.sheet : undefined}
+                  initialFind={findQuery || undefined}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          )
+        }
+        if (officeKind === 'word') {
+          return (
+            <ErrorBoundary variant="panel" resetKeys={[page.id]}>
+              <Suspense fallback={<ContentSkeleton variant="page" label={t('pod.word.loading')} immediate />}>
+                <WordPage
+                  detail={detail}
+                  initialPage={searchTarget?.kind === 'page' ? searchTarget.page : undefined}
+                  initialFind={findQuery || undefined}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          )
+        }
+        if (officeKind === 'presentation') {
+          return (
+            <ErrorBoundary variant="panel" resetKeys={[page.id]}>
+              <Suspense fallback={<ContentSkeleton variant="page" label={t('pod.presentation.loading')} immediate />}>
+                <PresentationPage
+                  detail={detail}
+                  initialSlide={searchTarget?.kind === 'page' ? searchTarget.page : undefined}
+                  initialFind={findQuery || undefined}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          )
+        }
+        if (file) {
+          return (
+            <ErrorBoundary variant="panel" resetKeys={[page.id, file.path, file.sha256]}>
+              <FilePreview
+                key={file.object_id}
+                pageID={page.id}
+                file={file}
+                canComment={canComment}
+                onRequestComment={onRequestComment}
+                previewRef={previewRef}
+                searchTarget={searchTarget}
+                searchFind={findQuery}
+                embedded={embedded}
+                fileMeta={
+                  isHtml ? (
+                    <span title={sanitizeFileName(name)}>
+                      <BdiLabel value={name} /> · {formatFileBytes(file.size)}
+                    </span>
+                  ) : undefined
+                }
+                fileActions={
+                  isHtml ? (
+                    <>
+                      {replaceButton}
+                      {downloadLink}
+                    </>
+                  ) : undefined
+                }
+              />
+            </ErrorBoundary>
+          )
+        }
+        if (manifest.error) return null
+        if (canEdit) {
+          return (
+            <div
+              onClick={() => {
+                if (canUpload) input.current?.click()
+              }}
+              className={cn(
+                'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-control border-2 border-dashed px-6 py-12 text-center transition-colors',
+                dragOver
+                  ? 'border-primary bg-layer-hover/50'
+                  : 'border-border-subtle hover:border-border-strong hover:bg-layer-hover/30',
+                !canUpload && 'pointer-events-none opacity-60'
+              )}>
+              <CloudArrowUpRegular aria-hidden className="size-6 text-fg-tertiary" />
+              <p className="text-sm text-fg-secondary">
+                {t('pod.content.upload_a_file_to_preview_and_download_it_here')}
+              </p>
+            </div>
+          )
+        }
+        return (
+          <p className="rounded-control border border-dashed border-border-subtle px-6 py-10 text-center text-sm text-fg-tertiary">
+            {t('pod.content.upload_a_file_to_preview_and_download_it_here')}
+          </p>
+        )
+      })()}
     </section>
   )
 }
@@ -334,9 +353,9 @@ function FilePreview({
   const mime = previewMediaType(name, file.content_type)
   const initialAnchor = resolveFileSearchAnchor(searchTarget)
   const fillHtml = !embedded && isHtmlFile(name, mime)
-  return (
-    <div className={fillHtml ? 'flex min-h-0 flex-1 flex-col' : 'space-y-3'}>
-      {isDelimitedTextTable(name, mime) ? (
+  const renderFileBody = () => {
+    if (isDelimitedTextTable(name, mime)) {
+      return (
         <DelimitedTablePreview
           key={url}
           cacheKey={contentKeys.page(pageID)}
@@ -347,14 +366,20 @@ function FilePreview({
           previewRef={innerPreview}
           initialAnchor={initialAnchor?.kind === 'csv_rows' ? initialAnchor : undefined}
         />
-      ) : isOfficeSpreadsheetFile(name, mime) ? (
+      )
+    }
+    if (isOfficeSpreadsheetFile(name, mime)) {
+      return (
         <Suspense fallback={<ContentSkeleton variant="table" label={t('pod.spreadsheet.loading')} immediate />}>
           <SpreadsheetPreview
             url={url}
             initialSheet={searchTarget?.kind === 'sheet' ? searchTarget.sheet : undefined}
           />
         </Suspense>
-      ) : isLegacyWorkbookFile(name, mime) ? (
+      )
+    }
+    if (isLegacyWorkbookFile(name, mime)) {
+      return (
         <Suspense fallback={<ContentSkeleton variant="table" label={t('pod.content.loading_spreadsheet_preview')} />}>
           <LegacySpreadsheetPreview
             key={url}
@@ -362,7 +387,10 @@ function FilePreview({
             initialSheet={searchTarget?.kind === 'sheet' ? searchTarget.sheet : undefined}
           />
         </Suspense>
-      ) : isWordFile(name, mime) ? (
+      )
+    }
+    if (isWordFile(name, mime)) {
+      return (
         <Suspense fallback={<ContentSkeleton variant="page" label={t('pod.word.preview_loading')} immediate />}>
           <WordPreview
             url={url}
@@ -370,7 +398,10 @@ function FilePreview({
             initialFind={searchFind}
           />
         </Suspense>
-      ) : isPresentationFile(name, mime) ? (
+      )
+    }
+    if (isPresentationFile(name, mime)) {
+      return (
         <Suspense fallback={<ContentSkeleton variant="page" label={t('pod.presentation.preview_loading')} immediate />}>
           <PresentationPreview
             url={url}
@@ -378,9 +409,11 @@ function FilePreview({
             initialFind={searchFind}
           />
         </Suspense>
-      ) : mime?.startsWith('image/') ? (
-        <ImageFilePreview url={url} name={name} />
-      ) : mime === 'application/pdf' ? (
+      )
+    }
+    if (mime?.startsWith('image/')) return <ImageFilePreview url={url} name={name} />
+    if (mime === 'application/pdf') {
+      return (
         <Suspense fallback={<ContentLoading label={t('pod.content.loading_file')} />}>
           <PdfPreview
             key={url}
@@ -389,7 +422,10 @@ function FilePreview({
             initialPage={searchTarget?.kind === 'page' ? searchTarget.page : undefined}
           />
         </Suspense>
-      ) : mime?.startsWith('video/') || mime?.startsWith('audio/') ? (
+      )
+    }
+    if (mime?.startsWith('video/') || mime?.startsWith('audio/')) {
+      return (
         <MediaFilePreview
           key={url}
           url={url}
@@ -398,7 +434,10 @@ function FilePreview({
           onRequestComment={requestComment}
           previewRef={innerPreview}
         />
-      ) : isHtmlFile(name, mime) ? (
+      )
+    }
+    if (isHtmlFile(name, mime)) {
+      return (
         <HtmlFilePreview
           key={url}
           cacheKey={contentKeys.page(pageID)}
@@ -414,7 +453,10 @@ function FilePreview({
           fileActions={fileActions}
           layout={embedded ? 'embed' : 'fill'}
         />
-      ) : isTextFile(name, mime) ? (
+      )
+    }
+    if (isTextFile(name, mime)) {
+      return (
         <TextFilePreview
           key={url}
           pageID={pageID}
@@ -429,11 +471,13 @@ function FilePreview({
               : undefined
           }
         />
-      ) : (
-        <p className="rounded border border-border-subtle p-8 text-sm text-fg-tertiary">
-          {t('pod.content.online_preview_is_not_available_for_this_file_download_the')}
-        </p>
-      )}
-    </div>
-  )
+      )
+    }
+    return (
+      <p className="rounded border border-border-subtle p-8 text-sm text-fg-tertiary">
+        {t('pod.content.online_preview_is_not_available_for_this_file_download_the')}
+      </p>
+    )
+  }
+  return <div className={fillHtml ? 'flex min-h-0 flex-1 flex-col' : 'space-y-3'}>{renderFileBody()}</div>
 }

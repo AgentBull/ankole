@@ -120,7 +120,7 @@ test('copying part of a formatted paragraph does not copy its neighbors', async 
   await expect(page.locator('.editor-content strong')).toHaveText('selected')
 })
 
-// Plain text that reads as Markdown pastes as page content, as in Notion. The first block joins the
+// Plain text that reads as Markdown pastes as page content. The first block joins the
 // paragraph at the caret, as an HTML paste does.
 for (const { name, markdown, at, text, expected } of [
   {

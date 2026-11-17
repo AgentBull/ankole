@@ -8,6 +8,8 @@ defmodule Ankole.Sessions.Model do
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.ToolCatalog
 
+  @min_deferred_tools_for_search 8
+
   @spec prepare(Run.t()) :: {:ok, {atom(), Run.t()}} | {:error, term()}
   def prepare(run) do
     with {:ok, context} <- Context.resolve(run.agent_uid, run.session_id, Run.metadata(run)),
@@ -20,6 +22,19 @@ defmodule Ankole.Sessions.Model do
     {tools, hosted} = ToolCatalog.for_run(run)
     run = %{run | tools: tools, hosted_tools: hosted}
     run = %{run | instructions: Run.type(run).instructions(run)}
+
+    run =
+      if is_map(run.context),
+        do: %{
+          run
+          | context:
+              Map.put(
+                run.context,
+                :worker_used_in_conversation?,
+                worker_used_in_conversation?(run)
+              )
+        },
+        else: run
 
     with {:ok, {state, run}} <- Run.restore(run) do
       if state == :preparing do
@@ -109,21 +124,61 @@ defmodule Ankole.Sessions.Model do
   end
 
   defp request_tools(run) do
-    base = ToolCatalog.wire(run.tools) ++ run.hosted_tools
+    deferred_count = Enum.count(run.tools, &Ankole.Sessions.Tool.deferred?/1)
+    any_programmatic? = Enum.any?(run.tools, &Ankole.Sessions.Tool.programmatic?/1)
 
-    base
-    |> maybe_append_tool(
-      Enum.any?(run.tools, &Ankole.Sessions.Tool.deferred?/1),
+    enable_tool_search? =
+      deferred_count > 0 and
+        (deferred_count >= @min_deferred_tools_for_search or
+           model_tool_enabled?(run, "tool_search", "toolSearch"))
+
+    enable_programmatic? =
+      any_programmatic? and
+        model_tool_enabled?(run, "programmatic_tool_calling", "programmaticToolCalling")
+
+    wire_tools =
+      run.tools
+      |> ToolCatalog.wire()
+      |> Enum.map(fn schema ->
+        schema
+        |> maybe_drop_wire_key(not enable_tool_search?, "defer_loading")
+        |> maybe_drop_wire_key(not enable_programmatic?, "allowed_callers")
+      end)
+
+    hosted = run.hosted_tools || []
+
+    (wire_tools ++ hosted)
+    |> maybe_append_hosted_tool(
+      enable_tool_search?,
       %{"type" => "tool_search", "execution" => "server"}
     )
-    |> maybe_append_tool(
-      Enum.any?(run.tools, &Ankole.Sessions.Tool.programmatic?/1),
+    |> maybe_append_hosted_tool(
+      enable_programmatic?,
       %{"type" => "programmatic_tool_calling"}
     )
   end
 
-  defp maybe_append_tool(tools, true, declaration), do: tools ++ [declaration]
-  defp maybe_append_tool(tools, false, _declaration), do: tools
+  defp maybe_drop_wire_key(schema, true, key), do: Map.delete(schema, key)
+  defp maybe_drop_wire_key(schema, false, _key), do: schema
+
+  defp maybe_append_hosted_tool(tools, true, %{"type" => type} = declaration) do
+    if Enum.any?(tools, &(Map.get(&1, "type") == type)),
+      do: tools,
+      else: tools ++ [declaration]
+  end
+
+  defp maybe_append_hosted_tool(tools, false, _declaration), do: tools
+
+  defp model_tool_enabled?(run, snake_key, camel_key) do
+    model = (is_map(run.spec) and Map.get(run.spec, :model_ref)) || %{}
+    provider_options = Map.get(model, "provider_options") || %{}
+    hosted = run.hosted_tools || []
+
+    Map.get(model, "supports_#{snake_key}") == true or
+      Map.get(provider_options, snake_key) == true or
+      Map.get(provider_options, camel_key) == true or
+      Enum.any?(hosted, &(Map.get(&1, "type") == snake_key))
+  end
 
   def inactivity_deadline(run) do
     timeout = inactivity_timeout(run)
@@ -155,6 +210,44 @@ defmodule Ankole.Sessions.Model do
       "provider_options" => model["provider_options"] || %{},
       "input_modalities" => model["input_modalities"] || []
     }
+
+  defp worker_used_in_conversation?(%{
+         agent_uid: agent_uid,
+         conversation: %{id: conv_id},
+         tools: tools
+       })
+       when is_binary(agent_uid) and is_binary(conv_id) and is_list(tools) do
+    worker_names =
+      tools
+      |> Enum.filter(&(&1.executor == :worker))
+      |> MapSet.new(& &1.name)
+
+    if MapSet.size(worker_names) == 0 do
+      false
+    else
+      case AIGateway.visible_response_chain(agent_uid, conv_id) do
+        {:ok, messages} ->
+          Enum.any?(messages, fn msg ->
+            msg
+            |> Map.get(:content)
+            |> List.wrap()
+            |> Enum.any?(fn
+              %{"type" => type, "name" => name}
+              when type in ["function_call", "custom_tool_call"] ->
+                MapSet.member?(worker_names, name)
+
+              _item ->
+                false
+            end)
+          end)
+
+        _other ->
+          false
+      end
+    end
+  end
+
+  defp worker_used_in_conversation?(_run), do: false
 
   @doc false
   def selector(%{"provider_id" => "ai_gateway", "model" => model}), do: model

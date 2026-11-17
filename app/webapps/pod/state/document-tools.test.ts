@@ -8,6 +8,7 @@ import {
   documentPlainText,
   documentPrincipalUIDs,
   documentReferenceIDs,
+  documentStats,
   textStats
 } from './document-tools'
 import { DocumentToolsModel } from './document-tools-model'
@@ -128,12 +129,68 @@ describe('document export and statistics', () => {
     expect(documentPlainText(xml)).toBe('Get Notes and (image: P) or Site')
   })
 
-  test('editing stats count written text and skip resource titles and addresses', () => {
-    const xml =
-      '<page><p>Hello</p><media src="ankole:asset/hash/photo.png" title="photo.png"/><p>world <a href="ankole:asset/hash/notes.txt">notes</a><img src="ankole:asset/hash/inline.png" alt="chart"/></p></page>'
-    const projection = { omitResources: true, resolveAsset: (source: string) => `https://pod.example/${source}` }
-    expect(documentPlainText(xml, projection)).toBe('Hello\nworld notes')
-    expect(textStats(documentPlainText(xml, projection)).words).toBe(3)
+  test('editing stats count written prose and exclude diagrams, code blocks, LaTeX syntax, and resource addresses', () => {
+    const xml = [
+      '<page>',
+      '<p>Hello</p>',
+      '<media src="ankole:asset/hash/photo.png" title="photo.png"/>',
+      '<p>world <a href="ankole:asset/hash/notes.txt">notes</a><img src="ankole:asset/hash/inline.png" alt="chart"/></p>',
+      '<mermaid>flowchart TD\n  A[Start] --&gt; B{Decision}\n  B --&gt; C[Done]</mermaid>',
+      '<mermaid view="code">sequenceDiagram\n  Alice-&gt;&gt;Bob: Ping</mermaid>',
+      '<infographic view="diagram">infographic list-row-simple-horizontal-arrow\ndata\n  items\n    - label Step 1</infographic>',
+      '<pre lang="ts">export function sum(a: number, b: number) {\n  return a + b\n}</pre>',
+      '<math>\\frac{\\partial \\mathcal{L}}{\\partial \\theta} = 0</math>',
+      '<p>Let<inline-math>x &gt; 0</inline-math>hold<br/>always</p>',
+      '</page>'
+    ].join('')
+
+    // Prose only: "Hello" (5) + "world notes" (11) + "Let" (3) + "hold" (4) + "always" (6) = 29 chars, 6 words, 3 paragraphs.
+    expect(documentStats(xml)).toEqual({
+      words: 6,
+      characters: 29,
+      paragraphs: 3,
+      readingTime: 2
+    })
+  })
+
+  test('editing stats count multi-cell tables as one structural block and weight multimodal reading time accurately', () => {
+    const tableXml =
+      '<page><table><tr><th><p>Name</p></th><th><p>Count</p></th></tr><tr><td><p>Item</p></td><td><p>2</p></td></tr></table></page>'
+    expect(documentStats(tableXml)).toEqual({
+      words: 4,
+      characters: 14,
+      paragraphs: 1,
+      readingTime: 1
+    })
+
+    // Five rendered diagrams/images (5 * 15s = 75s) with zero prose words take 2 minutes to inspect.
+    const visualOnlyXml = [
+      '<page>',
+      '<mermaid>flowchart LR\n  A --&gt; B</mermaid>',
+      '<mermaid view="code">flowchart LR\n  C --&gt; D</mermaid>',
+      '<infographic>infographic list-row-simple-horizontal-arrow</infographic>',
+      '<media src="ankole:asset/hash/fig1.png" title="fig1.png"/>',
+      '<p><img src="ankole:asset/hash/fig2.png" alt="fig2"/></p>',
+      '<media src="ankole:asset/hash/clip.mp4" kind="video" title="clip.mp4"/>',
+      '<media src="ankole:asset/hash/spec.png" view="link" title="spec.png"/>',
+      '<mermaid>   </mermaid>',
+      '</page>'
+    ].join('')
+    expect(documentStats(visualOnlyXml)).toEqual({
+      words: 0,
+      characters: 0,
+      paragraphs: 0,
+      readingTime: 2
+    })
+
+    // 51 code tokens at 50 tokens/min round up to 2 minutes while keeping prose totals at zero.
+    const codeOnlyXml = `<page><pre lang="ts">${Array.from({ length: 51 }, (_, index) => `tok${index}`).join('\n')}</pre></page>`
+    expect(documentStats(codeOnlyXml)).toEqual({
+      words: 0,
+      characters: 0,
+      paragraphs: 0,
+      readingTime: 2
+    })
   })
 
   test('portable Markdown omits empty top-level paragraphs', () => {
@@ -157,20 +214,25 @@ describe('document export and statistics', () => {
   test('empty documents have no title, words, characters, or reading time', () => {
     expect(documentMarkdown('<page/>', '')).toBe('')
     expect(documentPlainText('<page/>')).toBe('')
+    expect(documentStats('<page/>')).toEqual({ words: 0, characters: 0, paragraphs: 0, readingTime: 0 })
     expect(textStats('')).toEqual({ words: 0, characters: 0, paragraphs: 0, readingTime: 0 })
   })
 
-  test('editing stats count Unicode words, paragraphs, and approximate reading time', () => {
+  test('editing stats balance word-spaced scripts (238 WPM) against CJK characters (350 chars/min)', () => {
     const text = 'Hello-world\n\nSecond paragraph here'
     expect(textStats(text)).toEqual({ words: 5, characters: text.length, paragraphs: 2, readingTime: 1 })
-    expect(textStats('word '.repeat(400)).readingTime).toBe(2)
-    expect(textStats('word '.repeat(401)).readingTime).toBe(3)
+    expect(textStats('word '.repeat(476)).readingTime).toBe(2)
+    expect(textStats('word '.repeat(477)).readingTime).toBe(3)
+    expect(textStats('字'.repeat(700)).readingTime).toBe(2)
+    expect(textStats('字'.repeat(701)).readingTime).toBe(3)
+    expect(textStats(`${'word '.repeat(119)}${'字'.repeat(175)}`).readingTime).toBe(1)
+    expect(textStats(`${'word '.repeat(120)}${'字'.repeat(175)}`).readingTime).toBe(2)
     expect(textStats('中文 😀').characters).toBe(5)
-    for (const text of ['你好世界欢迎阅读这份文档', 'これは日本語の文章です', '한국어 문장을 작성합니다 ']) {
-      expect(textStats(text).words).toBeGreaterThan(1)
-      expect(textStats(text.repeat(400)).readingTime).toBeGreaterThan(1)
+    for (const sample of ['你好世界欢迎阅读这份文档', 'これはラーメンの文章です', '한국어 문장을 작성합니다 ']) {
+      expect(textStats(sample).words).toBeGreaterThan(1)
+      expect(textStats(sample.repeat(100)).readingTime).toBeGreaterThan(1)
     }
-    expect(textStats('😀 — !!').words).toBe(0)
+    expect(textStats('😀 — !!')).toEqual({ words: 0, characters: 7, paragraphs: 1, readingTime: 0 })
   })
 
   test('export filenames cannot create paths or dotfiles and have a usable empty-title fallback', () => {
@@ -197,6 +259,11 @@ describe('document export and statistics', () => {
       expect(tools.stats.value.words).toBe(0)
 
       tools.setShowStats(true)
+      expect(tools.stats.value.words).toBe(2)
+
+      tools.selectedText.value = 'One'
+      expect(tools.stats.value.words).toBe(1)
+      tools.selectedText.value = ''
       expect(tools.stats.value.words).toBe(2)
 
       draft.xml.value = '<page><p>One two three four</p></page>'

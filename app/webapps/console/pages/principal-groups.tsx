@@ -1,4 +1,4 @@
-import { TableRow, useMutation, useQuery, Link, useNavigate } from '../tenant-context'
+import { TableRow, useBoundTenantID, useMutation, useQuery, Link, useNavigate } from '../tenant-context'
 import { flushSync } from 'react-dom'
 import {
   Avatar,
@@ -182,6 +182,7 @@ export function PrincipalGroupEditorPage() {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const boundTenantID = useBoundTenantID()
   const model = useModel(PrincipalGroupEditorModel)
   const params = useParams({ strict: false })
   const name = params.name
@@ -190,15 +191,17 @@ export function PrincipalGroupEditorPage() {
   const group = useQuery({
     ...getPrincipalGroupOptions({ path: { name: name ?? '' } }),
     select: data => fromDocument(data),
-    enabled: Boolean(name)
+    enabled: Boolean(name),
+    refetchOnMount: 'always'
   })
   const loadedGroup = group.data
   const groupDraft = useMemo(
     () => (mode === 'new' ? emptyGroupForm() : loadedGroup ? formFromGroup(loadedGroup) : undefined),
     [loadedGroup, mode]
   )
+  const sourceScope = `${boundTenantID ?? ''}:${name ? `group:${name}` : 'new'}`
   const draftStatus = useEditorDraft(model, {
-    sourceKey: name ? `group:${name}` : 'new',
+    sourceKey: sourceScope,
     source: groupDraft,
     absent: () => mode === 'edit' && requestErrorCode(group.error) === 'not_found'
   })
@@ -299,7 +302,10 @@ export function PrincipalGroupEditorPage() {
             ) : (
               <Input
                 required
+                autoCapitalize="none"
+                autoCorrect="off"
                 placeholder="research-ops"
+                spellCheck={false}
                 value={model.name.value}
                 onChange={event => model.setName(event.target.value)}
               />
@@ -338,6 +344,8 @@ export function PrincipalGroupEditorPage() {
             ) : (
               <Textarea
                 required
+                autoCapitalize="none"
+                autoCorrect="off"
                 className="min-h-8 font-mono text-xs"
                 spellCheck={false}
                 value={model.computedCondition.value}
@@ -390,43 +398,51 @@ function ComputedMembershipPreview({ condition }: { condition: string }) {
   // Results only render for the condition they were requested with; typing
   // between requests shows the pending skeleton instead of stale matches.
   const fresh = result?.condition === trimmed
-  const shown = (fresh ? (result.members ?? []) : []).slice(0, 10)
+  const matchedMembers = fresh ? (result.members ?? []) : []
+  const shown = matchedMembers.slice(0, 10)
+
+  const renderPreviewBody = () => {
+    if (!trimmed) {
+      return <p className="text-sm text-fg-secondary">{t('console.principal_groups.condition_preview_idle')}</p>
+    }
+    if (!fresh) {
+      return <Skeleton className="h-6 w-2/3" />
+    }
+    if (result.error) {
+      return <p className="text-sm break-all text-destructive-fg">{result.error}</p>
+    }
+    return (
+      <div className="grid gap-2">
+        <p className="text-sm text-fg-secondary">
+          {t('console.principal_groups.condition_preview_matches', { count: matchedMembers.length })}
+        </p>
+        {shown.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {shown.map(member => (
+              <span
+                key={member.uid}
+                className="inline-flex items-center gap-1.5 border border-border-subtle bg-page px-2 py-1 text-xs">
+                <MemberAvatar member={member} />
+                <span className="max-w-40 truncate">{member.display_name ?? member.uid}</span>
+              </span>
+            ))}
+            {matchedMembers.length > shown.length ? (
+              <span className="text-xs text-fg-secondary">
+                {t('console.principal_groups.condition_preview_more', {
+                  count: matchedMembers.length - shown.length
+                })}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    )
+  }
 
   return (
     <div className="grid gap-3 border border-border-subtle bg-layer-03/30 p-4" aria-live="polite">
       <p className="text-sm font-medium">{t('console.principal_groups.condition_preview_title')}</p>
-      {!trimmed ? (
-        <p className="text-sm text-fg-secondary">{t('console.principal_groups.condition_preview_idle')}</p>
-      ) : !fresh ? (
-        <Skeleton className="h-6 w-2/3" />
-      ) : result.error ? (
-        <p className="text-sm break-all text-destructive-fg">{result.error}</p>
-      ) : (
-        <div className="grid gap-2">
-          <p className="text-sm text-fg-secondary">
-            {t('console.principal_groups.condition_preview_matches', { count: result.members?.length ?? 0 })}
-          </p>
-          {shown.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-2">
-              {shown.map(member => (
-                <span
-                  key={member.uid}
-                  className="inline-flex items-center gap-1.5 border border-border-subtle bg-page px-2 py-1 text-xs">
-                  <MemberAvatar member={member} />
-                  <span className="max-w-40 truncate">{member.display_name ?? member.uid}</span>
-                </span>
-              ))}
-              {(result.members?.length ?? 0) > shown.length ? (
-                <span className="text-xs text-fg-secondary">
-                  {t('console.principal_groups.condition_preview_more', {
-                    count: (result.members?.length ?? 0) - shown.length
-                  })}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      )}
+      {renderPreviewBody()}
     </div>
   )
 }
@@ -478,17 +494,86 @@ function GroupMembersSection({ group }: { group: PrincipalGroupRecord }) {
     onError: error => toast.error(principalGroupErrorMessage(t, error))
   })
 
+  const sectionNoteKey = synced
+    ? 'console.principal_groups.members_synced_note'
+    : group.kind === 'computed'
+      ? 'console.principal_groups.members_computed_note'
+      : 'console.principal_groups.members_section_description'
+
+  const renderMembersTable = () => {
+    if (members.error) return null
+    if (!members.isLoading && memberList.length === 0) {
+      return (
+        <p className="border border-border-subtle bg-page p-6 text-sm text-fg-secondary">
+          {t('console.principal_groups.members_empty')}
+        </p>
+      )
+    }
+    return (
+      <div className="overflow-x-auto border border-border-subtle bg-page">
+        <Table className="min-w-[560px]" aria-busy={members.isLoading}>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('console.principal_groups.member')}</TableHead>
+              <TableHead>{t('console.principal_groups.uid')}</TableHead>
+              <TableHead>{t('console.principal_groups.member_since')}</TableHead>
+              {manageable ? (
+                <TableHead className="w-0 text-right">
+                  <span className="sr-only">{t('console.actions')}</span>
+                </TableHead>
+              ) : null}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {members.isLoading ? (
+              <TableRow>
+                <TableCell colSpan={manageable ? 4 : 3}>
+                  <div className="grid gap-2">
+                    <Skeleton className="h-6 w-full" />
+                    <Skeleton className="h-6 w-4/5" />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              memberList.map(member => (
+                <TableRow key={member.uid}>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <MemberAvatar member={member} />
+                      <span className="truncate">{member.display_name ?? member.uid}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{member.uid}</TableCell>
+                  <TableCell>{formatConsoleDate(member.member_since)}</TableCell>
+                  {manageable ? (
+                    <TableCell className="w-12 text-right">
+                      <ConfirmDeleteButton
+                        pending={removeMember.isPending}
+                        confirm={{
+                          title: t('console.principal_groups.remove_member_title'),
+                          description: t('console.principal_groups.remove_member_description', {
+                            id: member.display_name ?? member.uid
+                          }),
+                          confirmLabel: t('console.principal_groups.remove_member')
+                        }}
+                        onConfirm={() => removeMember.mutate({ path: { name: group.name, principal_uid: member.uid } })}
+                      />
+                    </TableCell>
+                  ) : null}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    )
+  }
+
   return (
     <section className="grid gap-4">
       <div className="grid gap-1">
         <h3 className="title-section">{t('console.principal_groups.members_section_title')}</h3>
-        <p className="max-w-2xl text-sm leading-6 text-fg-secondary">
-          {synced
-            ? t('console.principal_groups.members_synced_note')
-            : group.kind === 'computed'
-              ? t('console.principal_groups.members_computed_note')
-              : t('console.principal_groups.members_section_description')}
-        </p>
+        <p className="max-w-2xl text-sm leading-6 text-fg-secondary">{t(sectionNoteKey)}</p>
       </div>
       {synced ? null : (
         <>
@@ -499,8 +584,7 @@ function GroupMembersSection({ group }: { group: PrincipalGroupRecord }) {
               emptyText={t('console.principal_groups.add_member_empty')}
               candidates={(principals.data ?? []).map(principal => ({
                 id: principal.id,
-                label: principalLabel(principal),
-                description: principal.email ?? principal.id
+                label: principalLabel(principal)
               }))}
               excludedIDs={new Set(memberList.map(member => member.uid))}
               error={principals.error}
@@ -510,70 +594,7 @@ function GroupMembersSection({ group }: { group: PrincipalGroupRecord }) {
             />
           ) : null}
           <ErrorBlock error={members.error} />
-          {!members.error && !members.isLoading && memberList.length === 0 ? (
-            <p className="border border-border-subtle bg-page p-6 text-sm text-fg-secondary">
-              {t('console.principal_groups.members_empty')}
-            </p>
-          ) : !members.error ? (
-            <div className="overflow-x-auto border border-border-subtle bg-page">
-              <Table className="min-w-[560px]" aria-busy={members.isLoading}>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('console.principal_groups.member')}</TableHead>
-                    <TableHead>{t('console.principal_groups.uid')}</TableHead>
-                    <TableHead>{t('console.principal_groups.member_since')}</TableHead>
-                    {manageable ? (
-                      <TableHead className="w-0 text-right">
-                        <span className="sr-only">{t('console.actions')}</span>
-                      </TableHead>
-                    ) : null}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {members.isLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={manageable ? 4 : 3}>
-                        <div className="grid gap-2">
-                          <Skeleton className="h-6 w-full" />
-                          <Skeleton className="h-6 w-4/5" />
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    memberList.map(member => (
-                      <TableRow key={member.uid}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <MemberAvatar member={member} />
-                            <span className="truncate">{member.display_name ?? member.uid}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">{member.uid}</TableCell>
-                        <TableCell>{formatConsoleDate(member.member_since)}</TableCell>
-                        {manageable ? (
-                          <TableCell className="w-12 text-right">
-                            <ConfirmDeleteButton
-                              pending={removeMember.isPending}
-                              confirm={{
-                                title: t('console.principal_groups.remove_member_title'),
-                                description: t('console.principal_groups.remove_member_description', {
-                                  id: member.display_name ?? member.uid
-                                }),
-                                confirmLabel: t('console.principal_groups.remove_member')
-                              }}
-                              onConfirm={() =>
-                                removeMember.mutate({ path: { name: group.name, principal_uid: member.uid } })
-                              }
-                            />
-                          </TableCell>
-                        ) : null}
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          ) : null}
+          {renderMembersTable()}
         </>
       )}
     </section>

@@ -17,6 +17,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
           required(:root) => String.t(),
           required(:manifest) => map(),
           required(:skills) => [map()],
+          required(:default_enabled) => boolean(),
           required(:has_workspace_template) => boolean()
         }
 
@@ -146,7 +147,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
   defp read_package(library_root, root, directory_name) do
     with {:ok, manifest} <- read_json_file(root, @manifest_path),
          :ok <- validate_manifest(manifest, directory_name, root),
-         {:ok, skills} <- read_skills(library_root, root, manifest) do
+         {:ok, {default_enabled, skills}} <- read_skills(library_root, root, manifest) do
       {:ok,
        %{
          id: Map.fetch!(manifest, "name"),
@@ -155,6 +156,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
          root: root,
          manifest: manifest,
          skills: skills,
+         default_enabled: default_enabled,
          has_workspace_template: File.dir?(Path.join(root, "workspace-template"))
        }}
     end
@@ -223,7 +225,8 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
         SkillSourceReader.read_skill_source(
           library_root,
           "library",
-          library_relative_path
+          library_relative_path,
+          default_enabled: false
         )
       end)
       |> Ankole.Attrs.collect_results()
@@ -234,19 +237,21 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
         {:ok, skills} ->
           agent_plugin_id = Map.fetch!(manifest, "name")
           version = Map.fetch!(manifest, "version")
+          default_enabled = Enum.any?(skills, & &1.default_enabled)
 
           {:ok,
-           Enum.map(skills, fn skill ->
-             %{
-               skill
-               | default_enabled: true,
-                 metadata:
-                   skill.metadata
-                   |> Map.put("agent_plugin_id", agent_plugin_id)
-                   |> Map.put("agent_plugin_version", version)
-                   |> Map.put("skill_root", "library")
-             }
-           end)}
+           {default_enabled,
+            Enum.map(skills, fn skill ->
+              %{
+                skill
+                | default_enabled: true,
+                  metadata:
+                    skill.metadata
+                    |> Map.put("agent_plugin_id", agent_plugin_id)
+                    |> Map.put("agent_plugin_version", version)
+                    |> Map.put("skill_root", "library")
+              }
+            end)}}
 
         {:error, _reason} = error ->
           error

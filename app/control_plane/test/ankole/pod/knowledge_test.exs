@@ -324,4 +324,41 @@ defmodule Ankole.Pod.KnowledgeTest do
     assert overview =~ "Mermaid block: 15 lines. Read the full page for the diagram."
     refute overview =~ "Step 15"
   end
+
+  test "pod_list_pages with scope shared lists pages directly shared from another user's Private section",
+       ctx do
+    agent = agent_fixture(%{owner_principal_uid: ctx.owner.uid}).principal
+    agent_actor = actor_fixture(agent)
+
+    {:ok, private_doc} =
+      Pages.create(ctx.actor, %{
+        type: :doc,
+        section: :private,
+        title: "Vendor NDA Draft",
+        xml: "<page><p>Confidential NDA</p></page>"
+      })
+
+    request = Ankole.Brain.Tools.Context.for_subject(agent.uid)
+
+    assert {:ok, []} =
+             Ankole.Pod.AgentPages.children(agent_actor, request, nil, %{"scope" => "shared"})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, private_doc.id, %{
+        grants: [
+          %{principal_uid: ctx.owner.uid, role: "manage"},
+          %{principal_uid: agent.uid, role: "view"}
+        ]
+      })
+
+    assert {:ok, [%{id: id, title: "Vendor NDA Draft"}]} =
+             Ankole.Pod.AgentPages.children(agent_actor, request, nil, %{"scope" => "shared"})
+
+    assert id == private_doc.id
+
+    list_decl =
+      Enum.find(Ankole.Sessions.Tools.Pod.declarations(), &(&1["name"] == "pod_list_pages"))
+
+    assert "shared" in list_decl["parameters"]["properties"]["scope"]["enum"]
+  end
 end

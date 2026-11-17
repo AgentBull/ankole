@@ -32,6 +32,12 @@ defmodule Ankole.Principals.Agent.Actions do
     |> Ankole.Errors.wrap(&AgentConsole.rejection/1)
   end
 
+  defp action(:console_disable, input, _context) do
+    input.arguments.uid
+    |> AgentConsole.disable_in_tx()
+    |> Ankole.Errors.wrap(&AgentConsole.rejection/1)
+  end
+
   defp action(:console_delete, input, _context) do
     input.arguments.uid
     |> AgentConsole.delete_in_tx()

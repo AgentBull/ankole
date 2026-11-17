@@ -8,6 +8,7 @@ import { Input } from './input'
 import { Separator } from './separator'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './sheet'
 import { Skeleton } from './skeleton'
+import { useScrollFadeRef } from './scroll-fade'
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip'
 import { SidebarContext, type SidebarContextProps, useSidebar } from './sidebar-context'
 import { useIsMobile } from '../hooks/use-mobile'
@@ -456,13 +457,15 @@ function SidebarSeparator({ className, ...props }: React.ComponentProps<typeof S
 }
 
 /** The rows between the header and the footer. They scroll on their own, with the thin thumb of a scrolling menu. */
-function SidebarContent({ className, ...props }: React.ComponentProps<'div'>) {
+function SidebarContent({ className, ref, ...props }: React.ComponentProps<'div'>) {
+  const scrollFadeRef = useScrollFadeRef<HTMLDivElement>('y', ref)
   return (
     <div
+      ref={scrollFadeRef}
       data-slot="sidebar-content"
       data-sidebar="content"
       className={cn(
-        'flex min-h-0 flex-1 flex-col overflow-auto menu-scrollbar group-data-[collapsible=icon]:overflow-hidden',
+        'flex min-h-0 flex-1 flex-col overflow-auto scroll-fade-y menu-scrollbar group-data-[collapsible=icon]:overflow-hidden',
         className
       )}
       {...props}

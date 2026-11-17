@@ -13,12 +13,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   @behaviour WebSock
 
   alias Ankole.AIGateway
-  alias Ankole.Sessions.CodexModelBinding
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.ResponseStream
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Logging
   alias Ankole.OIDC.Grant
+  alias Ankole.Sessions.CodexModelBinding
 
   @socket_response_history_limit 32
 
@@ -27,7 +27,17 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
         %{subject_uid: _subject_uid, subject_type: _subject_type, tenant_id: tenant_id} = state
       ) do
     Ankole.Repo.put_tenant_id(tenant_id)
-    {:ok, state}
+    socket_session_id = UUIDv7.autogenerate()
+
+    request_context =
+      state
+      |> Map.get(:request_context, %{})
+      |> Map.put("socket_session_id", socket_session_id)
+
+    {:ok,
+     state
+     |> Map.put(:socket_session_id, socket_session_id)
+     |> Map.put(:request_context, request_context)}
   end
 
   @impl WebSock
@@ -184,7 +194,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   @impl WebSock
   def terminate(
         reason,
-        %{subject_uid: subject_uid, active_stream: %{stream: stream} = active_stream}
+        %{subject_uid: subject_uid, active_stream: %{stream: stream} = active_stream} = state
       ) do
     Logging.warning(
       "ai_gateway.responses_socket_interrupted",
@@ -199,10 +209,25 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     )
 
     _ = AIGateway.cancel_response_stream(stream, "socket_terminated")
+    evict_socket_continuation_scope(state)
     :ok
   end
 
-  def terminate(_reason, _state), do: :ok
+  def terminate(_reason, state) do
+    evict_socket_continuation_scope(state)
+    :ok
+  end
+
+  defp evict_socket_continuation_scope(%{
+         tenant_id: tenant_id,
+         subject_uid: subject_uid,
+         socket_session_id: socket_session_id
+       })
+       when not is_nil(tenant_id) and is_binary(subject_uid) and is_binary(socket_session_id) do
+    AIGateway.evict_socket_session(tenant_id, subject_uid, socket_session_id)
+  end
+
+  defp evict_socket_continuation_scope(_state), do: :ok
 
   defp open_active_stream(state, request, authorization) do
     case safe_open_websocket_stream(state, request, authorization) do

@@ -29,6 +29,8 @@ function pageURL(id: string, title?: string): string {
 
 function pageDetail(id: string, title: string, type: PageDetail['page']['type']): PageDetail {
   return {
+    bindings: {},
+    bindings_digest: '',
     page: {
       id,
       name: title,

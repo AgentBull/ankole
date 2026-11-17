@@ -23,8 +23,22 @@ defmodule Ankole.Migrations do
 
     case direction do
       :up ->
-        Ankole.CredentialUpgrade.preflight!(repo)
-        Ankole.Upgrade202610.migrate(repo, paths, :up, opts)
+        if repo == Ankole.Repo and not Keyword.has_key?(opts, :migrations_path) do
+          Ankole.CredentialUpgrade.ensure_not_unmigrated_1x!(repo)
+        end
+
+        migrated = Ecto.Migrator.run(repo, paths, :up, opts)
+
+        if repo == Ankole.Repo and 20_261_103_020_000 in migrated do
+          Ankole.Brain.Namespace.ensure_initial_meta_namespaces()
+        end
+
+        Process.put(
+          :ankole_migrated_versions,
+          List.wrap(Process.get(:ankole_migrated_versions)) ++ migrated
+        )
+
+        migrated
 
       :down ->
         Ecto.Migrator.run(repo, paths, :down, opts)

@@ -110,6 +110,11 @@ pub(super) fn valid_value(name: &str, key: &str, value: &str) -> bool {
         "view" if name == "media" => ["link", "title", "card", "preview"].contains(&value),
         "kind" if name == "media" => ["image", "video"].contains(&value),
         "height" if name == "embed" => integer_text(value, 160, 1600),
+        "props" if name == "embed" => {
+            value.len() <= 16 * 1024
+                && serde_json::from_str::<serde_json::Value>(value)
+                    .is_ok_and(|value| value.is_object())
+        }
         "theme" if is_source_diagram_tag(name) => DIAGRAM_THEMES.contains(&value),
         "page" | "principal" if name == "mention" => !value.is_empty(),
         _ => true,
@@ -133,7 +138,15 @@ fn allowed_attribute(name: &str, key: &str) -> bool {
         "callout" => matches!(key, "tone" | "icon"),
         "embed" => matches!(
             key,
-            "ref" | "table" | "view" | "href" | "title" | "description" | "image" | "height"
+            "ref"
+                | "table"
+                | "view"
+                | "href"
+                | "title"
+                | "description"
+                | "image"
+                | "height"
+                | "props"
         ),
         "media" => matches!(
             key,

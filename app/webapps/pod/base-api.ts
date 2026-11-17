@@ -1,11 +1,12 @@
 import { t } from 'i18next'
 import { withRecordIDs } from '@ankole/applet-sdk/records'
-import type { QueryClient } from '@tanstack/react-query'
+import type { InfiniteData, QueryClient } from '@tanstack/react-query'
 import type {
   AggregateQuery,
   AggregateResult,
   BaseAPI,
   BaseField,
+  BaseRecord,
   BaseView,
   RecordQuery,
   RecordWrite,
@@ -20,6 +21,7 @@ import { isRealtimeAccessDenied, type PodRealtime, type TopicHandle } from './re
 import { InternalAPIError } from '../common/internal-api-client'
 import { requestErrorCode } from '../common/request-errors'
 import { canAggregateLocally, canQueryLocally } from './state/local-query'
+import { INFINITE_RECORDS_SEGMENT } from './use-infinite-base-records'
 
 import {
   podBaseTables,
@@ -73,6 +75,165 @@ export const baseHTTP = {
 }
 
 const tableKey = (tableID: string) => [...contentKeys.all, 'table', tableID]
+
+type CachedInfiniteRecords = InfiniteData<RecordsResult, string | undefined>
+
+function queryReferencedFields(query: RecordQuery): Set<string> {
+  const referenced = new Set<string>()
+  for (const condition of query.filter?.conditions ?? []) referenced.add(condition.field_id)
+  for (const sort of query.sort ?? []) referenced.add(sort.field_id)
+  const slices = [
+    ...(Array.isArray(query.group) ? query.group : query.group ? [query.group] : []),
+    ...(query.groups ?? [])
+  ]
+  for (const slice of slices) referenced.add(slice.field_id)
+  return referenced
+}
+
+function queryUsesVolatileOrderingOrSearch(query: RecordQuery, fields: readonly BaseField[] | undefined): boolean {
+  if (query.search && query.search.trim() !== '') return true
+  if (!fields) return false
+  const byID = new Map(fields.map(field => [field.id, field]))
+  for (const fieldID of queryReferencedFields(query)) {
+    const field = byID.get(fieldID)
+    if (!field) return true
+    if (
+      field.type === 'formula' ||
+      field.type === 'updated_at' ||
+      field.type === 'updated_by' ||
+      field.config.volatile
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+function isInfiniteQueryCurrentForEvent(
+  querySpec: RecordQuery,
+  data: CachedInfiniteRecords | undefined,
+  event: TableEvent,
+  fields: readonly BaseField[] | undefined
+): boolean {
+  return (
+    !event.schema_changed &&
+    !event.resync &&
+    event.data_version !== undefined &&
+    !queryUsesVolatileOrderingOrSearch(querySpec, fields) &&
+    Boolean(data?.pages.length) &&
+    data!.pages.every(page => page.data_version >= event.data_version!)
+  )
+}
+
+export function trimInfiniteRecordQueriesToFirstPage(
+  client: QueryClient,
+  prefix: readonly unknown[],
+  shouldSkip?: (querySpec: RecordQuery, data: CachedInfiniteRecords) => boolean
+) {
+  for (const entry of client.getQueryCache().findAll({ queryKey: [...prefix, INFINITE_RECORDS_SEGMENT] })) {
+    const data = entry.state.data as CachedInfiniteRecords | undefined
+    if (data && data.pages.length > 1) {
+      const querySpec = (entry.queryKey[prefix.length + 1] ?? {}) as RecordQuery
+      if (shouldSkip?.(querySpec, data)) continue
+      client.setQueryData<CachedInfiniteRecords>(entry.queryKey, {
+        pages: data.pages.slice(0, 1),
+        pageParams: data.pageParams.slice(0, 1)
+      })
+    }
+  }
+}
+
+export function reconcileInfiniteRecordQueries(
+  client: QueryClient,
+  prefix: readonly unknown[],
+  options: {
+    fields?: readonly BaseField[]
+    updatedRecords: readonly BaseRecord[]
+    deletedIDs: readonly string[]
+    dataVersion: number
+    forceRefetch?: boolean
+    touchedFields?: ReadonlySet<string>
+  }
+): Set<string> {
+  const refetchHashes = new Set<string>()
+  const updatedByID = new Map(options.updatedRecords.map(record => [record.id, record]))
+  const deletedSet = new Set(options.deletedIDs)
+
+  for (const entry of client.getQueryCache().findAll({ queryKey: [...prefix, INFINITE_RECORDS_SEGMENT] })) {
+    const data = entry.state.data as CachedInfiniteRecords | undefined
+    if (!data || data.pages.length === 0) {
+      refetchHashes.add(entry.queryHash)
+      continue
+    }
+    const querySpec = (entry.queryKey[prefix.length + 1] ?? {}) as RecordQuery
+    if (
+      !options.forceRefetch &&
+      !queryUsesVolatileOrderingOrSearch(querySpec, options.fields) &&
+      data.pages.every(page => page.data_version >= options.dataVersion)
+    ) {
+      continue
+    }
+    const existingByID = new Map<string, BaseRecord>()
+    for (const page of data.pages) {
+      for (const record of page.records) existingByID.set(record.id, record)
+    }
+
+    const referenced = queryReferencedFields(querySpec)
+    let orderOrMembershipChanged =
+      Boolean(options.forceRefetch) ||
+      data.pages.some(page => page.data_version + 1 !== options.dataVersion) ||
+      queryUsesVolatileOrderingOrSearch(querySpec, options.fields)
+
+    if (!orderOrMembershipChanged && options.touchedFields) {
+      for (const fieldID of options.touchedFields) {
+        if (referenced.has(fieldID)) {
+          orderOrMembershipChanged = true
+          break
+        }
+      }
+    }
+
+    if (!orderOrMembershipChanged) {
+      for (const record of options.updatedRecords) {
+        const previous = existingByID.get(record.id)
+        if (!previous) {
+          orderOrMembershipChanged = true
+          break
+        }
+        for (const fieldID of referenced) {
+          if (JSON.stringify(previous.data[fieldID] ?? null) !== JSON.stringify(record.data[fieldID] ?? null)) {
+            orderOrMembershipChanged = true
+            break
+          }
+        }
+        if (orderOrMembershipChanged) break
+      }
+    }
+
+    if (orderOrMembershipChanged) {
+      if (data.pages.length > 1) {
+        client.setQueryData<CachedInfiniteRecords>(entry.queryKey, {
+          pages: data.pages.slice(0, 1),
+          pageParams: data.pageParams.slice(0, 1)
+        })
+      }
+      refetchHashes.add(entry.queryHash)
+      continue
+    }
+
+    client.setQueryData<CachedInfiniteRecords>(entry.queryKey, {
+      ...data,
+      pages: data.pages.map(page => ({
+        ...page,
+        data_version: options.dataVersion,
+        records: page.records
+          .filter(record => !deletedSet.has(record.id))
+          .map(record => updatedByID.get(record.id) ?? record)
+      }))
+    })
+  }
+  return refetchHashes
+}
 
 export const baseTablesQuery = (pageID: string) => ({
   queryKey: [...contentKeys.page(pageID), 'tables'],
@@ -185,10 +346,42 @@ export function createBaseAPI(client: QueryClient, realtime: PodRealtime): BaseA
       return result
     },
     async write(tableID, changes) {
+      const prefix = key(tableID)
+      let result: WriteResult | undefined
       try {
-        return await baseHTTP.write(tableID, changes)
+        result = await baseHTTP.write(tableID, changes)
+        return result
       } finally {
-        await client.invalidateQueries({ queryKey: key(tableID) })
+        const definition = client.getQueryData<TableSchema>([...prefix, 'schema'])
+        if (result) {
+          if (definition && definition.table.data_version < result.data_version) {
+            client.setQueryData<TableSchema>([...prefix, 'schema'], {
+              ...definition,
+              table: { ...definition.table, data_version: result.data_version }
+            })
+          }
+          const touchedFields = new Set<string>()
+          for (const update of changes.updates ?? []) {
+            for (const fieldID of Object.keys(update.data)) touchedFields.add(fieldID)
+          }
+          const forceRefetch = Boolean(changes.creates?.length || changes.upserts?.length)
+          const refetchHashes = reconcileInfiniteRecordQueries(client, prefix, {
+            fields: definition?.fields,
+            updatedRecords: result.records,
+            deletedIDs: result.deleted_ids,
+            dataVersion: result.data_version,
+            forceRefetch,
+            touchedFields
+          })
+          await client.invalidateQueries({
+            queryKey: prefix,
+            predicate: query =>
+              query.queryKey[prefix.length] !== INFINITE_RECORDS_SEGMENT || refetchHashes.has(query.queryHash)
+          })
+        } else {
+          trimInfiniteRecordQueriesToFirstPage(client, prefix)
+          await client.invalidateQueries({ queryKey: prefix })
+        }
       }
     },
     subscribe(tableID, callback) {
@@ -220,8 +413,23 @@ export function createBaseAPI(client: QueryClient, realtime: PodRealtime): BaseA
             return
           }
           if (version !== actual || definition?.fields.some(field => field.config.volatile)) {
-            void client.invalidateQueries({ queryKey: key(tableID) })
-            for (const notify of owned.callbacks) notify({ data_version: version })
+            const prefix = key(tableID)
+            const versionEvent: TableEvent = { data_version: version }
+            const isCurrentInfinite = (querySpec: RecordQuery, data: CachedInfiniteRecords | undefined) =>
+              isInfiniteQueryCurrentForEvent(querySpec, data, versionEvent, definition?.fields)
+            trimInfiniteRecordQueriesToFirstPage(client, prefix, isCurrentInfinite)
+            void client.invalidateQueries({
+              queryKey: prefix,
+              predicate: query => {
+                if (query.queryKey[prefix.length] === INFINITE_RECORDS_SEGMENT) {
+                  const data = query.state.data as CachedInfiniteRecords | undefined
+                  const querySpec = (query.queryKey[prefix.length + 1] ?? {}) as RecordQuery
+                  if (isCurrentInfinite(querySpec, data)) return false
+                }
+                return true
+              }
+            })
+            for (const notify of owned.callbacks) notify(versionEvent)
           }
         })
         void realtime
@@ -239,38 +447,77 @@ export function createBaseAPI(client: QueryClient, realtime: PodRealtime): BaseA
               owned.timer = setTimeout(async () => {
                 const current = () => active() && change === owned.change
                 const snapshotKey = [...key(tableID), 'snapshot']
+                const prefix = key(tableID)
+                let fetchedUpdate: RecordsResult | undefined
+                let loadedDefinition: TableSchema | undefined
                 try {
                   // The server owns both row and byte limits. A write can change the mode.
                   const definition = await client.fetchQuery({
-                    queryKey: [...key(tableID), 'schema'],
+                    queryKey: [...prefix, 'schema'],
                     queryFn: ({ signal }) => baseHTTP.schema(tableID, signal),
                     staleTime: 0
                   })
+                  loadedDefinition = definition
                   if (!current()) return
-                  const previous = client.getQueryData<RecordsResult>(snapshotKey)
-                  if (
+                  const changedIDs = event.changed_ids ?? []
+                  const infiniteEntries = client
+                    .getQueryCache()
+                    .findAll({ queryKey: [...prefix, INFINITE_RECORDS_SEGMENT] })
+                  const hasPatchableInfinite =
+                    event.data_version !== undefined &&
+                    infiniteEntries.some(entry => {
+                      const data = entry.state.data as CachedInfiniteRecords | undefined
+                      const querySpec = (entry.queryKey[prefix.length + 1] ?? {}) as RecordQuery
+                      if (isInfiniteQueryCurrentForEvent(querySpec, data, event, definition.fields)) return false
+                      return Boolean(
+                        data &&
+                        data.pages.length > 0 &&
+                        data.pages.every(page => page.data_version + 1 === event.data_version)
+                      )
+                    })
+                  const isSnapshotCurrent = (snap: RecordsResult | undefined) =>
                     definition.mode === 'local' &&
-                    previous &&
-                    event.data_version === previous.data_version + 1 &&
+                    !event.schema_changed &&
+                    !event.resync &&
+                    event.data_version !== undefined &&
+                    Boolean(snap?.complete) &&
+                    snap!.data_version >= event.data_version
+                  const previous = client.getQueryData<RecordsResult>(snapshotKey)
+                  const canPatchLocal =
+                    definition.mode === 'local' &&
+                    Boolean(previous) &&
+                    !isSnapshotCurrent(previous) &&
+                    event.data_version === previous!.data_version + 1 &&
                     definition.table.data_version === event.data_version &&
                     !event.schema_changed &&
                     !event.resync
-                  ) {
-                    const changedIDs = event.changed_ids ?? []
-                    const update = changedIDs.length
+                  const canPatchInfinite =
+                    hasPatchableInfinite &&
+                    !event.schema_changed &&
+                    !event.resync &&
+                    definition.table.data_version === event.data_version &&
+                    changedIDs.length <= 200
+
+                  if (canPatchLocal || canPatchInfinite) {
+                    fetchedUpdate = changedIDs.length
                       ? await baseHTTP.query(tableID, { ids: changedIDs })
-                      : { records: [], data_version: event.data_version, complete: true, page_token: null }
-                    // A late response must not replace a newer snapshot, or restore revoked data.
-                    if (!current()) return
+                      : { records: [], data_version: event.data_version!, complete: true, page_token: null }
+                  }
+                  if (!current()) return
+
+                  if (canPatchLocal && previous && fetchedUpdate) {
                     const unchanged = client.getQueryData(snapshotKey) === previous
                     if (
                       unchanged &&
-                      update.complete &&
-                      !update.page_token &&
-                      update.data_version === event.data_version
+                      fetchedUpdate.complete &&
+                      !fetchedUpdate.page_token &&
+                      fetchedUpdate.data_version === event.data_version
                     ) {
                       const removed = new Set([...(event.deleted_ids ?? []), ...changedIDs])
-                      const records = [...previous.records.filter(record => !removed.has(record.id)), ...update.records]
+                      const records = [
+                        ...previous.records.filter(record => !removed.has(record.id)),
+                        ...fetchedUpdate.records
+                      ]
                       client.setQueryData(snapshotKey, {
                         ...previous,
                         records,
@@ -279,16 +526,63 @@ export function createBaseAPI(client: QueryClient, realtime: PodRealtime): BaseA
                     } else if (unchanged) await client.invalidateQueries({ queryKey: snapshotKey, exact: true })
                   } else if (definition.mode === 'remote') {
                     client.removeQueries({ queryKey: snapshotKey, exact: true })
-                  } else await client.invalidateQueries({ queryKey: snapshotKey, exact: true })
+                  } else if (!isSnapshotCurrent(client.getQueryData<RecordsResult>(snapshotKey))) {
+                    await client.invalidateQueries({ queryKey: snapshotKey, exact: true })
+                  }
                 } catch {
                   if (current()) await client.invalidateQueries({ queryKey: snapshotKey, exact: true })
                 }
                 if (current()) {
-                  const tableKey = key(tableID)
+                  const knownFields = (loadedDefinition ?? client.getQueryData<TableSchema>([...prefix, 'schema']))
+                    ?.fields
+                  const isCurrentInfinite = (querySpec: RecordQuery, data: CachedInfiniteRecords | undefined) =>
+                    isInfiniteQueryCurrentForEvent(querySpec, data, event, knownFields)
+                  let refetchInfiniteHashes: Set<string> | undefined
+                  if (
+                    fetchedUpdate &&
+                    fetchedUpdate.complete &&
+                    !fetchedUpdate.page_token &&
+                    fetchedUpdate.data_version === event.data_version &&
+                    loadedDefinition?.table.data_version === event.data_version &&
+                    !event.schema_changed &&
+                    !event.resync &&
+                    event.data_version !== undefined
+                  ) {
+                    refetchInfiniteHashes = reconcileInfiniteRecordQueries(client, prefix, {
+                      fields: loadedDefinition.fields,
+                      updatedRecords: fetchedUpdate.records,
+                      deletedIDs: event.deleted_ids ?? [],
+                      dataVersion: event.data_version
+                    })
+                  } else {
+                    trimInfiniteRecordQueriesToFirstPage(client, prefix, isCurrentInfinite)
+                  }
+                  const canKeepCurrentVersion =
+                    !event.schema_changed &&
+                    !event.resync &&
+                    event.data_version !== undefined &&
+                    !knownFields?.some(field => field.config.volatile)
                   void client.invalidateQueries({
-                    queryKey: tableKey,
-                    predicate: query =>
-                      query.queryKey[tableKey.length] === 'records' || query.queryKey[tableKey.length] === 'aggregate'
+                    queryKey: prefix,
+                    predicate: query => {
+                      const segment = query.queryKey[prefix.length]
+                      if (segment === 'records' || segment === 'aggregate') {
+                        if (canKeepCurrentVersion) {
+                          const cached = query.state.data as { data_version?: number } | undefined
+                          if (typeof cached?.data_version === 'number' && cached.data_version >= event.data_version!) {
+                            return false
+                          }
+                        }
+                        return true
+                      }
+                      if (segment === INFINITE_RECORDS_SEGMENT) {
+                        const data = query.state.data as CachedInfiniteRecords | undefined
+                        const querySpec = (query.queryKey[prefix.length + 1] ?? {}) as RecordQuery
+                        if (isCurrentInfinite(querySpec, data)) return false
+                        return refetchInfiniteHashes ? refetchInfiniteHashes.has(query.queryHash) : true
+                      }
+                      return false
+                    }
                   })
                   for (const notify of owned.callbacks) notify(event)
                 }

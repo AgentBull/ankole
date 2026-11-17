@@ -174,9 +174,68 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
     end
   end
 
-  for operation <- [:query, :copy], revocation <- [:wildcard, :membership] do
-    test "#{operation} checks #{revocation} revocation after waiting for the table lock", ctx do
-      operation = unquote(operation)
+  for revocation <- [:wildcard, :membership] do
+    test "inline query reads a non-blocking snapshot during uncommitted write and enforces #{revocation} revocation after commit",
+         ctx do
+      revoker = prepare_revocation(unquote(revocation), ctx)
+
+      {:ok, page} =
+        Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{type: "base"})
+
+      {:ok, table} =
+        Bases.create_table(
+          Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+          page.id,
+          %{}
+        )
+
+      field = hd(Bases.fields(table.id))
+      parent = self()
+
+      writer =
+        Task.async(
+          Repo.bind_tenant(fn ->
+            Repo.transact(fn ->
+              {:ok, _} = revoker.()
+
+              {:ok, _} =
+                Bases.write_records_in_tx(
+                  Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+                  table.id,
+                  %{
+                    creates: [%{data: %{field.id => "Revoked secret"}}]
+                  }
+                )
+
+              send(parent, :secret_uncommitted)
+              receive do: (:commit -> {:ok, :written})
+            end)
+          end)
+        )
+
+      assert_receive :secret_uncommitted, 5_000
+
+      # Inline query runs in REPEATABLE READ, READ ONLY without FOR SHARE: it
+      # returns the pre-commit snapshot immediately without blocking on writer
+      # and never leaks the uncommitted secret.
+      assert {:ok, %{records: []}} = read_operation(:query, ctx.viewer.uid, table.id)
+
+      send(writer.pid, :commit)
+      assert {:ok, :written} = Task.await(writer, 5_000)
+
+      assert {:error, :forbidden} = read_operation(:query, ctx.viewer.uid, table.id)
+
+      assert {:ok, %{records: [record]}} =
+               Bases.query(
+                 Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+                 table.id,
+                 %{}
+               )
+
+      assert record["data"][field.id] == "Revoked secret"
+    end
+
+    test "copy checks #{revocation} revocation after waiting for the table lock", ctx do
       revoker = prepare_revocation(unquote(revocation), ctx)
 
       {:ok, page} =
@@ -220,7 +279,7 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
           Repo.bind_tenant(fn ->
             Repo.checkout(fn ->
               send(parent, {:reader_started, backend_pid()})
-              read_operation(operation, ctx.viewer.uid, table.id)
+              read_operation(:copy, ctx.viewer.uid, table.id)
             end)
           end)
         )
@@ -230,15 +289,6 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
       send(writer.pid, :commit)
       assert {:ok, :written} = Task.await(writer, 5_000)
       assert {:error, :forbidden} = Task.await(reader, 5_000)
-
-      assert {:ok, %{records: [record]}} =
-               Bases.query(
-                 Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
-                 table.id,
-                 %{}
-               )
-
-      assert record["data"][field.id] == "Revoked secret"
     end
   end
 
@@ -385,6 +435,7 @@ defmodule Ankole.Pod.ReadConcurrencyTest do
         Repo.bind_tenant(fn ->
           Repo.checkout(fn ->
             send(parent, {:delete_started, backend_pid()})
+            {:ok, %{status: :disabled}} = Ankole.Principals.disable_agent(agent.uid)
             Ankole.Principals.delete_agent(agent.uid)
           end)
         end)

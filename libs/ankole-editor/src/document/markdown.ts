@@ -5,6 +5,7 @@ import type {
   Definition,
   List,
   ListItem,
+  Literal,
   Nodes,
   Paragraph,
   PhrasingContent,
@@ -33,9 +34,26 @@ import { prepareTags, type PreparedSource } from './tags'
 import { checkSource, DocumentError, element, text, textOf, TreeError, type Element, type Node } from './tree'
 import { ruleOf } from './vocabulary'
 
+declare module 'mdast' {
+  interface BareUrlNode extends Literal {
+    type: 'bareUrl'
+  }
+  interface RawNode extends Literal {
+    type: 'raw'
+  }
+  interface PhrasingContentMap {
+    bareUrl: BareUrlNode
+    raw: RawNode
+  }
+  interface RootContentMap {
+    bareUrl: BareUrlNode
+    raw: RawNode
+  }
+}
+
 const syntax = [
   gfm(),
-  // A formula block always uses `$$`; a single `$` stays literal text.
+  // Display and inline formulas always use `$$`; a single `$` stays literal text.
   math({ singleDollarTextMath: false }),
   mdxJsx(),
   mdxMd(),
@@ -86,7 +104,8 @@ export function readMarkdownTree(
       prepared.original(range[0]),
       prepared.original(range[1]),
       error.fix,
-      source
+      source,
+      error.code
     )
   }
 }
@@ -111,14 +130,15 @@ function syntaxError(error: unknown, prepared: PreparedSource, source: string) {
   if (unclosed) {
     return new DocumentError(
       'markdown',
-      `标签 <${unclosed[1]}> 没有闭合`,
+      `The tag <${unclosed[1]}> is not closed`,
       at,
       at,
       // A tag that opens inside a paragraph must close in the same paragraph.
       /before the end of `paragraph`/.test(reason)
-        ? `请在同一段里写 </${unclosed[1]}>：开始和结束标签之间不能有空行，也不能有单独成行的标签。如果这里是文字，请把 < 写成 &lt;。`
-        : `请在内容后写 </${unclosed[1]}>；如果这里是文字，请把 < 写成 &lt;。`,
-      source
+        ? `Close it with </${unclosed[1]}> in the same paragraph without blank lines or block tags in between, or write &lt; for a literal <.`
+        : `Add </${unclosed[1]}> after the content, or write &lt; for a literal <.`,
+      source,
+      'unclosed_tag'
     )
   }
   const mismatch = /^Unexpected closing tag `<\/([^>]*)>`, expected corresponding closing tag for `<([^>]*)>`/.exec(
@@ -127,39 +147,60 @@ function syntaxError(error: unknown, prepared: PreparedSource, source: string) {
   if (mismatch) {
     return new DocumentError(
       'markdown',
-      `结束标签 </${mismatch[1]}> 与开始标签 <${mismatch[2]}> 不匹配`,
+      `The closing tag </${mismatch[1]}> does not match the opening tag <${mismatch[2]}>`,
       at,
       at,
-      `请把它改成 </${mismatch[2]}>。`,
-      source
+      `Change it to </${mismatch[2]}>.`,
+      source,
+      'mismatched_closing_tag'
     )
   }
   if (message.ruleId === 'unexpected-closing-slash') {
-    return new DocumentError('markdown', '结束标签前没有对应的开始标签', at, at, '请删除它，或补上开始标签。', source)
+    return new DocumentError(
+      'markdown',
+      'Closing tag has no matching opening tag',
+      at,
+      at,
+      'Remove it or add the matching opening tag.',
+      source,
+      'unexpected_closing_tag'
+    )
   }
   const level = /^Expected the closing tag `<\/([^>]*)>` either after the end of/.exec(reason)
   if (level) {
     return new DocumentError(
       'markdown',
-      `结束标签 </${level[1]}> 和开始标签不在同一层`,
+      `The closing tag </${level[1]}> is not at the same block/inline level as its opening tag`,
       at,
       at,
-      '开始标签单独成行时，结束标签也要单独成行；否则把两个标签写在同一段里。',
-      source
+      'Put both tags on their own lines, or keep both tags inside the same paragraph.',
+      source,
+      'misaligned_closing_tag'
     )
   }
   const character = /^Unexpected character .*? \(U\+([0-9A-F]+)\)/.exec(reason)
   if (character || message.ruleId === 'unexpected-eof') {
     return new DocumentError(
       'markdown',
-      character ? `标签中不能有字符 ${String.fromCodePoint(parseInt(character[1]!, 16))}` : '标签没有写完',
+      character
+        ? `A tag cannot contain the character ${String.fromCodePoint(parseInt(character[1]!, 16))}`
+        : 'The tag is incomplete',
       at,
       at,
-      '请检查标签名和属性的写法；如果这里是文字，请把 < 写成 &lt;。',
-      source
+      'Check the tag name and attributes, or write &lt; for a literal <.',
+      source,
+      'invalid_tag_syntax'
     )
   }
-  return new DocumentError('markdown', `标签语法错误（${reason}）`, at, at, '请检查这个标签的写法。', source)
+  return new DocumentError(
+    'markdown',
+    `Tag syntax error (${reason})`,
+    at,
+    at,
+    'Check how this tag is written.',
+    source,
+    'invalid_tag_syntax'
+  )
 }
 
 function offsetAt(source: string, line: number, column: number) {
@@ -233,7 +274,12 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>, mode:
         return [ruleOf(created.name)?.kind === 'inline' ? at(element('p', {}, [created]), node) : created]
       }
       default:
-        throw new TreeError(`不支持的 Markdown 结构 ${node.type}`, at(element('unsupported'), node))
+        throw new TreeError(
+          `Unsupported Markdown construct ${node.type}`,
+          at(element('unsupported'), node),
+          '',
+          'unsupported_syntax'
+        )
     }
   }
 
@@ -326,11 +372,7 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>, mode:
         case 'inlineCode':
           return [at(element('code', {}, [text(node.value)]), node)]
         case 'inlineMath':
-          throw new TreeError(
-            '行内公式暂不支持',
-            at(element('unsupported'), node),
-            '请把 $$…$$ 单独写成一段，让它成为公式块。'
-          )
+          return [at(element('inline-math', {}, node.value ? [text(node.value)] : []), node)]
         case 'break':
           return [at(element('br'), node)]
         case 'link':
@@ -349,7 +391,12 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>, mode:
         case 'mdxJsxTextElement':
           return [jsx(node)]
         default:
-          throw new TreeError(`不支持的 Markdown 结构 ${node.type}`, at(element('unsupported'), node))
+          throw new TreeError(
+            `Unsupported Markdown construct ${node.type}`,
+            at(element('unsupported'), node),
+            '',
+            'unsupported_syntax'
+          )
       }
     })
   }
@@ -363,20 +410,36 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>, mode:
 
   function jsx(node: MdxJsxFlowElement | MdxJsxTextElement): Element {
     const created = at(element(node.name ?? '', {}), node)
-    if (node.name === null) throw new TreeError('页面不支持片段 <>…</>', created, '请写出元素名。')
+    if (node.name === null) {
+      throw new TreeError(
+        'Pages do not allow <>…</> fragments',
+        created,
+        'Provide an element name.',
+        'unsupported_syntax'
+      )
+    }
     created.attrs = attributes(node, created)
     const rule = ruleOf(node.name)
     if (node.type === 'mdxJsxTextElement') {
-      created.children = inline(node.children)
-      // A block element written on one line holds its inline content in a paragraph.
-      if (rule?.content === 'blocks' && created.children.length) created.children = [element('p', {}, created.children)]
+      const [only, ...rest] = node.children
+      if ((node.name === 'inline-math' || node.name === 'math') && !rest.length && only?.type === 'inlineMath') {
+        created.children = only.value ? [at(text(only.value), only)] : []
+      } else {
+        created.children = inline(node.children)
+        // A block element written on one line holds its inline content in a paragraph.
+        if (rule?.content === 'blocks' && created.children.length) {
+          created.children = [element('p', {}, created.children)]
+        }
+      }
     } else if (rule?.content === 'text') {
       created.children =
         node.name === 'math'
           ? mathTag(node, created)
-          : node.name === 'mermaid' || node.name === 'infographic'
-            ? diagramTag(node, created, node.name)
-            : codeTag(node, created)
+          : node.name === 'inline-math'
+            ? inlineMathTag(node, created)
+            : node.name === 'mermaid' || node.name === 'infographic'
+              ? diagramTag(node, created, node.name)
+              : codeTag(node, created)
     } else if ((rule && (rule.content === 'inline' || rule.content === 'empty')) || (!rule && inlineTags(node))) {
       created.children = inlineTag(node, created)
     } else created.children = blocks(node.children)
@@ -397,12 +460,22 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>, mode:
     return node.children.flatMap(child => {
       if (child.type === 'paragraph') {
         if (++paragraphs > 1) {
-          throw new TreeError(`<${created.name}> 只能包含一段行内内容`, created, '请删除多余的空行，或拆成多个元素。')
+          throw new TreeError(
+            `<${created.name}> can contain only one paragraph of inline content`,
+            created,
+            'Remove extra blank lines or split into multiple elements.',
+            'invalid_content'
+          )
         }
         return inline(child.children)
       }
       if (child.type === 'mdxJsxFlowElement') return [jsx(child)]
-      throw new TreeError(`<${created.name}> 只能包含行内内容`, created, '请把块内容移到元素外面。')
+      throw new TreeError(
+        `<${created.name}> can contain only inline content`,
+        created,
+        'Move block content outside this element.',
+        'invalid_content'
+      )
     })
   }
 
@@ -411,12 +484,22 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>, mode:
     if (!node.children.length) return []
     const [fence, ...rest] = node.children
     if (rest.length || fence?.type !== 'code') {
-      throw new TreeError(`<${created.name}> 只能包含一个代码围栏`, created, '请把代码写在 ``` 围栏里。')
+      throw new TreeError(
+        `<${created.name}> can contain only one code fence`,
+        created,
+        'Wrap the code inside a ``` fence.',
+        'invalid_content'
+      )
     }
     const code = codeBlock(fence)
     for (const [key, value] of Object.entries(code.attrs)) {
       if (Object.hasOwn(created.attrs, key)) {
-        throw new TreeError(`<${created.name}> 的 ${key} 写了两次`, created, `请只在标签或围栏中写 ${key}。`)
+        throw new TreeError(
+          `${key} on <${created.name}> is specified twice`,
+          created,
+          `Specify ${key} on either the tag or the fence, not both.`,
+          'duplicate_attribute'
+        )
       }
       created.attrs = { ...created.attrs, [key]: value }
     }
@@ -428,10 +511,34 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>, mode:
   function mathTag(node: MdxJsxFlowElement, created: Element): Node[] {
     if (!node.children.length) return []
     const [formula, ...rest] = node.children
-    if (rest.length || formula?.type !== 'math') {
-      throw new TreeError(`<${created.name}> 只能包含一个公式块`, created, '请把公式写在 $$ 之间。')
+    if (!rest.length && formula?.type === 'math') return mathBlock(formula).children
+    if (!rest.length && formula?.type === 'paragraph') {
+      const [only, ...more] = formula.children
+      if (!more.length && only?.type === 'inlineMath') return only.value ? [at(text(only.value), only)] : []
     }
-    return mathBlock(formula).children
+    throw new TreeError(
+      `<${created.name}> can contain only one math block`,
+      created,
+      'Wrap the formula between $$.',
+      'invalid_content'
+    )
+  }
+
+  // A block tag of <inline-math> holds one inline formula or plain LaTeX text.
+  function inlineMathTag(node: MdxJsxFlowElement, created: Element): Node[] {
+    if (!node.children.length) return []
+    const [formula, ...rest] = node.children
+    if (!rest.length && formula?.type === 'paragraph') {
+      const [only, ...more] = formula.children
+      if (!more.length && only?.type === 'inlineMath') return only.value ? [at(text(only.value), only)] : []
+      return inline(formula.children)
+    }
+    throw new TreeError(
+      `<${created.name}> can contain only one inline formula`,
+      created,
+      'Wrap the formula between $$ on one line.',
+      'invalid_content'
+    )
   }
 
   // A block tag of <mermaid> or <infographic> holds one fenced diagram block.
@@ -440,9 +547,10 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>, mode:
     const [fence, ...rest] = node.children
     if (rest.length || fence?.type !== 'code' || fence.lang !== lang) {
       throw new TreeError(
-        `<${created.name}> 只能包含一个 ${lang} 代码围栏`,
+        `<${created.name}> can contain only one ${lang} code fence`,
         created,
-        `请把源码写在 \`\`\`${lang} 围栏里。`
+        `Wrap the source inside a \`\`\`${lang} fence.`,
+        'invalid_content'
       )
     }
     return diagramBlock(lang, fence).children
@@ -452,13 +560,23 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>, mode:
     const entries: [string, string][] = []
     for (const attribute of node.attributes) {
       if (attribute.type === 'mdxJsxExpressionAttribute') {
-        throw new TreeError('属性不能写成 {…} 表达式', created, '请写成 name="value"。')
+        throw new TreeError(
+          'Attributes cannot use {…} expressions',
+          created,
+          'Write name="value".',
+          'expression_attribute'
+        )
       }
       if (attribute.value !== null && typeof attribute.value === 'object') {
-        throw new TreeError(`属性 ${attribute.name} 的值不能写成 {…} 表达式`, created, `请写成 ${attribute.name}="…"。`)
+        throw new TreeError(
+          `The value of attribute ${attribute.name} cannot be a {…} expression`,
+          created,
+          `Write ${attribute.name}="…".`,
+          'expression_attribute'
+        )
       }
       if (entries.some(([name]) => name === attribute.name)) {
-        throw new TreeError(`重复属性 ${attribute.name}`, created, '请只保留一个。')
+        throw new TreeError(`Duplicate attribute ${attribute.name}`, created, 'Keep only one.', 'duplicate_attribute')
       }
       // An attribute without a value means its own name, as in HTML.
       entries.push([attribute.name, attribute.value ?? attribute.name])
@@ -483,9 +601,12 @@ const printOptions: Options = {
   rule: '-',
   extensions: [
     gfmToMarkdown(),
-    mathToMarkdown(),
+    mathToMarkdown({ singleDollarTextMath: false }),
     mdxJsxToMarkdown({ quote: '"' }),
-    { handlers: { bareUrl: verbatim, raw: verbatim } as Options['handlers'] }
+    {
+      unsafe: [{ character: '$', before: '\\$', inConstruct: 'phrasing' }],
+      handlers: { bareUrl: verbatim, raw: verbatim } as Options['handlers']
+    }
   ]
 }
 
@@ -497,9 +618,13 @@ export function printMarkdown(tree: Element, mode: 'doc' | 'knowledge' = 'doc'):
   try {
     reread = parseMarkdown(source, mode)
   } catch (error) {
-    throw new Error(`规范 Markdown 无法读回：${error instanceof Error ? error.message : String(error)}`)
+    throw new Error(
+      `Canonical Markdown could not be parsed back: ${error instanceof Error ? error.message : String(error)}`
+    )
   }
-  if (JSON.stringify(reread) !== JSON.stringify(page)) throw new Error('规范 Markdown 读回后得到不同的页面')
+  if (JSON.stringify(reread) !== JSON.stringify(page)) {
+    throw new Error('Canonical Markdown parsed back into a different page tree')
+  }
   return source
 }
 
@@ -630,10 +755,10 @@ function line(nodes: Node[]): PhrasingContent[] {
   if (!tagsOnly(children)) return children
   const encode = (node: PhrasingContent): PhrasingContent =>
     blankText(node)
-      ? ({
+      ? {
           type: 'raw',
           value: [...(node as { value: string }).value].map(character => `&#${character.codePointAt(0)};`).join('')
-        } as unknown as PhrasingContent)
+        }
       : node.type === 'mdxJsxTextElement'
         ? { ...node, children: node.children.map(encode) }
         : node
@@ -751,18 +876,42 @@ const edgeSpace = (node: Element) => {
   return (first?.type === 'text' && /^\s/u.test(first.value)) || (last?.type === 'text' && /\s$/u.test(last.value))
 }
 
-// GFM splits a row at every pipe before it reads tags, and a tag attribute cannot escape it.
+// GFM splits a row at every pipe before it reads tags or `$$…$$` formulas.
 const pipeInAttribute = (node: Node): boolean =>
   node.type === 'element' &&
-  (Object.values(node.attrs).some(value => value.includes('|')) || node.children.some(pipeInAttribute))
+  ((node.name === 'inline-math' && textOf(node).includes('|')) ||
+    Object.values(node.attrs).some(value => value.includes('|')) ||
+    node.children.some(pipeInAttribute))
+
+const startsWithDollar = (node?: PhrasingContent) =>
+  node?.type === 'inlineMath' || (node?.type === 'text' && node.value.startsWith('$'))
+const endsWithDollar = (node?: PhrasingContent) =>
+  node?.type === 'inlineMath' || (node?.type === 'text' && node.value.endsWith('$'))
 
 function inline(nodes: Node[]): PhrasingContent[] {
-  const result = nodes.map(phrasing)
+  const raw = nodes.map(phrasing)
+  const result = raw.map((node, index): PhrasingContent => {
+    if (node.type === 'inlineMath' && (endsWithDollar(raw[index - 1]) || startsWithDollar(raw[index + 1]))) {
+      return { type: 'mdxJsxTextElement', name: 'inline-math', attributes: [], children: [node] }
+    }
+    return node
+  })
   return result.map((node, index) => bareUrl(node, result[index - 1], result[index + 1], result[index + 2]) ?? node)
 }
 
 function phrasing(node: Node): PhrasingContent {
   if (node.type === 'text') return { type: 'text', value: node.value }
+  if (node.name === 'inline-math') {
+    const value = textOf(node)
+    if (plain(node) && value.length > 0 && node.children.every(child => child.type === 'text')) {
+      return { type: 'inlineMath', value }
+    }
+    return {
+      type: 'mdxJsxTextElement',
+      ...tagOf(node),
+      children: value ? [{ type: 'inlineMath', value }] : []
+    }
+  }
   if (plain(node)) {
     if (node.name === 'strong') return { type: 'strong', children: inline(node.children) }
     if (node.name === 'em') return { type: 'emphasis', children: inline(node.children) }
@@ -809,9 +958,7 @@ function bareUrl(
     // White space at the end of the content is printed as character references, which GFM reads as part of the address.
     if (rest ? !/^\s/.test(rest) || (!next && !/\S/.test(rest)) : next) return undefined
   }
-  return readsAsLink(label, tail, node.url)
-    ? ({ type: 'bareUrl', value: label } as unknown as PhrasingContent)
-    : undefined
+  return readsAsLink(label, tail, node.url) ? { type: 'bareUrl', value: label } : undefined
 }
 
 // GFM must read the address and the punctuation after it as this link followed by the punctuation.

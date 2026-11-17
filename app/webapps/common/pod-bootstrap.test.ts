@@ -109,8 +109,8 @@ test('podSocketEndpoint derives wss and ws endpoints from desktop podOrigin and 
   expect(podSocketEndpoint('https://acme.ankole.test')).toBe('wss://acme.ankole.test/pod/socket')
   expect(podSocketEndpoint('http://127.0.0.1:4000')).toBe('ws://127.0.0.1:4000/pod/socket')
 
-  setPodRuntimeBootstrap(sampleBootstrap({ podOrigin: 'https://pod.ankole.cloud' }))
-  expect(podSocketEndpoint()).toBe('wss://pod.ankole.cloud/pod/socket')
+  setPodRuntimeBootstrap(sampleBootstrap({ podOrigin: 'https://pod.example.com' }))
+  expect(podSocketEndpoint()).toBe('wss://pod.example.com/pod/socket')
 })
 
 test('watchPodSession notifies desktop onSessionExpired once instead of navigating to /sessions/new', async () => {

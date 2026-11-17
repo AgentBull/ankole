@@ -24,12 +24,15 @@ import {
   StarFilled,
   StarRegular
 } from '@ankole/uikit/icons'
+import { signal } from '@preact/signals-react'
+import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import type { PageMove as PodPageMove } from './content-api'
+import { InternalAPIError } from '../common/internal-api-client'
 import { podLocation, podPageRouteID } from '../common/pod-url'
 import { linkTarget } from '../common/router'
-import { requestErrorMessage } from '../common/request-errors'
+import { requestErrorCode, requestErrorMessage } from '../common/request-errors'
 import { cachedPages, contentKeys, pageAPI, type Page, type PageDetail } from './content-api'
 import { useContent } from './content-context'
 import { contentError } from './content-errors'
@@ -81,6 +84,37 @@ function usePageMove() {
   return (page: Page, request: PodPageMove) => move.mutate({ page, request, showUndo: true })
 }
 
+type PendingBrainScopeTrash = {
+  page: Page
+  confirm: () => void
+  pending: boolean
+}
+
+const pendingBrainScopeTrash = signal<PendingBrainScopeTrash | null>(null)
+
+export function TrashBrainScopeConfirmDialog() {
+  useSignals()
+  const { t } = useTranslation()
+  const state = pendingBrainScopeTrash.value
+  if (!state) return null
+  return (
+    <Dialog open onOpenChange={open => !open && !state.pending && (pendingBrainScopeTrash.value = null)}>
+      <DialogContent className="pod-dialog" closeLabel={t('common.close')} showCloseButton={!state.pending}>
+        <DialogTitle>{t('pod.content.trash_brain_scope_title')}</DialogTitle>
+        <p className="text-sm">{t('pod.content.trash_brain_scope_description', { title: title(state.page) })}</p>
+        <DialogFooter>
+          <Button variant="outline" disabled={state.pending} onClick={() => (pendingBrainScopeTrash.value = null)}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="destructive" disabled={state.pending} onClick={state.confirm}>
+            {t('pod.content.move_to_trash_anyway')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 /** Trash runs at once; the toast restores the page. */
 export function usePageTrash(onRemoved?: () => void) {
   const client = useQueryClient()
@@ -91,43 +125,69 @@ export function usePageTrash(onRemoved?: () => void) {
     onSuccess: ({ page }) => pageCreated(client, page),
     onError: error => toast.error(requestErrorMessage(contentError(error)))
   })
+  const handleTrashed = (result: Awaited<ReturnType<typeof pageAPI.remove>>, page: Page) => {
+    pendingBrainScopeTrash.value = null
+    onRemoved?.()
+    const ancestors = client.getQueryData<PageDetail>(contentKeys.page(page.id))?.ancestors ?? []
+    const domain = pageDomain(page, ancestors)
+    const cachedParent =
+      page.parent_id &&
+      (client.getQueryData<PageDetail>(contentKeys.page(page.parent_id))?.page ??
+        [...cachedPages(client), ...ancestors].find(candidate => candidate.id === page.parent_id))
+    // A system root such as Private is not a page to open; its content root stands in for it.
+    const parent = cachedParent && !cachedParent.is_root ? cachedParent : undefined
+    const rootScope = (['private', 'space'] as const).find(scope =>
+      client
+        .getQueryData<InfiniteData<PodPageChildrenResponse>>(contentKeys.children(scope))
+        ?.pages.some(batch => batch.pages.some(item => item.id === page.id))
+    )
+    pageRemoved(client, page)
+    if (podPageRouteID(pageID) === page.id) {
+      const destination = parent
+        ? pageLocation(parent, ancestors)
+        : domain === 'brain'
+          ? '/meta/brain'
+          : podLocation(`/content/${rootScope ?? (page.private_owner_uid ? 'private' : 'space')}`).pathname
+      void navigate(linkTarget(destination))
+    }
+    const count = result.descendant_count
+    toast.success(
+      count
+        ? t('pod.sidebar.page_trashed_with_children', { title: title(page), count })
+        : t('pod.sidebar.page_trashed', { title: title(page) }),
+      {
+        action: { label: t('pod.sidebar.undo'), onClick: () => restore.mutate(page.id) }
+      }
+    )
+  }
+  const forceRemove = useMutation({
+    mutationFn: (page: Page) => pageAPI.remove(page.id, true),
+    onMutate: page => {
+      if (pendingBrainScopeTrash.value?.page.id === page.id) {
+        pendingBrainScopeTrash.value = { ...pendingBrainScopeTrash.value, pending: true }
+      }
+    },
+    onSuccess: handleTrashed,
+    onError: error => {
+      pendingBrainScopeTrash.value = null
+      toast.error(requestErrorMessage(contentError(error)))
+    }
+  })
   return useMutation({
     mutationFn: (page: Page) => pageAPI.remove(page.id),
-    onSuccess: (result, page) => {
-      onRemoved?.()
-      const ancestors = client.getQueryData<PageDetail>(contentKeys.page(page.id))?.ancestors ?? []
-      const domain = pageDomain(page, ancestors)
-      const cachedParent =
-        page.parent_id &&
-        (client.getQueryData<PageDetail>(contentKeys.page(page.parent_id))?.page ??
-          [...cachedPages(client), ...ancestors].find(candidate => candidate.id === page.parent_id))
-      // A system root such as Private is not a page to open; its content root stands in for it.
-      const parent = cachedParent && !cachedParent.is_root ? cachedParent : undefined
-      const rootScope = (['private', 'space'] as const).find(scope =>
-        client
-          .getQueryData<InfiniteData<PodPageChildrenResponse>>(contentKeys.children(scope))
-          ?.pages.some(batch => batch.pages.some(item => item.id === page.id))
-      )
-      pageRemoved(client, page)
-      if (podPageRouteID(pageID) === page.id) {
-        const destination = parent
-          ? pageLocation(parent, ancestors)
-          : domain === 'brain'
-            ? '/meta/brain'
-            : podLocation(`/content/${rootScope ?? (page.private_owner_uid ? 'private' : 'space')}`).pathname
-        void navigate(linkTarget(destination))
-      }
-      const count = result.descendant_count
-      toast.success(
-        count
-          ? t('pod.sidebar.page_trashed_with_children', { title: title(page), count })
-          : t('pod.sidebar.page_trashed', { title: title(page) }),
-        {
-          action: { label: t('pod.sidebar.undo'), onClick: () => restore.mutate(page.id) }
+    onSuccess: handleTrashed,
+    onError: (error, page) => {
+      const code = error instanceof InternalAPIError ? requestErrorCode(error.payload) : undefined
+      if (code === 'brain_source_scope_in_use') {
+        pendingBrainScopeTrash.value = {
+          page,
+          pending: false,
+          confirm: () => forceRemove.mutate(page)
         }
-      )
-    },
-    onError: error => toast.error(requestErrorMessage(contentError(error)))
+        return
+      }
+      toast.error(requestErrorMessage(contentError(error)))
+    }
   })
 }
 

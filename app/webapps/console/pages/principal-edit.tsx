@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useNavigate } from '../tenant-context'
+import { useBoundTenantID, useMutation, useQuery, useNavigate } from '../tenant-context'
 import { Input, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -10,19 +10,24 @@ import { getPrincipalOptions, updateHumanMutation } from '../api/v2/generated/@t
 import { fromDocument } from '../api/json-api'
 import { requestErrorCode } from '../../common/request-errors'
 import { EditorNotFound, LabeledField, ResourceEditorPage } from '../console-form'
-import { PrincipalEditorModel } from '../state/principal-editor-model'
+import { PrincipalEditorModel, principalDraftErrorText, principalRequestError } from '../state/principal-editor-model'
 import { useEditorDraft } from '../use-editor-draft'
-import { principalDraftErrorText, principalRequestError } from './principal-create'
 
 export function PrincipalEditPage() {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const boundTenantID = useBoundTenantID()
   const model = useModel(PrincipalEditorModel)
   const params = useParams({ strict: false })
   const uid = params.uid ?? ''
   const detailPath = `/access/principals/${encodeURIComponent(uid)}`
-  const principal = useQuery({ ...getPrincipalOptions({ path: { uid } }), select: data => fromDocument(data) })
+  const principal = useQuery({
+    ...getPrincipalOptions({ path: { uid } }),
+    select: data => fromDocument(data),
+    enabled: Boolean(uid),
+    refetchOnMount: 'always'
+  })
   const loadedPrincipal = principal.data
   const principalDraft = useMemo(
     () =>
@@ -31,15 +36,16 @@ export function PrincipalEditPage() {
         : undefined,
     [loadedPrincipal]
   )
+  const tenantScope = boundTenantID ?? ''
   const draftStatus = useEditorDraft(model, {
-    sourceKey: uid ? `principal:${uid}` : 'new',
+    sourceKey: uid ? `${tenantScope}:principal:${uid}` : `${tenantScope}:new`,
     source: principalDraft,
-    absent: () => requestErrorCode(principal.error) === 'not_found'
+    absent: () => !uid || requestErrorCode(principal.error) === 'not_found'
   })
 
   const update = useMutation({
     ...updateHumanMutation(),
-    mutationKey: ['principal-update', uid]
+    mutationKey: ['principal-update', tenantScope, uid]
   })
 
   const submit = () => {
@@ -94,7 +100,10 @@ export function PrincipalEditPage() {
       </LabeledField>
       <LabeledField label={t('console.principals.email')}>
         <Input
+          autoCapitalize="none"
+          autoCorrect="off"
           disabled={update.isPending || draftStatus !== 'ready'}
+          spellCheck={false}
           type="email"
           value={model.email.value}
           onChange={event => (model.email.value = event.target.value)}

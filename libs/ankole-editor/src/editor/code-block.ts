@@ -1,5 +1,7 @@
 import type { Language, Token } from '@vortexlabs/kirari/core'
 import { createRegistry } from '@vortexlabs/kirari/registry'
+import { MermaidBlock } from '../blocks/mermaid'
+import { mermaidLanguage } from '../blocks/mermaid/highlight'
 import { Elt, type Plot } from '../core/doc'
 import { Decoration, Wordgard } from '../core/editor'
 import type { Widget } from '../core/editor/decoration'
@@ -40,6 +42,7 @@ const languageLabels: Readonly<Record<string, string>> = {
   lua: 'Lua',
   makefile: 'Makefile',
   markdown: 'Markdown',
+  mermaid: 'Mermaid',
   nginx: 'Nginx',
   php: 'PHP',
   plaintext: 'Plain Text',
@@ -167,7 +170,10 @@ let loading: Promise<void> | undefined
 export function loadCodeHighlighter(): Promise<void> {
   return (loading ??= Promise.all([import('@vortexlabs/kirari/core'), import('@vortexlabs/kirari/languages')])
     .then(([core, languages]) => {
-      highlighter = { tokenize: core.tokenize, registry: createRegistry(Object.values(languages)) }
+      highlighter = {
+        tokenize: core.tokenize,
+        registry: createRegistry([...Object.values(languages), mermaidLanguage])
+      }
     })
     .catch(error => {
       loading = undefined
@@ -186,6 +192,10 @@ const loadHighlight = Wordgard.Plugin.define(editor => {
       if (node.type === T.CodeBlock.type && node.isPlot) {
         const language = codeLanguageState(node.mark(T.CodeBlockLanguage)).canonical
         if (language && language !== 'plaintext') needed = true
+        return false
+      }
+      if (node.type === MermaidBlock.type && node.isPlot) {
+        needed = true
         return false
       }
     })
@@ -216,7 +226,7 @@ const tokenCache = new WeakMap<Plot, { source: string; lang: string | undefined;
 function tokensOf(node: Plot): readonly Token[] {
   if (!highlighter) return []
   const source = node.textContent()
-  const lang = node.mark(T.CodeBlockLanguage)
+  const lang = node.type === MermaidBlock.type ? 'mermaid' : node.mark(T.CodeBlockLanguage)
   const cached = tokenCache.get(node)
   if (cached?.source === source && cached.lang === lang) return cached.tokens
   let tokens: readonly Token[] = []
@@ -236,7 +246,7 @@ function tokensOf(node: Plot): readonly Token[] {
 export function codeHighlight(state: GardState): Decoration.Range.Set {
   const ranges: [Decoration.Range, number, number][] = []
   state.doc.iterate((node, pos) => {
-    if (node.type !== T.CodeBlock.type || !node.isPlot) return
+    if ((node.type !== T.CodeBlock.type && node.type !== MermaidBlock.type) || !node.isPlot) return
     const start = pos + 1
     let merged: { type: string; from: number; to: number } | null = null
     const flush = () => {

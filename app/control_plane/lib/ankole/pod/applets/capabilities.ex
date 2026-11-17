@@ -18,18 +18,22 @@ defmodule Ankole.Pod.Applets.Capabilities do
         "file.write",
         "state.set",
         "state.delete",
+        "idempotency.claim",
+        "idempotency.complete",
+        "idempotency.release",
         "signals.emit",
         "ai.generateImage",
         "ai.generateSpeech",
         "notifications.post",
         "approvals.request",
         "approvals.decide",
-        "brain.writeTake"
+        "brain.writeTake",
+        "brain.writeFact"
       ]
 
     cond do
       (context["read_only"] == true or context["method"] == "GET") and write? ->
-        error(:read_only_route)
+        error(if(context["diagnostic"], do: :diagnostic_read_only, else: :read_only_route))
 
       operation == "approvals.decide" and (admin? or not browser_review?(context, caller)) ->
         error(:forbidden)
@@ -39,7 +43,7 @@ defmodule Ankole.Pod.Applets.Capabilities do
           with {:ok, page} <- Pages.fetch(context["applet"]["pageId"]),
                :ok <- Ankole.Pod.Applets.available(page),
                {:ok, actor} <- actor(context, page, caller, admin?, operation),
-               do: dispatch_context(context, page, actor, caller, operation, args)
+               do: dispatch_context(context, page, actor, caller, admin?, operation, args)
 
         result(outcome)
     end
@@ -90,16 +94,17 @@ defmodule Ankole.Pod.Applets.Capabilities do
                if(caller, do: Access.principal(caller), else: Ankole.Pod.Applets.owner(page)),
              do: {:ok, caller}
 
-      admin? ->
-        with {:ok, owner} <- Ankole.Pod.Applets.owner(page),
-             {:ok, principal} <- resolve_admin_principal(owner, operation) do
-          authority = Ankole.AutomationJobs.applet_attempt_authority(context, principal.uid)
-
-          {:ok,
-           Ankole.AuthZ.Actor.new(principal,
-             turn_authority: authority || (caller && caller.turn_authority)
-           )}
+      operation in ["idempotency.claim", "idempotency.complete", "idempotency.release"] ->
+        with {:ok, _} <- authorize_caller_view(caller, page) do
+          if admin? or is_nil(caller) do
+            admin_actor(context, page, caller, operation)
+          else
+            {:ok, caller}
+          end
         end
+
+      admin? ->
+        admin_actor(context, page, caller, operation)
 
       is_nil(caller) ->
         {:error, :user_authority_unavailable}
@@ -109,6 +114,26 @@ defmodule Ankole.Pod.Applets.Capabilities do
              do: {:ok, caller}
     end
   end
+
+  defp authorize_caller_view(nil, _page), do: {:ok, nil}
+
+  defp authorize_caller_view(caller, page),
+    do: Access.authorize(caller, page, "node_view", trash: false)
+
+  defp admin_actor(context, page, caller, operation) do
+    with {:ok, owner} <- Ankole.Pod.Applets.owner(page),
+         {:ok, principal} <- resolve_admin_principal(owner, operation) do
+      authority = Ankole.AutomationJobs.applet_attempt_authority(context, principal.uid)
+
+      {:ok,
+       Ankole.AuthZ.Actor.new(principal,
+         turn_authority: authority || (caller && caller.turn_authority)
+       )}
+    end
+  end
+
+  defp resolve_admin_principal(%{type: :system}, "notifications.post"),
+    do: {:error, :applet_owner_unavailable}
 
   defp resolve_admin_principal(%{type: :agent} = owner, "notifications.post") do
     case Ankole.Principals.authority_uid(owner.uid) do
@@ -125,39 +150,48 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
   defp resolve_admin_principal(owner, _operation), do: {:ok, owner}
 
-  defp dispatch_context(context, _page, _actor, _caller, "state." <> operation, args),
+  defp dispatch_context(context, _page, _actor, _caller, _admin?, "state." <> operation, args),
     do: Ankole.AutomationJobs.applet_state(context, operation, args)
 
-  defp dispatch_context(context, page, actor, caller, "signals." <> operation, args),
+  defp dispatch_context(context, page, actor, caller, admin?, "idempotency.claim", args),
+    do: dispatch_idempotency_claim(context, page, actor, caller, admin?, args)
+
+  defp dispatch_context(context, page, actor, caller, admin?, "idempotency.complete", args),
+    do: dispatch_idempotency_complete(context, page, actor, caller, admin?, args)
+
+  defp dispatch_context(context, page, actor, caller, admin?, "idempotency.release", args),
+    do: dispatch_idempotency_release(context, page, actor, caller, admin?, args)
+
+  defp dispatch_context(context, page, actor, caller, _admin?, "signals." <> operation, args),
     do: Ankole.Signals.applet_dispatch(context, page, actor, caller, operation, args)
 
-  defp dispatch_context(_context, page, actor, caller, "approvals.request", [request]),
+  defp dispatch_context(_context, page, actor, caller, _admin?, "approvals.request", [request]),
     do: Approvals.request(page.id, actor, caller || actor, request)
 
-  defp dispatch_context(_context, page, actor, _caller, "approvals.get", [id]),
+  defp dispatch_context(_context, page, actor, _caller, _admin?, "approvals.get", [id]),
     do: Approvals.get(page.id, actor, id)
 
-  defp dispatch_context(_context, page, actor, _caller, "approvals.list", []),
+  defp dispatch_context(_context, page, actor, _caller, _admin?, "approvals.list", []),
     do: Approvals.list(page.id, actor)
 
-  defp dispatch_context(_context, page, _actor, caller, "approvals.decide", [request]),
+  defp dispatch_context(_context, page, _actor, caller, _admin?, "approvals.decide", [request]),
     do: Approvals.decide(page.id, caller, request)
 
-  defp dispatch_context(context, page, actor, _caller, "ai.generateImage", [options])
+  defp dispatch_context(context, page, actor, _caller, _admin?, "ai.generateImage", [options])
        when is_map(options),
        do:
          AI.generate_image(page, actor, options,
            authentication_ref: context["authentication_ref"]
          )
 
-  defp dispatch_context(context, page, actor, _caller, "ai.generateSpeech", [options])
+  defp dispatch_context(context, page, actor, _caller, _admin?, "ai.generateSpeech", [options])
        when is_map(options),
        do:
          AI.generate_speech(page, actor, options,
            authentication_ref: context["authentication_ref"]
          )
 
-  defp dispatch_context(_context, page, actor, _caller, operation, args),
+  defp dispatch_context(_context, page, actor, _caller, _admin?, operation, args),
     do: dispatch(page, actor, operation, args)
 
   defp dispatch(_page, actor, "base.schema", [id]), do: Bases.get_table(actor, id)
@@ -182,6 +216,9 @@ defmodule Ankole.Pod.Applets.Capabilities do
 
   defp dispatch(_page, actor, "brain.writeTake", [options]) when is_map(options),
     do: Ankole.Brain.applet_write_take(actor, options)
+
+  defp dispatch(_page, actor, "brain.writeFact", [options]) when is_map(options),
+    do: Ankole.Brain.applet_write_fact(actor, options)
 
   defp dispatch(_page, actor, "brain.calibration", [options]) when is_map(options),
     do: Ankole.Brain.applet_calibration(actor, options)
@@ -248,25 +285,83 @@ defmodule Ankole.Pod.Applets.Capabilities do
     end
   end
 
-  defp dispatch(_page, actor, "ai.generateText", [options]) when is_map(options),
-    do: AI.generate_text(actor, options)
+  defp dispatch(page, actor, "ai.generateText", [options]) when is_map(options),
+    do: AI.generate_text(actor, options, applet_page_id: page.id)
 
-  defp dispatch(_page, actor, "ai.decide", [options]) when is_map(options),
-    do: AI.decide(actor, options)
+  defp dispatch(page, actor, "ai.decide", [options]) when is_map(options),
+    do: AI.decide(actor, options, applet_page_id: page.id)
 
-  defp dispatch(_page, actor, "ai.transcribe", [options]) when is_map(options),
-    do: AI.transcribe(actor, options)
+  defp dispatch(page, actor, "ai.transcribe", [options]) when is_map(options),
+    do: AI.transcribe(actor, options, applet_page_id: page.id)
 
-  defp dispatch(_page, actor, "ai.ocr", [options]) when is_map(options),
-    do: AI.ocr(actor, options)
+  defp dispatch(page, actor, "ai.ocr", [options]) when is_map(options),
+    do: AI.ocr(actor, options, applet_page_id: page.id)
 
-  defp dispatch(_page, actor, "web.search", [options]) when is_map(options),
-    do: Web.search(actor, options)
+  defp dispatch(page, actor, "web.search", [options]) when is_map(options),
+    do: Web.search(actor, options, applet_page_id: page.id)
 
-  defp dispatch(_page, actor, "web.fetch", [options]) when is_map(options),
-    do: Web.fetch(actor, options)
+  defp dispatch(page, actor, "web.fetch", [options]) when is_map(options),
+    do: Web.fetch(actor, options, applet_page_id: page.id)
 
   defp dispatch(_page, _actor, _operation, _args), do: {:error, :invalid_request}
+
+  defp idempotency_scope(context, admin?, actor, caller) do
+    cond do
+      admin? -> "admin:" <> Ankole.AuthZ.Actor.uid(actor)
+      caller -> Ankole.AuthZ.Actor.uid(caller)
+      job_id = get_in(context, ["job", "id"]) -> "job:" <> to_string(job_id)
+      true -> "applet"
+    end
+  end
+
+  defp context_deadline(context) when is_map(context),
+    do: Ankole.Attrs.get(context, :deadline)
+
+  defp dispatch_idempotency_claim(context, page, actor, caller, admin?, [key, hash]),
+    do:
+      Ankole.Pod.Applets.Idempotency.sdk_claim(
+        page.id,
+        idempotency_scope(context, admin?, actor, caller),
+        key,
+        hash,
+        deadline: context_deadline(context)
+      )
+
+  defp dispatch_idempotency_claim(_context, _page, _actor, _caller, _admin?, _args),
+    do: {:error, :invalid_request}
+
+  defp dispatch_idempotency_complete(
+         context,
+         page,
+         actor,
+         caller,
+         admin?,
+         [key, value, ttl, claim_id]
+       ) do
+    Ankole.Pod.Applets.Idempotency.sdk_complete(
+      page.id,
+      idempotency_scope(context, admin?, actor, caller),
+      key,
+      value,
+      ttl,
+      claim_id
+    )
+  end
+
+  defp dispatch_idempotency_complete(_context, _page, _actor, _caller, _admin?, _args),
+    do: {:error, :invalid_request}
+
+  defp dispatch_idempotency_release(context, page, actor, caller, admin?, [key, claim_id]) do
+    Ankole.Pod.Applets.Idempotency.sdk_release(
+      page.id,
+      idempotency_scope(context, admin?, actor, caller),
+      key,
+      claim_id
+    )
+  end
+
+  defp dispatch_idempotency_release(_context, _page, _actor, _caller, _admin?, _args),
+    do: {:error, :invalid_request}
 
   defp file_read_digest(options) when map_size(options) == 0, do: {:ok, nil}
 

@@ -6,6 +6,7 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.Inbound
+  alias Ankole.Plugins.LarkAdapter.LinkPreview
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.Event.Dispatcher, as: FeishuDispatcher
 
@@ -14,6 +15,7 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
   @reaction_created "im.message.reaction.created_v1"
   @reaction_deleted "im.message.reaction.deleted_v1"
   @card_action "card.action.trigger"
+  @url_preview_get "url.preview.get"
 
   @contact_events [
     "contact.user.created_v3",
@@ -52,6 +54,10 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
     |> FeishuDispatcher.on_callback(
       @card_action,
       card_action_callback(consumers)
+    )
+    |> FeishuDispatcher.on_callback(
+      @url_preview_get,
+      handler(consumers, &LinkPreview.handle_callback/3)
     )
     |> register_contact_handlers(consumers)
     |> register_im_group_handlers(consumers)

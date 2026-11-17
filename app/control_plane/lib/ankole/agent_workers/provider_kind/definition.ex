@@ -8,7 +8,9 @@ defmodule Ankole.AgentWorkers.ProviderKind.Definition do
   """
 
   @enforce_keys [:kind, :schema, :example, :credentials, :pause]
-  defstruct @enforce_keys ++ [max_instance_lifetime: nil]
+  defstruct @enforce_keys ++ [support_tier: :cloud_extension, max_instance_lifetime: nil]
+
+  @type support_tier :: :core | :cloud_extension
 
   @type t :: %__MODULE__{
           kind: String.t(),
@@ -16,6 +18,7 @@ defmodule Ankole.AgentWorkers.ProviderKind.Definition do
           example: String.t(),
           credentials: %{String.t() => %{required: boolean()}},
           pause: boolean(),
+          support_tier: support_tier(),
           max_instance_lifetime: pos_integer() | nil
         }
 end

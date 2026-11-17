@@ -429,6 +429,7 @@ defmodule Ankole.Sessions.Prompt.Input do
       data["text"] || "[Action Card Executed]",
       line("Action card ID", bounded(data["action_card_id"], 128)),
       line("Action kind", bounded(data["action_kind"], 128)),
+      if(is_binary(data["status"]), do: line("Status", bounded(data["status"], 64))),
       line("Resolution note", bounded(data["resolution_note"], 1_024))
     ])
   end
@@ -1072,30 +1073,12 @@ defmodule Ankole.Sessions.Prompt.Input do
     "diagram_rendering: mermaid_interactive (```mermaid blocks render as interactive diagrams)"
   end
 
-  def diagram_rendering_hint(run, %{external_kind: kind}) when kind in [:im_dm, :im_group] do
-    tools = Map.get(run, :tools, [])
-
-    has_worker_png? =
-      Enum.any?(tools, &(Map.get(&1, :executor) == :worker)) and
-        Enum.any?(tools, &(Map.get(&1, :name) == "reply_attachment"))
-
-    if has_worker_png? do
-      "diagram_rendering: code_only (external IM clients display ```mermaid as raw code; prefer Markdown tables or structured lists, or render a PNG in the Worker and send via reply_attachment when a dense visual diagram is needed)"
-    else
-      "diagram_rendering: code_only (external IM clients display ```mermaid as raw code; prefer Markdown tables or structured lists)"
-    end
-  end
-
   def diagram_rendering_hint(_run, _conversation), do: nil
 
-  # Only Pod renders a `ui` block. An external IM client receives the block as a fenced code block.
+  # Only Pod renders a `ui` block. External IM clients omit both rendering hints.
   @doc false
   def ui_blocks_hint(%{kind: :native}) do
     "ui_blocks: interactive (```ui blocks render as interactive UI inside the message; follow references/chat-ui-block.md of the visualization Skill, and write none when that Skill is unavailable)"
-  end
-
-  def ui_blocks_hint(%{external_kind: kind}) when kind in [:im_dm, :im_group] do
-    "ui_blocks: code_only (external IM clients display ```ui blocks as raw code; write Markdown tables or structured lists instead)"
   end
 
   def ui_blocks_hint(_conversation), do: nil

@@ -199,6 +199,49 @@ defmodule Ankole.AIGateway.UsageLedger do
   end
 
   @doc """
+  Sums Service Account LLM tokens from `window_started_at` onwards.
+  """
+  @spec service_window_tokens(String.t(), DateTime.t()) :: non_neg_integer()
+  def service_window_tokens(service_uid, %DateTime{} = window_started_at)
+      when is_binary(service_uid) do
+    query =
+      case service_uid do
+        "ankole_brain" ->
+          UsageRecord
+          |> Ash.Query.filter(
+            inserted_at >= ^window_started_at and origin == :brain and capability == :llm
+          )
+
+        "ankole_applets" ->
+          UsageRecord
+          |> Ash.Query.filter(
+            inserted_at >= ^window_started_at and origin == :applet and capability == :llm
+          )
+
+        "svc_applet_" <> _rest ->
+          UsageRecord
+          |> Ash.Query.filter(
+            inserted_at >= ^window_started_at and origin == :applet and capability == :llm and
+              (service_uid == ^service_uid or subject_uid == ^service_uid)
+          )
+
+        other ->
+          UsageRecord
+          |> Ash.Query.filter(
+            inserted_at >= ^window_started_at and subject_uid == ^other and capability == :llm
+          )
+      end
+
+    totals =
+      Ankole.Ash.aggregate!(query, [
+        {:input, :sum, field: :input_tokens, default: 0},
+        {:output, :sum, field: :output_tokens, default: 0}
+      ])
+
+    totals.input + totals.output
+  end
+
+  @doc """
   Sums the counted rounds of one Signal's work, or returns `nil` when none was counted.
 
   The result names each model that served the work. A token total is `nil`
@@ -473,6 +516,7 @@ defmodule Ankole.AIGateway.UsageLedger do
       cache_creation_input_tokens: counts.cache_creation_input_tokens,
       reasoning_tokens: counts.reasoning_tokens,
       human_uid: human_uid(origin, runtime, request_context),
+      service_uid: principal_uid(Map.get(request_context, "service_uid")),
       session_id: Ankole.Attrs.optional_text(Map.get(request_context, "session_id")),
       signal_id: uuid(Map.get(request_context, "signal_id")),
       job_id: positive_integer(Map.get(request_context, "job_id")),

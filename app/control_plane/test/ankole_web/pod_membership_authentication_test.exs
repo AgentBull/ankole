@@ -59,12 +59,8 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
 
     assert id == tenant.id
 
-    if @host_policy do
-      assert String.starts_with?(URI.parse(email_login_url).host, "accounts.")
-    else
-      assert URI.parse(email_login_url).host ==
-               URI.parse(AnkoleWeb.PodURL.origin(conn, tenant)).host
-    end
+    assert URI.parse(email_login_url).host ==
+             URI.parse(AnkoleWeb.PodURL.login_url(conn, tenant)).host
 
     guest =
       guest
@@ -127,7 +123,7 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
     assert uri.path == "/sessions/new"
 
     if @host_policy do
-      assert String.starts_with?(uri.host, "accounts.")
+      assert uri.host == URI.parse(AnkoleWeb.PodURL.login_url(conn, tenant)).host
 
       assert URI.decode_query(uri.query) == %{
                "tenant_id" => tenant.id,
@@ -616,9 +612,8 @@ defmodule AnkoleWeb.PodMembershipAuthenticationTest do
   end
 
   defp accounts_conn(conn) do
-    site = URI.parse(AnkoleWeb.PodURL.site_origin(conn))
-    host = String.replace_prefix(site.host, "console.", "accounts.")
-    %{conn | host: host, port: site.port, scheme: String.to_existing_atom(site.scheme)}
+    login = URI.parse(AnkoleWeb.PodURL.login_url(conn, nil))
+    %{conn | host: login.host, port: login.port, scheme: String.to_existing_atom(login.scheme)}
   end
 
   defp session_origin_conn(conn, tenant) do

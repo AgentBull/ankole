@@ -401,6 +401,10 @@ defmodule Ankole.Pod.Bases.Physical do
 
   def insert_rows!(_table, _fields, []), do: :ok
 
+  def insert_rows!(table, fields, {:chunks, chunks}) do
+    Enum.each(chunks, fn chunk -> insert_rows!(table, fields, chunk) end)
+  end
+
   def insert_rows!(table, fields, records) when is_list(records),
     do: insert_rows!(table, fields, {:json, Torque.encode!(Enum.map(records, &wire/1))})
 

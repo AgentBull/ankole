@@ -15,13 +15,14 @@ export type PermissionGrantEditorDraft = {
 export type PermissionGrantOwner = { principalUID: string } | { groupName: string }
 
 /** Client-side draft problems, reported as i18n key suffixes under `console.permission_grants`. */
-export type PermissionGrantDraftError =
+type PermissionGrantDraftError =
   | 'resource_pattern_required'
   | 'resource_pattern_bare_wildcard'
   | 'action_required'
   | 'action_no_colon'
 
 export const PermissionGrantEditorModel = createModel(() => {
+  let generation = Symbol()
   const sourceKey = signal<string>()
   const resourcePattern = signal('')
   const action = signal('')
@@ -41,6 +42,10 @@ export const PermissionGrantEditorModel = createModel(() => {
   })
 
   return {
+    resetSource() {
+      generation = Symbol()
+      sourceKey.value = undefined
+    },
     sourceKey,
     resourcePattern,
     action,
@@ -50,6 +55,7 @@ export const PermissionGrantEditorModel = createModel(() => {
     validationError,
     initialize(nextSourceKey: string, draft: PermissionGrantEditorDraft) {
       if (sourceKey.value === nextSourceKey) return
+      generation = Symbol()
       batch(() => {
         sourceKey.value = nextSourceKey
         resourcePattern.value = draft.resourcePattern
@@ -62,6 +68,33 @@ export const PermissionGrantEditorModel = createModel(() => {
     },
     clearValidation() {
       validationError.value = undefined
+    },
+    captureSave() {
+      const requestedGeneration = generation
+      const submittedValidation = validationError.value
+      const submitted = {
+        resourcePattern: resourcePattern.value,
+        action: action.value,
+        condition: condition.value,
+        description: description.value
+      }
+      return (accepted?: PermissionGrantEditorDraft) => {
+        if (generation !== requestedGeneration) return false
+        const confirmed = accepted ?? submitted
+        batch(() => {
+          if (resourcePattern.value === submitted.resourcePattern) {
+            resourcePattern.value = confirmed.resourcePattern
+          }
+          if (action.value === submitted.action) action.value = confirmed.action
+          if (condition.value === submitted.condition) condition.value = confirmed.condition
+          if (description.value === submitted.description) {
+            description.value = confirmed.description
+          }
+          initialDraft.value = { ...confirmed }
+          if (validationError.value === submittedValidation) validationError.value = undefined
+        })
+        return true
+      }
     },
     markSaved(draft?: PermissionGrantEditorDraft) {
       initialDraft.value = draft

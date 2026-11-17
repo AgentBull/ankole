@@ -325,10 +325,13 @@ kubectl -n ankole run ankole-agent-home-prepare --rm -i --restart=Never \
 与权限 `2777`（以便 uid `1000` 写入 kubelet 为新 Agent 创建的子目录），并为后续导入开放旧文件
 读取权限。
 
-接着附带 `--set files.importAgentHomeClaim=<claim>` 执行升级，将该 PVC 以只读方式挂载到
-控制面的 `/agents` 目录，随后运行导入命令：
+接着，若从 1.x 旧版本升级，先执行一次 `/app/bin/upgrade_from_1x`，并附带
+`--set files.importAgentHomeClaim=<claim>` 将该 PVC 以只读方式挂载到控制面的 `/agents`
+目录后运行导入命令：
 
 ```sh
+kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
+  /app/bin/upgrade_from_1x
 kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```

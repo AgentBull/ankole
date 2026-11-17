@@ -1,6 +1,7 @@
 ---
 name: gitlab
 description: "Find and use gitlab operations through Ankole connections."
+default_enabled: false
 ---
 
 # gitlab

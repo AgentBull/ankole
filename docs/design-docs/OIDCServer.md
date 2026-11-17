@@ -334,13 +334,16 @@ tracking attempt counts, exponential backoff, and deadlines, while Attesto
 signs each `logout+jwt` with `sub`, `sid`, and the logout event claim. Both
 worker claims (`Logout.claim/1`) and operator retries (`Logout.retry/1`) run in
 `Repo.transact_top_level/2`; the outbound HTTP `POST` executes outside the
-transaction after the claim commits, and its outcome writes back in one atomic
-update.
+transaction after verifying an active Client and passing `EgressProxy` SSRF
+validation, and its outcome writes back in one atomic update.
 
 Background cleanup uses atomic resource deletes. Session delete statements
 evaluate retention predicates inline so Ankole removes an OIDC session only
-when no active authorization codes, refresh tokens, or undelivered logout rows
-still reference it. Likewise, credential cleanup retains finalized code rows
+when no active authorization codes, refresh tokens, pending/delivering logout
+rows, or `failed` logout rows still within their 14-day post-deadline operator
+retry retention window reference it. Once a `failed` logout delivery passes 14
+days after its deadline, cleanup deletes that delivery row so its parent OIDC
+session and browser group can be reclaimed. Likewise, credential cleanup retains finalized code rows
 until their replay-detection deadlines pass, deletes expired refresh rows after
 their retry windows close, redacts expired successor ciphertexts, and prunes
 eligible session and browser state. Every query or mutation on a tenant-scoped

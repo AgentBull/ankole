@@ -8,6 +8,5 @@ import type {
 export type AppConfigurationItem = ListAppConfigurationsResponse['app_configurations'][number]
 export type AppConfigurationUpdateRequest = NonNullable<UpdateAppConfigurationData['body']>['data']
 export type WorkerEnvItem = ListWorkerEnvsResponse['worker_envs'][number]
-export type JsonValue = unknown
 
 export type WorkerProviderKind = ListWorkerProviderKindsResponse['worker_provider_kinds'][number]

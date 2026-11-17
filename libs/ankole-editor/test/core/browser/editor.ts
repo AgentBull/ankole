@@ -139,4 +139,46 @@ describe('Wordgard', () => {
     wg.contentDOM.dispatchEvent(new KeyboardEvent('keydown', key))
     ist(wg.state.doc, doc(p('ac')), eq)
   })
+
+  it('collapses a stale DOM range when focus returns after an unfocused selection update', () => {
+    const wg = requireFocus(tempEditor(doc(p('selected and after'))))
+    const text = wg.contentDOM.firstChild!.firstChild as Text
+    getSelection()!.setBaseAndExtent(text, 0, text, 8)
+    document.dispatchEvent(new Event('selectionchange'))
+    wg.flush()
+    ist(getSelection()!.toString(), 'selected')
+
+    const outside = document.body.appendChild(document.createElement('button'))
+    try {
+      outside.focus()
+      getSelection()!.setBaseAndExtent(text, 0, text, 8)
+      wg.observer.readSelectionRange()
+      wg.observer.clear()
+      wg.dispatch({ selection: { anchor: 14 }, userEvent: 'select.pointer' })
+      wg.flush()
+      wg.contentDOM.focus()
+      wg.observer.clear()
+      wg.dispatch({ annotations: Wordgard.isFocusChange.of(true) })
+      wg.flush()
+      ist(getSelection()!.isCollapsed, true)
+      ist(wg.posAtDOM(getSelection()!.focusNode!, getSelection()!.focusOffset), 14)
+
+      // Bare focus when selection is outside contentDOM keeps state.selection instead of resetting to 0,
+      // while an explicit DOM selection placed at the start immediately after focus is still read.
+      outside.focus()
+      getSelection()!.removeAllRanges()
+      wg.contentDOM.focus()
+      wg.flush()
+      ist(wg.state.selection.head, 14)
+
+      outside.focus()
+      wg.contentDOM.focus()
+      getSelection()!.collapse(text, 0)
+      document.dispatchEvent(new Event('selectionchange'))
+      wg.flush()
+      ist(wg.state.selection.head, 1)
+    } finally {
+      outside.remove()
+    }
+  })
 })

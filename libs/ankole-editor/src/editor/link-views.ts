@@ -308,8 +308,16 @@ type TrackedEmbedBlock = {
   valid: boolean
 }
 
+type TrackedTextRange = {
+  from: number
+  to: number
+  text: string
+  valid: boolean
+}
+
 const pendingInlineLinks = new WeakMap<Wordgard, Set<TrackedInlineLink>>()
 const pendingEmbedBlocks = new WeakMap<Wordgard, Set<TrackedEmbedBlock>>()
+const pendingTextRanges = new WeakMap<Wordgard, Set<TrackedTextRange>>()
 
 function inlineLinkMatches(state: GardState, entry: TrackedInlineLink): LinkInfo | null {
   if (!entry.valid || state.readOnly || entry.from < 0 || entry.to > state.doc.length || entry.from >= entry.to) {
@@ -328,6 +336,14 @@ function inlineLinkMatches(state: GardState, entry: TrackedInlineLink): LinkInfo
   return current
 }
 
+function textRangeMatches(state: GardState, entry: TrackedTextRange): { from: number; to: number } | null {
+  if (!entry.valid || state.readOnly || entry.from < 0 || entry.to > state.doc.length || entry.from >= entry.to) {
+    return null
+  }
+  if (state.doc.textContent({ from: entry.from, to: entry.to }) !== entry.text) return null
+  return { from: entry.from, to: entry.to }
+}
+
 function embedBlockMatches(state: GardState, entry: TrackedEmbedBlock): { node: Node; pos: number } | null {
   if (!entry.valid || state.readOnly || entry.pos < 0 || entry.pos >= state.doc.length) return null
   const node = state.doc.nodeAt(entry.pos)
@@ -342,7 +358,7 @@ function embedBlockMatches(state: GardState, entry: TrackedEmbedBlock): { node: 
   return { node, pos: entry.pos }
 }
 
-function trackInlineLink(editor: Wordgard, range: { from: number; to: number }, href: string) {
+export function trackInlineLink(editor: Wordgard, range: { from: number; to: number }, href: string) {
   const { state } = editor
   const targetKey = webURL(href) ?? href
   const text =
@@ -367,9 +383,39 @@ function trackInlineLink(editor: Wordgard, range: { from: number; to: number }, 
     set.add(entry)
   }
   return {
+    current(): LinkInfo | null {
+      return inlineLinkMatches(editor.state, entry)
+    },
     finish(): LinkInfo | null {
       set?.delete(entry)
       return inlineLinkMatches(editor.state, entry)
+    }
+  }
+}
+
+export function trackTextRange(editor: Wordgard, range: { from: number; to: number }) {
+  const { state } = editor
+  const text =
+    range.from >= 0 && range.to <= state.doc.length && range.from < range.to
+      ? state.doc.textContent({ from: range.from, to: range.to })
+      : ''
+  const entry: TrackedTextRange = { from: range.from, to: range.to, text, valid: true }
+  entry.valid = textRangeMatches(state, entry) !== null
+  let set = pendingTextRanges.get(editor)
+  if (entry.valid) {
+    if (!set) {
+      set = new Set()
+      pendingTextRanges.set(editor, set)
+    }
+    set.add(entry)
+  }
+  return {
+    current(): { from: number; to: number } | null {
+      return textRangeMatches(editor.state, entry)
+    },
+    finish(): { from: number; to: number } | null {
+      set?.delete(entry)
+      return textRangeMatches(editor.state, entry)
     }
   }
 }
@@ -397,11 +443,23 @@ function trackEmbedBlock(editor: Wordgard, pos: number, href: string) {
   }
 }
 
+function mapUntouchedRange(tr: Transaction, from: number, to: number): { from: number; to: number } | null {
+  let touched = false
+  tr.changes.iterChanges((fromA, toA) => {
+    if (fromA < to && toA > from) touched = true
+  })
+  const nextFrom = touched ? null : tr.changes.mapPos(from, 1, 'after')
+  const nextTo = touched ? null : tr.changes.mapPos(to, -1, 'before')
+  if (nextFrom === null || nextTo === null || nextFrom >= nextTo) return null
+  return { from: nextFrom, to: nextTo }
+}
+
 /** Transaction tracking for in-flight link and embed metadata requests. */
 export const linkViews: GardState.Extension = Wordgard.transactionListener.of((transactions, editor) => {
   const inlineSet = pendingInlineLinks.get(editor)
+  const rangeSet = pendingTextRanges.get(editor)
   const embedSet = pendingEmbedBlocks.get(editor)
-  if (!inlineSet?.size && !embedSet?.size) return
+  if (!inlineSet?.size && !rangeSet?.size && !embedSet?.size) return
   for (const tr of transactions) {
     if (inlineSet?.size) {
       for (const entry of inlineSet) {
@@ -411,22 +469,39 @@ export const linkViews: GardState.Extension = Wordgard.transactionListener.of((t
           continue
         }
         if (!tr.docChanged) continue
-        let touched = false
-        tr.changes.iterChanges((fromA, toA) => {
-          if (fromA < entry.to && toA > entry.from) touched = true
-        })
-        const nextFrom = touched ? null : tr.changes.mapPos(entry.from, 1, 'after')
-        const nextTo = touched ? null : tr.changes.mapPos(entry.to, -1, 'before')
-        if (nextFrom === null || nextTo === null || nextFrom >= nextTo) {
+        const mapped = mapUntouchedRange(tr, entry.from, entry.to)
+        if (!mapped) {
           entry.valid = false
           inlineSet.delete(entry)
           continue
         }
-        entry.from = nextFrom
-        entry.to = nextTo
+        entry.from = mapped.from
+        entry.to = mapped.to
         if (!inlineLinkMatches(tr.state, entry)) {
           entry.valid = false
           inlineSet.delete(entry)
+        }
+      }
+    }
+    if (rangeSet?.size) {
+      for (const entry of rangeSet) {
+        if (tr.state.readOnly) {
+          entry.valid = false
+          rangeSet.delete(entry)
+          continue
+        }
+        if (!tr.docChanged) continue
+        const mapped = mapUntouchedRange(tr, entry.from, entry.to)
+        if (!mapped) {
+          entry.valid = false
+          rangeSet.delete(entry)
+          continue
+        }
+        entry.from = mapped.from
+        entry.to = mapped.to
+        if (!textRangeMatches(tr.state, entry)) {
+          entry.valid = false
+          rangeSet.delete(entry)
         }
       }
     }

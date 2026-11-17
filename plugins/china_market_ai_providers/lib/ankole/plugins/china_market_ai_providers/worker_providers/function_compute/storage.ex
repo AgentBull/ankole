@@ -45,7 +45,8 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute.
             %{
               "bucketName" => oss["bucket"],
               "mountDir" => "/workspace",
-              "bucketPath" => String.trim_trailing(oss["root"], "/") <> "/" <> uid,
+              "bucketPath" =>
+                String.trim_trailing(oss["root"], "/") <> "/" <> name(provider, uid),
               "endpoint" => "https://oss-#{provider.settings["region"]}.aliyuncs.com",
               "readOnly" => false
             }
@@ -119,6 +120,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute.
         FC.labels(provider)
         |> Map.merge(%{
           "ankole-agent" => ProviderKind.agent_hash(uid),
+          "ankole.tenant" => Ankole.Repo.tenant_id!(),
           "ankole-task" => "storage",
           "ankole-task-id" => task
         })

@@ -1,4 +1,4 @@
-import type { ConversationDetail, ConversationMessage, PodActivity, PodExecution } from '../api'
+import type { ConversationDetail, ConversationMessage, PodActivity, PodExecution, StandaloneActionCard } from '../api'
 import type { ConversationExecutionResponses } from '../api/generated/types.gen'
 import type { PageSharingExplain } from '../content-api'
 
@@ -27,7 +27,15 @@ export type LinkedExecution = LinkedRun & {
   /** Job IDs in the same continuation chain represented by this card. */
   chainIDs?: string[]
 }
-export type ConversationExecutionDetail = ConversationExecutionResponses[200]
+export type ExecutionDeliverable = {
+  path: string
+  nodeID: string
+  name: string
+  mimeType?: string | null
+}
+export type ConversationExecutionDetail = ConversationExecutionResponses[200] & {
+  deliverables?: ExecutionDeliverable[] | null
+}
 export type ConversationExecutionItem = ConversationExecutionDetail['items'][number]
 
 export type InspectorTarget =
@@ -108,6 +116,8 @@ export type AccessBlockedPrompt = {
   explain?: PageSharingExplain | null
 } & ChatInteraction
 
+export type ActionCardStatus = StandaloneActionCard['status']
+
 export type ActionCardState = {
   card_id: string
   interaction_id?: string
@@ -119,11 +129,14 @@ export type ActionCardState = {
     | 'pod.page.restore'
     | 'pod.base.delete_table'
     | 'conversation.add_participants'
+    | 'library.skill.save'
+    | 'connectors.tool.call'
     | (string & {})
   summary: string
   target_node_id?: string | null
   payload?: Record<string, unknown> | null
-  status?: 'prepared' | 'executed' | 'stale' | 'cancelled'
+  status?: ActionCardStatus
+  can_recover?: boolean
   resolved_by_uid?: string | null
   resolved_by_name?: string | null
   resolved_at?: string | null

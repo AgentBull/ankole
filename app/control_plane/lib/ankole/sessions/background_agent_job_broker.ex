@@ -16,6 +16,58 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
   alias Ankole.Text
 
   @max_result_offset 2_147_483_646
+  @max_retained_workspace_candidates 2_048
+
+  @spec handle_retained_workspaces(
+          FabricProto.BackgroundAgentJobRetainedWorkspacesRequest.t(),
+          map()
+        ) :: {:ok, FabricProto.BackgroundAgentJobRetainedWorkspacesResponse.t()} | {:error, map()}
+  def handle_retained_workspaces(
+        %FabricProto.BackgroundAgentJobRetainedWorkspacesRequest{} = request,
+        %{worker_id: agent_uid} = ctx
+      )
+      when is_binary(agent_uid) do
+    handle_retained_workspaces(agent_uid, request, ctx)
+  end
+
+  @spec handle_retained_workspaces(
+          String.t(),
+          FabricProto.BackgroundAgentJobRetainedWorkspacesRequest.t(),
+          map()
+        ) :: {:ok, FabricProto.BackgroundAgentJobRetainedWorkspacesResponse.t()} | {:error, map()}
+  def handle_retained_workspaces(
+        agent_uid,
+        %FabricProto.BackgroundAgentJobRetainedWorkspacesRequest{candidate_job_ids: raw_ids},
+        ctx
+      )
+      when is_binary(agent_uid) and is_list(raw_ids) and
+             length(raw_ids) > @max_retained_workspace_candidates do
+    error(ctx.request_id, agent_uid, :too_many_retained_workspace_candidates)
+  end
+
+  def handle_retained_workspaces(
+        agent_uid,
+        %FabricProto.BackgroundAgentJobRetainedWorkspacesRequest{candidate_job_ids: raw_ids},
+        _ctx
+      )
+      when is_binary(agent_uid) and is_list(raw_ids) do
+    candidate_ids =
+      raw_ids
+      |> Enum.flat_map(fn raw ->
+        case BackgroundAgentJobs.parse_job_id(raw) do
+          {:ok, id} -> [id]
+          :error -> []
+        end
+      end)
+      |> Enum.uniq()
+
+    retained_ids = BackgroundAgentJobs.retained_workspace_job_ids(agent_uid, candidate_ids)
+
+    {:ok,
+     %FabricProto.BackgroundAgentJobRetainedWorkspacesResponse{
+       retained_job_ids: Enum.map(retained_ids, &Integer.to_string/1)
+     }}
+  end
 
   @spec handle_get(JobTurnRef.t(), FabricProto.BackgroundAgentJobGetRequest.t(), map()) ::
           {:ok, FabricProto.BackgroundAgentJobResponse.t()} | {:error, map()}

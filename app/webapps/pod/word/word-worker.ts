@@ -1,6 +1,18 @@
-import init, { WordEditor } from '@ankole/kernel/word-wasm'
+import init, { ExportAssets, PageExportSession, WordEditor } from '@ankole/kernel/word-wasm'
 import wasmURL from '@ankole/kernel/word-wasm/ankole_word_wasm_bg.wasm?url'
 import type { OfficeChangeSet, OfficeRemoteReport, OfficeSnapshotBase } from '../office/office-collaboration'
+
+export type ExportFontNeeds = {
+  substitutedFamilies: string[]
+  missingGlyphFamilies: string[]
+  uncoveredCharCount: number
+  fontGeneration: number
+}
+
+export type WorkerExportAsset = {
+  key: string
+  bytes: Uint8Array
+}
 
 export type WordStoryRef = 'body' | { part: number }
 
@@ -116,9 +128,15 @@ export type EngineMethods = typeof methods
 
 const ready = init({ module_or_path: wasmURL })
 let editor: WordEditor | undefined
+let exportSession: PageExportSession | undefined
 
 function opened(current: WordEditor | undefined): WordEditor {
   if (!current) throw new Error('The Word document is not open')
+  return current
+}
+
+function openedExport(current: PageExportSession | undefined): PageExportSession {
+  if (!current) throw new Error('The page export session is not open')
   return current
 }
 
@@ -282,6 +300,36 @@ const methods = {
   exportPdf(): Uint8Array {
     return standaloneBytes(opened(editor).export_pdf())
   },
+  openPageExport(requestJson: string, assets: WorkerExportAsset[], includeFontNeeds: boolean): ExportFontNeeds | null {
+    const staged = new ExportAssets()
+    let consumed = false
+    try {
+      for (const asset of assets) {
+        staged.put(asset.key, asset.bytes)
+      }
+      consumed = true
+      const next = PageExportSession.from_page(requestJson, staged)
+      exportSession?.free()
+      exportSession = next
+      return includeFontNeeds ? (JSON.parse(next.font_needs()) as ExportFontNeeds) : null
+    } catch (error) {
+      if (!consumed) staged.free()
+      throw error
+    }
+  },
+  addExportFonts(fontBlobs: Uint8Array[]): ExportFontNeeds {
+    const session = openedExport(exportSession)
+    for (const blob of fontBlobs) {
+      PageExportSession.add_font(blob)
+    }
+    return JSON.parse(session.font_needs()) as ExportFontNeeds
+  },
+  exportPageDocx(): Uint8Array {
+    return standaloneBytes(openedExport(exportSession).export_docx())
+  },
+  exportPagePdf(): Uint8Array {
+    return standaloneBytes(openedExport(exportSession).export_pdf())
+  },
   commands(query: string): WordCommandInfo[] {
     const ed = opened(editor)
     return JSON.parse(ed.commands(query)) as WordCommandInfo[]
@@ -293,30 +341,30 @@ function collectTransferables(method: keyof typeof methods, result: unknown): Tr
     const buf = (result as WordRenderedPage).rgba.buffer
     return buf instanceof ArrayBuffer ? [buf] : []
   }
-  if ((method === 'exportDocx' || method === 'exportPdf') && result instanceof Uint8Array) {
+  if (
+    (method === 'exportDocx' || method === 'exportPdf' || method === 'exportPageDocx' || method === 'exportPagePdf') &&
+    result instanceof Uint8Array
+  ) {
     return result.buffer instanceof ArrayBuffer ? [result.buffer] : []
   }
   return []
 }
 
-const scope = self as unknown as {
-  onmessage: ((event: MessageEvent<EngineRequest>) => void) | null
-  postMessage(message: EngineResponse, transfer?: Transferable[]): void
-}
-
 // Execute Worker requests sequentially in arrival order after WASM initialization finishes.
 let queue: Promise<void> = Promise.resolve()
-scope.onmessage = ({ data }) => {
+addEventListener('message', ({ data }: MessageEvent<EngineRequest>) => {
   queue = queue.then(async () => {
     try {
       await ready
       const method = methods[data.method] as (...args: unknown[]) => unknown
       const ok = method(...data.args)
       const transfer = collectTransferables(data.method, ok)
-      if (transfer.length > 0) scope.postMessage({ id: data.id, ok }, transfer)
-      else scope.postMessage({ id: data.id, ok })
+      const response: EngineResponse = { id: data.id, ok }
+      if (transfer.length > 0) postMessage(response, { transfer })
+      else postMessage(response)
     } catch (error) {
-      scope.postMessage({ id: data.id, error: { message: errorMessage(error) } })
+      const response: EngineResponse = { id: data.id, error: { message: errorMessage(error) } }
+      postMessage(response)
     }
   })
-}
+})

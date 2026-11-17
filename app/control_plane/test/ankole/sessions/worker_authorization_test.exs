@@ -78,7 +78,7 @@ defmodule Ankole.Sessions.WorkerAuthorizationTest do
     assert {:ok, :sent_or_queued} = Worker.send_call(run, row, dispatch)
     assert_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, _}}}
 
-    assert {:ok, _} = Ankole.Principals.delete_agent(agent.uid)
+    assert {:ok, _} = Ankole.Principals.disable_agent(agent.uid)
     assert {:error, :forbidden} = Worker.send_call(run, row, dispatch)
     refute_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, _}}}
   end

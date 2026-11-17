@@ -1435,6 +1435,31 @@ defmodule AnkoleWeb.OIDCControllerTest do
     Plug.CSRFProtection.delete_csrf_token()
   end
 
+  test "extension Pod bearer paths require the router's explicit CSRF declaration", %{conn: conn} do
+    human = human_fixture(%{uid: unique_uid("extension-csrf")})
+    session = oauth_session_conn(conn, human.principal.uid)
+
+    session =
+      %{session | method: "POST", request_path: "/api/v2/extension-pod/settings"}
+      |> put_private(:plug_skip_csrf_protection, false)
+
+    bearer = put_req_header(session, "authorization", "Bearer pod-access-token")
+    default = AnkoleWeb.Plugs.BrowserCSRF.init([])
+    extension = AnkoleWeb.Plugs.BrowserCSRF.init(bearer_paths: ["/api/v2/extension-pod/"])
+
+    assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
+      AnkoleWeb.Plugs.BrowserCSRF.call(bearer, default)
+    end
+
+    assert %Plug.Conn{} = AnkoleWeb.Plugs.BrowserCSRF.call(bearer, extension)
+
+    assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
+      AnkoleWeb.Plugs.BrowserCSRF.call(session, extension)
+    end
+
+    Plug.CSRFProtection.delete_csrf_token()
+  end
+
   defp add_authentication(conn, principal) do
     conn = WebSession.ensure_browser(conn)
 

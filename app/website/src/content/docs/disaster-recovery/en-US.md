@@ -7,7 +7,7 @@ order: 320
 
 Recovering an Ankole deployment requires restoring the control-plane PostgreSQL database, separate Pod Base shard databases, the file store, persistent Agent Homes, `ankole-function-runtime`, and the original deployment secrets together as a single coordinated unit. See [Backup and restore](../backup-and-restore/) for what data to preserve and how to take a consistent backup.
 
-List the actual Base database topology before recovery. When `BASE_DB_URLS` is unset, dev/test creates four Base shards, SaaS production creates eight, and FOSS production shares `DATABASE_URL`. Restore every separate shard in that topology, including shards configured by these defaults.
+List the actual Base database topology before recovery. When `BASE_DB_URLS` is unset, dev/test creates four Base shards, and FOSS production shares `DATABASE_URL`. Restore every separate shard in that topology, including shards configured by these defaults.
 
 ## Before recovery
 

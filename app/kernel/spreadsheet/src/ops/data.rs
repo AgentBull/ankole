@@ -192,11 +192,17 @@ pub(super) fn filter(
         .sheet(index)
         .ok_or_else(|| Error::invalid("the sheet disappeared during the operation"))?;
     // Rows the previous filter hid come back; rows hidden by hand stay hidden.
-    let unfiltered: Vec<u32> = sheet.autofilter.as_ref().map_or_else(Vec::new, |previous| {
-        (previous.range.start.row + 1..=previous.range.end.row)
-            .filter(|row| sheet.is_row_filtered(*row))
-            .collect()
-    });
+    let unfiltered: Vec<u32> = sheet
+        .autofilter
+        .as_ref()
+        .filter(|previous| previous.range.start.row < previous.range.end.row)
+        .map_or_else(Vec::new, |previous| {
+            sheet
+                .rows
+                .range((previous.range.start.row + 1)..=previous.range.end.row)
+                .filter_map(|(&row, _)| sheet.is_row_filtered(row).then_some(row))
+                .collect()
+        });
     let shown = |row: u32| {
         columns.iter().all(|column| {
             let text = display_text(wb, sheet, CellRef::new(row, column.col.0)).to_lowercase();

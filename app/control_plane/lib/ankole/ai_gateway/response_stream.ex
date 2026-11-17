@@ -13,18 +13,20 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   use GenServer
 
-  alias Ankole.AIGateway.ProviderFailure
+  alias Ankole.AIGateway.ClaudeMessageThreads
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedTools.ImageGeneration
+  alias Ankole.AIGateway.HostedTools.StreamLoop
   alias Ankole.AIGateway.Observability
   alias Ankole.AIGateway.ProgramExecution
+  alias Ankole.AIGateway.ProviderFailure
   alias Ankole.AIGateway.ResponseStream.State
   alias Ankole.AIGateway.ResponseStream.Supervisor
   alias Ankole.AIGateway.ResponseStream.UpstreamProgress
   alias Ankole.AIGateway.StatefulLifecycle
-  alias Ankole.AIGateway.HostedTools.StreamLoop
   alias Ankole.AIGateway.UniversalAIRequest
+  alias Ankole.AIGateway.UpstreamWebSocketPool
   alias Ankole.AIGateway.Usage
   alias Ankole.AIGateway.UsageLedger
   alias Ankole.Kernel.UniversalAIClient
@@ -348,6 +350,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       meta: meta,
       attempt_context: attempt_context,
       attempt_spec: attempt_spec,
+      ws_attempt: nil,
       credential_success_recorded?: false,
       provider_output?: false,
       stateful_replay_recovery_attempted?: false,
@@ -431,6 +434,8 @@ defmodule Ankole.AIGateway.ResponseStream do
       kind: kind,
       context: context,
       spec: spec,
+      ws_attempt: nil,
+      force_fresh_socket?: false,
       native_stream: nil,
       deadline_ms: deadline_ms,
       deadline_timer: deadline_timer,
@@ -468,6 +473,8 @@ defmodule Ankole.AIGateway.ResponseStream do
           kind: kind,
           context: state.attempt_context,
           spec: state.attempt_spec,
+          ws_attempt: nil,
+          force_fresh_socket?: false,
           native_stream: nil,
           deadline_ms: deadline_ms,
           deadline_timer: deadline_timer,
@@ -483,27 +490,79 @@ defmodule Ankole.AIGateway.ResponseStream do
     end
   end
 
-  defp start_open_candidate(%{opening: %{spec: spec} = opening} = state) do
+  defp start_open_candidate(%{opening: opening} = state) do
     state = put_upstream_progress(state, &UpstreamProgress.dispatched/1)
+    ws_attempt = ensure_ws_attempt(opening)
+    opening = %{opening | ws_attempt: ws_attempt}
+    state = %{state | opening: opening}
 
-    case UniversalAIRequest.start_stream(spec, receiver: self()) do
+    case UniversalAIRequest.start_stream(ws_attempt.spec,
+           receiver: self(),
+           ws_session: ws_attempt.ws_session
+         ) do
       {:ok, native_stream} ->
-        opening = %{opening | native_stream: native_stream}
-        {:noreply, %{state | opening: opening}}
+        {:noreply, %{state | opening: %{opening | native_stream: native_stream}}}
 
       {:error, reason} ->
         begin_open_recovery(state, reason)
     end
   end
 
-  defp begin_open_recovery(state, reason) do
-    state = cancel_open_candidate(state)
-    opening = state.opening
+  defp ensure_ws_attempt(%{ws_attempt: %{} = ws_attempt}), do: ws_attempt
 
+  defp ensure_ws_attempt(opening) do
+    UpstreamWebSocketPool.prepare_stream_attempt(
+      opening.spec,
+      CredentialAttempts.runtime(opening.context),
+      owner_pid: self(),
+      force_fresh_socket?: Map.get(opening, :force_fresh_socket?, false)
+    )
+  end
+
+  defp begin_open_recovery(state, reason) do
+    ws_attempt = get_in(state, [:opening, :ws_attempt])
+    state = cancel_open_candidate_native_only(state)
+    opening = state.opening
+    runtime = CredentialAttempts.runtime(opening.context)
+
+    case UpstreamWebSocketPool.plan_pre_first_event_fallback(
+           ws_attempt,
+           runtime,
+           [owner_pid: self()],
+           reason
+         ) do
+      {:fallback, next_ws_attempt, _fallback_reason} ->
+        next_opening = %{
+          opening
+          | spec: next_ws_attempt.full_spec,
+            ws_attempt: next_ws_attempt,
+            force_fresh_socket?: true
+        }
+
+        start_open_candidate(%{state | opening: next_opening})
+
+      :no_fallback ->
+        recover_continuation_or_credentials(state, opening, ws_attempt, reason)
+    end
+  end
+
+  defp recover_continuation_or_credentials(state, opening, ws_attempt, reason) do
+    spec = (ws_attempt && ws_attempt.full_spec) || opening.spec
+
+    case CredentialAttempts.recover_continuation(opening.context, spec, reason) do
+      {:retry, next_context, next_spec} ->
+        next_opening = %{opening | context: next_context, spec: next_spec, ws_attempt: nil}
+        start_open_candidate(%{state | opening: next_opening})
+
+      :no_recovery ->
+        plan_credential_open_recovery(state, opening, spec, reason)
+    end
+  end
+
+  defp plan_credential_open_recovery(state, opening, spec, reason) do
     case opening.context do
       %{} = context ->
         token = opening.token
-        spec = opening.spec
         opts = state.upstream_opts
         owner = self()
 
@@ -513,7 +572,9 @@ defmodule Ankole.AIGateway.ResponseStream do
              end) do
           {:ok, pid} ->
             worker = %{pid: pid, monitor: Process.monitor(pid), kind: :retry_plan}
-            {:noreply, %{state | opening: %{opening | worker: worker}}}
+
+            {:noreply,
+             %{state | opening: %{opening | spec: spec, ws_attempt: nil, worker: worker}}}
 
           {:error, task_reason} ->
             finish_open_failure(state, {:credential_retry_task_unavailable, task_reason})
@@ -563,6 +624,15 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp complete_open(state, native_stream, meta, context, spec) do
+    ws_attempt = get_in(state, [:opening, :ws_attempt])
+    full_spec = (ws_attempt && ws_attempt.full_spec) || spec
+
+    observability =
+      Observability.record_round_transport(
+        state.observability,
+        round_transport_attrs(meta, ws_attempt, context)
+      )
+
     state =
       state
       |> clear_opening()
@@ -573,9 +643,11 @@ defmodule Ankole.AIGateway.ResponseStream do
       | phase: :ready,
         public_open?: true,
         native_stream: native_stream,
+        ws_attempt: ws_attempt,
+        observability: observability,
         meta: meta,
         attempt_context: context,
-        attempt_spec: spec,
+        attempt_spec: full_spec,
         credential_success_recorded?: false,
         provider_output?: false,
         native_done?: false
@@ -677,6 +749,8 @@ defmodule Ankole.AIGateway.ResponseStream do
           kind: :stateful_replay_recovery,
           context: nil,
           spec: nil,
+          ws_attempt: nil,
+          force_fresh_socket?: false,
           native_stream: nil,
           deadline_ms: nil,
           deadline_timer: nil,
@@ -728,6 +802,7 @@ defmodule Ankole.AIGateway.ResponseStream do
         meta: meta,
         attempt_context: attempt_context,
         attempt_spec: attempt_spec,
+        ws_attempt: nil,
         credential_success_recorded?: false,
         provider_output?: false,
         native_done?: false,
@@ -760,11 +835,21 @@ defmodule Ankole.AIGateway.ResponseStream do
   defp cancel_open_candidate_if_present(%{opening: nil} = state), do: state
   defp cancel_open_candidate_if_present(state), do: cancel_open_candidate(state)
 
-  defp cancel_open_candidate(%{opening: %{native_stream: native_stream} = opening} = state) do
+  defp cancel_open_candidate(%{opening: opening} = state) do
+    state = cancel_open_candidate_native_only(state)
+    :ok = UpstreamWebSocketPool.abort_stream_attempt(Map.get(opening, :ws_attempt))
+    %{state | opening: %{state.opening | ws_attempt: nil}}
+  end
+
+  defp cancel_open_candidate_native_only(
+         %{opening: %{native_stream: native_stream} = opening} = state
+       ) do
     _ = cancel_native(native_stream)
     :ok = cancel_open_worker(opening.worker)
     %{state | opening: %{opening | native_stream: nil, worker: nil}}
   end
+
+  defp cancel_open_candidate_native_only(state), do: state
 
   defp cancel_open_worker(nil), do: :ok
 
@@ -973,6 +1058,8 @@ defmodule Ankole.AIGateway.ResponseStream do
         opening
         | context: context,
           spec: spec,
+          ws_attempt: nil,
+          force_fresh_socket?: true,
           retry_timer: retry_timer,
           worker: nil
       }
@@ -1044,7 +1131,8 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   def handle_info(:response_stream_shutdown, state) do
     _ = cancel_native(state.native_stream)
-    state = cancel_open_candidate_if_present(state)
+    :ok = UpstreamWebSocketPool.abort_stream_attempt(Map.get(state, :ws_attempt))
+    state = cancel_open_candidate_if_present(%{state | ws_attempt: nil})
     :ok = cancel_program(state.program_task)
     {:stop, :normal, state}
   end
@@ -1171,7 +1259,7 @@ defmodule Ankole.AIGateway.ResponseStream do
          %UniversalAIClient.Done{ref: ref, summary: _summary},
          %{native_stream: %{ref: ref}, program_task: %{}} = state
        ) do
-    {:noreply, state |> Map.put(:native_done?, true)}
+    {:noreply, Map.put(state, :native_done?, true)}
   end
 
   defp native_stream_event(
@@ -1214,6 +1302,10 @@ defmodule Ankole.AIGateway.ResponseStream do
 
         state =
           state
+          |> Map.put(
+            :ws_attempt,
+            UpstreamWebSocketPool.observe_round_event(state.ws_attempt, event)
+          )
           |> record_credential_success(event, origin)
           |> record_event_credential_failure(event)
 
@@ -1324,6 +1416,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   @impl true
   def terminate(_reason, state) do
     _ = cancel_native(Map.get(state, :native_stream))
+    :ok = UpstreamWebSocketPool.abort_stream_attempt(Map.get(state, :ws_attempt))
     _ = cancel_open_candidate_if_present(state)
     :ok = cancel_program(Map.get(state, :program_task))
     _observation = Observability.fail(Map.get(state, :observability), :response_stream_terminated)
@@ -1331,7 +1424,12 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp observe_event(state, event, sequence) do
-    state = finish_observed_round(state, event)
+    {resolver_metadata, event} = Map.pop(event, "__ankole_resolver_metadata")
+
+    state =
+      state
+      |> settle_round_continuations(event, resolver_metadata)
+      |> finish_observed_round(event)
 
     case State.observe(state.semantic, event, sequence) do
       {:ok, semantic, events, :continue} ->
@@ -1482,6 +1580,8 @@ defmodule Ankole.AIGateway.ResponseStream do
       kind: :reopen,
       context: state.attempt_context,
       spec: state.attempt_spec,
+      ws_attempt: state.ws_attempt,
+      force_fresh_socket?: false,
       native_stream: nil,
       deadline_ms: deadline_ms,
       deadline_timer: deadline_timer,
@@ -1493,6 +1593,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       state
       | phase: :opening,
         opening: opening,
+        ws_attempt: nil,
         native_stream: nil
     }
 
@@ -1706,6 +1807,9 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp fail_stream(state, opts) do
+    :ok = UpstreamWebSocketPool.abort_stream_attempt(Map.get(state, :ws_attempt))
+    state = %{state | ws_attempt: nil}
+
     failure =
       Keyword.get(opts, :reason, %{
         "code" => Keyword.get(opts, :code, "provider_stream_error"),
@@ -1726,6 +1830,74 @@ defmodule Ankole.AIGateway.ResponseStream do
 
     {state, events, outcome}
   end
+
+  defp settle_round_continuations(state, %{"type" => type} = event, resolver_metadata)
+       when type in ["response.completed", "response.incomplete", "response.failed"] do
+    status = terminal_event_status(type)
+    raw_upstream_id = get_in(event, ["response", "id"])
+    round_items = State.round_output_items(state.semantic, event)
+
+    :ok =
+      UpstreamWebSocketPool.complete_stream_attempt(
+        state.ws_attempt,
+        status,
+        raw_upstream_id,
+        round_items
+      )
+
+    %{state | ws_attempt: nil}
+    |> settle_claude_round(resolver_metadata)
+  end
+
+  defp settle_round_continuations(state, _event, _resolver_metadata), do: state
+
+  defp settle_claude_round(state, nil), do: state
+
+  defp settle_claude_round(state, %{} = resolver_metadata) do
+    claude_attempt = CredentialAttempts.claude_thread_attempt(state.attempt_context)
+    claude_fallback = CredentialAttempts.claude_thread_fallback_reason(state.attempt_context)
+    :ok = ClaudeMessageThreads.record_completion(claude_attempt, resolver_metadata)
+
+    observability =
+      Observability.record_round_transport(
+        state.observability,
+        ClaudeMessageThreads.telemetry_attrs(claude_attempt, claude_fallback, resolver_metadata)
+      )
+
+    %{state | observability: observability}
+  end
+
+  defp terminal_event_status("response.completed"), do: "completed"
+  defp terminal_event_status("response.incomplete"), do: "incomplete"
+  defp terminal_event_status(_failed), do: "failed"
+
+  defp round_transport_attrs(meta, ws_attempt, context) do
+    request_bytes = if is_map(meta), do: Map.get(meta, "request_bytes")
+
+    if pooled_ws_attempt?(ws_attempt) do
+      %{
+        continuation_mode: ws_attempt.continuation_mode,
+        request_bytes: request_bytes,
+        logical_request_bytes: ws_attempt.logical_request_bytes,
+        continuation_fallback_reason: ws_attempt.continuation_fallback_reason
+      }
+    else
+      context
+      |> CredentialAttempts.claude_thread_attempt()
+      |> ClaudeMessageThreads.telemetry_attrs(
+        CredentialAttempts.claude_thread_fallback_reason(context),
+        nil
+      )
+      |> Map.put(:request_bytes, request_bytes)
+    end
+  end
+
+  defp pooled_ws_attempt?(%{ws_session: ws_session}) when not is_nil(ws_session), do: true
+
+  defp pooled_ws_attempt?(%{continuation_fallback_reason: reason}) when is_binary(reason),
+    do: true
+
+  defp pooled_ws_attempt?(_ws_attempt), do: false
 
   defp send_events(state, events, status) do
     send(

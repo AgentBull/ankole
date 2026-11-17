@@ -1,6 +1,7 @@
 ---
 name: sentry
 description: "Find and use sentry operations through Ankole connections."
+default_enabled: false
 ---
 
 # sentry

@@ -2,6 +2,8 @@ defmodule Ankole.Pod.PageComment do
   @moduledoc "A document comment or one-level reply, including its retained deletion and resolution facts."
   use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod
 
+  @principal_md_mention_regex ~r/@\[[^\]]*\]\(principal:([^)\s]+)\)/
+
   postgres do
     table("page_comments")
     repo(Ankole.Repo)
@@ -33,6 +35,7 @@ defmodule Ankole.Pod.PageComment do
     attribute(:page_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
     attribute(:root_id, Ankole.Ash.Types.UUIDv7)
     attribute(:body, :string, constraints: [trim?: false, allow_empty?: true, max_length: 20_000])
+    attribute(:mentioned_uids, {:array, :string}, allow_nil?: false, default: [])
     attribute(:author, Ankole.Ash.Types.ActorRef, allow_nil?: false)
     attribute(:updated_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
     attribute(:deleted_by, Ankole.Ash.Types.ActorRef)
@@ -78,6 +81,8 @@ defmodule Ankole.Pod.PageComment do
         :created_at,
         :updated_at
       ])
+
+      change(&sync_create_mentions/2)
     end
 
     update :activity_in_tx do
@@ -86,7 +91,7 @@ defmodule Ankole.Pod.PageComment do
     end
 
     update :change_in_tx do
-      require_atomic?(true)
+      require_atomic?(false)
 
       accept([
         :body,
@@ -101,11 +106,61 @@ defmodule Ankole.Pod.PageComment do
         :updated_by
       ])
 
-      change(atomic_update(:version, expr(version + 1)))
+      change(&prepare_change/2)
     end
 
     destroy :purge do
       require_atomic?(true)
+    end
+  end
+
+  defp sync_create_mentions(changeset, _context) do
+    body = Ash.Changeset.get_attribute(changeset, :body)
+    Ash.Changeset.force_change_attribute(changeset, :mentioned_uids, mentioned_uids(body))
+  end
+
+  defp prepare_change(changeset, _context) do
+    changeset =
+      if Ash.Changeset.changing_attribute?(changeset, :body) do
+        body = Ash.Changeset.get_attribute(changeset, :body)
+        Ash.Changeset.force_change_attribute(changeset, :mentioned_uids, mentioned_uids(body))
+      else
+        changeset
+      end
+
+    Ash.Changeset.force_change_attribute(changeset, :version, changeset.data.version + 1)
+  end
+
+  defp mentioned_uids(body) when is_binary(body) and body != "" do
+    prose = prose_without_code(body)
+    xml_uids = Ankole.Pod.Pages.Mentions.principal_uids(prose)
+
+    md_uids =
+      @principal_md_mention_regex
+      |> Regex.scan(prose, capture: :all_but_first)
+      |> List.flatten()
+
+    (xml_uids ++ md_uids)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp mentioned_uids(_body), do: []
+
+  defp prose_without_code(body) do
+    case Ankole.Kernel.markdown_code_ranges(body) do
+      [] ->
+        body
+
+      ranges ->
+        {chunks, offset} =
+          Enum.reduce(ranges, {[], 0}, fn {start, length}, {acc, pos} ->
+            {["\n", binary_part(body, pos, start - pos) | acc], start + length}
+          end)
+
+        [Enum.reverse(chunks), binary_part(body, offset, byte_size(body) - offset)]
+        |> IO.iodata_to_binary()
     end
   end
 

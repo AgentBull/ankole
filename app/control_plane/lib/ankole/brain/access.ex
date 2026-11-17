@@ -7,7 +7,7 @@ defmodule Ankole.Brain.Access do
   defstruct querier_uid: nil, reachable: %{}, containers: [], pages: []
   @type t :: %__MODULE__{}
   @type disclosure :: %{
-          mode: :strict | :relaxed,
+          mode: :strict | :relaxed | :workspace_public_fallback,
           asker_uid: String.t() | nil,
           present_uids: [String.t()]
         }
@@ -86,6 +86,20 @@ defmodule Ankole.Brain.Access do
     authn = Map.get(context, :authn, %{})
 
     cond do
+      disclosure.mode == :workspace_public_fallback ->
+        with {:ok, reachable} <-
+               workspace_public_reachable(uid, disclosure, querier_reachable, authn, []) do
+          {containers, pages} = Graph.visibility_ids(reachable)
+
+          {:ok,
+           %__MODULE__{
+             querier_uid: uid,
+             reachable: reachable,
+             containers: containers,
+             pages: pages
+           }}
+        end
+
       disclosure.mode == :strict and recipients == [] ->
         {:ok, %__MODULE__{querier_uid: uid}}
 
@@ -125,10 +139,73 @@ defmodule Ankole.Brain.Access do
     recipients = recipients(disclosure)
     authn = Map.get(context, :authn, %{})
 
-    if disclosure.mode == :strict and recipients == [] do
-      {:ok, %{}}
+    cond do
+      disclosure.mode == :workspace_public_fallback ->
+        workspace_public_reachable(uid, disclosure, nil, authn, opts)
+
+      disclosure.mode == :strict and recipients == [] ->
+        {:ok, %{}}
+
+      true ->
+        intersect_readers([uid | recipients], nil, authn, opts)
+    end
+  end
+
+  defp workspace_public_reachable(uid, disclosure, initial_reachable, authn, opts) do
+    if workspace_space_public_readable?() do
+      readers = Enum.filter([uid, disclosure[:asker_uid]], &is_binary/1)
+
+      with {:ok, base} <- intersect_readers(readers, initial_reachable, authn, opts) do
+        public_anchor_ids = workspace_public_anchor_ids()
+        {:ok, Map.take(base || %{}, public_anchor_ids)}
+      end
     else
-      intersect_readers([uid | recipients], nil, authn, opts)
+      {:ok, %{}}
+    end
+  end
+
+  defp workspace_space_public_readable? do
+    case Ankole.Pod.Access.space_group() do
+      {:ok, group} ->
+        Ankole.Pod.Access.grants(
+          group_id: group.id,
+          resource_pattern: "drive:space:**",
+          action: "node_view",
+          condition: "true"
+        ) != []
+
+      _ ->
+        false
+    end
+  end
+
+  defp workspace_public_anchor_ids do
+    anchors = Ankole.Pod.acl_anchor_nodes() |> Map.new(&{&1.id, &1})
+
+    for {id, anchor} <- anchors,
+        public_inheriting_anchor?(anchor, anchors, MapSet.new()),
+        do: id
+  end
+
+  defp public_inheriting_anchor?(anchor, anchors, seen) do
+    cond do
+      not is_nil(anchor.private_owner_uid) or not is_nil(Map.get(anchor, :conversation_id)) ->
+        false
+
+      not anchor.inherit_permissions ->
+        false
+
+      is_nil(anchor.parent_anchor_id) ->
+        true
+
+      MapSet.member?(seen, anchor.parent_anchor_id) ->
+        false
+
+      true ->
+        case Map.get(anchors, anchor.parent_anchor_id) do
+          nil -> false
+          parent -> public_inheriting_anchor?(parent, anchors, MapSet.put(seen, anchor.id))
+        end
     end
   end
 
@@ -221,7 +298,14 @@ defmodule Ankole.Brain.Access do
           is_nil(deleted_at) and
             ((not is_acl_anchor and acl_anchor_id in ^access.containers) or
                (is_acl_anchor and id in ^access.pages))
-        )
+        ) and
+        (is_nil(origin_page_id) or
+           exists(
+             origin_page,
+             is_nil(deleted_at) and
+               ((not is_acl_anchor and acl_anchor_id in ^access.containers) or
+                  (is_acl_anchor and id in ^access.pages))
+           ))
     )
   end
 

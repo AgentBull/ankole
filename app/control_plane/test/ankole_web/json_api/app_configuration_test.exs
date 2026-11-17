@@ -459,7 +459,7 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTest do
              |> json_response(201)
   end
 
-  test "Pod-scoped i18n.default_locale is omitted from site settings and editable per tenant", %{
+  test "Pod-scoped i18n.default_locale is omitted from site settings and read-only in Console", %{
     conn: conn
   } do
     conn = console_conn(conn)
@@ -478,7 +478,7 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTest do
              |> api_get("/api/v2/site/app-configurations/i18n.default_locale")
              |> json_response(422)
 
-    assert %{"errors" => [%{"code" => "pod_scope_only"}]} =
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} =
              conn
              |> recycle_api()
              |> api_put("/api/v2/site/app-configurations/i18n.default_locale", %{
@@ -495,36 +495,16 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTest do
 
     assert %{
              "scope" => "pod",
-             "editable" => true,
+             "editable" => false,
              "value" => "en-US",
              "source" => "default"
            } = entry(tenant_entries, "i18n.default_locale")
 
-    assert %{
-             "app_configuration" => %{
-               "key" => "i18n.default_locale",
-               "scope" => "pod",
-               "value" => "ja-JP",
-               "source" => "tenant",
-               "overridden" => true
-             }
-           } =
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} =
              conn
              |> recycle_api()
              |> api_put("/api/v2/app-configurations/i18n.default_locale", %{"value" => "ja-JP"})
-             |> json_response(200)
-
-    assert %{
-             "app_configuration" => %{
-               "value" => "en-US",
-               "source" => "default",
-               "overridden" => false
-             }
-           } =
-             conn
-             |> recycle_api()
-             |> api_delete("/api/v2/app-configurations/i18n.default_locale")
-             |> json_response(200)
+             |> json_response(422)
   end
 
   defp entry(entries, key) do

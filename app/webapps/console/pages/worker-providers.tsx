@@ -54,9 +54,22 @@ import { useEditorDraft } from '../use-editor-draft'
 
 const providersPath = '/worker-providers'
 
+function resolveSupportTier(
+  kind: string,
+  definition?: { support_tier?: 'core' | 'cloud_extension' }
+): 'core' | 'cloud_extension' {
+  if (definition?.support_tier) return definition.support_tier
+  return kind === 'docker' || kind === 'kubernetes' ? 'core' : 'cloud_extension'
+}
+
 export function WorkerProvidersListPage() {
   const { t } = useTranslation()
   const providers = useQuery({ ...listWorkerProvidersOptions(), select: workerProviders })
+  const kinds = useQuery(listWorkerProviderKindsOptions())
+  const definitionsByKind = useMemo(
+    () => new Map((kinds.data?.worker_provider_kinds ?? []).map(item => [item.kind, item])),
+    [kinds.data?.worker_provider_kinds]
+  )
   const [query, setQuery] = useState('')
   const search = effectiveResourceSearchQuery(query, useDeferredValue(query))
   const rows = (providers.data ?? []).filter(provider =>
@@ -99,7 +112,21 @@ export function WorkerProvidersListPage() {
             <div className="font-mono text-xs text-fg-secondary">{provider.provider_id}</div>
             {provider.is_default ? <Badge variant="secondary">{t('console.worker_providers.default')}</Badge> : null}
           </TableCell>
-          <TableCell>{provider.kind}</TableCell>
+          <TableCell>
+            <div className="flex flex-wrap items-center gap-2">
+              <span>{provider.kind}</span>
+              <Badge
+                variant={
+                  resolveSupportTier(provider.kind, definitionsByKind.get(provider.kind)) === 'core'
+                    ? 'secondary'
+                    : 'outline'
+                }>
+                {t(
+                  `console.worker_providers.tier_${resolveSupportTier(provider.kind, definitionsByKind.get(provider.kind))}`
+                )}
+              </Badge>
+            </div>
+          </TableCell>
           <TableCell>
             <ProviderAvailability providerID={provider.provider_id} />
           </TableCell>
@@ -276,9 +303,17 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
             />
           )}
         </LabeledField>
-        <LabeledField label={t('console.worker_providers.kind')} required={!providerID}>
+        <LabeledField
+          label={t('console.worker_providers.kind')}
+          description={t(`console.worker_providers.tier_${resolveSupportTier(model.kind.value, definition)}_hint`)}
+          required={!providerID}>
           {providerID ? (
-            <ReadOnlyValue>{model.kind.value}</ReadOnlyValue>
+            <div className="flex flex-wrap items-center gap-2">
+              <ReadOnlyValue>{model.kind.value}</ReadOnlyValue>
+              <Badge variant={resolveSupportTier(model.kind.value, definition) === 'core' ? 'secondary' : 'outline'}>
+                {t(`console.worker_providers.tier_${resolveSupportTier(model.kind.value, definition)}`)}
+              </Badge>
+            </div>
           ) : (
             <Select
               value={model.kind.value}
@@ -292,12 +327,15 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
               <SelectContent>
                 {definitions?.map(item => (
                   <SelectItem key={item.kind} value={item.kind}>
-                    {item.kind}
+                    {item.kind} — {t(`console.worker_providers.tier_${resolveSupportTier(item.kind, item)}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           )}
+          {model.kind.value === 'cloudflare' ? (
+            <p className="mt-1.5 text-xs text-fg-secondary">{t('console.worker_providers.tier_cloudflare_caveat')}</p>
+          ) : null}
         </LabeledField>
         <LabeledField
           label={t('console.worker_providers.default')}

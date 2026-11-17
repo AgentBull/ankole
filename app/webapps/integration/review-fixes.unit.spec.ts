@@ -30,6 +30,8 @@ const EDITOR_ACTIONS: PodPageReadResponse['actions'] = [
 
 function makeAppletDetail(actions = EDITOR_ACTIONS, role: PodPageReadResponse['role'] = 'edit'): PodPageReadResponse {
   return {
+    bindings: {},
+    bindings_digest: '',
     page: {
       id: APPLET_PAGE_ID,
       name: 'Research Console',

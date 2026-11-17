@@ -179,18 +179,35 @@ defmodule Ankole.AIGateway.MediaJobs do
     with {:ok, runtime} <- runtime(job), do: step(job, runtime)
   end
 
-  # The job reads the profile again on every step. The credential affinity
-  # keeps the steps of one job on one credential of a Provider pool, because
-  # only the account that started a generation can read it.
+  # Once a credential accepts a generation or returns a result link, subsequent
+  # steps pin directly to that credential id; only pre-submission and legacy
+  # unpinned rows fall back to job-id affinity selection.
   defp runtime(job) do
-    request =
-      Map.put(
-        job.request,
-        "__ankole_request_context",
-        Map.put(job.request_context, "affinity_key", job.id)
-      )
+    pinned? = is_binary(job.credential_id) and job.credential_id != ""
 
-    case Resolver.resolve_request_model(job.subject_uid, to_string(job.capability), request) do
+    context =
+      if pinned?,
+        do: job.request_context,
+        else: Map.put(job.request_context, "affinity_key", job.id)
+
+    base_request =
+      if pinned?,
+        do: Map.put(job.request, "model", "#{job.provider_id}/#{job.model}"),
+        else: job.request
+
+    request = Map.put(base_request, "__ankole_request_context", context)
+
+    resolve_opts =
+      if pinned?,
+        do: [credential_id: job.credential_id],
+        else: []
+
+    case Resolver.resolve_request_model(
+           job.subject_uid,
+           to_string(job.capability),
+           request,
+           resolve_opts
+         ) do
       {:ok, %{"provider_id" => provider_id, "model" => model} = runtime}
       when provider_id == job.provider_id and model == job.model ->
         {:ok, runtime}
@@ -201,6 +218,33 @@ defmodule Ankole.AIGateway.MediaJobs do
            409,
            "model_profile_changed",
            "The model profile changed while the media job ran.",
+           "invalid_request_error"
+         )}
+
+      {:error, :credential_not_found} ->
+        {:fail,
+         OpenAIError.server(
+           409,
+           "credential_removed",
+           "The Provider credential that started the media job was removed.",
+           "invalid_request_error"
+         )}
+
+      {:error, :credential_disabled} ->
+        {:fail,
+         OpenAIError.server(
+           409,
+           "credential_disabled",
+           "The Provider credential that started the media job was disabled.",
+           "invalid_request_error"
+         )}
+
+      {:error, :credential_reauth_required} ->
+        {:fail,
+         OpenAIError.server(
+           409,
+           "credential_reauth_required",
+           "The Provider credential that started the media job requires reauthorization.",
            "invalid_request_error"
          )}
 
@@ -218,8 +262,8 @@ defmodule Ankole.AIGateway.MediaJobs do
            :claim_pending
          ) do
       {:ok, [%MediaJob{} = claimed]} ->
-        case upstream(runtime, claimed.request) do
-          {:ok, result} -> record(claimed, runtime, result)
+        case upstream(runtime, claimed.request, route_retry: false) do
+          {:ok, result, winning_runtime} -> record(claimed, winning_runtime, result)
           {:error, reason} -> {:fail, reason}
         end
 
@@ -243,8 +287,8 @@ defmodule Ankole.AIGateway.MediaJobs do
          "The Provider did not finish the generation within an hour."
        )}
     else
-      with {:ok, result} <- upstream(runtime, state_request(job)),
-           do: record(job, runtime, result)
+      with {:ok, result, winning_runtime} <- upstream(runtime, state_request(job)),
+           do: record(job, winning_runtime, result)
     end
   end
 
@@ -259,7 +303,12 @@ defmodule Ankole.AIGateway.MediaJobs do
 
   defp record(job, runtime, %{"status" => "completed", "url" => url} = result)
        when is_binary(url) do
-    with {:ok, job} <- update(job, %{result_url: url, usage: result["usage"] || %{}}),
+    with {:ok, job} <-
+           update(job, %{
+             credential_id: job.credential_id || runtime["credential_id"],
+             result_url: url,
+             usage: result["usage"] || %{}
+           }),
          do: save(job, runtime)
   end
 
@@ -274,8 +323,12 @@ defmodule Ankole.AIGateway.MediaJobs do
     {:fail, OpenAIError.server(502, "media_generation_failed", message)}
   end
 
-  defp record(job, _runtime, %{"job_id" => upstream_job_id}) when is_binary(upstream_job_id) do
-    with {:ok, _job} <- update(job, %{upstream_job_id: upstream_job_id}),
+  defp record(job, runtime, %{"job_id" => upstream_job_id}) when is_binary(upstream_job_id) do
+    with {:ok, _job} <-
+           update(job, %{
+             credential_id: job.credential_id || runtime["credential_id"],
+             upstream_job_id: upstream_job_id
+           }),
          do: {:snooze, @poll_seconds}
   end
 
@@ -386,10 +439,10 @@ defmodule Ankole.AIGateway.MediaJobs do
 
   defp update(job, attrs), do: Ankole.Ash.update(job, :advance, attrs)
 
-  defp upstream(runtime, request) do
+  defp upstream(runtime, request, opts \\ []) do
     with {:ok, prepared} <- build(runtime, request),
-         {:ok, response} <- RequestExecution.execute_prepared_request(runtime, prepared, []) do
-      {:ok, response.body}
+         {:ok, response} <- RequestExecution.execute_prepared_request(runtime, prepared, opts) do
+      {:ok, response.body, Map.get(response, :runtime, runtime)}
     end
   end
 

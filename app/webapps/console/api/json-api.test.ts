@@ -67,6 +67,11 @@ test('JSON:API errors get the Console failure shape and other payloads stay the 
   })
   expect(requestErrorCode(rejected)).toBe('tenant_slug_taken')
   expect(requestErrorMessage(rejected)).toBe('the domain operation was rejected')
+  expect((rejected as { httpStatus?: number }).httpStatus).toBe(422)
+  expect(fromErrors('Temporarily unavailable', new Response(null, { status: 503 }))).toEqual({
+    httpStatus: 503,
+    message: 'Temporarily unavailable'
+  })
 
   const invalid = fromErrors({
     errors: [
@@ -143,5 +148,8 @@ test('a v2 client failure has the Console failure shape', async () => {
 
   const error = await consoleV2Client.get({ url: '/api/v2/agents', throwOnError: true }).catch(error => error)
 
-  expect(error).toEqual({ error: { code: 'conflict', message: 'reload it and try again', details: [] } })
+  expect(error).toEqual({
+    httpStatus: 409,
+    error: { code: 'conflict', message: 'reload it and try again', details: [] }
+  })
 })

@@ -256,7 +256,7 @@ defmodule Ankole.Sessions.SharedConversationTest do
                text: "Private work"
              })
 
-    assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(c.first.uid)
+    assert {:ok, %{status: :disabled}} = Ankole.Principals.disable_agent(c.first.uid)
     assert {:ok, %{id: room_id}} = External.fetch_conversation(c.conversation.id)
     assert room_id == c.conversation.id
     assert Repo.get_by(Ankole.Conversations.Message, id: first_reply.id).text == first_reply.text

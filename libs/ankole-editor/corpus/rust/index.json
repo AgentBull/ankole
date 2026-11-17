@@ -892,6 +892,78 @@
       }
     },
     {
+      "name": "inline-formula",
+      "xml": "<page><p>Energy <inline-math>E = mc^2</inline-math>, empty <inline-math />, and <strong><a href=\"https://example.com\"><inline-math source=\"manual\">a\r\nb\nc &lt; d</inline-math></a></strong>.</p><p><comment ids=\"019a2b00-0000-7000-8000-000000000004\"><inline-math>x^2 + y^2</inline-math></comment></p></page>",
+      "canonicalXml": "<page><p>Energy <inline-math>E = mc^2</inline-math>, empty <inline-math />, and <strong><a href=\"https://example.com\"><inline-math source=\"manual\">a b c &lt; d</inline-math></a></strong>.</p><p><comment ids=\"019a2b00-0000-7000-8000-000000000004\"><inline-math>x^2 + y^2</inline-math></comment></p></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "Energy "
+              },
+              {
+                "type": "InlineMath",
+                "param": "E = mc^2"
+              },
+              {
+                "type": "Text",
+                "param": ", empty "
+              },
+              {
+                "type": "InlineMath",
+                "param": ""
+              },
+              {
+                "type": "Text",
+                "param": ", and "
+              },
+              {
+                "type": "InlineMath",
+                "param": "a b c < d",
+                "marks": {
+                  "Link": [
+                    [
+                      "href",
+                      "https://example.com"
+                    ]
+                  ],
+                  "Strong": null,
+                  "Attrs": [
+                    [
+                      "source",
+                      "manual"
+                    ]
+                  ]
+                }
+              },
+              {
+                "type": "Text",
+                "param": "."
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "InlineMath",
+                "param": "x^2 + y^2",
+                "marks": {
+                  "Comment": [
+                    "019a2b00-0000-7000-8000-000000000004"
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "mermaid",
       "xml": "<page><mermaid>flowchart TD\n  A[开始] --&gt; B[结束]</mermaid></page>",
       "canonicalXml": "<page><mermaid>flowchart TD\n  A[开始] --&gt; B[结束]</mermaid></page>",
@@ -1274,8 +1346,8 @@
     },
     {
       "name": "generated-0",
-      "xml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><br /><strong><mention note=\"&quot;quoted&quot;\" page=\"019a2b00-0000-7000-8000-000000000001\" /></strong>🙂';<u><mention page=\"usr_alice\" /></u><img alt=\"https://example.com\" src=\"中文\" title=\"&lt;tag&gt;\" /></my-block><callout note=\"x\" tone=\"info\"><my-block><br /></my-block><table><tr><th align=\"center\"><p><img src=\"中文\" title=\"alpha\" /></p></th></tr><tr><td align=\"center\"><p><br /><a href=\"https://example.com\" title=\"&lt;tag&gt;\"><br />:=/&gt; &lt;\"]!|me@example.com'/&gt;文</a><my-block data-x=\"&lt;tag&gt;\" source=\"\"><br /><br /></my-block></p></td></tr></table></callout></chip></page>",
-      "canonicalXml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><br /><strong><mention note=\"&quot;quoted&quot;\" page=\"019a2b00-0000-7000-8000-000000000001\" /></strong>🙂';<u><mention page=\"usr_alice\" /></u><img alt=\"https://example.com\" src=\"中文\" title=\"&lt;tag&gt;\" /></my-block><callout note=\"x\" tone=\"info\"><my-block><br /></my-block><table><tr><th align=\"center\"><p><img src=\"中文\" title=\"alpha\" /></p></th></tr><tr><td align=\"center\"><p><br /><a href=\"https://example.com\" title=\"&lt;tag&gt;\"><br />:=/&gt; &lt;\"]!|me@example.com'/&gt;文</a><my-block data-x=\"&lt;tag&gt;\" source=\"\"><br /><br /></my-block></p></td></tr></table></callout></chip></page>",
+      "xml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><inline-math>10:30'Z`&lt;/ </inline-math>文&lt;<mention page=\"page_roadmap\" source=\"=|}\" /></my-block><widget source=\"&quot;!a=www.example.com(`Z\"><img alt=\"alpha\" src=\"中文\" title=\"中文\" /></widget></chip></page>",
+      "canonicalXml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><inline-math>10:30'Z`&lt;/ </inline-math>文&lt;<mention page=\"page_roadmap\" source=\"=|}\" /></my-block><widget source=\"&quot;!a=www.example.com(`Z\"><img alt=\"alpha\" src=\"中文\" title=\"中文\" /></widget></chip></page>",
       "document": {
         "type": "Doc",
         "content": [
@@ -1302,61 +1374,23 @@
                   ],
                   "children": [
                     {
-                      "name": "br",
-                      "attrs": [],
-                      "children": []
-                    },
-                    {
-                      "name": "strong",
+                      "name": "inline-math",
                       "attrs": [],
                       "children": [
-                        {
-                          "name": "mention",
-                          "attrs": [
-                            [
-                              "note",
-                              "\"quoted\""
-                            ],
-                            [
-                              "page",
-                              "019a2b00-0000-7000-8000-000000000001"
-                            ]
-                          ],
-                          "children": []
-                        }
+                        "10:30'Z`</ "
                       ]
                     },
-                    "🙂';",
+                    "文<",
                     {
-                      "name": "u",
-                      "attrs": [],
-                      "children": [
-                        {
-                          "name": "mention",
-                          "attrs": [
-                            [
-                              "page",
-                              "usr_alice"
-                            ]
-                          ],
-                          "children": []
-                        }
-                      ]
-                    },
-                    {
-                      "name": "img",
+                      "name": "mention",
                       "attrs": [
                         [
-                          "alt",
-                          "https://example.com"
+                          "page",
+                          "page_roadmap"
                         ],
                         [
-                          "src",
-                          "中文"
-                        ],
-                        [
-                          "title",
-                          "<tag>"
+                          "source",
+                          "=|}"
                         ]
                       ],
                       "children": []
@@ -1364,145 +1398,31 @@
                   ]
                 },
                 {
-                  "name": "callout",
+                  "name": "widget",
                   "attrs": [
                     [
-                      "note",
-                      "x"
-                    ],
-                    [
-                      "tone",
-                      "info"
+                      "source",
+                      "\"!a=www.example.com(`Z"
                     ]
                   ],
                   "children": [
                     {
-                      "name": "my-block",
-                      "attrs": [],
-                      "children": [
-                        {
-                          "name": "br",
-                          "attrs": [],
-                          "children": []
-                        }
-                      ]
-                    },
-                    {
-                      "name": "table",
-                      "attrs": [],
-                      "children": [
-                        {
-                          "name": "tr",
-                          "attrs": [],
-                          "children": [
-                            {
-                              "name": "th",
-                              "attrs": [
-                                [
-                                  "align",
-                                  "center"
-                                ]
-                              ],
-                              "children": [
-                                {
-                                  "name": "p",
-                                  "attrs": [],
-                                  "children": [
-                                    {
-                                      "name": "img",
-                                      "attrs": [
-                                        [
-                                          "src",
-                                          "中文"
-                                        ],
-                                        [
-                                          "title",
-                                          "alpha"
-                                        ]
-                                      ],
-                                      "children": []
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "name": "tr",
-                          "attrs": [],
-                          "children": [
-                            {
-                              "name": "td",
-                              "attrs": [
-                                [
-                                  "align",
-                                  "center"
-                                ]
-                              ],
-                              "children": [
-                                {
-                                  "name": "p",
-                                  "attrs": [],
-                                  "children": [
-                                    {
-                                      "name": "br",
-                                      "attrs": [],
-                                      "children": []
-                                    },
-                                    {
-                                      "name": "a",
-                                      "attrs": [
-                                        [
-                                          "href",
-                                          "https://example.com"
-                                        ],
-                                        [
-                                          "title",
-                                          "<tag>"
-                                        ]
-                                      ],
-                                      "children": [
-                                        {
-                                          "name": "br",
-                                          "attrs": [],
-                                          "children": []
-                                        },
-                                        ":=/> <\"]!|me@example.com'/>文"
-                                      ]
-                                    },
-                                    {
-                                      "name": "my-block",
-                                      "attrs": [
-                                        [
-                                          "data-x",
-                                          "<tag>"
-                                        ],
-                                        [
-                                          "source",
-                                          ""
-                                        ]
-                                      ],
-                                      "children": [
-                                        {
-                                          "name": "br",
-                                          "attrs": [],
-                                          "children": []
-                                        },
-                                        {
-                                          "name": "br",
-                                          "attrs": [],
-                                          "children": []
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
+                      "name": "img",
+                      "attrs": [
+                        [
+                          "alt",
+                          "alpha"
+                        ],
+                        [
+                          "src",
+                          "中文"
+                        ],
+                        [
+                          "title",
+                          "中文"
+                        ]
+                      ],
+                      "children": []
                     }
                   ]
                 }
@@ -1637,8 +1557,8 @@
     },
     {
       "name": "generated-6",
-      "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:30&lt;/&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">&gt;-;~&lt;b+https://example.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\" /><hr /></page>",
-      "canonicalXml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:30&lt;/&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">&gt;-;~&lt;b+https://example.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\" /><hr /></page>",
+      "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">}!+</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">*&lt;~\\$me@example.com|&gt;é</pre><pre constructor=\"-&gt;1.|*+;\" meta=\"title=x\" 字段=\"\" /><hr /></page>",
+      "canonicalXml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">}!+</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">*&lt;~\\$me@example.com|&gt;é</pre><pre constructor=\"-&gt;1.|*+;\" meta=\"title=x\" 字段=\"\" /><hr /></page>",
       "document": {
         "type": "Doc",
         "content": [
@@ -1681,7 +1601,7 @@
                 "content": [
                   {
                     "type": "Text",
-                    "param": "10:30</>"
+                    "param": "}!+"
                   }
                 ]
               }
@@ -1703,7 +1623,7 @@
             "content": [
               {
                 "type": "Text",
-                "param": ">-;~<b+https://example.com/a+!"
+                "param": "*<~\\$me@example.com|>é"
               }
             ]
           },
@@ -1714,7 +1634,7 @@
               "Attrs": [
                 [
                   "constructor",
-                  " www.example.com[ ] 1.  }10:30"
+                  "->1.|*+;"
                 ],
                 [
                   "字段",
@@ -1753,182 +1673,192 @@
     {
       "name": "wrong-root",
       "xml": "<doc><p>a</p></doc>",
-      "error": "XML 第 1 行第 1 列：根元素必须是 page。请用 <page> 包住整页内容。"
+      "error": "[invalid_root] XML, line 1, column 1: The root element must be <page>. Wrap the page content in <page>."
     },
     {
       "name": "unclosed-element",
       "xml": "<page><p>a</page>",
-      "error": "XML 第 1 行第 17 列：unexpected close tag.。请修正这处 XML 语法。"
+      "error": "[invalid_tag_syntax] XML, line 1, column 17: unexpected close tag.. Correct this XML syntax."
     },
     {
       "name": "stray-close",
       "xml": "<page><p>a</p></p></page>",
-      "error": "XML 第 1 行第 18 列：unexpected close tag.。请修正这处 XML 语法。"
+      "error": "[invalid_tag_syntax] XML, line 1, column 18: unexpected close tag.. Correct this XML syntax."
     },
     {
       "name": "missing-attribute-value",
       "xml": "<page><p align>a</p></page>",
-      "error": "XML 第 1 行第 15 列：attribute without value.。请修正这处 XML 语法。"
+      "error": "[invalid_tag_syntax] XML, line 1, column 15: attribute without value.. Correct this XML syntax."
     },
     {
       "name": "duplicate-attribute",
       "xml": "<page><p align=\"left\" align=\"right\">a</p></page>",
-      "error": "XML 第 1 行第 36 列：duplicate attribute: align.。请修正这处 XML 语法。"
+      "error": "[invalid_tag_syntax] XML, line 1, column 36: duplicate attribute: align.. Correct this XML syntax."
     },
     {
       "name": "invalid-child",
       "xml": "<page><p><td>a</td></p></page>",
-      "error": "XML 第 1 行第 10 列：<td> 是块元素，不能放在行内内容里。请把它移到段落之外；在 Markdown 中让它单独成行，并用空行与文字隔开。"
+      "error": "[invalid_content] XML, line 1, column 10: <td> is a block element and cannot be placed inside inline content. Move it outside the paragraph; in Markdown, place it on its own line separated by blank lines."
     },
     {
       "name": "invalid-tone",
       "xml": "<page><callout tone=\"invalid\"><p>a</p></callout></page>",
-      "error": "XML 第 1 行第 7 列：<callout> 的 tone=\"invalid\" 不合法。tone 的值应为 info、warning、success、danger 或 neutral。"
+      "error": "[invalid_attribute] XML, line 1, column 7: tone=\"invalid\" on <callout> is not valid. The value of tone must be info, warning, success, danger, or neutral."
     },
     {
       "name": "missing-href",
       "xml": "<page><p><a>a</a></p></page>",
-      "error": "XML 第 1 行第 10 列：<a> 缺少 href 属性。请为 <a> 写上 href。"
+      "error": "[missing_attribute] XML, line 1, column 10: <a> is missing the href attribute. Add href to <a>."
     },
     {
       "name": "missing-src",
       "xml": "<page><p><img alt=\"a\" /></p></page>",
-      "error": "XML 第 1 行第 10 列：<img> 缺少 src 属性。请为 <img> 写上 src。"
+      "error": "[missing_attribute] XML, line 1, column 10: <img> is missing the src attribute. Add src to <img>."
     },
     {
       "name": "embed-content",
       "xml": "<page><embed>a</embed></page>",
-      "error": "XML 第 1 行第 15 列：<embed> 是空元素。请把 <embed> 写成 <embed />。"
+      "error": "[invalid_content] XML, line 1, column 15: <embed> is an empty element. Write <embed> as <embed />."
     },
     {
       "name": "root-text",
       "xml": "<page>text</page>",
-      "error": "XML 第 1 行第 8 列：<page> 中的文字必须放在块元素里。请用 <p> 包住这段文字。"
+      "error": "[invalid_content] XML, line 1, column 8: Text inside <page> must be wrapped in a block element. Wrap this text in <p>."
     },
     {
       "name": "doctype",
       "xml": "<!DOCTYPE page><page><p>a</p></page>",
-      "error": "XML 第 1 行第 15 列：页面不支持 DOCTYPE。请删除 DOCTYPE。"
+      "error": "[unsupported_syntax] XML, line 1, column 15: Pages do not allow a DOCTYPE declaration. Remove the DOCTYPE declaration."
     },
     {
       "name": "comment",
       "xml": "<!-- note --><page><p>a</p></page>",
-      "error": "XML 第 1 行第 12 列：页面没有注释节点。请删除这段注释。"
+      "error": "[unsupported_syntax] XML, line 1, column 12: Pages do not have comment nodes. Remove this comment."
     },
     {
       "name": "xml-version",
       "xml": "<?xml version=\"1.1\"?><page />",
-      "error": "XML 第 1 行第 21 列：只支持 XML 1.0。请写 <?xml version=\"1.0\"?> 或删除声明。"
+      "error": "[unsupported_xml_version] XML, line 1, column 21: Only XML 1.0 is accepted. Write <?xml version=\"1.0\"?> or remove the declaration."
     },
     {
       "name": "xml-encoding",
       "xml": "<?xml version=\"1.0\" encoding=\"UTF-16\"?><page />",
-      "error": "XML 第 1 行第 39 列：源码编码必须是 UTF-8。请删除 encoding 或写 UTF-8。"
+      "error": "[invalid_encoding] XML, line 1, column 39: The source encoding must be UTF-8. Remove encoding or set it to UTF-8."
     },
     {
       "name": "late-declaration",
       "xml": " <?xml version=\"1.0\"?><page />",
-      "error": "XML 第 1 行第 7 列：an XML declaration must be at the start of the document.。请修正这处 XML 语法。"
+      "error": "[invalid_tag_syntax] XML, line 1, column 7: an XML declaration must be at the start of the document.. Correct this XML syntax."
     },
     {
       "name": "processing-instruction",
       "xml": "<?task x?><page />",
-      "error": "XML 第 1 行第 10 列：页面不支持处理指令。请删除这段指令。"
+      "error": "[unsupported_syntax] XML, line 1, column 10: Pages do not allow processing instructions. Remove this processing instruction."
     },
     {
       "name": "unknown-entity",
       "xml": "<page><p>&unknown;</p></page>",
-      "error": "XML 第 1 行第 18 列：undefined entity.。请修正这处 XML 语法。"
+      "error": "[invalid_tag_syntax] XML, line 1, column 18: undefined entity.. Correct this XML syntax."
     },
     {
       "name": "invalid-character-reference",
       "xml": "<page><p>&#0;</p></page>",
-      "error": "XML 第 1 行第 13 列：malformed character entity.。请修正这处 XML 语法。"
+      "error": "[invalid_tag_syntax] XML, line 1, column 13: malformed character entity.. Correct this XML syntax."
     },
     {
       "name": "multiple-roots",
       "xml": "<page /><page />",
-      "error": "XML 第 1 行第 14 列：documents may contain only one root.。请修正这处 XML 语法。"
+      "error": "[invalid_tag_syntax] XML, line 1, column 14: documents may contain only one root.. Correct this XML syntax."
     },
     {
       "name": "xml-invalid-element-name",
       "xml": "<page><p² /></page>",
-      "error": "XML 第 1 行第 9 列：disallowed character in tag name.。请修正这处 XML 语法。"
+      "error": "[invalid_tag_syntax] XML, line 1, column 9: disallowed character in tag name.. Correct this XML syntax."
     },
     {
       "name": "xml-invalid-attribute-name",
       "xml": "<page><future a²=\"1\" /></page>",
-      "error": "XML 第 1 行第 16 列：disallowed character in attribute name.。请修正这处 XML 语法。"
+      "error": "[invalid_tag_syntax] XML, line 1, column 16: disallowed character in attribute name.. Correct this XML syntax."
     },
     {
       "name": "namespaced-name",
       "xml": "<page><x:y /></page>",
-      "error": "XML 第 1 行第 7 列：元素名 \"x:y\" 不合法。元素名以字母开头，只能包含字母、数字、- 和 _。"
+      "error": "[invalid_element_name] XML, line 1, column 7: The element name \"x:y\" is not valid. Start the element name with a letter and use only letters, digits, -, and _."
     },
     {
       "name": "unescaped-attribute-less-than",
       "xml": "<page><p data=\"<\" /></page>",
-      "error": "XML 第 1 行第 16 列：disallowed character.。请修正这处 XML 语法。"
+      "error": "[invalid_tag_syntax] XML, line 1, column 16: disallowed character.. Correct this XML syntax."
     },
     {
       "name": "cdata-terminator-in-text",
       "xml": "<page><p>]]></p></page>",
-      "error": "XML 第 1 行第 12 列：the string \"]]>\" is disallowed in char data.。请修正这处 XML 语法。"
+      "error": "[invalid_tag_syntax] XML, line 1, column 12: the string \"]]>\" is disallowed in char data.. Correct this XML syntax."
     },
     {
       "name": "math-element",
       "xml": "<page><math><strong>E</strong></math></page>",
-      "error": "XML 第 1 行第 13 列：<math> 只能包含文字。请把公式写成 LaTeX 文字。"
+      "error": "[invalid_content] XML, line 1, column 13: <math> can contain only text. Write the formula as plain LaTeX text."
+    },
+    {
+      "name": "inline-math-element",
+      "xml": "<page><p><inline-math><strong>E</strong></inline-math></p></page>",
+      "error": "[invalid_content] XML, line 1, column 23: <inline-math> can contain only text. Write the formula as plain LaTeX text."
+    },
+    {
+      "name": "inline-math-block-level",
+      "xml": "<page><inline-math>E = mc^2</inline-math></page>",
+      "error": "[invalid_content] XML, line 1, column 7: <inline-math> is an inline element and cannot be placed directly inside <page>. Wrap it in <p>."
     },
     {
       "name": "invalid-wrap",
       "xml": "<page><pre wrap=\"wrap\">a</pre></page>",
-      "error": "XML 第 1 行第 7 列：<pre> 的 wrap=\"wrap\" 不合法。wrap 的值应为 true。"
+      "error": "[invalid_attribute] XML, line 1, column 7: wrap=\"wrap\" on <pre> is not valid. The value of wrap must be true."
     },
     {
       "name": "mermaid-element",
       "xml": "<page><mermaid><strong>a</strong></mermaid></page>",
-      "error": "XML 第 1 行第 16 列：<mermaid> 只能包含文字。请把 Mermaid 源码写成文字。"
+      "error": "[invalid_content] XML, line 1, column 16: <mermaid> can contain only text. Write the Mermaid source as plain text."
     },
     {
       "name": "invalid-mermaid-view",
       "xml": "<page><mermaid view=\"split\">a</mermaid></page>",
-      "error": "XML 第 1 行第 7 列：<mermaid> 的 view=\"split\" 不合法。view 的值应为 both、code 或 diagram。"
+      "error": "[invalid_attribute] XML, line 1, column 7: view=\"split\" on <mermaid> is not valid. The value of view must be both, code, or diagram."
     },
     {
       "name": "infographic-element",
       "xml": "<page><infographic><strong>a</strong></infographic></page>",
-      "error": "XML 第 1 行第 20 列：<infographic> 只能包含文字。请把 Infographic 源码写成文字。"
+      "error": "[invalid_content] XML, line 1, column 20: <infographic> can contain only text. Write the Infographic source as plain text."
     },
     {
       "name": "invalid-infographic-view",
       "xml": "<page><infographic view=\"split\">a</infographic></page>",
-      "error": "XML 第 1 行第 7 列：<infographic> 的 view=\"split\" 不合法。view 的值应为 both、code 或 diagram。"
+      "error": "[invalid_attribute] XML, line 1, column 7: view=\"split\" on <infographic> is not valid. The value of view must be both, code, or diagram."
     },
     {
       "name": "mention-missing-target",
       "xml": "<page><p><mention /></p></page>",
-      "error": "XML 第 1 行第 10 列：<mention> 需要指定 page 或 principal 属性。请为 <mention> 写上 page=\"...\" 或 principal=\"...\"。"
+      "error": "[missing_attribute] XML, line 1, column 10: <mention> requires a page or principal attribute. Add page=\"...\" or principal=\"...\" to <mention>."
     },
     {
       "name": "mention-both-targets",
       "xml": "<page><p><mention page=\"p1\" principal=\"u1\" /></p></page>",
-      "error": "XML 第 1 行第 10 列：<mention> 不能同时指定 page 和 principal 属性。请只保留 page 或 principal 其中一个属性。"
+      "error": "[invalid_attribute] XML, line 1, column 10: <mention> cannot specify both page and principal attributes. Keep only page or principal."
     },
     {
       "name": "mention-empty-page",
       "xml": "<page><p><mention page=\"\" /></p></page>",
-      "error": "XML 第 1 行第 10 列：<mention> 的 page=\"\" 不合法。page 的值应为 非空页面 ID。"
+      "error": "[invalid_attribute] XML, line 1, column 10: page=\"\" on <mention> is not valid. The value of page must be a non-empty page ID."
     },
     {
       "name": "mention-content",
       "xml": "<page><p><mention page=\"p1\">text</mention></p></page>",
-      "error": "XML 第 1 行第 30 列：<mention> 是空元素。请把 <mention> 写成 <mention />。"
+      "error": "[invalid_content] XML, line 1, column 30: <mention> is an empty element. Write <mention> as <mention />."
     },
     {
       "name": "mention-block-level",
       "xml": "<page><mention page=\"p1\" /></page>",
-      "error": "XML 第 1 行第 7 列：<mention> 是行内元素，不能直接放在 <page> 里。请把它放进 <p>。"
+      "error": "[invalid_content] XML, line 1, column 7: <mention> is an inline element and cannot be placed directly inside <page>. Wrap it in <p>."
     }
   ],
   "boundaries": [
@@ -2032,7 +1962,7 @@
           "count": 1
         }
       ],
-      "error": "XML 第 1 行第 1 列：源码超过 8388608 个 UTF-16 单元。请把页面拆小后再写入。"
+      "error": "[source_too_large] XML, line 1, column 1: The source exceeds 8388608 UTF-16 code units. Split the page into smaller pages before writing."
     },
     {
       "name": "source-unicode-over",
@@ -2054,7 +1984,7 @@
           "count": 1
         }
       ],
-      "error": "XML 第 1 行第 1 列：源码超过 8388608 个 UTF-16 单元。请把页面拆小后再写入。"
+      "error": "[source_too_large] XML, line 1, column 1: The source exceeds 8388608 UTF-16 code units. Split the page into smaller pages before writing."
     },
     {
       "name": "nodes-over",
@@ -2072,7 +2002,7 @@
           "count": 1
         }
       ],
-      "error": "XML 第 1 行第 500006 列：页面超过 100000 个节点或 128 层嵌套。请把页面拆小。"
+      "error": "[limit_exceeded] XML, line 1, column 500006: The page exceeds 100000 nodes or 128 levels of nesting. Split the page into smaller pages."
     },
     {
       "name": "depth-over",
@@ -2098,7 +2028,7 @@
           "count": 1
         }
       ],
-      "error": "XML 第 1 行第 1535 列：页面超过 100000 个节点或 128 层嵌套。请把页面拆小。"
+      "error": "[limit_exceeded] XML, line 1, column 1535: The page exceeds 100000 nodes or 128 levels of nesting. Split the page into smaller pages."
     }
   ],
   "edits": [
@@ -4601,7 +4531,7 @@
     },
     {
       "name": "generated-0-seed-20261005",
-      "initialXml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><br /><strong><mention note=\"&quot;quoted&quot;\" page=\"019a2b00-0000-7000-8000-000000000001\" /></strong>🙂';<u><mention page=\"usr_alice\" /></u><img alt=\"https://example.com\" src=\"中文\" title=\"&lt;tag&gt;\" /></my-block><callout note=\"x\" tone=\"info\"><my-block><br /></my-block><table><tr><th align=\"center\"><p><img src=\"中文\" title=\"alpha\" /></p></th></tr><tr><td align=\"center\"><p><br /><a href=\"https://example.com\" title=\"&lt;tag&gt;\"><br />:=/&gt; &lt;\"]!|me@example.com'/&gt;文</a><my-block data-x=\"&lt;tag&gt;\" source=\"\"><br /><br /></my-block></p></td></tr></table></callout></chip></page>",
+      "initialXml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><inline-math>10:30'Z`&lt;/ </inline-math>文&lt;<mention page=\"page_roadmap\" source=\"=|}\" /></my-block><widget source=\"&quot;!a=www.example.com(`Z\"><img alt=\"alpha\" src=\"中文\" title=\"中文\" /></widget></chip></page>",
       "initialDocument": {
         "type": "Doc",
         "content": [
@@ -4628,61 +4558,23 @@
                   ],
                   "children": [
                     {
-                      "name": "br",
-                      "attrs": [],
-                      "children": []
-                    },
-                    {
-                      "name": "strong",
+                      "name": "inline-math",
                       "attrs": [],
                       "children": [
-                        {
-                          "name": "mention",
-                          "attrs": [
-                            [
-                              "note",
-                              "\"quoted\""
-                            ],
-                            [
-                              "page",
-                              "019a2b00-0000-7000-8000-000000000001"
-                            ]
-                          ],
-                          "children": []
-                        }
+                        "10:30'Z`</ "
                       ]
                     },
-                    "🙂';",
+                    "文<",
                     {
-                      "name": "u",
-                      "attrs": [],
-                      "children": [
-                        {
-                          "name": "mention",
-                          "attrs": [
-                            [
-                              "page",
-                              "usr_alice"
-                            ]
-                          ],
-                          "children": []
-                        }
-                      ]
-                    },
-                    {
-                      "name": "img",
+                      "name": "mention",
                       "attrs": [
                         [
-                          "alt",
-                          "https://example.com"
+                          "page",
+                          "page_roadmap"
                         ],
                         [
-                          "src",
-                          "中文"
-                        ],
-                        [
-                          "title",
-                          "<tag>"
+                          "source",
+                          "=|}"
                         ]
                       ],
                       "children": []
@@ -4690,145 +4582,31 @@
                   ]
                 },
                 {
-                  "name": "callout",
+                  "name": "widget",
                   "attrs": [
                     [
-                      "note",
-                      "x"
-                    ],
-                    [
-                      "tone",
-                      "info"
+                      "source",
+                      "\"!a=www.example.com(`Z"
                     ]
                   ],
                   "children": [
                     {
-                      "name": "my-block",
-                      "attrs": [],
-                      "children": [
-                        {
-                          "name": "br",
-                          "attrs": [],
-                          "children": []
-                        }
-                      ]
-                    },
-                    {
-                      "name": "table",
-                      "attrs": [],
-                      "children": [
-                        {
-                          "name": "tr",
-                          "attrs": [],
-                          "children": [
-                            {
-                              "name": "th",
-                              "attrs": [
-                                [
-                                  "align",
-                                  "center"
-                                ]
-                              ],
-                              "children": [
-                                {
-                                  "name": "p",
-                                  "attrs": [],
-                                  "children": [
-                                    {
-                                      "name": "img",
-                                      "attrs": [
-                                        [
-                                          "src",
-                                          "中文"
-                                        ],
-                                        [
-                                          "title",
-                                          "alpha"
-                                        ]
-                                      ],
-                                      "children": []
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "name": "tr",
-                          "attrs": [],
-                          "children": [
-                            {
-                              "name": "td",
-                              "attrs": [
-                                [
-                                  "align",
-                                  "center"
-                                ]
-                              ],
-                              "children": [
-                                {
-                                  "name": "p",
-                                  "attrs": [],
-                                  "children": [
-                                    {
-                                      "name": "br",
-                                      "attrs": [],
-                                      "children": []
-                                    },
-                                    {
-                                      "name": "a",
-                                      "attrs": [
-                                        [
-                                          "href",
-                                          "https://example.com"
-                                        ],
-                                        [
-                                          "title",
-                                          "<tag>"
-                                        ]
-                                      ],
-                                      "children": [
-                                        {
-                                          "name": "br",
-                                          "attrs": [],
-                                          "children": []
-                                        },
-                                        ":=/> <\"]!|me@example.com'/>文"
-                                      ]
-                                    },
-                                    {
-                                      "name": "my-block",
-                                      "attrs": [
-                                        [
-                                          "data-x",
-                                          "<tag>"
-                                        ],
-                                        [
-                                          "source",
-                                          ""
-                                        ]
-                                      ],
-                                      "children": [
-                                        {
-                                          "name": "br",
-                                          "attrs": [],
-                                          "children": []
-                                        },
-                                        {
-                                          "name": "br",
-                                          "attrs": [],
-                                          "children": []
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
+                      "name": "img",
+                      "attrs": [
+                        [
+                          "alt",
+                          "alpha"
+                        ],
+                        [
+                          "src",
+                          "中文"
+                        ],
+                        [
+                          "title",
+                          "中文"
+                        ]
+                      ],
+                      "children": []
                     }
                   ]
                 }
@@ -4846,32 +4624,6 @@
               0,
               [
                 {
-                  "type": "Paragraph"
-                },
-                {
-                  "type": "Text",
-                  "param": "ad"
-                },
-                {
-                  "type": "Text",
-                  "param": "d ed",
-                  "marks": {
-                    "Strong": null
-                  }
-                },
-                "."
-              ]
-            ]
-          ]
-        },
-        {
-          "clientSeq": 2,
-          "changes": [
-            10,
-            [
-              0,
-              [
-                {
                   "type": "Paragraph",
                   "content": [
                     {
@@ -4883,11 +4635,60 @@
               ]
             ]
           ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            9
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            [
+              1,
+              []
+            ],
+            8
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            4,
+            [
+              1,
+              [
+                {
+                  "type": "Text",
+                  "param": "👩‍"
+                },
+                {
+                  "type": "Text",
+                  "param": "💻",
+                  "marks": {
+                    "Strong": null
+                  }
+                }
+              ]
+            ],
+            1,
+            [
+              1,
+              [
+                {
+                  "type": "Text",
+                  "param": "ع"
+                }
+              ]
+            ],
+            1
+          ]
         }
       ],
       "steps": [
         {
-          "xml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><br /><strong><mention note=\"&quot;quoted&quot;\" page=\"019a2b00-0000-7000-8000-000000000001\" /></strong>🙂';<u><mention page=\"usr_alice\" /></u><img alt=\"https://example.com\" src=\"中文\" title=\"&lt;tag&gt;\" /></my-block><callout note=\"x\" tone=\"info\"><my-block><br /></my-block><table><tr><th align=\"center\"><p><img src=\"中文\" title=\"alpha\" /></p></th></tr><tr><td align=\"center\"><p><br /><a href=\"https://example.com\" title=\"&lt;tag&gt;\"><br />:=/&gt; &lt;\"]!|me@example.com'/&gt;文</a><my-block data-x=\"&lt;tag&gt;\" source=\"\"><br /><br /></my-block></p></td></tr></table></callout></chip><p>ad<strong>d ed</strong></p></page>",
+          "xml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><inline-math>10:30'Z`&lt;/ </inline-math>文&lt;<mention page=\"page_roadmap\" source=\"=|}\" /></my-block><widget source=\"&quot;!a=www.example.com(`Z\"><img alt=\"alpha\" src=\"中文\" title=\"中文\" /></widget></chip><p>added</p></page>",
           "document": {
             "type": "Doc",
             "content": [
@@ -4914,61 +4715,23 @@
                       ],
                       "children": [
                         {
-                          "name": "br",
-                          "attrs": [],
-                          "children": []
-                        },
-                        {
-                          "name": "strong",
+                          "name": "inline-math",
                           "attrs": [],
                           "children": [
-                            {
-                              "name": "mention",
-                              "attrs": [
-                                [
-                                  "note",
-                                  "\"quoted\""
-                                ],
-                                [
-                                  "page",
-                                  "019a2b00-0000-7000-8000-000000000001"
-                                ]
-                              ],
-                              "children": []
-                            }
+                            "10:30'Z`</ "
                           ]
                         },
-                        "🙂';",
+                        "文<",
                         {
-                          "name": "u",
-                          "attrs": [],
-                          "children": [
-                            {
-                              "name": "mention",
-                              "attrs": [
-                                [
-                                  "page",
-                                  "usr_alice"
-                                ]
-                              ],
-                              "children": []
-                            }
-                          ]
-                        },
-                        {
-                          "name": "img",
+                          "name": "mention",
                           "attrs": [
                             [
-                              "alt",
-                              "https://example.com"
+                              "page",
+                              "page_roadmap"
                             ],
                             [
-                              "src",
-                              "中文"
-                            ],
-                            [
-                              "title",
-                              "<tag>"
+                              "source",
+                              "=|}"
                             ]
                           ],
                           "children": []
@@ -4976,245 +4739,20 @@
                       ]
                     },
                     {
-                      "name": "callout",
+                      "name": "widget",
                       "attrs": [
                         [
-                          "note",
-                          "x"
-                        ],
-                        [
-                          "tone",
-                          "info"
+                          "source",
+                          "\"!a=www.example.com(`Z"
                         ]
                       ],
                       "children": [
-                        {
-                          "name": "my-block",
-                          "attrs": [],
-                          "children": [
-                            {
-                              "name": "br",
-                              "attrs": [],
-                              "children": []
-                            }
-                          ]
-                        },
-                        {
-                          "name": "table",
-                          "attrs": [],
-                          "children": [
-                            {
-                              "name": "tr",
-                              "attrs": [],
-                              "children": [
-                                {
-                                  "name": "th",
-                                  "attrs": [
-                                    [
-                                      "align",
-                                      "center"
-                                    ]
-                                  ],
-                                  "children": [
-                                    {
-                                      "name": "p",
-                                      "attrs": [],
-                                      "children": [
-                                        {
-                                          "name": "img",
-                                          "attrs": [
-                                            [
-                                              "src",
-                                              "中文"
-                                            ],
-                                            [
-                                              "title",
-                                              "alpha"
-                                            ]
-                                          ],
-                                          "children": []
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "name": "tr",
-                              "attrs": [],
-                              "children": [
-                                {
-                                  "name": "td",
-                                  "attrs": [
-                                    [
-                                      "align",
-                                      "center"
-                                    ]
-                                  ],
-                                  "children": [
-                                    {
-                                      "name": "p",
-                                      "attrs": [],
-                                      "children": [
-                                        {
-                                          "name": "br",
-                                          "attrs": [],
-                                          "children": []
-                                        },
-                                        {
-                                          "name": "a",
-                                          "attrs": [
-                                            [
-                                              "href",
-                                              "https://example.com"
-                                            ],
-                                            [
-                                              "title",
-                                              "<tag>"
-                                            ]
-                                          ],
-                                          "children": [
-                                            {
-                                              "name": "br",
-                                              "attrs": [],
-                                              "children": []
-                                            },
-                                            ":=/> <\"]!|me@example.com'/>文"
-                                          ]
-                                        },
-                                        {
-                                          "name": "my-block",
-                                          "attrs": [
-                                            [
-                                              "data-x",
-                                              "<tag>"
-                                            ],
-                                            [
-                                              "source",
-                                              ""
-                                            ]
-                                          ],
-                                          "children": [
-                                            {
-                                              "name": "br",
-                                              "attrs": [],
-                                              "children": []
-                                            },
-                                            {
-                                              "name": "br",
-                                              "attrs": [],
-                                              "children": []
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              },
-              {
-                "type": "Paragraph",
-                "content": [
-                  {
-                    "type": "Text",
-                    "param": "ad"
-                  },
-                  {
-                    "type": "Text",
-                    "param": "d ed",
-                    "marks": {
-                      "Strong": null
-                    }
-                  }
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "xml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><br /><strong><mention note=\"&quot;quoted&quot;\" page=\"019a2b00-0000-7000-8000-000000000001\" /></strong>🙂';<u><mention page=\"usr_alice\" /></u><img alt=\"https://example.com\" src=\"中文\" title=\"&lt;tag&gt;\" /></my-block><callout note=\"x\" tone=\"info\"><my-block><br /></my-block><table><tr><th align=\"center\"><p><img src=\"中文\" title=\"alpha\" /></p></th></tr><tr><td align=\"center\"><p><br /><a href=\"https://example.com\" title=\"&lt;tag&gt;\"><br />:=/&gt; &lt;\"]!|me@example.com'/&gt;文</a><my-block data-x=\"&lt;tag&gt;\" source=\"\"><br /><br /></my-block></p></td></tr></table></callout></chip><p>ad<strong>d ed</strong></p><p>added</p></page>",
-          "document": {
-            "type": "Doc",
-            "content": [
-              {
-                "type": "Embed",
-                "param": null,
-                "marks": {
-                  "EmbedView": "中文"
-                }
-              },
-              {
-                "type": "UnknownBlock",
-                "param": {
-                  "name": "chip",
-                  "attrs": [],
-                  "children": [
-                    {
-                      "name": "my-block",
-                      "attrs": [
-                        [
-                          "constructor",
-                          ""
-                        ]
-                      ],
-                      "children": [
-                        {
-                          "name": "br",
-                          "attrs": [],
-                          "children": []
-                        },
-                        {
-                          "name": "strong",
-                          "attrs": [],
-                          "children": [
-                            {
-                              "name": "mention",
-                              "attrs": [
-                                [
-                                  "note",
-                                  "\"quoted\""
-                                ],
-                                [
-                                  "page",
-                                  "019a2b00-0000-7000-8000-000000000001"
-                                ]
-                              ],
-                              "children": []
-                            }
-                          ]
-                        },
-                        "🙂';",
-                        {
-                          "name": "u",
-                          "attrs": [],
-                          "children": [
-                            {
-                              "name": "mention",
-                              "attrs": [
-                                [
-                                  "page",
-                                  "usr_alice"
-                                ]
-                              ],
-                              "children": []
-                            }
-                          ]
-                        },
                         {
                           "name": "img",
                           "attrs": [
                             [
                               "alt",
-                              "https://example.com"
+                              "alpha"
                             ],
                             [
                               "src",
@@ -5222,174 +4760,15 @@
                             ],
                             [
                               "title",
-                              "<tag>"
+                              "中文"
                             ]
                           ],
                           "children": []
                         }
                       ]
-                    },
-                    {
-                      "name": "callout",
-                      "attrs": [
-                        [
-                          "note",
-                          "x"
-                        ],
-                        [
-                          "tone",
-                          "info"
-                        ]
-                      ],
-                      "children": [
-                        {
-                          "name": "my-block",
-                          "attrs": [],
-                          "children": [
-                            {
-                              "name": "br",
-                              "attrs": [],
-                              "children": []
-                            }
-                          ]
-                        },
-                        {
-                          "name": "table",
-                          "attrs": [],
-                          "children": [
-                            {
-                              "name": "tr",
-                              "attrs": [],
-                              "children": [
-                                {
-                                  "name": "th",
-                                  "attrs": [
-                                    [
-                                      "align",
-                                      "center"
-                                    ]
-                                  ],
-                                  "children": [
-                                    {
-                                      "name": "p",
-                                      "attrs": [],
-                                      "children": [
-                                        {
-                                          "name": "img",
-                                          "attrs": [
-                                            [
-                                              "src",
-                                              "中文"
-                                            ],
-                                            [
-                                              "title",
-                                              "alpha"
-                                            ]
-                                          ],
-                                          "children": []
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "name": "tr",
-                              "attrs": [],
-                              "children": [
-                                {
-                                  "name": "td",
-                                  "attrs": [
-                                    [
-                                      "align",
-                                      "center"
-                                    ]
-                                  ],
-                                  "children": [
-                                    {
-                                      "name": "p",
-                                      "attrs": [],
-                                      "children": [
-                                        {
-                                          "name": "br",
-                                          "attrs": [],
-                                          "children": []
-                                        },
-                                        {
-                                          "name": "a",
-                                          "attrs": [
-                                            [
-                                              "href",
-                                              "https://example.com"
-                                            ],
-                                            [
-                                              "title",
-                                              "<tag>"
-                                            ]
-                                          ],
-                                          "children": [
-                                            {
-                                              "name": "br",
-                                              "attrs": [],
-                                              "children": []
-                                            },
-                                            ":=/> <\"]!|me@example.com'/>文"
-                                          ]
-                                        },
-                                        {
-                                          "name": "my-block",
-                                          "attrs": [
-                                            [
-                                              "data-x",
-                                              "<tag>"
-                                            ],
-                                            [
-                                              "source",
-                                              ""
-                                            ]
-                                          ],
-                                          "children": [
-                                            {
-                                              "name": "br",
-                                              "attrs": [],
-                                              "children": []
-                                            },
-                                            {
-                                              "name": "br",
-                                              "attrs": [],
-                                              "children": []
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
                     }
                   ]
                 }
-              },
-              {
-                "type": "Paragraph",
-                "content": [
-                  {
-                    "type": "Text",
-                    "param": "ad"
-                  },
-                  {
-                    "type": "Text",
-                    "param": "d ed",
-                    "marks": {
-                      "Strong": null
-                    }
-                  }
-                ]
               },
               {
                 "type": "Paragraph",
@@ -5397,6 +4776,288 @@
                   {
                     "type": "Text",
                     "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\"><inline-math>10:30'Z`&lt;/ </inline-math>文&lt;<mention page=\"page_roadmap\" source=\"=|}\" /></my-block><widget source=\"&quot;!a=www.example.com(`Z\"><img alt=\"alpha\" src=\"中文\" title=\"中文\" /></widget></chip><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "中文"
+                }
+              },
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "chip",
+                  "attrs": [],
+                  "children": [
+                    {
+                      "name": "my-block",
+                      "attrs": [
+                        [
+                          "constructor",
+                          ""
+                        ]
+                      ],
+                      "children": [
+                        {
+                          "name": "inline-math",
+                          "attrs": [],
+                          "children": [
+                            "10:30'Z`</ "
+                          ]
+                        },
+                        "文<",
+                        {
+                          "name": "mention",
+                          "attrs": [
+                            [
+                              "page",
+                              "page_roadmap"
+                            ],
+                            [
+                              "source",
+                              "=|}"
+                            ]
+                          ],
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "widget",
+                      "attrs": [
+                        [
+                          "source",
+                          "\"!a=www.example.com(`Z"
+                        ]
+                      ],
+                      "children": [
+                        {
+                          "name": "img",
+                          "attrs": [
+                            [
+                              "alt",
+                              "alpha"
+                            ],
+                            [
+                              "src",
+                              "中文"
+                            ],
+                            [
+                              "title",
+                              "中文"
+                            ]
+                          ],
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><chip><my-block constructor=\"\"><inline-math>10:30'Z`&lt;/ </inline-math>文&lt;<mention page=\"page_roadmap\" source=\"=|}\" /></my-block><widget source=\"&quot;!a=www.example.com(`Z\"><img alt=\"alpha\" src=\"中文\" title=\"中文\" /></widget></chip><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "chip",
+                  "attrs": [],
+                  "children": [
+                    {
+                      "name": "my-block",
+                      "attrs": [
+                        [
+                          "constructor",
+                          ""
+                        ]
+                      ],
+                      "children": [
+                        {
+                          "name": "inline-math",
+                          "attrs": [],
+                          "children": [
+                            "10:30'Z`</ "
+                          ]
+                        },
+                        "文<",
+                        {
+                          "name": "mention",
+                          "attrs": [
+                            [
+                              "page",
+                              "page_roadmap"
+                            ],
+                            [
+                              "source",
+                              "=|}"
+                            ]
+                          ],
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "widget",
+                      "attrs": [
+                        [
+                          "source",
+                          "\"!a=www.example.com(`Z"
+                        ]
+                      ],
+                      "children": [
+                        {
+                          "name": "img",
+                          "attrs": [
+                            [
+                              "alt",
+                              "alpha"
+                            ],
+                            [
+                              "src",
+                              "中文"
+                            ],
+                            [
+                              "title",
+                              "中文"
+                            ]
+                          ],
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><chip><my-block constructor=\"\"><inline-math>10:30'Z`&lt;/ </inline-math>文&lt;<mention page=\"page_roadmap\" source=\"=|}\" /></my-block><widget source=\"&quot;!a=www.example.com(`Z\"><img alt=\"alpha\" src=\"中文\" title=\"中文\" /></widget></chip><p>ad👩‍<strong>💻</strong>eع</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "chip",
+                  "attrs": [],
+                  "children": [
+                    {
+                      "name": "my-block",
+                      "attrs": [
+                        [
+                          "constructor",
+                          ""
+                        ]
+                      ],
+                      "children": [
+                        {
+                          "name": "inline-math",
+                          "attrs": [],
+                          "children": [
+                            "10:30'Z`</ "
+                          ]
+                        },
+                        "文<",
+                        {
+                          "name": "mention",
+                          "attrs": [
+                            [
+                              "page",
+                              "page_roadmap"
+                            ],
+                            [
+                              "source",
+                              "=|}"
+                            ]
+                          ],
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "widget",
+                      "attrs": [
+                        [
+                          "source",
+                          "\"!a=www.example.com(`Z"
+                        ]
+                      ],
+                      "children": [
+                        {
+                          "name": "img",
+                          "attrs": [
+                            [
+                              "alt",
+                              "alpha"
+                            ],
+                            [
+                              "src",
+                              "中文"
+                            ],
+                            [
+                              "title",
+                              "中文"
+                            ]
+                          ],
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ad👩‍"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "💻",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "eع"
                   }
                 ]
               }
@@ -7361,7 +7022,7 @@
     },
     {
       "name": "generated-6-seed-20261005",
-      "initialXml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:30&lt;/&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">&gt;-;~&lt;b+https://example.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\" /><hr /></page>",
+      "initialXml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">}!+</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">*&lt;~\\$me@example.com|&gt;é</pre><pre constructor=\"-&gt;1.|*+;\" meta=\"title=x\" 字段=\"\" /><hr /></page>",
       "initialDocument": {
         "type": "Doc",
         "content": [
@@ -7404,7 +7065,7 @@
                 "content": [
                   {
                     "type": "Text",
-                    "param": "10:30</>"
+                    "param": "}!+"
                   }
                 ]
               }
@@ -7426,7 +7087,7 @@
             "content": [
               {
                 "type": "Text",
-                "param": ">-;~<b+https://example.com/a+!"
+                "param": "*<~\\$me@example.com|>é"
               }
             ]
           },
@@ -7437,7 +7098,7 @@
               "Attrs": [
                 [
                   "constructor",
-                  " www.example.com[ ] 1.  }10:30"
+                  "->1.|*+;"
                 ],
                 [
                   "字段",
@@ -7457,9 +7118,9 @@
         {
           "clientSeq": 1,
           "changes": [
-            8,
+            5,
             [
-              3,
+              1,
               [
                 {
                   "add": "Strong",
@@ -7471,7 +7132,7 @@
                 }
               ]
             ],
-            23,
+            8,
             [
               0,
               [
@@ -7481,13 +7142,13 @@
                 }
               ]
             ],
-            14
+            21
           ]
         },
         {
           "clientSeq": 2,
           "changes": [
-            10,
+            4,
             [
               0,
               [
@@ -7497,9 +7158,18 @@
                 }
               ]
             ],
-            6,
+            12,
             [
               6,
+              [
+                {
+                  "type": "Text",
+                  "param": " "
+                }
+              ]
+            ],
+            [
+              5,
               [
                 {
                   "add": "Strong",
@@ -7512,16 +7182,6 @@
               ]
             ],
             7,
-            [
-              6,
-              [
-                {
-                  "type": "Text",
-                  "param": " "
-                }
-              ]
-            ],
-            12,
             [
               0,
               [
@@ -7539,18 +7199,18 @@
           "changes": [
             3,
             [
-              13,
+              8,
               [
                 {
                   "type": "Text",
-                  "param": "10:\r"
+                  "param": "}👩‍\r"
                 },
                 {
                   "type": "LineBreak"
                 },
                 {
                   "type": "Text",
-                  "param": "30</👩‍💻>"
+                  "param": "💻!+"
                 }
               ]
             ],
@@ -7564,13 +7224,13 @@
                 }
               ]
             ],
-            26
+            18
           ]
         },
         {
           "clientSeq": 4,
           "changes": [
-            48,
+            35,
             [
               0,
               [
@@ -7590,7 +7250,7 @@
       ],
       "steps": [
         {
-          "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:30&lt;/&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">&gt;-;~&lt;b+https://examp le.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\" /><hr /></page>",
+          "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">}!+</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">*&lt;~\\$ me@example.com|&gt;é</pre><pre constructor=\"-&gt;1.|*+;\" meta=\"title=x\" 字段=\"\" /><hr /></page>",
           "document": {
             "type": "Doc",
             "content": [
@@ -7633,7 +7293,7 @@
                     "content": [
                       {
                         "type": "Text",
-                        "param": "10:30</>"
+                        "param": "}!+"
                       }
                     ]
                   }
@@ -7655,7 +7315,7 @@
                 "content": [
                   {
                     "type": "Text",
-                    "param": ">-;~<b+https://examp le.com/a+!"
+                    "param": "*<~\\$ me@example.com|>é"
                   }
                 ]
               },
@@ -7666,7 +7326,7 @@
                   "Attrs": [
                     [
                       "constructor",
-                      " www.example.com[ ] 1.  }10:30"
+                      "->1.|*+;"
                     ],
                     [
                       "字段",
@@ -7684,7 +7344,7 @@
           }
         },
         {
-          "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:30&lt;/👩‍💻&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">&gt;-;~&lt;b+https:// le.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\">中文</pre><hr /></page>",
+          "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">}👩‍💻!+</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">*&lt;~\\$ m ple.com|&gt;é</pre><pre constructor=\"-&gt;1.|*+;\" meta=\"title=x\" 字段=\"\">中文</pre><hr /></page>",
           "document": {
             "type": "Doc",
             "content": [
@@ -7727,7 +7387,7 @@
                     "content": [
                       {
                         "type": "Text",
-                        "param": "10:30</👩‍💻>"
+                        "param": "}👩‍💻!+"
                       }
                     ]
                   }
@@ -7749,7 +7409,7 @@
                 "content": [
                   {
                     "type": "Text",
-                    "param": ">-;~<b+https:// le.com/a+!"
+                    "param": "*<~\\$ m ple.com|>é"
                   }
                 ]
               },
@@ -7760,7 +7420,7 @@
                   "Attrs": [
                     [
                       "constructor",
-                      " www.example.com[ ] 1.  }10:30"
+                      "->1.|*+;"
                     ],
                     [
                       "字段",
@@ -7783,7 +7443,7 @@
           }
         },
         {
-          "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:&#13;\n30&lt;/👩‍💻&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">ع+https:// le.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\">中文</pre><hr /></page>",
+          "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">}👩‍&#13;\n💻!+</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">عm ple.com|&gt;é</pre><pre constructor=\"-&gt;1.|*+;\" meta=\"title=x\" 字段=\"\">中文</pre><hr /></page>",
           "document": {
             "type": "Doc",
             "content": [
@@ -7826,14 +7486,14 @@
                     "content": [
                       {
                         "type": "Text",
-                        "param": "10:\r"
+                        "param": "}👩‍\r"
                       },
                       {
                         "type": "LineBreak"
                       },
                       {
                         "type": "Text",
-                        "param": "30</👩‍💻>"
+                        "param": "💻!+"
                       }
                     ]
                   }
@@ -7855,7 +7515,7 @@
                 "content": [
                   {
                     "type": "Text",
-                    "param": "ع+https:// le.com/a+!"
+                    "param": "عm ple.com|>é"
                   }
                 ]
               },
@@ -7866,7 +7526,7 @@
                   "Attrs": [
                     [
                       "constructor",
-                      " www.example.com[ ] 1.  }10:30"
+                      "->1.|*+;"
                     ],
                     [
                       "字段",
@@ -7889,7 +7549,7 @@
           }
         },
         {
-          "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:&#13;\n30&lt;/👩‍💻&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">ع+https:// le.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\">中文</pre><hr /><p>added</p></page>",
+          "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">}👩‍&#13;\n💻!+</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">عm ple.com|&gt;é</pre><pre constructor=\"-&gt;1.|*+;\" meta=\"title=x\" 字段=\"\">中文</pre><hr /><p>added</p></page>",
           "document": {
             "type": "Doc",
             "content": [
@@ -7932,14 +7592,14 @@
                     "content": [
                       {
                         "type": "Text",
-                        "param": "10:\r"
+                        "param": "}👩‍\r"
                       },
                       {
                         "type": "LineBreak"
                       },
                       {
                         "type": "Text",
-                        "param": "30</👩‍💻>"
+                        "param": "💻!+"
                       }
                     ]
                   }
@@ -7961,7 +7621,7 @@
                 "content": [
                   {
                     "type": "Text",
-                    "param": "ع+https:// le.com/a+!"
+                    "param": "عm ple.com|>é"
                   }
                 ]
               },
@@ -7972,7 +7632,7 @@
                   "Attrs": [
                     [
                       "constructor",
-                      " www.example.com[ ] 1.  }10:30"
+                      "->1.|*+;"
                     ],
                     [
                       "字段",

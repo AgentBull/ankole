@@ -20,7 +20,9 @@ test('a provider response preserves edits made while saving and the navigation g
   await page.route('**/api/v2/site/worker-provider-kinds', route =>
     route.fulfill({
       json: {
-        worker_provider_kinds: [{ kind: 'docker', example: 'before', credentials: { token: { required: false } } }]
+        worker_provider_kinds: [
+          { kind: 'docker', support_tier: 'core', example: 'before', credentials: { token: { required: false } } }
+        ]
       }
     })
   )
@@ -119,7 +121,9 @@ test('a delayed delete acknowledgement cannot navigate away from the next editor
     selectable: true
   }
   await page.route('**/api/v2/site/worker-provider-kinds', route =>
-    route.fulfill({ json: { worker_provider_kinds: [{ kind: 'docker', example: 'before', credentials: {} }] } })
+    route.fulfill({
+      json: { worker_provider_kinds: [{ kind: 'docker', support_tier: 'core', example: 'before', credentials: {} }] }
+    })
   )
   await page.route('**/api/v2/site/worker-providers**', route => {
     if (route.request().method() === 'DELETE') {

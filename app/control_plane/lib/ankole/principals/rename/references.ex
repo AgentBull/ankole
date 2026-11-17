@@ -13,6 +13,7 @@ defmodule Ankole.Principals.Rename.References do
     {"skills", "created_by"},
     {"agent_contracts", "updated_by"},
     {"ai_gateway_usage_records", "human_uid"},
+    {"ai_gateway_usage_records", "service_uid"},
     {"ai_gateway_usage_records", "subject_uid"},
     {"authn_challenges", "principal_uid"},
     {"agent_routines", "human_uid"},
@@ -33,6 +34,8 @@ defmodule Ankole.Principals.Rename.References do
     {"oidc_sessions", "principal_uid"},
     {"page_user_states", "principal_uid"},
     {"pod_applet_approvals", "requester_uid"},
+    {"pod_applet_bindings", "updated_by"},
+    {"pod_applet_revisions", "published_by"},
     {"pod_search_queries", "principal_uid"},
     {"principal_site_credentials", "principal_uid"},
     {"scheduled_events", "human_uid"},
@@ -80,6 +83,7 @@ defmodule Ankole.Principals.Rename.References do
     {"conversation_messages", "rich_content", ["event", "actor_uid"]},
     {"conversation_action_cards", "payload", ["agent_uid"]},
     {"conversation_action_cards", "payload", ["bind_agent_uid"]},
+    {"conversation_action_cards", "payload", ["account_owner_uid"]},
     {"signals", "data", ["author_uid"]},
     {"signals", "data", ["session", "agent_uid"]},
     {"signals", "data", ["entry", "author", "principal_uid"]},
@@ -99,7 +103,11 @@ defmodule Ankole.Principals.Rename.References do
     {"conversation_messages", "mentions", :array, [[:each, "uid"]]},
     {"conversation_messages", "rich_content", :jsonb, [["event", "targets", :each, "uid"]]},
     {"conversation_action_cards", "payload", :jsonb,
-     [["participant_uids", :each], ["grants", :each, "principal_uid"]]},
+     [
+       ["participant_uids", :each],
+       ["participants", :each, "uid"],
+       ["grants", :each, "principal_uid"]
+     ]},
     {"conversation_action_cards", "notified_senders", :jsonb, [[:each]]},
     {"conversation_inbound_batches", "entries", :jsonb,
      [

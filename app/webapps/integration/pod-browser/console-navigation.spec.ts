@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { state } from './fixtures'
 
-test('Console navigation reuses the document within a tenant and replaces it when selecting an aggregate record', async ({
+test('Console navigation reuses the document across aggregate record selection and tenant switches', async ({
   browser
 }) => {
   const context = await browser.newContext()
@@ -23,7 +23,7 @@ test('Console navigation reuses the document within a tenant and replaces it whe
     expect(response.request().headers()['x-ankole-tenant']).toBe(state.tenant_id)
     await expect(page).toHaveURL(new RegExp(`/agents/${state.agent_uid}`))
     const selectedDocument = await page.evaluate(() => performance.timeOrigin)
-    expect(selectedDocument).not.toBe(aggregateDocument)
+    expect(selectedDocument).toBe(aggregateDocument)
 
     await page.locator(`a[href="${basePath}/?data_tenant=${state.tenant_id}"]`).first().click()
     await expect(page).toHaveURL(new RegExp(`${basePath}/\\?data_tenant=`))

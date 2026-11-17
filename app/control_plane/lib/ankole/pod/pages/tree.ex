@@ -196,8 +196,9 @@ defmodule Ankole.Pod.Pages.Tree do
     case read.() do
       {:ok, root} ->
         lock_roots(if root.private_owner_uid, do: [root.id], else: [])
-
         ids = descendants(root.id) |> Enum.sort()
+        :ok = Ankole.Principals.ServiceAccounts.delete_applets_in_tx(ids)
+        :ok = Ankole.Brain.Sources.detach_purged_defaults_in_tx(ids)
 
         Enum.each(Enum.chunk_every(ids, 1000), fn batch ->
           Node
@@ -332,20 +333,10 @@ defmodule Ankole.Pod.Pages.Tree do
     )
   end
 
+  @creatable_types ~w(doc knowledge base applet file)a ++ ~w(doc knowledge base applet file)
+
   def create_authorized_in_tx(%Actor{} = actor, attrs) do
-    with true <-
-           Ankole.Attrs.get(attrs, :type) in [
-             :doc,
-             :knowledge,
-             :base,
-             :applet,
-             :file,
-             "doc",
-             "knowledge",
-             "base",
-             "applet",
-             "file"
-           ],
+    with true <- Ankole.Attrs.get(attrs, :type) in @creatable_types,
          {:ok, parent} <- fetch(Ankole.Attrs.get(attrs, :parent_id)),
          {:ok, _} <- authorize_child_create(actor, parent),
          do: create_in_tx(Map.put(attrs, :created_by, ActorRef.from_actor(actor))),
@@ -464,6 +455,7 @@ defmodule Ankole.Pod.Pages.Tree do
              actor.turn_authority,
              fn -> move_with_meta_in_tx(actor, id, attrs) end,
              root_ids: fn -> root_ids([id, Ankole.Attrs.get(attrs, :parent_id)]) end,
+             before_turn: fn -> maybe_lock_applet_move_in_tx(id, attrs) end,
              after_commit: fn {moved, meta} -> committed(moved, meta) end
            ) do
       {:ok, moved}
@@ -479,6 +471,7 @@ defmodule Ankole.Pod.Pages.Tree do
   @doc false
   def move_with_meta_in_tx(actor, id, attrs, opts \\ []) do
     lock_tree()
+    maybe_lock_applet_move_in_tx(id, attrs)
 
     with {:ok, node} <- lock(id),
          :ok <- mutable(node),
@@ -529,23 +522,32 @@ defmodule Ankole.Pod.Pages.Tree do
       else: :ok
   end
 
+  defp maybe_lock_applet_move_in_tx(id, attrs) do
+    with true <- Ankole.Attrs.get(attrs, :name, :missing) != :missing,
+         {:ok, %{type: :applet, id: page_id}} <- fetch(id) do
+      Ankole.Principals.ServiceAccounts.lock_applet_in_tx(page_id)
+    else
+      _ -> :ok
+    end
+  end
+
   defp move_destination(_actor, %{parent_id: id}, %{id: id}), do: :ok
 
   defp move_destination(actor, _node, parent) do
     with {:ok, _} <- authorize_child_create(actor, parent), do: :ok
   end
 
-  def trash(%Actor{} = actor, id) do
-    Access.write_tree(actor.turn_authority, fn -> trash_in_tx(actor, id) end,
+  def trash(%Actor{} = actor, id, opts \\ []) do
+    Access.write_tree(actor.turn_authority, fn -> trash_in_tx(actor, id, opts) end,
       root_ids: fn -> root_ids([id]) end,
       after_commit: &committed/1
     )
   end
 
-  def trash_in_tx(actor, id) do
+  def trash_in_tx(actor, id, opts \\ []) do
     lock_tree()
 
-    with {:ok, node} <- lock(id), do: trash_node_in_tx(actor, node, deletion_action(node))
+    with {:ok, node} <- lock(id), do: trash_node_in_tx(actor, node, deletion_action(node), opts)
   end
 
   def trash_empty_directory_in_tx(actor, id) do
@@ -553,7 +555,7 @@ defmodule Ankole.Pod.Pages.Tree do
 
     with {:ok, %{type: :doc} = node} <- lock(id),
          true <- Ankole.Pod.Pages.content_empty?(node) and list_children(id) == [],
-         do: trash_node_in_tx(actor, node, "node_edit"),
+         do: trash_node_in_tx(actor, node, "node_edit", []),
          else: (
            false -> {:error, :not_empty}
            error -> error
@@ -561,16 +563,22 @@ defmodule Ankole.Pod.Pages.Tree do
   end
 
   @doc false
-  def trash_node_in_tx(actor, node, action) do
+  def trash_node_in_tx(actor, node, action, opts \\ []) do
     with :ok <- mutable(node),
          {:ok, _} <-
            Access.authorize(actor, node, action, requester_action: "node_edit"),
+         :ok <- check_brain_source_scope_in_tx(node, Keyword.get(opts, :force, false)),
          {:ok, node} <-
            Access.update_anchor_in_tx(node, :trash, %{deleted_at: DateTime.utc_now(:microsecond)}),
          :ok <- Ankole.Pod.Pages.Lifecycle.trash_node_in_tx(node.id),
          :ok <- schedule_purge(node),
          do: {:ok, node}
   end
+
+  defp check_brain_source_scope_in_tx(_node, true), do: :ok
+
+  defp check_brain_source_scope_in_tx(node, false),
+    do: Ankole.Brain.Sources.ensure_nodes_not_default_scope_in_tx(descendants(node.id))
 
   def deletion_action(%{type: :file}), do: "node_edit"
   def deletion_action(_node), do: "node_manage"
@@ -939,14 +947,6 @@ defmodule Ankole.Pod.Pages.Tree do
     if Map.get(meta, :access_changed, true) do
       Access.broadcast_change(Map.get(node, :type) != :file)
     else
-      if Map.get(node, :type) != :file do
-        Phoenix.PubSub.broadcast(
-          Ankole.PubSub,
-          "drive-vfs-access:" <> Repo.tenant_id!(),
-          :vfs_access_changed
-        )
-      end
-
       Ankole.Pod.Pages.broadcast_access()
     end
 
@@ -955,20 +955,30 @@ defmodule Ankole.Pod.Pages.Tree do
 
   def content_committed(%{id: id} = _node, meta \\ %{}) do
     previous_parent_id = Map.get(meta, :previous_parent_id)
+    page_result = fetch(id)
 
     ids =
-      case fetch(id) do
+      case page_result do
         {:ok, page} -> [id, page.parent_id, previous_parent_id]
         _ -> [id, previous_parent_id]
       end
 
-    for id <- ids |> Enum.reject(&is_nil/1) |> Enum.uniq() do
-      broadcast(id)
+    topic =
+      case page_result do
+        {:ok, %{private_owner_uid: uid}} when is_binary(uid) ->
+          "drive-content-principal:" <> Repo.tenant_id!() <> ":" <> uid
+
+        _ ->
+          "drive-content:" <> Repo.tenant_id!()
+      end
+
+    for target_id <- ids |> Enum.reject(&is_nil/1) |> Enum.uniq() do
+      broadcast(target_id)
 
       Phoenix.PubSub.broadcast(
         Ankole.PubSub,
-        "drive-content:" <> Repo.tenant_id!(),
-        {:page_updated, id}
+        topic,
+        {:page_updated, target_id}
       )
     end
 
@@ -977,4 +987,9 @@ defmodule Ankole.Pod.Pages.Tree do
 
   def broadcast(id),
     do: Phoenix.PubSub.broadcast(Ankole.PubSub, "drive-node:" <> id, {:node_committed, id})
+
+  def broadcast(id, nil), do: broadcast(id)
+
+  def broadcast(id, delta),
+    do: Phoenix.PubSub.broadcast(Ankole.PubSub, "drive-node:" <> id, {:node_committed, id, delta})
 end

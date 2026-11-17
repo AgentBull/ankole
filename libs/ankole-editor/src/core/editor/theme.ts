@@ -91,7 +91,7 @@ export const baseStyles = buildTheme(
         position: 'absolute'
       },
       pointerEvents: 'none',
-      zIndex: 150
+      zIndex: 100
     },
 
     // Two animations defined so that we can switch between them to
@@ -128,7 +128,8 @@ export const baseStyles = buildTheme(
 
     '.wg-buffer': {
       verticalAlign: 'bottom',
-      height: '1em'
+      height: '1em',
+      display: 'inline'
     },
     '.wg-blockBuffer': {
       position: 'absolute'
@@ -161,7 +162,7 @@ export const baseStyles = buildTheme(
       position: 'sticky',
       left: 0,
       right: 0,
-      zIndex: 300,
+      zIndex: 200,
       backgroundColor: 'var(--wg-panel-color)',
       font: 'var(--wg-dialog-font)'
     },

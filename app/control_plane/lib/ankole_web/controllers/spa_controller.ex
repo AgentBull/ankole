@@ -115,7 +115,7 @@ defmodule AnkoleWeb.SpaController do
         render_or_redirect_pod_login(conn, tenant_id, params)
       end
     else
-      _ -> send_resp(conn, 404, "Pod not found")
+      _ -> not_found(conn, %{})
     end
   end
 
@@ -228,7 +228,7 @@ defmodule AnkoleWeb.SpaController do
       end
     else
       false -> redirect(conn, to: ~p"/setup")
-      _ -> send_resp(conn, 404, "Pod not found")
+      _ -> not_found(conn, %{})
     end
   end
 
@@ -370,6 +370,13 @@ defmodule AnkoleWeb.SpaController do
     end
   end
 
+  def not_found(conn, _params) do
+    conn
+    |> put_status(404)
+    |> assign(:auth_error_code, "not_found")
+    |> render_spa(%{entry: "auth", title: "Page Not Found · Ankole"})
+  end
+
   def render_spa(conn, spa) do
     conn = put_resp_header(conn, "cache-control", "private, no-store")
     descriptor = if is_atom(spa), do: Map.fetch!(@spas, spa), else: spa
@@ -427,6 +434,7 @@ defmodule AnkoleWeb.SpaController do
       ],
       static_base_meta(),
       login_tenant_meta(conn),
+      auth_error_meta(conn),
       authentication_meta(conn, entry),
       console_path_meta(entry),
       dev_mailbox_meta(),
@@ -473,6 +481,17 @@ defmodule AnkoleWeb.SpaController do
 
   defp login_tenant_meta(_conn), do: []
 
+  defp auth_error_meta(%{assigns: %{auth_error_code: code}})
+       when is_binary(code) and code != "" do
+    [
+      "<meta name=\"ankole-auth-error\" content=\"",
+      html_escape(code),
+      "\">\n"
+    ]
+  end
+
+  defp auth_error_meta(_conn), do: []
+
   defp authentication_meta(_conn, entry) when entry in ["auth", "setup"], do: []
 
   defp authentication_meta(conn, _entry) do
@@ -510,7 +529,7 @@ defmodule AnkoleWeb.SpaController do
 
   defp console_path_meta(_entry), do: []
 
-  defp pod_manifest_link(entry) when entry in ["pod", "saas-pod"] do
+  defp pod_manifest_link(entry) when entry == "pod" do
     [
       "    <link rel=\"manifest\" href=\"",
       html_escape(~p"/pod/manifest.webmanifest"),
@@ -558,7 +577,7 @@ defmodule AnkoleWeb.SpaController do
 
   # Pod workspaces render in their bound Pod's locale; Setup and the site Console
   # bind and render in the privileged Pod's locale.
-  defp app_locale(_conn, entry) when entry in ["pod", "saas-pod", "setup", "console"],
+  defp app_locale(_conn, entry) when entry in ["pod", "setup", "console"],
     do: pod_locale()
 
   defp app_locale(conn, "auth") do

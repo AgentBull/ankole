@@ -88,6 +88,57 @@ defmodule Ankole.Pod.CommentsTest do
     assert last.id == newer.id
   end
 
+  test "Applet and Base discussion summaries acknowledge mentions without document content",
+       ctx do
+    for type <- [:applet, :base] do
+      page = shared_page(ctx, type)
+      refute Repo.get_by(PageContent, page_id: page.id)
+
+      assert {:ok, %{resolved_ids: [], unread_count: 0, open_count: 0, activity_at: nil}} =
+               Comments.summary(ctx.owner, page.id)
+
+      assert {:ok, %{comment: thread}} =
+               Comments.create(ctx.contributor, page.id, %{
+                 body: "@[Owner](principal:#{ctx.owner.principal.uid}) Please review"
+               })
+
+      assert {:ok, %{comment: resolved}} =
+               Comments.resolve(ctx.contributor, page.id, thread.id, %{
+                 version: thread.version,
+                 resolved: true
+               })
+
+      assert {:ok, _} =
+               Comments.create(ctx.contributor, page.id, %{body: "An unrelated question"})
+
+      assert {:ok, %{resolved_ids: [], unread_count: 2, open_count: 1, activity_at: observed}} =
+               Comments.summary(ctx.owner, page.id)
+
+      assert {:ok, [%{page: attention_page, unread_count: 1}]} = Activity.attention(ctx.owner)
+      assert attention_page.id == page.id
+
+      assert {:ok, _} =
+               Comments.create(ctx.contributor, page.id, %{
+                 root_id: resolved.id,
+                 body: "One more detail"
+               })
+
+      assert {:ok, %{unread_count: 1, open_count: 1, activity_at: latest, resolved_ids: []}} =
+               Activity.acknowledge(ctx.owner, page.id, observed)
+
+      assert DateTime.compare(latest, observed) == :gt
+      assert latest == Repo.get!(PageComment, thread.id).activity_at
+      assert {:ok, [%{unread_count: 1}]} = Activity.attention(ctx.owner)
+
+      assert {:ok, %{unread_count: 0, open_count: 1, resolved_ids: []}} =
+               Activity.acknowledge(ctx.owner, page.id, latest)
+
+      assert {:ok, []} = Activity.attention(ctx.owner)
+      assert {:ok, %{unread_count: 0}} = Comments.summary(ctx.owner, page.id)
+      assert {:ok, %{unread_count: 2}} = Comments.summary(ctx.viewer, page.id)
+    end
+  end
+
   test "read acknowledgments are durable, private, and do not consume activity arriving after the observed watermark",
        ctx do
     {:ok, %{comment: old}} = Comments.create(ctx.contributor, ctx.page.id, %{body: "Review this"})
@@ -668,6 +719,139 @@ defmodule Ankole.Pod.CommentsTest do
              Comments.delete(manage_only, ctx.page.id, root.id, %{version: updated.version})
 
     assert not is_nil(deleted.deleted_at)
+  end
+
+  test "Applet discussions pin element anchors to the published revision and preserve history",
+       ctx do
+    page = shared_page(ctx, :applet)
+    assert {:ok, %{revision: 1}} = publish_static_applet(ctx.owner, page.id, 0)
+
+    anchor = %{
+      "kind" => "applet_element",
+      "revision" => 1,
+      "source" => "src/OrderList.tsx:48",
+      "component" => "App > OrderList > StatusBadge",
+      "selector" => "[data-ankole-src=\"src/OrderList.tsx:48\"]",
+      "text_fingerprint" => "待发货"
+    }
+
+    assert {:ok, %{comment: thread, revision: 1}} =
+             Comments.create(ctx.contributor, page.id, %{
+               body: "Make this status easier to read",
+               quote: "待发货",
+               anchor: anchor
+             })
+
+    assert thread.anchor == anchor
+    assert thread.anchor_present
+    refute thread.anchor_outdated
+
+    assert {:ok, %{comment: reply}} =
+             Comments.create(ctx.contributor, page.id, %{
+               root_id: thread.id,
+               body: "Use a stronger color"
+             })
+
+    assert reply.anchor == nil
+
+    assert {:ok, %{revision: 2}} = publish_static_applet(ctx.owner, page.id, 1)
+    assert {:ok, %{thread: historical}} = Comments.read(ctx.viewer, page.id, thread.id)
+    assert historical.anchor == anchor
+    assert historical.quote == "待发货"
+    refute historical.anchor_present
+    assert historical.anchor_outdated
+
+    assert {:error, :invalid_comment_anchor} =
+             Comments.create(ctx.contributor, page.id, %{body: "Stale pick", anchor: anchor})
+
+    assert {:ok, %{comment: refreshed}} =
+             Comments.anchor(ctx.contributor, page.id, thread.id, %{
+               version: historical.version,
+               anchor: Map.put(anchor, "revision", 2),
+               quote: "待发货"
+             })
+
+    assert refreshed.anchor_present
+    refute refreshed.anchor_outdated
+
+    anchor = Map.put(anchor, "revision", 2)
+
+    for invalid <- [
+          Map.put(anchor, "revision", 3),
+          Map.put(anchor, "kind", "base_record"),
+          Map.put(anchor, "selector", ""),
+          Map.put(anchor, "extra", "unsupported")
+        ] do
+      assert {:error, :invalid_comment_anchor} =
+               Comments.create(ctx.contributor, page.id, %{body: "Invalid pick", anchor: invalid})
+    end
+  end
+
+  test "Base and Applet Pages support whole-page discussions while Base rejects every local anchor",
+       ctx do
+    for type <- [:base, :applet] do
+      page = shared_page(ctx, type)
+
+      assert {:ok, %{comment: thread}} =
+               Comments.create(ctx.contributor, page.id, %{body: "Discuss this page"})
+
+      assert thread.anchor == nil
+      assert thread.quote == nil
+      refute thread.anchor_present
+      assert {:ok, %{threads: [listed]}} = Comments.list(ctx.viewer, page.id)
+      assert listed.id == thread.id
+      assert {:error, :forbidden} = Comments.create(ctx.viewer, page.id, %{body: "View only"})
+
+      if type == :base do
+        for attrs <- [
+              %{anchor: %{"kind" => "base_record", "record_id" => "record"}},
+              %{base_revision: 0, from: 1, to: 2},
+              %{quote: "local quote"}
+            ] do
+          assert {:error, :invalid_comment_anchor} =
+                   Comments.create(
+                     ctx.contributor,
+                     page.id,
+                     Map.put(attrs, :body, "Local selection")
+                   )
+        end
+      end
+    end
+  end
+
+  defp shared_page(ctx, type) do
+    {:ok, page} =
+      Pages.create(ctx.owner, %{type: type, private_owner_uid: ctx.owner.principal.uid})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.principal.uid, page.id, %{
+        grants: [
+          %{principal_uid: ctx.contributor.principal.uid, role: "contribute"},
+          %{principal_uid: ctx.viewer.principal.uid, role: "view"}
+        ]
+      })
+
+    page
+  end
+
+  defp publish_static_applet(actor, page_id, revision) do
+    manifest =
+      for {path, content} <- [
+            {"src/main.tsx", "export const version = #{revision + 1}"},
+            {"dist/index.html", "<html><body>Version #{revision + 1}</body></html>"}
+          ] do
+        {:ok, stored} = Ankole.Files.store(content)
+        source = "comments-test/#{page_id}/#{revision}/#{path}"
+
+        {:ok, _} =
+          Ankole.Files.commit(actor.principal.uid, [
+            Map.merge(stored, %{path: source, source: "agent"})
+          ])
+
+        %{path: path, object_id: stored.object_id, source_path: source}
+      end
+
+    Ankole.Pod.Files.publish(actor, page_id, revision, manifest)
   end
 
   test "Office Pages accept unanchored page discussions and reject document-anchored comments",

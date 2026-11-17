@@ -182,7 +182,7 @@ block `169.254.169.254` from containers so a Worker cannot read host IAM
 credentials. Compose itself does not track Worker containers; the control plane
 manages their lifecycle, and the Console's Workers page displays their status.
 
-The default provider seed sets `idleReleaseAfter: 15m`. After that idle period,
+The default provider seed sets `idleReleaseAfter: 24h`. After that idle period,
 the control plane removes the Worker container while keeping both the Agent
 Home and cache volumes. The next task that needs a Worker starts a fresh
 container and reattaches both volumes. Rebuilding a Worker deletes only the cache
@@ -263,17 +263,24 @@ database backup. See the
 [database image guide](../../devkit/postgres-for-ankole/README.md) for extension
 and shared-library verification queries.
 
-When upgrading from an earlier release that used pooled Workers, the
-`migrate-agent-homes` service waits for the schema migration, stops any container
+When upgrading a 1.x installation that used pooled Workers, run the explicit
+one-time 1.x upgrade commands (`upgrade_from_1x` plus the `upgrade-1x` Compose
+profile for `migrate-agent-homes`):
+
+```sh
+docker compose run --rm migrate /app/bin/upgrade_from_1x
+docker compose --profile upgrade-1x run --rm migrate-agent-homes
+```
+
+`migrate-agent-homes` stops any container
 mounting the legacy `ankole_agents_data` volume, copies each active Agent's
 directory into its tenant-qualified dedicated volume, adds its tenant ownership
 label, chowns the files to `uid 1000`, and writes a completion marker
 in the old volume (skipping orphan directories left behind by deleted
 Agents and leaving `ankole_agents_data` intact). Ensure free disk space at least
 matches the used size of `ankole_agents_data`. If any copy fails,
-`migrate-agent-homes` exits non-zero so the control plane stays stopped;
-re-running `docker compose up` retries unfinished Agents without overwriting
-completed ones.
+`migrate-agent-homes` exits non-zero; re-running the command retries unfinished
+Agents without overwriting completed ones. Standard `2.0` upgrades run `docker compose up -d` directly without invoking the `upgrade-1x` profile.
 
 Inside each Worker, `/agents/<agent_uid>` symlinks to `/workspace`, where user
 files, session workspaces, and Job workspaces remain. Shared Agent drives live

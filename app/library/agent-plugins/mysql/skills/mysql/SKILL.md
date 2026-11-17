@@ -1,6 +1,7 @@
 ---
 name: mysql
 description: "Answer questions from a tenant MySQL database with catalog search, value probes, plans, read-only queries, and published metrics."
+default_enabled: false
 ---
 
 # mysql

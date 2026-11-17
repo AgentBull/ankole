@@ -54,6 +54,7 @@ pub enum NodeKind {
     UnknownBlock,
     LineBreak,
     Image,
+    InlineMath,
     Mention,
     InlineElement,
     Text,
@@ -171,7 +172,7 @@ impl DocNode {
             NodeKind::Text => self.param.as_str().is_some_and(|s| !s.is_empty()),
             NodeKind::Heading => self.param.as_u64().is_some_and(|v| (1..=6).contains(&v)),
             NodeKind::OrderedList => self.param.is_number(),
-            NodeKind::Image | NodeKind::Math => self.param.is_string(),
+            NodeKind::Image | NodeKind::Math | NodeKind::InlineMath => self.param.is_string(),
             NodeKind::Mention => self.param.as_object().is_some_and(|map| {
                 map.len() == 1
                     && (map.get("page").or_else(|| map.get("principal")))
@@ -211,6 +212,7 @@ fn default_param(kind: NodeKind) -> Option<Value> {
         NodeKind::Heading | NodeKind::OrderedList => Some(json!(1)),
         NodeKind::Text
         | NodeKind::Image
+        | NodeKind::InlineMath
         | NodeKind::Mention
         | NodeKind::InlineElement
         | NodeKind::UnknownBlock
@@ -246,6 +248,7 @@ fn inline(kind: NodeKind) -> bool {
         NodeKind::Text
             | NodeKind::LineBreak
             | NodeKind::Image
+            | NodeKind::InlineMath
             | NodeKind::Mention
             | NodeKind::InlineElement
     )
@@ -282,7 +285,7 @@ fn mark_target(name: &str, kind: NodeKind) -> bool {
     if is_format_mark(name) || name == "TextStyle" {
         return matches!(
             kind,
-            NodeKind::Text | NodeKind::InlineElement | NodeKind::Mention
+            NodeKind::Text | NodeKind::InlineElement | NodeKind::InlineMath | NodeKind::Mention
         );
     }
     if let Some((spec, _)) = super::attributes::source_diagram_mark(name) {
@@ -291,7 +294,11 @@ fn mark_target(name: &str, kind: NodeKind) -> bool {
     match name {
         "Link" => matches!(
             kind,
-            NodeKind::Text | NodeKind::LineBreak | NodeKind::Image | NodeKind::InlineElement
+            NodeKind::Text
+                | NodeKind::LineBreak
+                | NodeKind::Image
+                | NodeKind::InlineMath
+                | NodeKind::InlineElement
         ),
         "Comment" => inline(kind),
         "Align" => matches!(
@@ -310,7 +317,9 @@ fn mark_target(name: &str, kind: NodeKind) -> bool {
         "PagePlaceholder" => kind == NodeKind::Paragraph,
         "CalloutTone" | "CalloutIcon" => kind == NodeKind::Callout,
         "EmbedRef" | "EmbedTable" | "EmbedView" | "EmbedHref" | "EmbedTitle"
-        | "EmbedDescription" | "EmbedImage" | "EmbedHeight" => kind == NodeKind::Embed,
+        | "EmbedDescription" | "EmbedImage" | "EmbedHeight" | "EmbedProps" => {
+            kind == NodeKind::Embed
+        }
         name if resource_mark(name) => kind == NodeKind::Media,
         "Attrs" => !matches!(
             kind,
@@ -327,6 +336,7 @@ fn attribute_mark(name: &str) -> Option<(&'static str, &'static str, bool)> {
         "Resource_kind" => ("media", "kind", false),
         "Resource_view" => ("media", "view", false),
         "EmbedHeight" => ("embed", "height", false),
+        "EmbedProps" => ("embed", "props", false),
         "CodeWrap" => ("pre", "wrap", false),
         "TableWidths" => ("table", "widths", false),
         "TableLayout" => ("table", "layout", false),

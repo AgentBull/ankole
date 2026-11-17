@@ -70,6 +70,23 @@ defmodule Ankole.AIAgent.Console.Actions do
     with {:ok, _quota} <- TokenQuota.reset(args.agent_uid), do: TokenQuota.status(args.agent_uid)
   end
 
+  defp action(:system_token_quota, args), do: TokenQuota.service_status(args.uid)
+
+  defp action(:put_system_token_quota, args) do
+    with {:ok, _quota} <- TokenQuota.put_service(args.uid, Map.drop(args, [:uid])),
+         do: TokenQuota.service_status(args.uid)
+  end
+
+  defp action(:delete_system_token_quota, args) do
+    with {:ok, nil} <- TokenQuota.delete_service(args.uid),
+         do: TokenQuota.service_status(args.uid)
+  end
+
+  defp action(:reset_system_token_quota, args) do
+    with {:ok, _quota} <- TokenQuota.reset_service(args.uid),
+         do: TokenQuota.service_status(args.uid)
+  end
+
   defp put_profile(args, attrs) do
     with {:ok, _profile} <- ModelProfiles.put_model_profile(args.agent_uid, args.profile, attrs),
          do: ModelProfiles.model_profile_configuration(args.agent_uid)
@@ -136,7 +153,13 @@ defmodule Ankole.AIAgent.Console.Actions do
   end
 
   defp rejection(reason)
-       when reason in [:not_found, :not_agent, :agent_not_found, :principal_not_found],
+       when reason in [
+              :not_found,
+              :not_agent,
+              :agent_not_found,
+              :principal_not_found,
+              :service_account_not_found
+            ],
        do: NotFound.exception(resource: Ankole.Principals.Agent)
 
   defp rejection(:image_model_unavailable),

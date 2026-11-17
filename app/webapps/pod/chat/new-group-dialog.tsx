@@ -13,18 +13,20 @@ import {
   DialogFooter,
   DialogTitle,
   Input,
+  Spinner,
   Textarea
 } from '@ankole/uikit'
 import { uuidV4 } from '@agentbull/active-support'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useEffect, useEffectEvent, useId, useState } from 'react'
+import { useEffect, useEffectEvent, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { podLocation, podPublicOrigin } from '../../common/browser-context'
+import { requestErrorCode } from '../../common/request-errors'
 import { usePageHref } from '../use-page-metadata'
 import { useDebouncedValue } from '../../common/use-debounced-value'
-import { agentsQuery, podKeys, type ConversationDetail } from '../api'
-import { createConversation, podChatTeammates, updateConversation } from '../api/generated/sdk.gen'
+import { agentsQuery, chatError, podKeys, type ConversationDetail } from '../api'
+import { createConversation, podChatTeammates } from '../api/generated/sdk.gen'
 import { ContentError } from '../content-primitives'
 import { ChatAvatar } from './chat-avatar'
 import { teammatesKey } from './room-api'
@@ -77,8 +79,66 @@ export function NewGroupDialog({
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState('')
   const search = useDebouncedValue(query, 180)
+  const attemptRef = useRef<{ fingerprint: string; conversationID: string; messageID: string } | null>(null)
+  const members = candidates.filter(member => checked.has(member.uid))
+  const trimmedTitle = name.trim()
+  const trimmedMessage = message.trim()
+  const missing = !members.length
+    ? 'pod.superagent.group_needs_member'
+    : !trimmedMessage
+      ? 'pod.superagent.group_needs_message'
+      : undefined
+  const create = useMutation({
+    mutationFn: async () => {
+      const agentUIDs = members.filter(member => member.agent).map(member => member.uid)
+      const participantUIDs = members.filter(member => !member.agent).map(member => member.uid)
+      const links = pageLinks
+        .filter(link => message.includes(link.url))
+        .map(link => ({ kind: 'page' as const, id: link.id }))
+      const fingerprint = JSON.stringify({
+        title: trimmedTitle,
+        text: trimmedMessage,
+        agentUIDs,
+        participantUIDs,
+        links
+      })
+      const attempt =
+        attemptRef.current && attemptRef.current.fingerprint === fingerprint
+          ? attemptRef.current
+          : (attemptRef.current = { fingerprint, conversationID: uuidV4(), messageID: uuidV4() })
+      return createConversation({
+        body: {
+          data: {
+            conversationID: attempt.conversationID,
+            messageID: attempt.messageID,
+            roomMode: 'group',
+            title: trimmedTitle || undefined,
+            text: trimmedMessage,
+            agentUIDs,
+            participantUIDs,
+            links
+          }
+        }
+      })
+    },
+    onSuccess: created => {
+      void client.invalidateQueries({ queryKey: podKeys.conversations })
+      onOpenChange(false)
+      void navigate({ to: podLocation(`/conversations/${created.conversation.id}`).pathname })
+    },
+    onError: error => {
+      if (requestErrorCode(chatError(error)) === 'conversation_conflict') {
+        attemptRef.current = null
+      }
+    }
+  })
+  const clearCreateError = () => {
+    if (!create.isPending && create.error) create.reset()
+  }
   const reset = useEffectEvent(() => {
     const members = initial()
+    attemptRef.current = null
+    if (!create.isPending) create.reset()
     setName(fromTask ? room.title : colleague ? colleague.displayName : '')
     setMessage(pageLinks.map(link => link.url).join('\n'))
     setCandidates(members)
@@ -105,43 +165,11 @@ export function NewGroupDialog({
       `${agent.uid} ${agent.displayName} ${agent.role ?? ''}`.toLocaleLowerCase().includes(needle)
   )
   const add = (member: Member) => {
+    clearCreateError()
     setCandidates(current => [...current, member])
     setChecked(current => new Set([...current, member.uid]))
     setQuery('')
   }
-  const members = candidates.filter(member => checked.has(member.uid))
-  const missing = !members.length
-    ? 'pod.superagent.group_needs_member'
-    : !message.trim()
-      ? 'pod.superagent.group_needs_message'
-      : undefined
-  const create = useMutation({
-    mutationFn: async () => {
-      const created = await createConversation({
-        body: {
-          data: {
-            conversationID: uuidV4(),
-            messageID: uuidV4(),
-            roomMode: 'group',
-            text: message.trim(),
-            agentUIDs: members.filter(member => member.agent).map(member => member.uid),
-            participantUIDs: members.filter(member => !member.agent).map(member => member.uid),
-            links: pageLinks.filter(link => message.includes(link.url)).map(link => ({ kind: 'page', id: link.id }))
-          }
-        }
-      })
-      const title = name.trim()
-      if (title && title !== created.conversation.title) {
-        await updateConversation({ path: { id: created.conversation.id }, body: { data: { title } } })
-      }
-      return created
-    },
-    onSuccess: created => {
-      void client.invalidateQueries({ queryKey: podKeys.conversations })
-      onOpenChange(false)
-      void navigate({ to: podLocation(`/conversations/${created.conversation.id}`).pathname })
-    }
-  })
   return (
     <Dialog open={open} onOpenChange={next => !create.isPending && onOpenChange(next)}>
       <DialogContent className="pod-chat-share" closeLabel={t('common.close')}>
@@ -158,59 +186,73 @@ export function NewGroupDialog({
             event.preventDefault()
             if (!missing && !create.isPending) create.mutate()
           }}>
-          <label className="grid gap-1.5 text-sm">
-            {t('pod.superagent.group_name')}
-            <Input value={name} onChange={event => setName(event.target.value)} />
-          </label>
-          <fieldset className="grid gap-1.5">
-            <legend className="mb-1.5 text-sm">{t('pod.superagent.group_members')}</legend>
-            <div className="pod-chat-member">
-              <ChatAvatar name={t('pod.chat_timeline.you')} />
-              <span>{t('pod.chat_timeline.you')}</span>
-            </div>
-            {candidates.map(member => (
-              <label key={member.uid} className="pod-chat-member cursor-pointer">
-                <ChatAvatar name={member.displayName} src={member.avatarURL} agent={member.agent} />
-                <span>{member.displayName}</span>
-                <Checkbox
-                  checked={checked.has(member.uid)}
-                  onCheckedChange={value =>
-                    setChecked(current => {
-                      const next = new Set(current)
-                      if (value) next.add(member.uid)
-                      else next.delete(member.uid)
-                      return next
-                    })
-                  }
-                />
-              </label>
-            ))}
-            <Command shouldFilter={false} className="mt-1">
-              <CommandInput
-                aria-label={t('pod.chat_room.search_people_agents')}
-                value={query}
-                onValueChange={setQuery}
-                placeholder={t('pod.superagent.add_members')}
+          <fieldset disabled={create.isPending} className="contents">
+            <label className="grid gap-1.5 text-sm">
+              {t('pod.superagent.group_name')}
+              <Input
+                value={name}
+                onChange={event => {
+                  clearCreateError()
+                  setName(event.target.value)
+                }}
               />
-              {!!query.trim() && (
-                <CommandList>
-                  <CommandEmpty>
-                    {t(query !== search || people.isPending ? 'pod.content.loading' : 'pod.chat_room.no_matches')}
-                  </CommandEmpty>
-                  <MemberOptions people={morePeople} agents={moreAgents} onSelect={add} />
-                </CommandList>
-              )}
-            </Command>
+            </label>
+            <fieldset className="grid gap-1.5">
+              <legend className="mb-1.5 text-sm">{t('pod.superagent.group_members')}</legend>
+              <div className="pod-chat-member">
+                <ChatAvatar name={t('pod.chat_timeline.you')} />
+                <span>{t('pod.chat_timeline.you')}</span>
+              </div>
+              {candidates.map(member => (
+                <label key={member.uid} className="pod-chat-member cursor-pointer has-disabled:cursor-not-allowed">
+                  <ChatAvatar name={member.displayName} src={member.avatarURL} agent={member.agent} />
+                  <span>{member.displayName}</span>
+                  <Checkbox
+                    disabled={create.isPending}
+                    checked={checked.has(member.uid)}
+                    onCheckedChange={value => {
+                      clearCreateError()
+                      setChecked(current => {
+                        const next = new Set(current)
+                        if (value) next.add(member.uid)
+                        else next.delete(member.uid)
+                        return next
+                      })
+                    }}
+                  />
+                </label>
+              ))}
+              <Command shouldFilter={false} className="mt-1">
+                <CommandInput
+                  aria-label={t('pod.chat_room.search_people_agents')}
+                  disabled={create.isPending}
+                  value={query}
+                  onValueChange={setQuery}
+                  placeholder={t('pod.superagent.add_members')}
+                />
+                {!!query.trim() && (
+                  <CommandList>
+                    <CommandEmpty>
+                      {t(query !== search || people.isPending ? 'pod.content.loading' : 'pod.chat_room.no_matches')}
+                    </CommandEmpty>
+                    <MemberOptions people={morePeople} agents={moreAgents} onSelect={add} />
+                  </CommandList>
+                )}
+              </Command>
+            </fieldset>
+            <label className="grid gap-1.5 text-sm">
+              {t('pod.superagent.group_message')}
+              <Textarea
+                value={message}
+                rows={3}
+                placeholder={t('pod.superagent.group_message_placeholder')}
+                onChange={event => {
+                  clearCreateError()
+                  setMessage(event.target.value)
+                }}
+              />
+            </label>
           </fieldset>
-          <label className="grid gap-1.5 text-sm">
-            {t('pod.superagent.group_message')}
-            <Textarea
-              value={message}
-              rows={3}
-              placeholder={t('pod.superagent.group_message_placeholder')}
-              onChange={event => setMessage(event.target.value)}
-            />
-          </label>
         </form>
         <ContentError error={people.error || agents.error || create.error} />
         <DialogFooter className="items-center">
@@ -218,7 +260,8 @@ export function NewGroupDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={create.isPending}>
             {t('common.cancel')}
           </Button>
-          <Button type="submit" form={formID} disabled={!!missing || create.isPending}>
+          <Button type="submit" form={formID} disabled={!!missing || create.isPending} aria-busy={create.isPending}>
+            {create.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
             {t('pod.superagent.create_group')}
           </Button>
         </DialogFooter>

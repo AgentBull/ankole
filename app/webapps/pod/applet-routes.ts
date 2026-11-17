@@ -1,4 +1,4 @@
-import type { RouteCall, RoutesAPI } from '@ankole/applet-sdk/types'
+import type { AppletRevision, RouteCall, RoutesAPI } from '@ankole/applet-sdk/types'
 import { contentKeys } from './content-api'
 import { createClientConfig, InternalAPIError } from '../common/internal-api-client'
 
@@ -10,9 +10,14 @@ export function isAppletRouteError(error: unknown): boolean {
 }
 
 /** Each runtime uses the downloaded publication, even if the page changed during loading. */
-export function createAppletRoutes(pageID: string, revision: number, onRevisionChanged: () => void): RoutesAPI {
+export function createAppletRoutes(
+  pageID: string,
+  revision: AppletRevision,
+  onRevisionChanged: () => void,
+  bindingsDigest = ''
+): RoutesAPI {
   const transport = createClientConfig({}).fetch!
-  const key = [...contentKeys.all, 'applet-routes', pageID, revision] as const
+  const key = [...contentKeys.all, 'applet-routes', pageID, revision, bindingsDigest] as const
   let stale = false
   return {
     key: () => key,

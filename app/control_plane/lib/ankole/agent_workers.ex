@@ -103,6 +103,10 @@ defmodule Ankole.AgentWorkers do
 
       base_route "/agent-workers", AgentWorker do
         index(:console_list, name: "list_agent_workers", derive_sort?: false)
+
+        route(:post, "/:agent_uid/force-reset-generation", :console_force_reset_generation,
+          name: "force_reset_agent_worker_generation"
+        )
       end
 
       base_route "/agents", AgentWorker do

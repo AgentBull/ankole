@@ -43,11 +43,11 @@
     "fmt:check": "oxfmt --check src playground test e2e scripts compat upstream/*.ts upstream/tests playwright*.config.ts vite.config.ts tsconfig.json package.json index.html turbo.json",
     "test:upstream": "bun test ./upstream/tests",
     "test:compat:install": "bun scripts/install-compat-browsers.ts",
-    "test:chromium126": "playwright test --config playwright.compat.config.ts",
+    "test:chromium132": "playwright test --config playwright.compat.config.ts",
     "test:native": "bun test ./compat/native.test.ts",
     "test:package": "bun scripts/check-package.ts",
     "build:playground": "bun run build && bun --bun vite build",
-    "lint": "oxlint .",
+    "lint": "bun --bun oxlint .",
     "generate:corpus": "bun scripts/rust-corpus.ts --write",
     "test:corpus": "bun test ./test/rust-corpus.test.ts",
     "test:rust": "bun scripts/check-rust.ts"

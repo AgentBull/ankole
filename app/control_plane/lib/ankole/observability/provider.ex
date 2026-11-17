@@ -17,6 +17,8 @@ defmodule Ankole.Observability.Provider do
 
   @type trace_context :: %{
           optional(:signal_id) => String.t() | nil,
+          optional(:channel_adapter) => String.t() | nil,
+          optional(:channel_kind) => String.t() | nil,
           tenant_id: String.t(),
           tenant_slug: String.t(),
           principal_uid: String.t() | nil,

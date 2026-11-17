@@ -1,53 +1,24 @@
 import { ConnectorConfigFields } from '../connector-config-fields'
-import { TableRow, useMutation, useQuery, Link, useNavigate } from '../tenant-context'
-import { flushSync } from 'react-dom'
+import { TableRow, useQuery, Link } from '../tenant-context'
 import { DirectoryAccessSection } from './directory-access'
-import {
-  Button,
-  Input,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
-  SwitchRow,
-  TableCell,
-  toast
-} from '@ankole/uikit'
+import { Skeleton, SwitchRow, TableCell } from '@ankole/uikit'
 import { recordValue } from '@agentbull/active-support'
-import { useModel } from '@preact/signals-react'
-import { useSignals } from '@preact/signals-react/runtime'
-import { ArrowClockwiseRegular, ShieldKeyholeRegular } from '@ankole/uikit/icons'
+import { ShieldKeyholeRegular } from '@ankole/uikit/icons'
 
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from '@tanstack/react-router'
-import {
-  type ConfigFieldDefinition,
-  type LocalizedText,
-  configFieldServerError,
-  defaultConfig,
-  getPath,
-  localizedText,
-  setPath
-} from '../../common/config-fields'
+import { type ConfigFieldDefinition, type LocalizedText, getPath, localizedText } from '../../common/config-fields'
 import i18n from '../../common/i18n'
-import { unusedProviderID } from '../../common/identity-provider'
-import { requestErrorMessage } from '../../common/request-errors'
 import {
   listIdentityProviderAdaptersOptions,
-  listIdentityProvidersOptions,
-  createIdentityProviderMutation,
-  saveIdentityProviderMutation,
-  runIdentityProviderSyncMutation
+  listIdentityProvidersOptions
 } from '../api/v2/generated/@tanstack/react-query.gen'
 import type { ListIdentityProviderAdaptersResponse, ListIdentityProvidersResponse } from '../api/v2/generated/types.gen'
 import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
-import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
-import { IdentityEditorModel, type IdentityEditorDraft } from '../state/identity-editor-model'
+import { ResourceListPage, ResourceSearch, RowViewAction } from '../console-list-page'
+import { PodSettingsLinkBanner } from '../pod-settings-banner'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
-import { useEditorDraft } from '../use-editor-draft'
 import { IdentitySubNav } from './identity-mappings'
 
 type IdentityProviderItem = ListIdentityProvidersResponse['identity_providers'][number]
@@ -74,13 +45,10 @@ export function IdentityProvidersListPage() {
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const locale = i18n.language
-  // A provider names the platform its configuration uses; otherwise the adapter name stands in.
   const providerLabel = (provider: { adapter_id: string; display_name?: { [key: string]: unknown } | null }) =>
     localizedText(provider.display_name, locale) ??
     localizedText(adapterByID.get(provider.adapter_id)?.display_name, locale) ??
     provider.adapter_id
-  // Search matches the words the table shows, not internal boolean tokens, so
-  // typing a visible status label finds the row in every locale.
   const rows = (providers.data?.identity_providers ?? []).filter(provider =>
     matchesResourceSearch(
       searchQuery,
@@ -96,8 +64,6 @@ export function IdentityProvidersListPage() {
     <ResourceListPage
       title={t('console.identity.title')}
       description={t('console.identity.description')}
-      createTo="new"
-      createLabel={t('console.identity.new')}
       columns={[
         t('console.identity.provider'),
         t('console.identity.adapter'),
@@ -113,7 +79,12 @@ export function IdentityProvidersListPage() {
       error={providers.error}
       isFiltered={Boolean(query.trim())}
       onClearFilters={() => setQuery('')}
-      subNav={<IdentitySubNav />}
+      subNav={
+        <div className="grid gap-4">
+          <IdentitySubNav />
+          <PodSettingsLinkBanner section="providers" />
+        </div>
+      }
       toolbar={
         <ResourceSearch
           label={t('console.identity.search')}
@@ -140,7 +111,10 @@ export function IdentityProvidersListPage() {
               {provider.enabled ? t('console.status.enabled') : t('console.status.disabled')}
             </StatusIndicator>
           </TableCell>
-          <RowActions editTo={encodeURIComponent(provider.provider_id)} editLabel={t('common.edit')} />
+          <RowViewAction
+            label={t('common.view_details_for', { name: provider.provider_id })}
+            to={encodeURIComponent(provider.provider_id)}
+          />
         </TableRow>
       ))}
     </ResourceListPage>
@@ -148,262 +122,91 @@ export function IdentityProvidersListPage() {
 }
 
 export function IdentityProviderEditorPage() {
-  useSignals()
   const { t } = useTranslation()
-  const navigate = useNavigate()
-  const model = useModel(IdentityEditorModel)
   const params = useParams({ strict: false })
   const providerID = params.providerID
-  const mode = providerID ? 'edit' : 'new'
   const locale = i18n.language
 
   const adapters = useQuery(listIdentityProviderAdaptersOptions())
   const providers = useQuery({
     ...listIdentityProvidersOptions(),
-    // Identity providers do not have a detail endpoint. Refresh the list before
-    // the page decides that the provider does not exist.
     refetchOnMount: 'always'
   })
   const identityAdapters = (adapters.data?.identity_provider_adapters ?? []) as IdentityProviderAdapterItem[]
-  const selected = providers.data?.identity_providers.find(provider => provider.provider_id === providerID)
+  const selected = providerID
+    ? providers.data?.identity_providers.find(provider => provider.provider_id === providerID)
+    : undefined
+  const selectedAdapter = selected
+    ? identityAdapters.find(adapter => adapter.adapter_id === selected.adapter_id)
+    : undefined
 
-  // The first-adapter fallback is a new-mode default only. In edit mode a
-  // stored adapter missing from the catalog (its plugin was disabled) must
-  // render as itself and block Save, not silently rewrite the provider to a
-  // different adapter with the old adapter's config.
-  const activeAdapter =
-    identityAdapters.find(adapter => adapter.adapter_id === model.adapterID.value) ??
-    (mode === 'new' ? identityAdapters[0] : undefined)
-  const selectedAdapter = identityAdapters.find(adapter => adapter.adapter_id === selected?.adapter_id)
-
-  const sourceReady =
-    mode === 'new'
-      ? adapters.isSuccess && providers.isSuccess && !providers.isFetching && identityAdapters.length > 0
-      : providers.isSuccess && Boolean(selected)
-  const identityDraft = useMemo(
-    () =>
-      !sourceReady
-        ? undefined
-        : mode === 'edit' && selected
-          ? formFromProvider(selected)
-          : mode === 'new'
-            ? emptyForm(
-                identityAdapters[0],
-                providers.data?.identity_providers.map(item => item.provider_id)
-              )
-            : undefined,
-    [identityAdapters, mode, selected, sourceReady, providers.data]
-  )
-  const draftStatus = useEditorDraft(model, {
-    sourceKey: providerID ? `provider:${providerID}` : 'new',
-    source: identityDraft,
-    absent: () => mode === 'edit' && providers.isSuccess && !providers.isFetching && !selected
-  })
-
-  const saveProvider = useMutation({
-    ...(mode === 'new' ? createIdentityProviderMutation() : saveIdentityProviderMutation()),
-    onMutate: () => model.captureSave(),
-    onSuccess: (response, _variables, confirm) => {
-      let accepted = false
-      flushSync(() => {
-        accepted = confirm?.(formFromProvider(response.identity_provider)) ?? false
-      })
-      if (!accepted) return
-      toast.success(t('console.identity.saved', { id: response.identity_provider.provider_id }))
-      // Stay on the editor so the operator can continue to change the
-      // configuration after each save.
-      if (mode === 'new' && !model.dirty.value) {
-        void navigate({ to: `/identity/${encodeURIComponent(response.identity_provider.provider_id)}` })
-      }
-    }
-  })
-  const runSync = useMutation({
-    ...runIdentityProviderSyncMutation(),
-    onSuccess: () => {
-      toast.success(t('console.identity.sync_started'))
-    },
-    onError: error => toast.error(requestErrorMessage(error))
-  })
-
-  const changeAdapter = (adapterID: string) => {
-    const adapter = identityAdapters.find(item => item.adapter_id === adapterID)
-    if (adapter) {
-      model.changeAdapter(
-        emptyForm(
-          adapter,
-          providers.data?.identity_providers.map(item => item.provider_id)
-        )
-      )
-    }
-  }
-
-  const submit = () => {
-    model.clearValidation()
-    if (!activeAdapter) return
-    const trimmedID = model.providerID.value.trim()
-    if (!trimmedID) {
-      model.validationError.value = t('console.identity.provider_id_required')
-      return
-    }
-    saveProvider.mutate({
-      body: {
-        data: { adapter_id: activeAdapter.adapter_id, config: model.config.value, enabled: model.enabled.value }
-      },
-      path: { provider_id: trimmedID }
-    })
-  }
-
-  const canRunSync = Boolean(
-    mode === 'edit' &&
-    selected &&
-    selected.enabled &&
-    selectedAdapter &&
-    selectedAdapter.capabilities.includes('directory_full_sync') &&
-    syncEnabled(selected)
-  )
-  const activeFields = activeAdapter?.fields ?? []
-  const submitDisabled = mode === 'edit' && !model.dirty.value
-  const writeFieldError = configFieldServerError(saveProvider.error, activeFields, locale)
-  // Explain why Save is unavailable when the configured adapter is missing.
-  // The operator must restore its plugin before the provider can be edited.
-  const adapterUnavailable = mode === 'edit' && adapters.isSuccess && Boolean(selected) && !activeAdapter
-
-  if (draftStatus === 'absent') {
+  if (!providerID || (providers.isSuccess && !providers.isFetching && !selected)) {
     return <EditorNotFound backTo="/identity" message={t('console.not_found.description')} />
   }
 
+  const adapterDisplay = selectedAdapter
+    ? (localizedText(selectedAdapter.display_name, locale) ?? selectedAdapter.adapter_id)
+    : undefined
+
   return (
     <ResourceEditorPage
-      fieldsDisabled={draftStatus !== 'ready'}
-      title={mode === 'new' ? t('console.identity.new') : (providerID ?? '')}
+      readOnly
+      fieldsDisabled
+      title={providerID}
       description={t('console.identity.editor_description')}
       backTo="/identity"
-      dirty={model.dirty.value}
-      supplementaryDirty={model.dirty.value}
-      validationError={model.validationError.value ?? writeFieldError}
-      error={
-        (writeFieldError ? undefined : saveProvider.error) ??
-        adapters.error ??
-        providers.error ??
-        (adapterUnavailable ? new Error(t('console.identity.adapter_unavailable')) : undefined)
-      }
-      submitting={saveProvider.isPending}
-      submitDisabled={submitDisabled}
-      submitUnavailable={draftStatus !== 'ready' || !activeAdapter}
+      error={adapters.error ?? providers.error}
       contentWidth="wide"
-      onSubmit={submit}
       supplementary={
         selected && selectedAdapter?.capabilities.includes('directory_full_sync') ? (
           <DirectoryAccessSection key={selected.provider_id} providerID={selected.provider_id} />
         ) : undefined
-      }
-      secondary={
-        canRunSync ? (
-          <Button
-            disabled={runSync.isPending}
-            size="sm"
-            type="button"
-            variant="outline"
-            onClick={() => selected && runSync.mutate({ path: { provider_id: selected.provider_id } })}>
-            <ArrowClockwiseRegular data-icon="inline-start" />
-            {t('console.identity.run_full_sync')}
-          </Button>
-        ) : null
       }>
-      <fieldset className="contents" disabled={mode === 'new' && saveProvider.isPending}>
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-          <LabeledField label={t('console.identity.adapter')} required={mode === 'new'}>
-            {mode === 'edit' ? (
-              <ReadOnlyValue>
-                {activeAdapter ? (
-                  (localizedText(activeAdapter.display_name, locale) ?? activeAdapter.adapter_id)
-                ) : adapters.isPending ? (
-                  <Skeleton className="h-4 w-40" />
-                ) : (
-                  model.adapterID.value
-                )}
-              </ReadOnlyValue>
-            ) : (
-              <Select
-                value={model.adapterID.value || activeAdapter?.adapter_id || ''}
-                onValueChange={value => changeAdapter(String(value))}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent emptyLabel={t('common.select_empty')}>
-                  {identityAdapters.map(adapter => (
-                    <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
-                      {localizedText(adapter.display_name, locale) ?? adapter.adapter_id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </LabeledField>
-          <LabeledField
-            label={t('console.identity.provider_id')}
-            description={t('console.identity.provider_id_hint')}
-            required={mode === 'new'}>
-            {mode === 'edit' ? (
-              <ReadOnlyValue mono>{model.providerID.value}</ReadOnlyValue>
-            ) : (
-              <Input
-                required
-                value={model.providerID.value}
-                onChange={event => (model.providerID.value = event.target.value)}
-              />
-            )}
-          </LabeledField>
-        </div>
+      <PodSettingsLinkBanner section="providers" />
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+        <LabeledField label={t('console.identity.adapter')}>
+          <ReadOnlyValue>
+            {adapterDisplay ??
+              (adapters.isPending || providers.isPending ? (
+                <Skeleton className="h-4 w-40" />
+              ) : (
+                (selected?.adapter_id ?? '')
+              ))}
+          </ReadOnlyValue>
+        </LabeledField>
+        <LabeledField label={t('console.identity.provider_id')}>
+          <ReadOnlyValue mono>{selected?.provider_id ?? providerID}</ReadOnlyValue>
+        </LabeledField>
+      </div>
 
-        <SwitchRow
-          rowClassName="flex cursor-pointer items-center justify-between gap-4 border border-border-subtle bg-layer-03/30 p-4"
-          label={
-            <span className="grid gap-1">
-              <span className="text-sm font-medium">{t('console.identity.enabled')}</span>
-              <span className="text-xs text-fg-secondary">{t('console.identity.enabled_hint')}</span>
-            </span>
-          }
-          labelFirst
-          checked={model.enabled.value}
-          onCheckedChange={checked => (model.enabled.value = checked)}
+      <SwitchRow
+        rowClassName="flex items-center justify-between gap-4 border border-border-subtle bg-layer-03/30 p-4"
+        label={
+          <span className="grid gap-1">
+            <span className="text-sm font-medium">{t('console.identity.enabled')}</span>
+            <span className="text-xs text-fg-secondary">{t('console.identity.enabled_hint')}</span>
+          </span>
+        }
+        labelFirst
+        checked={selected?.enabled === true}
+        disabled
+        onCheckedChange={() => {}}
+      />
+
+      {selected && selectedAdapter ? (
+        <ConnectorConfigFields
+          pluginId={selectedAdapter.plugin_id ?? selectedAdapter.adapter_id}
+          onConnectionChange={() => {}}
+          config={recordValue(selected.config) ?? {}}
+          fields={selectedAdapter.fields}
+          locale={locale}
+          onChange={() => {}}
+          preservedSecretPaths={selected.stored_secret_paths}
+          preservedSecretPlaceholder={t('common.secret_saved_placeholder')}
         />
-
-        {activeAdapter ? (
-          <ConnectorConfigFields
-            pluginId={activeAdapter.plugin_id ?? activeAdapter.adapter_id}
-            onConnectionChange={config => {
-              model.config.value = config
-            }}
-            config={model.config.value}
-            fields={activeFields}
-            locale={locale}
-            onChange={(path, value) => (model.config.value = setPath(model.config.value, path, value))}
-            preservedSecretPaths={selected?.stored_secret_paths}
-            preservedSecretPlaceholder={t('common.secret_saved_placeholder')}
-          />
-        ) : null}
-      </fieldset>
+      ) : null}
     </ResourceEditorPage>
   )
-}
-
-function emptyForm(adapter?: IdentityProviderAdapterItem, existingIDs: string[] = []): IdentityEditorDraft {
-  return {
-    adapterID: adapter?.adapter_id ?? '',
-    providerID: unusedProviderID(adapter?.default_provider_id ?? '', existingIDs),
-    enabled: true,
-    config: defaultConfig(adapter?.fields ?? [])
-  }
-}
-
-function formFromProvider(provider: IdentityProviderItem): IdentityEditorDraft {
-  return {
-    adapterID: provider.adapter_id,
-    providerID: provider.provider_id,
-    enabled: provider.enabled,
-    config: recordValue(provider.config) ?? {}
-  }
 }
 
 function syncEnabled(provider: IdentityProviderItem): boolean {

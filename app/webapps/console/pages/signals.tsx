@@ -599,14 +599,17 @@ export function SignalBindingEditorPage() {
             description={t('console.signals.section_connection_hint')}>
             <ConnectorConfigFields
               pluginId={activeAdapter.plugin_id ?? activeAdapter.adapter_id}
-              onConnectionChange={config => {
-                model.config.value = config
-              }}
+              onConnectionChange={config => model.changeConnection(config)}
               advancedLabel={t('console.signals.section_advanced')}
               config={model.config.value}
               fields={activeFields}
               locale={locale}
               onChange={(path, value) => model.changeConfig(path, value)}
+              initialAuthConfigId={
+                typeof recordValue(bindingDetail.data?.config)?.authConfigId === 'string'
+                  ? (recordValue(bindingDetail.data?.config)!.authConfigId as string)
+                  : null
+              }
               preservedSecretPaths={bindingDetail.data?.stored_secret_paths}
               preservedSecretPlaceholder={t('common.secret_saved_placeholder')}
             />

@@ -26,6 +26,8 @@ defmodule Ankole.Principals.PodAdminOperations do
     allow(:set_admin, resource: "tenant_console:group:pod_admin", action: "update")
     allow(:disable_member, resource: "tenant_console:principal:{uid}", action: "update")
     allow(:restore_member, resource: "tenant_console:principal:{uid}", action: "update")
+    allow(:member_access, resource: "tenant_console:principal:{uid}", action: "read")
+    allow(:retry_member_cleanup, resource: "tenant_console:principal:{uid}", action: "update")
     allow(:unbind_credential, resource: "tenant_console:principal:{uid}", action: "update")
     allow(:invitations, resource: "tenant_console:invitations", action: "read")
     allow(:create_invitation, resource: "tenant_console:invitations", action: "update")
@@ -45,6 +47,21 @@ defmodule Ankole.Principals.PodAdminOperations do
     allow(:sync_directory,
       resource: "tenant_console:identity_provider:{provider_id}",
       action: "sync"
+    )
+
+    allow(:provider_directory,
+      resource: "tenant_console:identity_provider:{provider_id}",
+      action: "read"
+    )
+
+    allow(:approve_provider_directory,
+      resource: "tenant_console:identity_provider:{provider_id}",
+      action: "update"
+    )
+
+    allow(:review_provider_directory_event,
+      resource: "tenant_console:identity_provider:{provider_id}",
+      action: "update"
     )
 
     allow(:worker_envs, resource: "tenant_console:worker_envs", action: "read")
@@ -321,6 +338,26 @@ defmodule Ankole.Principals.PodAdminOperations do
       end)
     end
 
+    action :member_access, Ankole.Principals.AccessView do
+      argument(:uid, PrincipalKey, allow_nil?: false)
+      transaction?(false)
+
+      run(fn input, _ ->
+        Ankole.Principals.HumanAccess.console_view(input.arguments.uid)
+        |> Ankole.Errors.not_found([:not_found, :not_human], Ankole.Principals.Principal)
+      end)
+    end
+
+    action :retry_member_cleanup, Ankole.Principals.AccessView do
+      argument(:uid, PrincipalKey, allow_nil?: false)
+      transaction?(false)
+
+      run(fn input, _ ->
+        Ankole.Principals.HumanAccess.retry_cleanup_view(input.arguments.uid)
+        |> Ankole.Errors.not_found([:not_found, :not_human], Ankole.Principals.Principal)
+      end)
+    end
+
     action :unbind_credential, :map do
       constraints(fields: [ok: [type: :boolean, allow_nil?: false]])
       argument(:uid, PrincipalKey, allow_nil?: false)
@@ -498,6 +535,57 @@ defmodule Ankole.Principals.PodAdminOperations do
             source: "pod_admin"
           )
         )
+      end)
+    end
+
+    action :provider_directory, Ankole.IdentityProviders.DirectoryView do
+      argument(:provider_id, :string, allow_nil?: false)
+      transaction?(false)
+
+      run(fn input, _ ->
+        {:ok, Ankole.IdentityProviders.DirectoryAccess.console_view(input.arguments.provider_id)}
+      end)
+    end
+
+    action :approve_provider_directory, Ankole.IdentityProviders.DirectoryView do
+      argument(:provider_id, :string, allow_nil?: false)
+      argument(:snapshot_fingerprint, :string, allow_nil?: false)
+      argument(:reason, :string, allow_nil?: false, constraints: [min_length: 1])
+      argument(:confirm_removals, :boolean, allow_nil?: false)
+      transaction?(false)
+
+      run(fn input, context ->
+        args = input.arguments
+
+        Ankole.IdentityProviders.DirectoryAccess.approve_directory_view(
+          args.provider_id,
+          args.snapshot_fingerprint,
+          Ankole.ActorRef.from_actor(context.actor),
+          args.reason,
+          args.confirm_removals
+        )
+        |> Ankole.Errors.wrap(&Ankole.IdentityProviders.ErrorDescription.describe/1)
+      end)
+    end
+
+    action :review_provider_directory_event, Ankole.IdentityProviders.DirectoryView do
+      argument(:provider_id, :string, allow_nil?: false)
+      argument(:event_id, UUIDv7, allow_nil?: false)
+      argument(:action, :atom, allow_nil?: false, constraints: [one_of: [:retry, :dismiss]])
+      argument(:reason, :string, allow_nil?: false, constraints: [min_length: 1])
+      transaction?(false)
+
+      run(fn input, context ->
+        args = input.arguments
+
+        Ankole.IdentityProviders.DirectoryAccess.review_event_view(
+          args.provider_id,
+          args.event_id,
+          Ankole.ActorRef.from_actor(context.actor),
+          args.reason,
+          args.action
+        )
+        |> Ankole.Errors.wrap(&Ankole.IdentityProviders.ErrorDescription.describe/1)
       end)
     end
 

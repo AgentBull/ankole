@@ -407,7 +407,7 @@ defmodule Ankole.Sessions.AmbientTriageTest do
   end
 
   defp restrict_work!(:agent, _tenant, agent) do
-    assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
+    assert {:ok, %{status: :disabled}} = Ankole.Principals.disable_agent(agent.uid)
     :agent_not_active
   end
 

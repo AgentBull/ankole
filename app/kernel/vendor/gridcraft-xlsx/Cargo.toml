@@ -1,0 +1,19 @@
+[package]
+name = "gridcraft-xlsx"
+version = "0.13.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+description = "GridCraft file formats patched for floating drawing cNvPr object ID round-tripping"
+publish = false
+
+[dependencies]
+gridcraft-core = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }
+gridcraft-formula = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }
+gridcraft-model = { git = "https://github.com/storytold/gridcraft", rev = "68a4b1a1c3684fa17553ecb2a1f088c75f6a3567" }
+thiserror = "2"
+quick-xml = "0.41"
+zip = { version = "3", default-features = false, features = ["deflate"] }
+aes = { version = "0.9", default-features = false }
+sha1 = { version = "0.11", default-features = false }
+sha2 = { version = "0.11", default-features = false }

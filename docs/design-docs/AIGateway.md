@@ -298,15 +298,22 @@ default, and a later change to it reaches every row that never overrode it.
 
 A provider declares a `request` setting only when its prepare code writes the
 value to an upstream field. Public names stay camelCase, and prepare code moves
-each value to the native field name: OpenAI-family providers send
+each value to the native field name: OpenAI-family providers (and `VolcengineArk`) send
 `promptCacheKey`, `promptCacheOptions`, `promptCacheRetention`,
 `safetyIdentifier`, and `contextManagement` as `prompt_cache_key`,
 `prompt_cache_options`, `prompt_cache_retention`, `safety_identifier`, and
 `context_management`,
 OpenRouter sends `textVerbosity` as `verbosity`, and Claude sends `inferenceGeo`
-as `inference_geo`. For prompt-cache continuity, OpenAI Responses requests on
-stateful conversations derive a deterministic `prompt_cache_key` from the
-conversation identity whenever the caller omits one, Claude Messages requests
+as `inference_geo`. For prompt-cache continuity, OpenAI Responses and compatible
+Chat Completions requests on stateful conversations forward caller-supplied
+`prompt_cache_key` (with explicit `provider_options["prompt_cache_key"]` taking
+precedence; Google Gemini OpenAI-compatibility endpoints drop `prompt_cache_key`
+to satisfy their stricter payload validation) and OpenAI Responses derives a
+deterministic key from the conversation identity whenever omitted. On
+`openai_compatible` profiles, `supportsParallelToolCalls` overrides parallel tool
+call capability per model (falling back to local packaged `llm_db` model
+capabilities and static `supported_parameters`, defaulting to `false` for
+unrecognized models), while `VolcengineArk` declares parallel tool call support. Claude Messages requests
 attach top-level `cache_control: {"type": "ephemeral"}` when the caller omits
 explicit cache breakpoints, OpenRouter injects top-level ephemeral
 `cache_control` automatically for Anthropic Claude targets when none is set, and
@@ -319,7 +326,31 @@ Completions rejects the Responses-only options
 names. A Claude profile that sets `speed` to `fast` also sends the
 `fast-mode-2026-02-01` beta flag, because Anthropic serves fast mode on Claude
 Opus 5 and Opus 4.8 only behind that flag; the operator's own `anthropic_beta`
-flags come first. Claude rows declare no API version. The kernel's
+flags come first. Claude rows also expose an advanced `message_threads` setting
+(`auto`, `enabled`, or `disabled`, defaulting to `auto`): `ClaudeMessageThreads`
+attaches `anthropic-beta: message-threads-2026-08-12` and `thread` directives on
+`api.anthropic.com` when `auto` is active or on any base URL when `enabled` is
+selected, bypassing threads pre-flight when a call carries compaction,
+unsupported `context_management` edits, message-block `cache_control`, or more
+than four cache breakpoints. Within an explicit conversation, socket, or client
+session scope (never `prompt_cache_key`), the first eligible call sends
+`thread: {"type": "create"}` and stores a five-minute anchor over the normalized
+coalesced Anthropic `messages` prefix (including the completed assistant turn)
+and the fixed structural fingerprint (`model`, `system`, `tools`, `tool_choice`,
+`reasoning`, `thinking`, `output_config`, `context_management`, `mcp_servers`
+excluding auth tokens, `container.skills`, top-level `cache_control`,
+`anthropic-beta`, `anthropic-version`, and `fallbacks` presence); matching
+follow-up calls send `thread: {"type": "continue", "previous_message_id": ...}`, omit `system` and `tools`, and transmit only the
+new message suffix across both non-streaming requests and streams. When Anthropic
+reports a `fallback_message` iteration or a non-`completed` stop, AIGateway skips
+storing an anchor so the next turn starts a fresh thread. Pre-first-event
+`thread_not_found` (`404` carrying `error.details.error_code`) and `400` thread
+state or fingerprint rejections replay once as a full `create` without penalizing
+the credential (downgrading the session to unthreaded if an immediate post-replay
+`continue` still reports `thread_not_found`), while `thread_unsupported_request`
+or unknown-`thread` relay rejections retry once without `thread` or the beta
+header and cache organizational or custom-endpoint incompatibility for one hour.
+Claude rows declare no API version. The kernel's
 `anthropic_messages` resolver sends `anthropic-version: 2026-10-21` for Claude
 4.5 and later models and `2023-06-01` for every other model, and it shapes the
 request body for the version it sends: a `2026-10-21` request leaves out
@@ -575,6 +606,13 @@ event arrives—for example, an overload delivered as `response.failed` inside a
 HTTP `200` SSE stream—the retry window closes and AIGateway returns that
 Response as-is.
 
+Callers can disable route retries with `route_retry: false` on
+`RequestExecution.execute_prepared_request/3` or `CredentialAttempts.request/2`.
+This option leaves credential recovery for explicit HTTP `401` and `429`
+rejections enabled. Media generation submissions use it because a transport
+failure, timeout, or upstream `5xx` response can arrive after the Provider has
+accepted a billable generation.
+
 `Stream Ready` indicates only that the Rust kernel received HTTP response
 headers or a WebSocket `101` upgrade, not that a provider event arrived. Both
 the first-byte timeout and the inter-event idle timeout are 30 minutes, with no
@@ -651,6 +689,10 @@ completion) and polls a single endpoint at the server-supplied interval until
 the control plane exchanges the authorization code and writes the pool entry. If
 the upstream device endpoint is unavailable, the Console displays the browser
 authorization URL and accepts the pasted `localhost` callback URL instead.
+During device authorization, the Console retries unreachable endpoints, HTTP
+429, and server failures. Other client errors stop polling and offer a new code
+while preserving the operator's account label and priority. Responses from an
+earlier login attempt cannot complete or replace the current attempt.
 
 For model discovery, AIGateway queries the account-scoped Codex `/models`
 endpoint, filters to models that the subscription account marks as visible and
@@ -820,7 +862,7 @@ All runtime endpoints mount under `/api/v1/ai-gateway`:
 - `POST /embeddings`
 - `POST /rerank`
 - `POST /web_search`
-- `POST /web_fetch`
+- `POST /web_fetch` (accepts 1 to 5 `http://` or `https://` URLs under the SSRF private-network filter)
 - `POST /decisions`
 - `POST /images`
 - `POST /audio/speech`
@@ -1570,7 +1612,13 @@ Console audit queries read tenant-scoped history including ended Conversations,
 ## Store the Result before Reporting Completion
 
 `ResponseStream` always commits terminal items to PostgreSQL before sending a
-public terminal frame (`response.completed` or `response.incomplete`). If that
+public terminal frame (`response.completed` or `response.incomplete`, including
+upstream `content_filter` or model `refusal` stops normalized across OpenAI
+Responses, Chat Completions, and Anthropic Messages wires into `incomplete`
+with `incomplete_details.reason = "content_filter"`), and cancels the
+Response's pending `ReconcileOrphanedResponse` Oban job in the same terminal
+commit transaction. `AIGateway` rejects `background=true` on `response.create`
+with `400 unsupported_parameter`. If that
 commit fails, AIGateway attempts to commit an `error` state instead and emits
 `response.failed` only after that error commit succeeds; if both database writes
 fail, AIGateway cancels the upstream stream and closes the transport without
@@ -2165,17 +2213,26 @@ request whose profile is not configured fails with
   A job that runs again after a crash therefore never asks for a second
   generation, which the Provider would bill. A row that is `in_progress`
   without a generation to wait for fails with `media_job_interrupted`.
+- A generation submission can refresh or rotate credentials after an explicit
+  HTTP `401` or `429` rejection. It does not retry route failures, including
+  timeouts, connection resets, and HTTP `502`, `503`, or `504`, because the
+  Provider may already have accepted the generation. Such a failure marks the
+  job failed. Polling and file downloads use their normal retry policies.
 - The `openrouter` provider kind serves video. OpenRouter accepts the
-  generation at `/videos` and answers with its id; the job stores the id,
-  snoozes for ten seconds, and reads `/videos/:id` until OpenRouter reports
-  that the generation completed or failed. A generation that is still running
-  after one hour fails with `media_generation_timeout`. The job resolves the
-  profile on every step with the job id as the credential affinity, so that
-  one credential of a Provider pool serves all steps; a profile that names
-  another model by then fails the job with `model_profile_changed`.
+  generation at `/videos` and answers with its id; the job stores the id
+  together with the accepting `credential_id`, snoozes for ten seconds, and
+  reads `/videos/:id` until OpenRouter reports that the generation completed or
+  failed. A generation that is still running after one hour fails with
+  `media_generation_timeout`. Subsequent steps resolve the profile again (so a
+  profile that names another model fails the job with `model_profile_changed`)
+  and pin execution to the stored `credential_id`, refreshing credentials when
+  needed without rotating to other pool entries on `401` or `429` and failing
+  with `credential_removed` if that entry was deleted.
 - The `cloudflare` provider kind serves music through the partner models of
   Workers AI, such as `minimax/music-2.6` and `elevenlabs/music-v2`. The
-  model answers the request itself, once the audio exists, with a link to it.
+  model answers the request itself, once the audio exists, with a link to it;
+  the job stores the link together with the winning `credential_id` so the
+  initial and any retried same-origin download stay on that credential.
   AIGateway names `instrumental` and `duration` the way each of these two
   partners expects them and sends the fields unchanged to any other model.
 - When the Provider reports the link to the file, the job stores the link and
@@ -2183,8 +2240,8 @@ request whose profile is not configured fails with
   `Ankole.Files`. A link on the Provider's own host is read with the
   Provider's credential; a link on another host carries its own signature and
   receives none. A failed download is tried again from the stored link.
-- A rejected submission fails the job at once. Any other error is tried again,
-  five times in all, and then fails the job.
+- A failed submission fails the job at once. Polling and file-download errors
+  are tried again, five times in all, and then fail the job.
 
 A media job and its file live for seven days. The hourly artifact cleanup
 deletes the rows whose `expires_at` has passed, which releases their objects
@@ -2336,7 +2393,12 @@ Note that an observability Provider only projects vendor span attributes onto
 Turn roots, AIGateway LLM spans, and forwarded Worker OTLP batches—it is not an
 AIGateway model Provider, does not own transport, and does not filter unrelated
 OpenTelemetry spans (`opentelemetry` adds zero vendor attributes for generic
-backends such as VictoriaTraces, Honeycomb, and Grafana Cloud).
+backends such as VictoriaTraces, Honeycomb, and Grafana Cloud). Generation
+spans merge an explicit allowlist of reasoning, verbosity, parallel tool, and
+service-tier keys from `provider_options` into `gen_ai` / Langfuse model
+parameters (excluding credentials and headers), while Turn and AIGateway spans
+record `channel.adapter` and `channel.kind` (plus Langfuse `channel:<adapter>`
+tags and trace metadata) alongside settled-turn telemetry properties.
 
 For each Driver attempt, the control plane opens a `turn {signal.type}` root
 span after admission (recording bounded, sanitized trigger and final-reply
@@ -2376,7 +2438,13 @@ the turn request context:
   round's own output items (falling back to round `response.output_item.done`
   items if the streamed terminal `output` is empty, excluding echoed
   `instructions`/`input`/`tools`, and preserving JSON booleans and `null`),
-  status, usage, and sanitized `FailureDiagnostics` attributes (`error.type` and
+  status, usage, upstream continuation metrics
+  (`ankole.ai_gateway.continuation_mode` as `ws_reused_delta`,
+  `ws_reused_full`, `claude_thread_create`, `claude_thread_continue`, or
+  `stateless_full`, wire `ankole.ai_gateway.request_bytes`, full
+  `ankole.ai_gateway.logical_request_bytes` when delta slicing applies, and
+  `ankole.ai_gateway.continuation_fallback_reason` on pre-output recovery), and
+  sanitized `FailureDiagnostics` attributes (`error.type` and
   `ankole.ai_gateway.*`, never overwriting an outer code like
   `credential_pool_exhausted` with `nil` and omitting raw error messages/bodies).
 - In a traced Turn, Ankole opens a `session.worker.acquire` span under the
@@ -2511,10 +2579,31 @@ authoritative at their index).
 Transport, proxy, tool-lowering, and reasoning-envelope adapters bridge wire
 differences cleanly:
 
-- **Upstream WebSocket & proxy resolution**: OpenAI and `openai_compatible` rows
-  default `upstream_transport` to `sse` and can opt into `websocket` for
-  streaming Responses calls (Chat Completions and non-streaming calls stay on
-  HTTP). For both HTTP and WebSocket (supporting HTTP and `SOCKS5` proxies),
+- **Upstream WebSocket, session pooling, & proxy resolution**: OpenAI and
+  `openai_compatible` rows default `upstream_transport` to `sse` and can opt into
+  `websocket` for streaming Responses calls (Chat Completions and non-streaming
+  calls stay on HTTP). For non-hosted `openai_responses` WebSocket streams,
+  `UpstreamWebSocketPool` leases single-lane Rust `WebSocketSession` handles
+  keyed by tenant, Principal, session scope, Provider row, credential, and stable
+  upstream headers (ignoring per-turn request and trace IDs), parking sockets
+  that finish with `response.completed` or `response.incomplete` for up to five
+  idle minutes and fifteen total minutes (capped at five total minutes for
+  `xhigh` and `max` `reasoningEffort`), bypassing without blocking onto a
+  one-shot connection while a lease is busy, and closing the socket immediately
+  on cancellation, error, or downstream disconnect. OpenAI and
+  `openai_compatible` rows also declare an advanced boolean
+  `upstream_websocket_continuation` setting (`true` by default on
+  `api.openai.com` for `openai`, `false` by default on `openai_compatible`, and
+  absent on `chatgpt_subscription`): when enabled on a reused socket whose stored
+  `completed` anchor matches the normalized input-plus-output prefix and model,
+  AIGateway sends connection-scoped `previous_response_id` with only the trailing
+  delta `input` items while keeping public `previous_response_id` `null` and
+  sending full top-level request fields (`instructions`, `tools`, `reasoning`,
+  `store: false`, and cache/context options) on every turn. Any pre-first-event
+  WebSocket `error` frame (such as `previous_response_not_found` or
+  `websocket_connection_limit_reached`) or idle-socket EOF discards the socket
+  and retries once on a fresh WebSocket with full `input` without penalizing the
+  credential. For both HTTP and WebSocket (supporting HTTP and `SOCKS5` proxies),
   `NO_PROXY` bypasses all proxies, explicit `transport.proxy` takes priority
   next, secure URLs check `HTTPS_PROXY` -> `ALL_PROXY` -> `HTTP_PROXY`, plain
   URLs check `HTTP_PROXY` -> `ALL_PROXY` (case-insensitively), and unmatched

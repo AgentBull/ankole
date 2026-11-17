@@ -28,10 +28,11 @@ import {
 } from '@tanstack/react-query'
 import { followAggregateTables } from './aggregate-tables'
 import { previewRecordList } from './records'
+import { boundTable } from './bindings'
+export { expectedVersions } from './records'
 import type {
   AggregateQuery,
   AppletRuntime,
-  BaseRecord,
   EphemeralChannel,
   PodPrincipal,
   PresenceMember,
@@ -140,18 +141,6 @@ export function usePrincipal(uid: PrincipalReference) {
   }
 }
 
-function useTableUpdates(tableID: string) {
-  const runtime = usePod()
-  const [revoked, setRevoked] = useState(false)
-  useEffect(() => {
-    setRevoked(false)
-    return runtime.base.subscribe(tableID, event => {
-      if (event.access_revoked) setRevoked(true)
-    })
-  }, [runtime, tableID])
-  return { runtime, revoked }
-}
-
 // A failed authenticated refetch must hide prior rows even if the live channel is temporarily unavailable.
 function readDenied(error: unknown): boolean {
   return (
@@ -183,24 +172,59 @@ export function createReadDenials(cache: QueryCache) {
   return { get: (query: object) => denials.get(query), dispose }
 }
 
-function useReadResult<Data, Error>(
-  result: UseQueryResult<Data, Error>,
-  queryKey: QueryKey,
-  revokedError?: Error
-): UseQueryResult<Data, Error> {
-  const { readDenial } = usePod()
+function useQueryReadDenial<Error = globalThis.Error>(runtime: AppletRuntime, queryKey: QueryKey) {
   const cache = useQueryClient().getQueryCache()
-  const query = cache.find({ queryKey, exact: true })!
+  const hash = hashKey(queryKey)
   const subscribe = useCallback(
     (notify: () => void) =>
       cache.subscribe(event => {
-        if (event.query === query) notify()
+        if (event.query.queryHash === hash) notify()
       }),
-    [cache, query]
+    [cache, hash]
   )
-  const snapshot = useCallback(() => readDenial(query) as Error | undefined, [readDenial, query])
+  const snapshot = useCallback(() => {
+    const query = cache.get(hash)
+    return query ? (runtime.readDenial(query) as Error | undefined) : undefined
+  }, [cache, hash, runtime])
   const denial = useSyncExternalStore(subscribe, snapshot, snapshot)
-  const error = revokedError ?? denial ?? [result.error, result.failureReason].find(readDenied)
+  return useCallback(
+    (error: unknown, failureReason: unknown, revokedError?: Error): Error | undefined =>
+      revokedError ?? denial ?? ([error, failureReason].find(readDenied) as Error | undefined),
+    [denial]
+  )
+}
+
+export function useTableReadDenial<Error = globalThis.Error>(
+  runtime: AppletRuntime,
+  tableID: string,
+  queryKey: QueryKey,
+  enabled = true
+) {
+  const [revoked, setRevoked] = useState(false)
+  useEffect(() => {
+    setRevoked(false)
+    if (!enabled) return
+    return runtime.base.subscribe(tableID, event => {
+      if (event.access_revoked) setRevoked(true)
+    })
+  }, [runtime, tableID, enabled])
+  const resolveQueryDenial = useQueryReadDenial<Error>(runtime, queryKey)
+  const resolveDenial = useCallback(
+    (error: unknown, failureReason: unknown): Error | undefined =>
+      resolveQueryDenial(
+        error,
+        failureReason,
+        revoked ? (new Error(t('pod.content.you_no_longer_have_access_to_this_table')) as Error) : undefined
+      ),
+    [resolveQueryDenial, revoked]
+  )
+  return { revoked, resolveDenial }
+}
+
+function withDeniedError<Data, Error>(
+  result: UseQueryResult<Data, Error>,
+  error: Error | undefined
+): UseQueryResult<Data, Error> {
   if (error == null) return result
   return {
     ...result,
@@ -219,21 +243,28 @@ function useReadResult<Data, Error>(
   }
 }
 
-export function useRecords(tableID: string, options: RecordQuery & { pageSize?: number } = {}) {
-  const { pageSize, ...rest } = options
+function useReadResult<Data, Error>(
+  result: UseQueryResult<Data, Error>,
+  queryKey: QueryKey,
+  revokedError?: Error
+): UseQueryResult<Data, Error> {
+  const runtime = usePod()
+  const resolveQueryDenial = useQueryReadDenial<Error>(runtime, queryKey)
+  return withDeniedError(result, resolveQueryDenial(result.error, result.failureReason, revokedError))
+}
+
+export function useRecords(tableID: string, options: RecordQuery & { pageSize?: number; enabled?: boolean } = {}) {
+  const { pageSize, enabled = true, ...rest } = options
   const query: RecordQuery = pageSize === undefined ? rest : { ...rest, page_size: pageSize }
-  const { runtime, revoked } = useTableUpdates(tableID)
+  const runtime = usePod()
   const queryKey = [...runtime.base.key(tableID), 'records', query]
+  const { revoked, resolveDenial } = useTableReadDenial(runtime, tableID, queryKey, enabled)
   const read = useQuery({
     queryKey,
     queryFn: () => runtime.base.records(tableID, query),
-    enabled: !revoked
+    enabled: enabled && !revoked
   })
-  const records = useReadResult(
-    read,
-    queryKey,
-    revoked ? new Error(t('pod.content.you_no_longer_have_access_to_this_table')) : undefined
-  )
+  const records = withDeniedError(read, resolveDenial(read.error, read.failureReason))
   const write = useRecordWrites(tableID)
   const pending = useMutationState({
     filters: { mutationKey: [...runtime.base.key(tableID), 'write'], status: 'pending' },
@@ -248,24 +279,27 @@ export function useRecords(tableID: string, options: RecordQuery & { pageSize?: 
   }
 }
 
-export function useAggregate(tableID: string, options: AggregateQuery & { groupBy?: AggregateQuery['group_by'] }) {
-  const { groupBy, ...rest } = options
+export function useAggregate(
+  tableID: string,
+  options: AggregateQuery & { groupBy?: AggregateQuery['group_by']; enabled?: boolean }
+) {
+  const { groupBy, enabled = true, ...rest } = options
   const query = groupBy === undefined ? rest : { ...rest, group_by: groupBy }
-  const { runtime, revoked } = useTableUpdates(tableID)
+  const runtime = usePod()
   const queryKey = [...runtime.base.key(tableID), 'aggregate', query]
+  const { revoked, resolveDenial } = useTableReadDenial(runtime, tableID, queryKey, enabled)
   const client = useQueryClient()
   const hash = hashKey(queryKey)
   const result = useQuery({
     queryKey,
     queryFn: () => runtime.base.aggregate(tableID, query),
-    enabled: !revoked
+    enabled: enabled && !revoked
   })
-  useEffect(() => followAggregateTables(runtime.base, client, tableID, queryKey), [runtime, client, tableID, hash])
-  return useReadResult(
-    result,
-    queryKey,
-    revoked ? new Error(t('pod.content.you_no_longer_have_access_to_this_table')) : undefined
+  useEffect(
+    () => (enabled ? followAggregateTables(runtime.base, client, tableID, queryKey) : undefined),
+    [runtime, client, tableID, hash, enabled]
   )
+  return withDeniedError(result, resolveDenial(result.error, result.failureReason))
 }
 
 /** Substitute each path segment once. A parameter cannot introduce another segment. */
@@ -347,13 +381,40 @@ export function useRouteMutation<Data = unknown, Error = globalThis.Error, Conte
   })
 }
 
-/** Record versions come from this read, including absence of an unwritten field. */
-export function expectedVersions(record: BaseRecord, data: RecordData) {
-  return Object.fromEntries(
-    Object.keys(data)
-      .filter(id => Object.hasOwn(record.versions, id))
-      .map(id => [id, record.versions[id]!])
+/** Resolve one logical table slot without hiding hooks inside the returned value. */
+export function useTable(slotKey: string) {
+  const runtime = usePod()
+  const binding = runtime.bindings?.[slotKey]
+  const capturedTableId = binding?.tableId ?? ''
+  const latestTableId = useRef(capturedTableId)
+  latestTableId.current = capturedTableId
+  const writes = useRecordWrites(capturedTableId)
+  return boundTable(slotKey, binding, changes =>
+    latestTableId.current === capturedTableId
+      ? writes.write.mutateAsync(changes)
+      : runtime.base.write(capturedTableId, changes)
   )
+}
+
+export function useTableRecords(slotKey: string, query: RecordQuery & { pageSize?: number; enabled?: boolean } = {}) {
+  const table = useTable(slotKey)
+  const result = useRecords(table.tableId ?? '', {
+    ...query,
+    enabled: table.configured && (query.enabled ?? true)
+  })
+  return { ...result, table, configured: table.configured, bindingStatus: table.status }
+}
+
+export function useTableAggregate(
+  slotKey: string,
+  query: AggregateQuery & { groupBy?: AggregateQuery['group_by']; enabled?: boolean }
+) {
+  const table = useTable(slotKey)
+  const result = useAggregate(table.tableId ?? '', {
+    ...query,
+    enabled: table.configured && (query.enabled ?? true)
+  })
+  return { ...result, table, configured: table.configured, bindingStatus: table.status }
 }
 
 export function useRecordWrites(tableID: string) {

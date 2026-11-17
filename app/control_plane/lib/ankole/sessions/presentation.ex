@@ -292,6 +292,7 @@ defmodule Ankole.Sessions.Presentation do
 
   def post_in_tx(event, statement) do
     :ok = Queue.lock_session_in_tx(event.agent_uid, event.session_id)
+    statement = Ankole.Conversations.attach_prepared_action_card(statement)
 
     with {:ok, targets} <- targets_in_tx(event) do
       targets =
@@ -375,6 +376,9 @@ defmodule Ankole.Sessions.Presentation do
              images,
              states
            ) do
+      projection =
+        Ankole.Conversations.attach_prepared_action_card_completion(projection, run.signal_id)
+
       blocked_toolkits =
         run.signal_id
         |> Ankole.Connectors.AuthWaits.list_for_signal()

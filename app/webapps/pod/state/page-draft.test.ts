@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { clearPodSessionDrafts } from '../../common/browser-session'
 import { PageDraftModel } from './page-draft'
 
 describe('page drafts', () => {
@@ -352,6 +353,7 @@ test('file, Base and Applet titles recover existing drafts without creating or p
       expect(model.properties()).toBeUndefined()
       expect(model.hasUnsavedChanges.value).toBe(true)
       model.persist()
+      model.flush()
       expect(JSON.parse(data.get('draft')!)).toEqual({
         title: 'Local title',
         savedTitle: 'Remote title',
@@ -392,4 +394,155 @@ test('knowledge recovery preserves XML, the original revision and even invalid p
     expect(data.has('draft')).toBe(false)
     restored[Symbol.dispose]()
   })
+})
+
+test('debounces sessionStorage.setItem by 300ms while serving synchronous in-tab reads and flushing on pagehide/beforeunload', async () => {
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const data = new Map<string, string>()
+  let setCalls = 0
+  let removeCalls = 0
+  const listeners = new Map<string, Set<() => void>>()
+
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        setCalls += 1
+        data.set(key, value)
+      },
+      removeItem: (key: string) => {
+        removeCalls += 1
+        data.delete(key)
+      }
+    }
+  })
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      addEventListener(event: string, fn: () => void) {
+        let bucket = listeners.get(event)
+        if (!bucket) {
+          bucket = new Set()
+          listeners.set(event, bucket)
+        }
+        bucket.add(fn)
+      },
+      removeEventListener(event: string, fn: () => void) {
+        listeners.get(event)?.delete(fn)
+      }
+    }
+  })
+
+  try {
+    const editor = new PageDraftModel('doc', 'debounced-draft')
+    editor.load('page-1', '<page><p>Initial</p></page>', 1, 'Initial')
+
+    editor.body()!.xml.value = '<page><p>Keystroke 1</p></page>'
+    editor.persist()
+    editor.body()!.xml.value = '<page><p>Keystroke 2</p></page>'
+    editor.persist()
+    editor.title.value.value = 'Draft title'
+    editor.body()!.xml.value = '<page><p>Keystroke 3</p></page>'
+    editor.persist()
+
+    // No synchronous sessionStorage writes have run yet during the 300ms debounce window.
+    expect(setCalls).toBe(0)
+    expect(data.has('debounced-draft')).toBe(false)
+
+    // Synchronous within-tab navigation reads the latest draft from the in-memory map immediately.
+    const inTabReader = new PageDraftModel('doc', 'debounced-draft')
+    inTabReader.load('page-1', '<page><p>Initial</p></page>', 1, 'Initial')
+    expect(inTabReader.title.value.value).toBe('Draft title')
+    expect(inTabReader.body()!.recoveryDrafts.value).toEqual(['<page><p>Keystroke 3</p></page>'])
+    inTabReader[Symbol.dispose]()
+
+    // Coalesces into a single sessionStorage.setItem after 300ms.
+    await new Promise(resolve => setTimeout(resolve, 330))
+    expect(setCalls).toBe(1)
+    expect(JSON.parse(data.get('debounced-draft')!).xml).toBe('<page><p>Keystroke 3</p></page>')
+
+    // `pagehide` flushes pending writes synchronously before navigation/tab close.
+    editor.body()!.xml.value = '<page><p>Before pagehide</p></page>'
+    editor.persist()
+    expect(setCalls).toBe(1)
+    for (const fn of listeners.get('pagehide') ?? []) fn()
+    expect(setCalls).toBe(2)
+    expect(JSON.parse(data.get('debounced-draft')!).xml).toBe('<page><p>Before pagehide</p></page>')
+
+    // `beforeunload` also flushes pending writes synchronously.
+    editor.body()!.xml.value = '<page><p>Before unload</p></page>'
+    editor.persist()
+    expect(setCalls).toBe(2)
+    for (const fn of listeners.get('beforeunload') ?? []) fn()
+    expect(setCalls).toBe(3)
+    expect(JSON.parse(data.get('debounced-draft')!).xml).toBe('<page><p>Before unload</p></page>')
+
+    // Clean save / discard cancels pending timer and deletes sessionStorage synchronously.
+    editor.body()!.xml.value = '<page><p>Transient</p></page>'
+    editor.persist()
+    editor.discard()
+    editor.persist()
+    expect(removeCalls).toBe(1)
+    expect(data.has('debounced-draft')).toBe(false)
+
+    await new Promise(resolve => setTimeout(resolve, 330))
+    expect(setCalls).toBe(3)
+    expect(data.has('debounced-draft')).toBe(false)
+
+    editor[Symbol.dispose]()
+  } finally {
+    if (previousStorage) Object.defineProperty(globalThis, 'sessionStorage', previousStorage)
+    else Reflect.deleteProperty(globalThis, 'sessionStorage')
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
+
+test('clearPodSessionDrafts cancels pending debounce timers and wipes in-memory drafts on logout', async () => {
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+  const data = new Map<string, string>()
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => data.set(key, value),
+      removeItem: (key: string) => data.delete(key)
+    }
+  })
+
+  try {
+    const aliceKey = 'ankole.pod.document-draft:pod-1:usr_alice:page-1'
+    const bobKey = 'ankole.pod.document-draft:pod-1:usr_bob:page-1'
+
+    const aliceEditor = new PageDraftModel('doc', aliceKey)
+    aliceEditor.load('page-1', '<page><p>Initial</p></page>', 1, 'Initial')
+    aliceEditor.body()!.xml.value = '<page><p>Alice secret draft</p></page>'
+    aliceEditor.persist()
+
+    const bobEditor = new PageDraftModel('doc', bobKey)
+    bobEditor.load('page-1', '<page><p>Initial</p></page>', 1, 'Initial')
+    bobEditor.body()!.xml.value = '<page><p>Bob draft</p></page>'
+    bobEditor.persist()
+
+    // Scoped logout for Alice cancels Alice's timer + in-memory draft while keeping Bob's.
+    clearPodSessionDrafts({ podId: 'pod-1', principalUid: 'usr_alice' })
+
+    const aliceAfterLogout = new PageDraftModel('doc', aliceKey)
+    aliceAfterLogout.load('page-1', '<page><p>Initial</p></page>', 1, 'Initial')
+    expect(aliceAfterLogout.body()!.recoveryDrafts.value).toEqual([])
+    aliceAfterLogout[Symbol.dispose]()
+
+    await new Promise(resolve => setTimeout(resolve, 330))
+    expect(data.has(aliceKey)).toBe(false)
+    expect(data.has(bobKey)).toBe(true)
+
+    aliceEditor[Symbol.dispose]()
+    expect(data.has(aliceKey)).toBe(false)
+    bobEditor[Symbol.dispose]()
+  } finally {
+    if (previousStorage) Object.defineProperty(globalThis, 'sessionStorage', previousStorage)
+    else Reflect.deleteProperty(globalThis, 'sessionStorage')
+  }
 })

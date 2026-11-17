@@ -23,7 +23,7 @@ Time fields offer readable units while preserving storage units. Output limits d
 
 Trace and Control Plane Plugin changes retain a restart-required status until the serving process matches the saved settings. Brain's background Tick checks the shared BM25 indexes every minute and rebuilds them when the tokenizer changes; maintenance may interrupt retrieval or block writes. Check the Brain health page and server Tick logs if repair fails.
 
-The SMTP form can test the current draft without changing saved mail settings or creating an OTP. Omitting the password keeps the saved password. Test acceptance means transport acceptance; changing the draft invalidates its displayed test result. In SaaS, the Turnstile switch disables challenges while retaining both saved keys.
+The SMTP form can test the current draft without changing saved mail settings or creating an OTP. Omitting the password keeps the saved password. Test acceptance means transport acceptance; changing the draft invalidates its displayed test result.
 
 ## AppConfigure and environment variables
 

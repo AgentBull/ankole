@@ -45,7 +45,7 @@ pub struct ConvertedAsset {
 pub struct ConversionReport {
     /// Features omitted because native document Pages have no equivalent representation.
     pub omitted: BTreeMap<String, usize>,
-    /// Features preserved in a simpler representation (such as inline equations in `<code>`).
+    /// Features preserved in a simpler representation (such as custom image sizes).
     pub downgraded: BTreeMap<String, usize>,
 }
 
@@ -690,7 +690,6 @@ impl Converter<'_> {
             }
             InlineObject::Equation { linear, math, .. } => {
                 let latex = equation_to_latex(linear, math);
-                self.report.add_downgraded("inline_equations", 1);
                 let clean: String = latex
                     .chars()
                     .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
@@ -706,9 +705,9 @@ impl Converter<'_> {
                         out.push_str("\">");
                     }
                     self.note_element(cur_depth)?;
-                    out.push_str("<code>");
+                    out.push_str("<inline-math>");
                     push_escaped_text(out, &clean);
-                    out.push_str("</code>");
+                    out.push_str("</inline-math>");
                     if marks.href.is_some() {
                         out.push_str("</a>");
                     }

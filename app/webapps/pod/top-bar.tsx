@@ -2,6 +2,7 @@ import {
   Button,
   buttonVariants,
   SidebarTrigger,
+  Skeleton,
   Spinner,
   TopBar,
   TopBarActions,
@@ -53,10 +54,10 @@ export function PodTopBarProvider({ children }: { children: ReactNode }) {
 
 /**
  * The Pod shell's top bar spans the window above the sidebar and the content card. Above the sidebar column it
- * carries the Pod's mark and, while the sidebar is hidden, the sidebar toggle. Back and forward follow at the card's
- * edge, then the open route's path, which the route places through `PodTopBarTitle`. At its end, the people of the
- * open route (`PodTopBarPeople`) come before the search button, and the route's own actions (`PodTopBarActions`)
- * follow it.
+ * carries the Pod's mark and name and, while the sidebar is hidden, the sidebar toggle. Back and forward follow at
+ * the card's edge, then the open route's path, which the route places through `PodTopBarTitle`. At its end, the
+ * people of the open route (`PodTopBarPeople`) come before the search button, and the route's own actions
+ * (`PodTopBarActions`) follow it.
  */
 export function PodTopBar() {
   const { t } = useTranslation()
@@ -127,8 +128,8 @@ export function PodTopBarActions({ children }: { children: ReactNode }) {
 }
 
 /**
- * The Pod's mark, linking to the Pod's chat home. The mark names the Pod, whose name the sidebar's footer shows. On a
- * phone the bar leaves the mark out, so the open route's path keeps room beside its actions.
+ * The Pod's mark and name, linking to the Pod's chat home. On a phone the bar leaves the mark out, so the open
+ * route's path keeps room beside its actions.
  */
 function PodMark() {
   const runtime = useSyncExternalStore(subscribePodRuntimeBootstrap, getPodRuntimeBootstrap, () => undefined)
@@ -138,19 +139,32 @@ function PodMark() {
     staleTime: 60_000
   })
   const name = session.data?.tenant?.displayName ?? runtime?.tenantDisplayName
-  if (!name) return null
+  if (!name) {
+    if (!session.isPending) return null
+    return (
+      <span aria-hidden className="inline-flex h-7 items-center gap-1.5 px-1.75 max-md:hidden">
+        <Skeleton className="size-5 shrink-0 rounded-full" />
+        <Skeleton className="h-3.5 w-20" />
+      </span>
+    )
+  }
   return (
     <Link
       to={podLocation('/').pathname}
-      aria-label={name}
       title={name}
-      className={buttonVariants({ variant: 'ghost', size: 'icon-lg', className: 'max-md:hidden' })}>
+      className={buttonVariants({
+        variant: 'ghost',
+        size: 'sm',
+        className:
+          'pod-top-bar-mark min-w-0 shrink px-1.75 text-75 font-medium text-fg-primary no-underline max-md:hidden'
+      })}>
       <ProfileMark
         name={name}
         avatarURL={session.data?.tenant?.avatarURL ?? runtime?.tenantAvatarUrl}
         context={sessionAvatarContext(session.data)}
         size="xs"
       />
+      <span className="truncate">{name}</span>
     </Link>
   )
 }

@@ -78,12 +78,16 @@ fn input_fonts(
     load_fonts(dir, wasm, required).map(|input| input.source)
 }
 
-/// Use no fonts when the directory is absent unless required; otherwise load the manifests.
+/// Use no fonts on `wasm32` (loaded on demand from `/fonts/office/`) or when the directory is
+/// absent unless required on native; otherwise load the manifests.
 fn load_fonts(
     dir: Option<&std::path::Path>,
     wasm: bool,
     required: bool,
 ) -> Result<FontInput, String> {
+    if wasm {
+        return Ok(FontInput::default());
+    }
     match dir {
         Some(dir) => craft_fonts(dir, wasm, required),
         None if required => {
@@ -452,7 +456,7 @@ mod tests {
     }
 
     /// A broken optional Latin manifest is skipped as a unit, preserving main and valid Chinese
-    /// faces; required builds still fail.
+    /// faces natively while wasm embeds zero static fonts; required native builds still fail.
     #[test]
     fn optional_broken_latin_manifest_is_skipped_without_losing_core_or_chinese() {
         let fixture = InputFixture::new();
@@ -463,32 +467,33 @@ mod tests {
                 Some(text) => fixture.latin(text),
                 None => fixture.no_latin(),
             }
-            for wasm in [false, true] {
-                let catalog = input_fonts(Some(&fixture.0), wasm, false).unwrap();
-                assert!(
-                    catalog.contains("BIZ UDPGothic"),
-                    "wasm={wasm}: the main manifest is retained"
-                );
-                assert!(
-                    !catalog.contains("Inter"),
-                    "wasm={wasm}: the broken Latin manifest is skipped as a unit"
-                );
-                if !wasm {
-                    assert!(
-                        catalog.contains("LXGW WenKai Lite"),
-                        "the valid Chinese addition is retained"
-                    );
-                }
-            }
+            let native_catalog = input_fonts(Some(&fixture.0), false, false).unwrap();
+            assert!(
+                native_catalog.contains("BIZ UDPGothic"),
+                "the main manifest is retained natively"
+            );
+            assert!(
+                !native_catalog.contains("Inter"),
+                "the broken Latin manifest is skipped as a unit"
+            );
+            assert!(
+                native_catalog.contains("LXGW WenKai Lite"),
+                "the valid Chinese addition is retained"
+            );
+            assert_eq!(
+                input_fonts(Some(&fixture.0), true, false).unwrap(),
+                "",
+                "wasm embeds zero static fonts"
+            );
             assert!(
                 input_fonts(Some(&fixture.0), false, true).is_err(),
-                "required builds must not skip the missing required faces"
+                "required native builds must not skip the missing required faces"
             );
         }
     }
 
     /// The reviewed Latin catalog keeps 43 permitted faces plus BIZ and LXGW natively, while wasm
-    /// remains a three-face subset.
+    /// embeds zero static fonts (loaded on demand from `/fonts/office/`).
     #[test]
     fn full_prior_latin_catalog_keeps_permitted_native_families() {
         let fixture = InputFixture::new();
@@ -521,8 +526,8 @@ mod tests {
         let web = input_fonts(Some(&fixture.0), true, true).unwrap();
         assert_eq!(
             web.matches("CraftFont {").count(),
-            3,
-            "Inter Regular/Bold and BIZ only"
+            0,
+            "wasm embeds zero static fonts"
         );
         for catalog in [&native, &web] {
             assert!(!catalog.contains("Source Sans 3"));
@@ -530,24 +535,23 @@ mod tests {
         }
     }
 
-    /// Required builds without the Latin catalog fail because Inter Regular/Bold (or Variable) is
-    /// mandatory.
+    /// Required native builds without the Latin catalog fail because Inter Regular/Bold (or
+    /// Variable) is mandatory; wasm embeds zero static fonts.
     #[test]
     fn required_builds_need_the_latin_catalog_for_inter() {
         let fixture = InputFixture::new();
         fixture.optional(CHINESE_ROW);
-        for wasm in [true, false] {
-            let e = input_fonts(Some(&fixture.0), wasm, true).unwrap_err();
-            assert!(e.contains("Inter Regular/Bold"), "wasm={wasm}: {e}");
-            assert!(
-                input_fonts(Some(&fixture.0), wasm, false).is_ok(),
-                "optional builds still work"
-            );
-        }
+        let e = input_fonts(Some(&fixture.0), false, true).unwrap_err();
+        assert!(e.contains("Inter Regular/Bold"), "{e}");
+        assert!(
+            input_fonts(Some(&fixture.0), false, false).is_ok(),
+            "optional builds still work"
+        );
+        assert_eq!(input_fonts(Some(&fixture.0), true, true).unwrap(), "");
     }
 
     /// A single Inter weight, non-Inter substitutes, or excluded faces cannot satisfy the required
-    /// Inter contract.
+    /// native Inter contract.
     #[test]
     fn required_builds_reject_partial_or_unrelated_faces() {
         let fixture = InputFixture::new();
@@ -562,19 +566,18 @@ mod tests {
              Source Sans 3 | Bold | fonts/fixture.ttf | Latn | OFL-1.1 | OFL.txt | fixture | https://example.invalid\n",
         ] {
             fixture.latin(latin);
-            for wasm in [true, false] {
-                let e = input_fonts(Some(&fixture.0), wasm, true).unwrap_err();
-                assert!(e.contains("Inter Regular/Bold"), "wasm={wasm}: {e}");
-                assert!(
-                    input_fonts(Some(&fixture.0), wasm, false).is_ok(),
-                    "optional builds still work"
-                );
-            }
+            let e = input_fonts(Some(&fixture.0), false, true).unwrap_err();
+            assert!(e.contains("Inter Regular/Bold"), "{e}");
+            assert!(
+                input_fonts(Some(&fixture.0), false, false).is_ok(),
+                "optional builds still work"
+            );
+            assert_eq!(input_fonts(Some(&fixture.0), true, true).unwrap(), "");
         }
     }
 
-    /// BIZ UDPGothic Regular is required on every platform; required native builds additionally
-    /// need Bold.
+    /// BIZ UDPGothic Regular and Bold are required on native required builds; wasm embeds zero
+    /// static fonts.
     #[test]
     fn required_builds_need_biz_udpgothic_regular() {
         let fixture = InputFixture::new();
@@ -584,25 +587,21 @@ mod tests {
              Inter | Bold | fonts/fixture.ttf | Latn | OFL-1.1 | OFL.txt | fixture | https://example.invalid\n",
         );
         fixture.optional(CHINESE_ROW);
-        for wasm in [true, false] {
-            let e = input_fonts(Some(&fixture.0), wasm, true).unwrap_err();
-            assert!(e.contains("BIZ UDPGothic Regular"), "wasm={wasm}: {e}");
-            if !wasm {
-                assert!(
-                    e.contains("BIZ UDPGothic Bold"),
-                    "native builds need the weight pair: {e}"
-                );
-            }
-            assert!(
-                input_fonts(Some(&fixture.0), wasm, false).is_ok(),
-                "optional builds still work"
-            );
-        }
+        let e = input_fonts(Some(&fixture.0), false, true).unwrap_err();
+        assert!(e.contains("BIZ UDPGothic Regular"), "{e}");
+        assert!(
+            e.contains("BIZ UDPGothic Bold"),
+            "native builds need the weight pair: {e}"
+        );
+        assert!(
+            input_fonts(Some(&fixture.0), false, false).is_ok(),
+            "optional builds still work"
+        );
+        assert_eq!(input_fonts(Some(&fixture.0), true, true).unwrap(), "");
     }
 
-    /// Native required builds need the real BIZ Bold face for weight metrics; wasm deliberately
-    /// embeds only Regular to stay within its size budget. This pins the contract the engine's
-    /// required-build metric pair assertion relies on.
+    /// Native required builds need the real BIZ Bold face for weight metrics; wasm embeds zero
+    /// static fonts and fetches site fonts on demand.
     #[test]
     fn required_native_builds_need_biz_bold_but_wasm_does_not() {
         let fixture = InputFixture::new();
@@ -617,28 +616,24 @@ mod tests {
         let web = input_fonts(Some(&fixture.0), true, true).unwrap();
         assert_eq!(
             web.matches("CraftFont {").count(),
-            3,
-            "wasm keeps Inter Regular/Bold and BIZ Regular only"
+            0,
+            "wasm embeds zero static fonts"
         );
     }
 
-    /// Required checks accept either static Inter Regular+Bold or a single Variable face, together
-    /// with BIZ.
+    /// Required native checks accept either static Inter Regular+Bold or a single Variable face,
+    /// together with BIZ, while wasm embeds zero static fonts.
     #[test]
     fn required_builds_accept_static_or_variable_inter_with_biz() {
         let fixture = InputFixture::new();
         fixture.valid_latin();
         fixture.optional(CHINESE_ROW);
-        for wasm in [true, false] {
-            let static_catalog = input_fonts(Some(&fixture.0), wasm, true).unwrap();
-            assert!(static_catalog.contains("Inter") && static_catalog.contains("BIZ UDPGothic"));
-        }
+        let static_catalog = input_fonts(Some(&fixture.0), false, true).unwrap();
+        assert!(static_catalog.contains("Inter") && static_catalog.contains("BIZ UDPGothic"));
+        assert_eq!(input_fonts(Some(&fixture.0), true, true).unwrap(), "");
         fixture.latin("Inter | Variable | fonts/fixture.ttf | Latn | OFL-1.1 | OFL.txt | fixture | https://example.invalid\n");
-        for wasm in [true, false] {
-            let variable_catalog = input_fonts(Some(&fixture.0), wasm, true).unwrap();
-            assert!(
-                variable_catalog.contains("Inter") && variable_catalog.contains("BIZ UDPGothic")
-            );
-        }
+        let variable_catalog = input_fonts(Some(&fixture.0), false, true).unwrap();
+        assert!(variable_catalog.contains("Inter") && variable_catalog.contains("BIZ UDPGothic"));
+        assert_eq!(input_fonts(Some(&fixture.0), true, true).unwrap(), "");
     }
 }

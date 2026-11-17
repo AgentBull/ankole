@@ -21,6 +21,7 @@ defmodule Ankole.Principals.Agent do
     allow(:console_create, resource: "site_console:agents", action: "update")
     allow(:console_update, resource: "site_console:agent:{uid}", action: "update")
     allow(:console_delete, resource: "site_console:agent:{uid}", action: "delete")
+    allow(:console_disable, resource: "site_console:agent:{uid}", action: "update")
     allow(:console_enable, resource: "site_console:agent:{uid}", action: "update")
     allow(:console_rename, resource: "site_console:agent:{uid}", action: "update")
   end
@@ -28,7 +29,10 @@ defmodule Ankole.Principals.Agent do
   alias Ankole.Principals.AgentConsole
   @uid_format ~r/\A[a-z0-9][a-z0-9._@+-]{0,95}\z/
 
-  def valid_uid?(uid), do: is_binary(uid) and Regex.match?(@uid_format, uid)
+  def valid_uid?(uid) do
+    is_binary(uid) and Regex.match?(@uid_format, uid) and
+      not Ankole.Principals.ServiceAccounts.reserved_non_system_uid?(uid)
+  end
 
   json_api do
     primary_key do
@@ -42,6 +46,7 @@ defmodule Ankole.Principals.Agent do
     # The primary key names the record in the result of a generic action.
     default_fields([
       :uid,
+      :type,
       :worker_provider_id,
       :status,
       :display_name,
@@ -141,6 +146,16 @@ defmodule Ankole.Principals.Agent do
 
   validations do
     validate(match(:uid, @uid_format))
+
+    validate(fn changeset, _context ->
+      uid = Ash.Changeset.get_attribute(changeset, :uid)
+
+      if Ankole.Principals.ServiceAccounts.reserved_non_system_uid?(uid) do
+        {:error, field: :uid, message: "is reserved for system service accounts"}
+      else
+        :ok
+      end
+    end)
   end
 
   actions do
@@ -196,6 +211,14 @@ defmodule Ankole.Principals.Agent do
       constraints(instance_of: __MODULE__)
       argument(:uid, :string, allow_nil?: false)
       after_commit({AgentConsole, :publish_enable})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_disable, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:uid, :string, allow_nil?: false)
+      after_commit({AgentConsole, :publish_disable})
 
       run(__MODULE__.Actions)
     end

@@ -385,20 +385,30 @@ defmodule Ankole.AIGateway.ModelProfiles do
 
   @spec model_ref_from_runtime_profile(map()) :: map()
   defp model_ref_from_runtime_profile(runtime_profile) when is_map(runtime_profile) do
+    provider = runtime_provider(runtime_profile)
+    metadata = metadata_for_runtime_profile(provider, runtime_profile)
+
     %{
       "profile" => runtime_profile["profile"],
       "provider_id" => runtime_profile["provider_id"],
       "provider_kind" => runtime_profile["provider_kind"],
       "model" => runtime_profile["model"],
-      "input_modalities" => input_modalities_for_runtime_profile(runtime_profile),
+      "input_modalities" => input_modalities_for_metadata(metadata),
       "provider_options" => Map.get(runtime_profile, "provider_options", %{}),
-      "supports_parallel_tool_calls" => supports_parallel_tool_calls?(runtime_profile)
+      "supports_parallel_tool_calls" =>
+        supports_parallel_tool_calls?(runtime_profile, provider, metadata)
     }
+    |> maybe_put_supported_parameter_flag(metadata, "tool_search", "supports_tool_search")
+    |> maybe_put_supported_parameter_flag(
+      metadata,
+      "programmatic_tool_calling",
+      "supports_programmatic_tool_calling"
+    )
     |> Attrs.maybe_put("served_profile", runtime_profile["fallback_profile"])
     |> Attrs.maybe_put("context_length", Map.get(runtime_profile, "context_length"))
     |> Attrs.maybe_put(
       "max_completion_tokens",
-      max_completion_tokens_for_runtime_profile(runtime_profile)
+      max_completion_tokens_for_metadata(metadata)
     )
   end
 
@@ -422,66 +432,73 @@ defmodule Ankole.AIGateway.ModelProfiles do
     end
   end
 
-  defp input_modalities_for_runtime_profile(%{
-         "provider" => %Provider{} = provider,
-         "model" => model
-       }),
-       do: input_modalities(provider, model)
-
-  defp input_modalities_for_runtime_profile(%{"provider_id" => provider_id, "model" => model})
-       when is_binary(provider_id) do
-    case ProviderConfigs.fetch_active_provider(provider_id) do
-      {:ok, provider} -> input_modalities(provider, model)
-      {:error, _reason} -> ["text"]
+  defp metadata_for_runtime_profile(%Provider{} = provider, runtime_profile)
+       when is_map(runtime_profile) do
+    with model when is_binary(model) <- Map.get(runtime_profile, "model"),
+         {:ok, metadata} <- ModelMetadata.model_metadata(provider, model) do
+      metadata
+    else
+      _other -> nil
     end
   end
 
-  defp input_modalities_for_runtime_profile(_runtime_profile), do: ["text"]
+  defp metadata_for_runtime_profile(_provider, _runtime_profile), do: nil
 
-  defp input_modalities(%Provider{} = provider, model) when is_binary(model) do
-    case ModelMetadata.model_metadata(provider, model) do
-      {:ok, %{"architecture" => %{"input_modalities" => [_ | _] = modalities}}} ->
-        Enum.map(modalities, &to_string/1)
+  defp runtime_provider(%{"provider" => %Provider{} = provider}), do: provider
 
-      _metadata ->
-        ["text"]
-    end
-  end
-
-  defp input_modalities(_provider, _model), do: ["text"]
-
-  defp max_completion_tokens_for_runtime_profile(%{
-         "provider" => %Provider{} = provider,
-         "model" => model
-       }),
-       do: max_completion_tokens(provider, model)
-
-  defp max_completion_tokens_for_runtime_profile(%{
-         "provider_id" => provider_id,
-         "model" => model
-       })
-       when is_binary(provider_id) do
+  defp runtime_provider(%{"provider_id" => provider_id}) when is_binary(provider_id) do
     case ProviderConfigs.fetch_active_provider(provider_id) do
-      {:ok, provider} -> max_completion_tokens(provider, model)
+      {:ok, provider} -> provider
       {:error, _reason} -> nil
     end
   end
 
-  defp max_completion_tokens_for_runtime_profile(_runtime_profile), do: nil
+  defp runtime_provider(_runtime_profile), do: nil
 
-  defp max_completion_tokens(%Provider{} = provider, model) when is_binary(model) do
-    case ModelMetadata.model_metadata(provider, model) do
-      {:ok, %{"top_provider" => %{"max_completion_tokens" => value}}} -> positive_integer(value)
-      _metadata -> nil
-    end
+  defp input_modalities_for_metadata(%{
+         "architecture" => %{"input_modalities" => [_ | _] = modalities}
+       }),
+       do: Enum.map(modalities, &to_string/1)
+
+  defp input_modalities_for_metadata(_metadata), do: ["text"]
+
+  defp max_completion_tokens_for_metadata(%{
+         "top_provider" => %{"max_completion_tokens" => value}
+       }),
+       do: positive_integer(value)
+
+  defp max_completion_tokens_for_metadata(_metadata), do: nil
+
+  defp maybe_put_supported_parameter_flag(
+         model_ref,
+         %{"supported_parameters" => params},
+         param,
+         key
+       )
+       when is_list(params) do
+    if param in params, do: Map.put(model_ref, key, true), else: model_ref
   end
 
-  defp max_completion_tokens(_provider, _model), do: nil
+  defp maybe_put_supported_parameter_flag(model_ref, _metadata, _param, _key), do: model_ref
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: value
   defp positive_integer(_value), do: nil
 
-  defp supports_parallel_tool_calls?(%{"provider_kind" => provider_kind}) do
+  defp supports_parallel_tool_calls?(
+         %{"provider_kind" => "openai_compatible"} = runtime_profile,
+         provider,
+         metadata
+       ) do
+    case get_in(runtime_profile, ["provider_options", "supportsParallelToolCalls"]) do
+      value when is_boolean(value) ->
+        value
+
+      _unset ->
+        openai_compatible_metadata_parallel_tool_calls(runtime_profile, provider, metadata)
+    end
+  end
+
+  defp supports_parallel_tool_calls?(%{"provider_kind" => provider_kind}, _provider, _metadata) do
     with {:ok, provider} <- Providers.fetch(provider_kind),
          {:ok, capability} <- ProviderDefinition.capability(provider, :language_model) do
       capability.supports_parallel_tool_calls?
@@ -490,7 +507,28 @@ defmodule Ankole.AIGateway.ModelProfiles do
     end
   end
 
-  defp supports_parallel_tool_calls?(_runtime_profile), do: false
+  defp supports_parallel_tool_calls?(_runtime_profile, _provider, _metadata), do: false
+
+  defp openai_compatible_metadata_parallel_tool_calls(runtime_profile, provider, metadata) do
+    with %Provider{} <- provider,
+         model when is_binary(model) <- Map.get(runtime_profile, "model"),
+         value when is_boolean(value) <-
+           ModelMetadata.runtime_parallel_tool_calls(%{
+             "provider" => provider,
+             "model" => model
+           }) do
+      value
+    else
+      _other ->
+        case metadata do
+          %{"supported_parameters" => params} when is_list(params) ->
+            "parallel_tool_calls" in params
+
+          _other ->
+            false
+        end
+    end
+  end
 
   defp agent_configuration(agent_uid) do
     with {:ok, agent} <- fetch_agent(agent_uid),

@@ -66,6 +66,9 @@ export const SignalBindingEditorModel = createModel(() => {
   const config = signal<JSONObject>({})
   const configPatch = signal<JSONObject>({})
   const initialDraft = signal<SignalBindingEditorDraft>()
+  const connectionChanged = computed(
+    () => (config.value.authConfigId ?? null) !== (initialDraft.value?.config.authConfigId ?? null)
+  )
   const validationError = signal<string>()
   const dirty = computed(() => {
     const source = initialDraft.value
@@ -106,6 +109,7 @@ export const SignalBindingEditorModel = createModel(() => {
     unmatchedSenderPolicy,
     config,
     configPatch,
+    connectionChanged,
     dirty,
     validationError,
     initialize(nextSourceKey: string, draft: SignalBindingEditorDraft) {
@@ -133,6 +137,21 @@ export const SignalBindingEditorModel = createModel(() => {
     changeConfig(path: string, value: unknown) {
       config.value = setPath(config.value, path, value)
       configPatch.value = setPath(configPatch.value, path, value)
+    },
+    changeConnection(nextConfig: JSONObject) {
+      batch(() => {
+        const previous = config.value
+        config.value = nextConfig
+        validationError.value = undefined
+        configPatch.value = {
+          ...Object.fromEntries(
+            Object.keys(configPatch.value)
+              .filter(key => Object.hasOwn(nextConfig, key))
+              .map(key => [key, equal(nextConfig[key], previous[key]) ? configPatch.value[key] : nextConfig[key]])
+          ),
+          authConfigId: nextConfig.authConfigId ?? null
+        }
+      })
     },
     clearValidation() {
       validationError.value = undefined

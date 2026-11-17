@@ -13,13 +13,16 @@ defmodule Ankole.Pod.Applets.Web do
   @truncation_marker "\n...\n"
   @min_head_tail_budget 24
 
-  def search(%Ankole.AuthZ.Actor{} = actor, options) when is_map(options) do
-    Gateway.with_principal(actor, fn principal -> do_search(principal, options) end)
+  def search(actor, options, opts \\ [])
+
+  def search(%Ankole.AuthZ.Actor{} = actor, options, opts)
+      when is_map(options) and is_list(opts) do
+    Gateway.with_principal(actor, fn principal -> do_search(principal, options, opts) end)
   end
 
-  def search(_actor, _options), do: {:error, Gateway.error(:web_search, :invalid_request)}
+  def search(_actor, _options, _opts), do: {:error, Gateway.error(:web_search, :invalid_request)}
 
-  defp do_search(principal, options) do
+  defp do_search(principal, options, opts) do
     with {:ok, query, limit} <- validate_search_options(options),
          {:ok, body} <-
            Gateway.call(
@@ -27,7 +30,7 @@ defmodule Ankole.Pod.Applets.Web do
              :web_search,
              &AIGateway.create_web_search/3,
              %{"model" => "web_search.default", "query" => query, "limit" => limit},
-             respect_provider_hosted?: true
+             [respect_provider_hosted?: true] ++ Keyword.take(opts, [:applet_page_id])
            ) do
       results =
         (body["items"] || [])
@@ -51,13 +54,16 @@ defmodule Ankole.Pod.Applets.Web do
     end
   end
 
-  def fetch(%Ankole.AuthZ.Actor{} = actor, options) when is_map(options) do
-    Gateway.with_principal(actor, fn principal -> do_fetch(principal, options) end)
+  def fetch(actor, options, opts \\ [])
+
+  def fetch(%Ankole.AuthZ.Actor{} = actor, options, opts)
+      when is_map(options) and is_list(opts) do
+    Gateway.with_principal(actor, fn principal -> do_fetch(principal, options, opts) end)
   end
 
-  def fetch(_actor, _options), do: {:error, Gateway.error(:web_fetch, :invalid_request)}
+  def fetch(_actor, _options, _opts), do: {:error, Gateway.error(:web_fetch, :invalid_request)}
 
-  defp do_fetch(principal, options) do
+  defp do_fetch(principal, options, opts) do
     with {:ok, urls, max_chars} <- validate_fetch_options(options),
          unique_urls = Enum.uniq(urls),
          {:ok, body} <-
@@ -65,7 +71,8 @@ defmodule Ankole.Pod.Applets.Web do
              principal,
              :web_fetch,
              &AIGateway.create_web_fetch/3,
-             %{"model" => "web_fetch.default", "urls" => unique_urls}
+             %{"model" => "web_fetch.default", "urls" => unique_urls},
+             Keyword.take(opts, [:applet_page_id])
            ) do
       by_url = index_fetched_pages(unique_urls, body["results"] || [])
 

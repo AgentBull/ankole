@@ -414,27 +414,24 @@ function transferablesForResult(result: unknown): Transferable[] {
   return []
 }
 
-const scope = self as unknown as {
-  onmessage: ((event: MessageEvent<PresentationWorkerRequest>) => void) | null
-  postMessage(message: PresentationWorkerResponse, transfer?: Transferable[]): void
-}
-
 // Dispatch Worker requests sequentially in arrival order after WASM initialization settles.
 let queue: Promise<void> = Promise.resolve()
-scope.onmessage = ({ data }) => {
+addEventListener('message', ({ data }: MessageEvent<PresentationWorkerRequest>) => {
   queue = queue.then(async () => {
     try {
       await ready
       const method = methods[data.method] as (...args: unknown[]) => unknown
       const ok = method(...data.args)
       const transfer = transferablesForResult(ok)
+      const response: PresentationWorkerResponse = { id: data.id, ok }
       if (transfer.length > 0) {
-        scope.postMessage({ id: data.id, ok }, transfer)
+        postMessage(response, { transfer })
       } else {
-        scope.postMessage({ id: data.id, ok })
+        postMessage(response)
       }
     } catch (error) {
-      scope.postMessage({ id: data.id, error: { message: errorMessage(error) } })
+      const response: PresentationWorkerResponse = { id: data.id, error: { message: errorMessage(error) } }
+      postMessage(response)
     }
   })
-}
+})

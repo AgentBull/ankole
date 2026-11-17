@@ -198,6 +198,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
            provider_request_from_stateful_context(context, runtime),
          {:ok, message} <-
            StatefulResponses.merge_generating_response_metadata(message, run_attrs.metadata),
+         request_context =
+           Map.put(request_context || %{}, "conversation_id", conversation_id),
          {:ok, %{spec: prepared_request}} <-
            ResponsesPreparation.prepare_with_runtime(
              subject_uid,

@@ -2,6 +2,70 @@
 /* eslint-disable */
 
 /**
+ * Binary media assets staged for a single [`PageExportSession::from_page`] compilation.
+ */
+export class ExportAssets {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Creates an empty binary asset bundle.
+     */
+    constructor();
+    /**
+     * Inserts one binary asset (such as a rasterized diagram, page image, or emoji PNG) by key.
+     */
+    put(key: string, bytes: Uint8Array | number[]): void;
+}
+
+/**
+ * Stateless one-shot Document/Knowledge Page export handle backed by an immutable [`ankole_word::WordDoc`].
+ */
+export class PageExportSession {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Registers a dynamically fetched site font blob in the Worker's `FontDb`, returning the
+     * number of loaded faces.
+     */
+    static add_font(bytes: Uint8Array | number[]): number;
+    /**
+     * Exports the compiled document as standard ECMA-376 `.docx` bytes.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` when OOXML serialization fails.
+     */
+    export_docx(): Uint8Array;
+    /**
+     * Exports the compiled document as vector-text PDF bytes.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` when PDF export fails.
+     */
+    export_pdf(): Uint8Array;
+    /**
+     * Reports substituted font families, missing CJK fallback families, uncovered codepoint count,
+     * and the active `FontDb` generation as JSON.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` when JSON serialization fails.
+     */
+    font_needs(): string;
+    /**
+     * Compiles a normalized `<page>` export request JSON and its staged binary `assets` into a
+     * [`PageExportSession`] in one atomic step.
+     *
+     * # Errors
+     *
+     * Throws a `JsError` when `request_json` is malformed or not a `<page>` root.
+     */
+    static from_page(request_json: string, assets: ExportAssets): PageExportSession;
+}
+
+/**
  * Collaborative Word document editor and read-only page previewer held by a browser Web Worker.
  */
 export class WordEditor {
@@ -299,7 +363,16 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly __wbg_exportassets_free: (a: number, b: number) => void;
+    readonly __wbg_pageexportsession_free: (a: number, b: number) => void;
     readonly __wbg_wordeditor_free: (a: number, b: number) => void;
+    readonly exportassets_new: () => number;
+    readonly exportassets_put: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly pageexportsession_add_font: (a: number, b: number) => number;
+    readonly pageexportsession_export_docx: (a: number) => [number, number, number, number];
+    readonly pageexportsession_export_pdf: (a: number) => [number, number, number, number];
+    readonly pageexportsession_font_needs: (a: number) => [number, number, number, number];
+    readonly pageexportsession_from_page: (a: number, b: number, c: number) => [number, number, number];
     readonly wordeditor_add_font: (a: number, b: number) => number;
     readonly wordeditor_apply_remote: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly wordeditor_block_rects: (a: number, b: number, c: number, d: number) => [number, number, number, number];
@@ -341,8 +414,8 @@ export interface InitOutput {
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
-    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_start: () => void;
 }

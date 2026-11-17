@@ -148,13 +148,8 @@ export class CodexAppServerClient {
     ]
     // Its own process group lets the client end the commands that Codex
     // started together with the app-server.
-    const spawner =
-      spawn ??
-      (((argv, options) =>
-        Bun.spawn(
-          agentProcessArgv(argv, opts.driveView),
-          options
-        ) as unknown as CodexAppServerProcess) as CodexAppServerSpawner)
+    const spawner: CodexAppServerSpawner =
+      spawn ?? ((argv, options) => Bun.spawn(agentProcessArgv(argv, opts.driveView), options))
     this.proc = spawner(commandArgv, {
       cwd: opts.cwd,
       env: opts.env,

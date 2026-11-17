@@ -44,6 +44,7 @@ defmodule Ankole.Tenants.Tenant do
       :slug,
       :display_name,
       :avatar_url,
+      :pod_origin,
       :suspended_at,
       :deleting_at,
       :inserted_at,
@@ -86,6 +87,23 @@ defmodule Ankole.Tenants.Tenant do
     attribute(:suspended_at, :utc_datetime_usec, public?: true)
     attribute(:deleting_at, :utc_datetime_usec, public?: true)
     timestamps(type: :utc_datetime_usec, public?: true)
+  end
+
+  calculations do
+    calculate(:pod_origin, :string, __MODULE__.PodOrigin, public?: true)
+  end
+
+  defmodule PodOrigin do
+    @moduledoc false
+    use Ash.Resource.Calculation
+
+    @impl true
+    def load(_query, _opts, _context), do: [:slug]
+
+    @impl true
+    def calculate(records, _opts, _context) do
+      Enum.map(records, &apply(AnkoleWeb.PodURL, :tenant_origin, [&1]))
+    end
   end
 
   identities do

@@ -46,7 +46,7 @@ function renderTaskAgents(input: {
     input.driveInstructions || codexJobDriveContext(),
     input.podInstructions,
     'Each tool output stays in context and is read again on every later step, so keep it small: request about 4000 max_output_tokens for a command unless you need more, cut long lines with `rg -M 300` or `cut -c1-300`, and write a large result to a Job workspace file and read it in parts.',
-    'This computer has Bun and no `node` or `npm`: run JavaScript and TypeScript with `bun`, and use `bun run -` for a script on stdin.',
+    'This computer runs Bun (`node` is a compatibility symlink to `bun`, and `npm` is not installed): run JavaScript and TypeScript with `bun`, and use `bun run -` for a script on stdin.',
     'An `ankole:page/<id>` link names a Pod Page; read it with `ankole-pod pages.read \'{"id":"<id>"}\'` rather than opening it in a browser.',
     'When the task produces documents, reports, Pages, code changes, or data files, materialize an initial working draft to the target Page, Drive path, or Job workspace as soon as the core plan and facts are clear, then refine and verify it in place instead of holding all writes until the end.',
     'Before ending the Job, reconcile every acceptance criterion against the original task verbatim without relaxing constraints. Your final message is the verification record: report the outcome with concrete evidence, saved deliverable paths, and remaining risks; if any required criterion remains unmet or blocked, state `Outcome: incomplete` explicitly alongside completed artifact paths and the exact unmet criteria.',

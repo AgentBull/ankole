@@ -13,8 +13,6 @@ defmodule Ankole.Connectors.Databases do
   alias Ankole.Connectors.{Credentials, DbCatalogColumn, DbCatalogTable, Registry, Store}
   alias Ankole.Repo
 
-  @action "query"
-  @access_description "Connection access chosen in the connection settings"
   @search_columns 50
 
   def database?(module) when is_atom(module),
@@ -29,12 +27,10 @@ defmodule Ankole.Connectors.Databases do
     end
   end
 
-  def resource(%{id: id}), do: "connector_connection:" <> id
-
   @doc "Resolves a database tool call. Database connections hold only application credentials."
   def resolve_call(principal, config) do
     with :ok <- active(config),
-         :ok <- authorize(principal, config) do
+         :ok <- Ankole.Connectors.ConnectionAccess.authorize(principal, config) do
       {:ok,
        %{
          actor: principal,
@@ -48,13 +44,6 @@ defmodule Ankole.Connectors.Databases do
 
   defp active(%{status: "active"}), do: :ok
   defp active(_), do: {:error, :connection_disabled}
-
-  def authorize(%{uid: uid}, config) do
-    case Ankole.AuthZ.authorize(uid, resource(config), @action) do
-      :ok -> :ok
-      _ -> {:error, :connection_forbidden}
-    end
-  end
 
   @doc """
   Runs one read-only statement on a database connection and returns the
@@ -86,7 +75,11 @@ defmodule Ankole.Connectors.Databases do
   def saved_in_tx(config, access, created?) do
     case adapter(config) do
       {:ok, adapter} ->
-        with :ok <- put_access_in_tx(config, access || if(created?, do: %{"mode" => "members"})),
+        with :ok <-
+               if(created? and is_nil(access),
+                 do: Ankole.Connectors.ConnectionAccess.put_in_tx(config, %{"mode" => "members"}),
+                 else: :ok
+               ),
              :ok <- clear_sensitive_samples_in_tx(config, adapter),
              {:ok, _} <-
                Oban.insert(
@@ -141,101 +134,28 @@ defmodule Ankole.Connectors.Databases do
     end
   end
 
-  defp put_access_in_tx(_config, nil), do: :ok
-
-  defp put_access_in_tx(config, access) do
-    with {:ok, desired} <- desired_owners(access) do
-      existing = grants(config)
-      stale = Enum.reject(existing, &(owner(&1) in desired))
-      missing = desired -- Enum.map(existing, &owner/1)
-
-      with :ok <- each(stale, &Ankole.AuthZ.Grants.delete_permission_grant(&1.id)) do
-        each(missing, fn owner ->
-          Ankole.AuthZ.Grants.upsert_permission_grant(
-            Map.merge(owner, %{
-              resource_pattern: resource(config),
-              action: @action,
-              condition: "true",
-              description: @access_description,
-              metadata: %{}
-            })
-          )
-        end)
-      end
-    end
-  end
-
-  defp each(items, fun) do
-    Enum.reduce_while(items, :ok, fn item, :ok ->
-      case fun.(item) do
-        {:ok, _} -> {:cont, :ok}
-        error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp desired_owners(%{"mode" => "members"}) do
-    with {:ok, humans} <- Ankole.AuthZ.Root.ensure_all_humans_group(),
-         {:ok, agents} <- Ankole.AuthZ.Root.ensure_all_agents_group(),
-         do: {:ok, [%{group_id: humans.id}, %{group_id: agents.id}]}
-  end
-
-  defp desired_owners(%{"mode" => "restricted"} = access) do
-    groups = access["group_ids"] || []
-    principals = access["principal_uids"] || []
-
-    if Enum.all?(groups ++ principals, &(is_binary(&1) and &1 != "")),
-      do:
-        {:ok,
-         Enum.map(Enum.uniq(groups), &%{group_id: &1}) ++
-           Enum.map(Enum.uniq(principals), &%{principal_uid: &1})},
-      else: {:error, :invalid_connection_access}
-  end
-
-  defp desired_owners(_), do: {:error, :invalid_connection_access}
-
-  defp owner(%{group_id: id}) when is_binary(id), do: %{group_id: id}
-  defp owner(%{principal_uid: uid}), do: %{principal_uid: uid}
-
-  defp grants(config) do
-    Ankole.AuthZ.list_grants!(
-      query: [filter: [resource_pattern: resource(config), action: @action]]
-    )
-  end
-
-  @doc "Projects the connection's access choice from its AuthZ grants; nil for other connections."
-  def access(config) do
-    with {:ok, _} <- adapter(config) do
-      grants = grants(config)
-
-      case Ankole.AuthZ.get_principal_group("all_humans") do
-        {:ok, %{id: humans}} when is_binary(humans) ->
-          if Enum.any?(grants, &(&1.group_id == humans)),
-            do: %{"mode" => "members"},
-            else: restricted(grants)
-
-        _ ->
-          restricted(grants)
-      end
-    else
-      _ -> nil
-    end
-  end
-
-  defp restricted(grants),
-    do: %{
-      "mode" => "restricted",
-      "group_ids" => grants |> Enum.map(& &1.group_id) |> Enum.reject(&is_nil/1),
-      "principal_uids" => grants |> Enum.map(& &1.principal_uid) |> Enum.reject(&is_nil/1)
-    }
-
   ## Catalog cache
 
   @doc "Rebuilds a connection's catalog cache now. Requires Pod administrator permission."
   def refresh(actor, connection) do
-    with :ok <- Store.admin(actor),
-         {:ok, config} <- Store.get_auth_config(connection),
-         do: refresh_config(config)
+    with :ok <- Store.admin(actor) do
+      refresh_with_retry(connection, 1)
+    end
+  end
+
+  defp refresh_with_retry(connection, retries_left) do
+    with {:ok, config} <- Store.get_auth_config(connection) do
+      case refresh_config(config) do
+        {:ok, :discarded} when retries_left > 0 ->
+          refresh_with_retry(connection, retries_left - 1)
+
+        {:ok, :discarded} ->
+          {:error, :conflict}
+
+        other ->
+          other
+      end
+    end
   end
 
   @doc "Rebuilds the catalog cache of one stored connection; the refresh job calls it."
@@ -255,43 +175,55 @@ defmodule Ankole.Connectors.Databases do
   missing columns of the tables it holds but never infers deleted tables.
   """
   def replace_catalog(config, tables, complete?) do
-    fetched_at = DateTime.utc_now()
-
     Repo.transact_top_level(fn ->
       Ankole.AdvisoryLock.lock!(Repo, "connector_db_catalog:#{Repo.tenant_id!()}:#{config.id}")
+      current = Store.lock(config.id)
 
-      rows =
-        Enum.map(tables, fn table ->
-          {Ankole.Kernel.gen_uuid_v7(), table}
-        end)
-
-      previous = catalog_snapshot(config)
-
-      with {:ok, _} <-
-             DbCatalogTable
-             |> Ash.Query.filter(auth_config_id == ^config.id)
-             |> Ankole.Ash.destroy_where(:destroy),
-           {:ok, _} <-
-             Ankole.Ash.create_all(
-               Enum.map(rows, fn {id, table} ->
-                 table_input(config, id, table, fetched_at, complete?)
-               end),
-               DbCatalogTable,
-               :create
-             ),
-           {:ok, _} <-
-             Ankole.Ash.create_all(
-               Enum.flat_map(rows, fn {id, table} ->
-                 Enum.map(table["columns"] || [], &column_input(id, &1))
-               end),
-               DbCatalogColumn,
-               :create
-             ),
-           :ok <- report_missing(config, previous, tables, complete?) do
-        {:ok,
-         %{"table_count" => length(rows), "fetched_at" => fetched_at, "complete" => complete?}}
+      if current && current.status == "active" &&
+           catalog_configuration(current) == catalog_configuration(config) do
+        replace_catalog_in_tx(current, tables, complete?)
+      else
+        {:ok, :discarded}
       end
     end)
+  end
+
+  defp catalog_configuration(config),
+    do: {config.secret_version, config.status, config.slug, config.public_metadata}
+
+  defp replace_catalog_in_tx(config, tables, complete?) do
+    fetched_at = DateTime.utc_now()
+
+    rows =
+      Enum.map(tables, fn table ->
+        {Ankole.Kernel.gen_uuid_v7(), table}
+      end)
+
+    previous = catalog_snapshot(config)
+
+    with {:ok, _} <-
+           DbCatalogTable
+           |> Ash.Query.filter(auth_config_id == ^config.id)
+           |> Ankole.Ash.destroy_where(:destroy),
+         {:ok, _} <-
+           Ankole.Ash.create_all(
+             Enum.map(rows, fn {id, table} ->
+               table_input(config, id, table, fetched_at, complete?)
+             end),
+             DbCatalogTable,
+             :create
+           ),
+         {:ok, _} <-
+           Ankole.Ash.create_all(
+             Enum.flat_map(rows, fn {id, table} ->
+               Enum.map(table["columns"] || [], &column_input(id, &1))
+             end),
+             DbCatalogColumn,
+             :create
+           ),
+         :ok <- report_missing(config, previous, tables, complete?) do
+      {:ok, %{"table_count" => length(rows), "fetched_at" => fetched_at, "complete" => complete?}}
+    end
   end
 
   defp catalog_snapshot(config) do

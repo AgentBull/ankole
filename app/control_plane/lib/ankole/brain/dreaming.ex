@@ -9,7 +9,7 @@ defmodule Ankole.Brain.Dreaming do
   Model phases use ankole_brain's effective `heavy` profile (with primary fallback)
   and skip with a report when neither is configured.
 
-  The bucket and term-usage counts are aggregate read models (M4) and stay
+  The bucket and term-usage counts are aggregate read models and stay
   Ecto queries that give values only. Each write goes through a resource
   action; a multi-row promotion runs in a top-level transaction.
   """
@@ -301,6 +301,7 @@ defmodule Ankole.Brain.Dreaming do
             |> Ankole.Ash.destroy_where(:remove)
 
           with {:ok, count} <- write_extracted_timelines(items, object, author),
+               {:ok, _} <- Ankole.Brain.Chunks.reconcile_node_in_tx(object.id),
                {:ok, _} <-
                  Ankole.Pod.Knowledge.sync_upstream_in_tx(object.id, %{
                    "timeline_version" => object.content_hash
@@ -364,7 +365,8 @@ defmodule Ankole.Brain.Dreaming do
                  provenance: "page:" <> object.id <> ":" <> object.content_hash
                },
                :system,
-               author: author
+               author: author,
+               reconcile: false
              ) do
         {:cont, {:ok, count + 1}}
       else

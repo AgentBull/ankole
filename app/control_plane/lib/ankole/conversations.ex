@@ -127,6 +127,18 @@ defmodule Ankole.Conversations do
   defdelegate detach_pages(page_ids), to: NativeRoom
   defdelegate detach_all_pages(), to: NativeRoom
   defdelegate ensure_agent_delivery_room_in_tx(actor, agent_uid), to: Native
+
+  defdelegate prepare_connector_action_card(turn, digest, summary, payload),
+    to: Ankole.Conversations.ActionCards
+
+  defdelegate attach_prepared_action_card(statement),
+    to: Ankole.Conversations.ActionCards,
+    as: :attach_prepared_prompt
+
+  defdelegate attach_prepared_action_card_completion(completion, signal_id),
+    to: Ankole.Conversations.ActionCards,
+    as: :attach_prepared_completion
+
   defdelegate list_rooms(actor, opts \\ []), to: Native
   defdelegate next_steps(actor, opts \\ []), to: Ankole.Conversations.NextSteps, as: :menu
   defdelegate choose_next_step(actor, id), to: Ankole.Conversations.NextSteps, as: :choose

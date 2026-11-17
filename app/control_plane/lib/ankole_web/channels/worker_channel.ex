@@ -96,7 +96,7 @@ defmodule AnkoleWeb.WorkerChannel do
           drive_vfs? = is_nil(auth.runner_id) and Map.get(ready, :drive_vfs, false)
 
           if drive_vfs? do
-            Ankole.Files.Vfs.Invalidator.subscribe()
+            Ankole.Files.Vfs.Invalidator.subscribe(worker_id)
             Process.send_after(self(), :vfs_emit, 100)
           end
 

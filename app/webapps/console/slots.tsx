@@ -1,3 +1,4 @@
+import type { SettingGroupDefinition, SettingOwnerDefinition } from './state/setting-groups'
 import type { QueryClient } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import { createContext, useContext, type ComponentType, type FunctionComponent } from 'react'
@@ -64,6 +65,8 @@ export interface ConsoleNavSectionSlot extends PluginSlot {
 }
 
 export interface ConsoleAppSlots {
+  settingGroups?: readonly SettingGroupDefinition[]
+  settingOwners?: readonly SettingOwnerDefinition[]
   routes?: readonly ConsoleRouteSlot[]
   navSections?: readonly ConsoleNavSectionSlot[]
 }
@@ -121,11 +124,15 @@ export function consoleSlotPageKind(route: Pick<ConsoleRouteSlot, 'path' | 'tena
 }
 
 export function mergeConsoleSlots(...sources: readonly (ConsoleAppSlots | undefined)[]): ConsoleAppSlots {
+  const settingGroups: SettingGroupDefinition[] = []
+  const settingOwners: SettingOwnerDefinition[] = []
   const routes: ConsoleRouteSlot[] = []
   const navSections: ConsoleNavSectionSlot[] = []
 
   for (const source of sources) {
     if (!source) continue
+    if (source.settingGroups) settingGroups.push(...source.settingGroups)
+    if (source.settingOwners) settingOwners.push(...source.settingOwners)
     if (source.routes) routes.push(...source.routes)
     if (source.navSections) {
       for (const section of source.navSections) {
@@ -173,6 +180,8 @@ export function mergeConsoleSlots(...sources: readonly (ConsoleAppSlots | undefi
   }
 
   return {
+    ...(settingGroups.length > 0 ? { settingGroups } : {}),
+    ...(settingOwners.length > 0 ? { settingOwners } : {}),
     ...(routes.length > 0 ? { routes } : {}),
     ...(navSections.length > 0 ? { navSections } : {})
   }

@@ -40,7 +40,9 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
       :is_default,
       :agent_count,
       :selectable,
-      :stored_credentials
+      :stored_credentials,
+      :prepared_digest,
+      :prepared_verified_at
     ])
   end
 
@@ -90,6 +92,8 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
     )
 
     attribute(:is_default, :boolean, allow_nil?: false, default: false, public?: true)
+    attribute(:prepared_digest, :string, public?: true, constraints: [trim?: false])
+    attribute(:prepared_verified_at, :utc_datetime_usec, public?: true)
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
@@ -152,6 +156,12 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
       accept([])
       skip_global_validations?(true)
       change(set_attribute(:is_default, false))
+    end
+
+    update :record_prepared_image do
+      require_atomic?(true)
+      accept([:prepared_digest, :prepared_verified_at])
+      skip_global_validations?(true)
     end
 
     destroy(:remove)

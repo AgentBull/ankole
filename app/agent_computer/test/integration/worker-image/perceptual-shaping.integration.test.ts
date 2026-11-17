@@ -18,8 +18,8 @@ describe('Worker image CLI perceptual shims', () => {
       port: 0,
       fetch() {
         return Response.json({
-          total: 90,
-          items: Array.from({ length: 90 }, (_, idx) => ({
+          total: 260,
+          items: Array.from({ length: 260 }, (_, idx) => ({
             id: `item_${idx}`,
             label: `Repeated payload row ${idx} for perceptual shaping verification`,
             optional_flag: idx === 77 ? true : undefined

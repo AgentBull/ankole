@@ -17,6 +17,7 @@
     Ankole.Job => :m2_process_coordination,
     # M4 read models: projections of several resources that give maps.
     Ankole.AuthZ.Snapshot => :m4_read_model,
+    Ankole.SiteConsole.Aggregates.Actions => :m4_read_model,
     {Ankole.Pod.Pages.Tree,
      [:path, :descendants, :ancestor_ids, :hidden_trashed_ids, :shared_root_ids]} =>
       :m4_read_model,

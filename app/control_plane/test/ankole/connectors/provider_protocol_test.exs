@@ -1171,23 +1171,27 @@ defmodule Ankole.Connectors.ProviderProtocolTest do
     assert {:error, :invalid_webhook_signature} = Connector.webhook(ctx.config, %{}, body, [])
   end
 
-  test "Gateway marks invalid_upstream_output with request_sent: true and preflight skill errors with request_sent: false",
+  test "Gateway tolerates upstream output schema drift on 2xx responses and marks preflight skill errors with request_sent: false",
        ctx do
     connections = download_connections(ctx)
     context = %{actor: ctx.context.actor, read_only: false}
 
-    assert {:error, %{code: "invalid_upstream_output", retryable: false, request_sent: true}} =
-             Gateway.request(
-               {:toolkit, "github"},
-               tool_request("issues_create", %{
-                 "owner" => "owner",
-                 "repo" => "incomplete-output",
-                 "title" => "Created upstream"
-               }),
-               context,
-               %{"connection" => connections["github"]}
-             )
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, %{"isError" => false, "structuredContent" => %{"id" => _}}} =
+                 Gateway.request(
+                   {:toolkit, "github"},
+                   tool_request("issues_create", %{
+                     "owner" => "owner",
+                     "repo" => "incomplete-output",
+                     "title" => "Created upstream"
+                   }),
+                   context,
+                   %{"connection" => connections["github"]}
+                 )
+      end)
 
+    assert log =~ "drifted from declared outputSchema"
     assert_receive {:request, "POST", "/repos/owner/incomplete-output/issues", _, _, _}
 
     assert {:error, %{request_sent: false, retryable: false}} =

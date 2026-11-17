@@ -153,6 +153,7 @@ defmodule Ankole.Connectors.Triggers do
                    Ankole.Ash.update(row, :update, %{
                      status: if(deleting?(row), do: "deleting", else: "provisioning"),
                      last_error: nil,
+                     consecutive_failures: 0,
                      lease_expires_at: nil
                    }),
                  {:ok, _} <-
@@ -176,6 +177,7 @@ defmodule Ankole.Connectors.Triggers do
         Ankole.Ash.update(row, :update, %{
           status: if(deleting?(row), do: "deleting", else: "provisioning"),
           last_error: nil,
+          consecutive_failures: 0,
           lease_expires_at: nil
         })
 
@@ -565,6 +567,8 @@ defmodule Ankole.Connectors.Triggers do
                Ankole.Ash.update(row, :update, %{
                  external_subscription_id: observed.external_subscription_id,
                  status: reconciled_status(row, previous_desired, desired),
+                 last_verified_at: DateTime.utc_now(:microsecond),
+                 consecutive_failures: 0,
                  last_error: nil,
                  lease_expires_at: nil
                }) do
@@ -576,8 +580,12 @@ defmodule Ankole.Connectors.Triggers do
         end
 
       {:error, reason} ->
+        failures = (row.consecutive_failures || 0) + 1
+        degrade? = row.status != "active" or permanent_trigger_failure?(reason) or failures >= 5
+
         Ankole.Ash.update(row, :update, %{
-          status: "degraded",
+          status: if(degrade?, do: "degraded", else: row.status),
+          consecutive_failures: failures,
           lease_expires_at: nil,
           last_error:
             reason
@@ -586,6 +594,18 @@ defmodule Ankole.Connectors.Triggers do
         })
     end
   end
+
+  defp permanent_trigger_failure?(%{status: status}) when status in [401, 403, 404, 410],
+    do: true
+
+  defp permanent_trigger_failure?(%{"status" => status}) when status in [401, 403, 404, 410],
+    do: true
+
+  defp permanent_trigger_failure?(reason)
+       when reason in [:invalid_grant, :oauth_reauthorization_required, :oauth_consent_required],
+       do: true
+
+  defp permanent_trigger_failure?(_reason), do: false
 
   defp reconciliation_error(reason) when is_map(reason) do
     reason

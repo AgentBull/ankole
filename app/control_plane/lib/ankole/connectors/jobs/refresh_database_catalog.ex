@@ -8,11 +8,23 @@ defmodule Ankole.Connectors.Jobs.RefreshDatabaseCatalog do
 
   @impl Ankole.Job
   def run(%Oban.Job{args: %{"auth_config_id" => id}}) do
-    with {:ok, config} <- Ankole.Connectors.get_auth_config(id),
-         {:ok, _} <- Ankole.Connectors.Databases.refresh_config(config) do
-      :ok
+    with {:ok, config} <- Ankole.Connectors.get_auth_config(id) do
+      case Ankole.Connectors.Databases.refresh_config(config) do
+        {:ok, :discarded} ->
+          :ok
+
+        {:ok, _} ->
+          :ok
+
+        # A disabled or removed connection has nothing to cache; a manual refresh repairs it later.
+        {:error, reason}
+        when reason in [:connection_disabled, :not_found, :connection_required] ->
+          :ok
+
+        error ->
+          error
+      end
     else
-      # A disabled or removed connection has nothing to cache; a manual refresh repairs it later.
       {:error, reason} when reason in [:connection_disabled, :not_found, :connection_required] ->
         :ok
 

@@ -1,4 +1,4 @@
-import { useMutation, Link } from './tenant-context'
+import { useMutation, Link, useSelectedDataTenantID } from './tenant-context'
 import {
   Button,
   DropdownMenu,
@@ -50,7 +50,7 @@ import { SlotGate } from '../common/slots'
 import { BrandIcon } from '../common/brand'
 import { ErrorBoundary } from '../common/error-boundary'
 import { ThemeToggle } from '../common/theme-toggle'
-import { dataTenantID, endAccountSession, endBrowserSession } from '../common/browser-session'
+import { endAccountSession, endBrowserSession } from '../common/browser-session'
 import { ConsoleReadiness } from './console-readiness'
 import { useConsoleSlots } from './slots'
 import { ConsoleTenantContent, TenantSwitcher } from './tenant-switcher'
@@ -149,6 +149,7 @@ export function ConsoleLayout() {
 
 function ConsoleFrame() {
   const { t } = useTranslation()
+  const selectedDataTenant = useSelectedDataTenantID()
   const matchedSlotRoute = useMatches({ select: matches => matches.at(-1)?.staticData.consoleSlot })
   const { open, openMobile: navigationOpen, setOpenMobile: setNavigationOpen } = useSidebar()
   const sidebarCollapsed = !open
@@ -211,7 +212,7 @@ function ConsoleFrame() {
         </div>
         {/* The top bar spans the whole window, so the account actions sit at its far end. */}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {dataTenantID() ? (
+          {selectedDataTenant ? (
             <ErrorBoundary fallback={null}>
               <ConsoleReadiness />
             </ErrorBoundary>

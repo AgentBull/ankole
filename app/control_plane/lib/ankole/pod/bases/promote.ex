@@ -6,6 +6,8 @@ defmodule Ankole.Pod.Bases.Promote do
   alias Ankole.Pod.Bases.Physical
   alias Ankole.Repo
 
+  @chunk_size 500
+
   def if_needed(write) do
     {:ok, table} = Bases.fetch_table(write.table.id)
 
@@ -16,14 +18,14 @@ defmodule Ankole.Pod.Bases.Promote do
         |> Ash.Query.lock(:for_update)
         |> Ankole.Ash.read_one!()
 
-      records = records(locked.id)
+      chunks = records(locked.id)
       table = %{locked | storage_mode: :physical, schema_version: locked.schema_version + 1}
 
       with {:ok, :ok} <-
              BaseRepo.run(
                write.shard,
                fn ->
-                 Physical.create_table!(table, Map.fetch!(write.definitions, table.id), records)
+                 Physical.create_table!(table, Map.fetch!(write.definitions, table.id), chunks)
                  {:ok, :ok}
                end,
                ddl: true,
@@ -37,16 +39,54 @@ defmodule Ankole.Pod.Bases.Promote do
   end
 
   def records(id) do
-    [[json]] =
-      Repo.query!(
-        """
-        SELECT COALESCE(jsonb_agg(to_jsonb(r)-'tenant_id'-'table_id'-'data_bytes'),'[]'::jsonb)::text
-        FROM base_records r WHERE tenant_id=$1::text::uuid AND table_id=$2::text::uuid
-        """,
-        [Repo.tenant_id!(), id]
-      ).rows
+    tenant_id = Repo.tenant_id!()
 
-    {:json, json}
+    {:chunks,
+     Stream.resource(
+       fn -> nil end,
+       fn
+         :done ->
+           {:halt, :done}
+
+         after_id ->
+           rows =
+             if is_nil(after_id) do
+               Repo.query!(
+                 """
+                 SELECT id::text, (to_jsonb(r)-'tenant_id'-'table_id'-'data_bytes')::text
+                 FROM base_records r
+                 WHERE tenant_id=$1::text::uuid AND table_id=$2::text::uuid
+                 ORDER BY id ASC
+                 LIMIT $3
+                 """,
+                 [tenant_id, id, @chunk_size]
+               ).rows
+             else
+               Repo.query!(
+                 """
+                 SELECT id::text, (to_jsonb(r)-'tenant_id'-'table_id'-'data_bytes')::text
+                 FROM base_records r
+                 WHERE tenant_id=$1::text::uuid AND table_id=$2::text::uuid AND id > $3::text::uuid
+                 ORDER BY id ASC
+                 LIMIT $4
+                 """,
+                 [tenant_id, id, after_id, @chunk_size]
+               ).rows
+             end
+
+           case rows do
+             [] ->
+               {:halt, :done}
+
+             batch ->
+               last_id = batch |> List.last() |> hd()
+               json = "[" <> Enum.map_join(batch, ",", fn [_id, row_json] -> row_json end) <> "]"
+               next_cursor = if length(batch) < @chunk_size, do: :done, else: last_id
+               {[{:json, json}], next_cursor}
+           end
+       end,
+       fn _ -> :ok end
+     )}
   end
 
   def commit(table) do

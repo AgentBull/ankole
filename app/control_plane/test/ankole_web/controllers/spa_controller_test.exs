@@ -33,9 +33,8 @@ defmodule AnkoleWeb.SpaControllerTest do
     conn = get(conn, ~p"/")
 
     if @host_policy do
-      site = URI.parse(AnkoleWeb.PodURL.site_origin(conn))
-      host = String.replace_prefix(site.host, "console.", "accounts.")
-      assert redirected_to(conn) == URI.to_string(%{site | host: host, path: "/"})
+      destination = URI.parse(AnkoleWeb.PodURL.workspace_selection_url())
+      assert redirected_to(conn) == URI.to_string(%{destination | path: "/"})
     else
       assert redirected_to(conn) == AnkoleWeb.PodURL.origin(conn, tenant) <> "/"
     end
@@ -72,7 +71,7 @@ defmodule AnkoleWeb.SpaControllerTest do
       if @host_policy do
         target = redirected_to(conn)
         uri = URI.parse(target)
-        assert String.starts_with?(uri.host, "accounts.")
+        assert uri.host == URI.parse(AnkoleWeb.PodURL.login_url(conn, tenant)).host
         assert uri.path == "/sessions/new"
         assert URI.decode_query(uri.query) == %{"tenant_id" => tenant.id}
         conn |> recycle() |> get(target)
@@ -110,7 +109,7 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert return_path == console_path("/settings")
 
     if @host_policy do
-      assert String.starts_with?(uri.host, "accounts.")
+      assert uri.host == URI.parse(AnkoleWeb.PodURL.login_url(conn, tenant)).host
       assert query["tenant_id"] == tenant.id
     else
       assert uri.host == URI.parse(AnkoleWeb.PodURL.origin(conn, tenant)).host
@@ -394,13 +393,11 @@ defmodule AnkoleWeb.SpaControllerTest do
   } do
     conn = conn |> pod_conn(tenant) |> active_admin_conn()
 
-    home_entry = if @host_policy, do: "saas-pod", else: "pod"
-
-    for {path, entry} <- [{~p"/", home_entry}, {~p"/dm/legal", "pod"}] do
+    for path <- [~p"/", ~p"/dm/legal"] do
       response = get(conn, path)
       html = html_response(response, 200)
 
-      source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!(entry)
+      source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!("pod")
       assert html =~ "http://assets.test/#{String.trim_leading(source, "/")}"
       refute html =~ "/site-admin-console"
     end
@@ -603,7 +600,7 @@ defmodule AnkoleWeb.SpaControllerTest do
         end
 
       accounts = URI.parse(redirected_to(login))
-      assert String.starts_with?(accounts.host, "accounts.")
+      assert accounts.host == URI.parse(AnkoleWeb.PodURL.login_url(conn, tenant)).host
       assert accounts.path == "/sessions/new"
 
       assert URI.decode_query(accounts.query) == %{

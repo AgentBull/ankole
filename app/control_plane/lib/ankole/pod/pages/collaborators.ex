@@ -114,8 +114,12 @@ defmodule Ankole.Pod.Pages.Collaborators do
       else
         Ankole.Principals.list_principals!(
           query: [
-            filter: [uid: [in: candidate_uids], status: :active, type: [in: [:human, :agent]]],
-            load: [:human_user, :agent]
+            filter: [
+              uid: [in: candidate_uids],
+              status: :active,
+              type: [in: [:human, :agent, :system]]
+            ],
+            load: [:human_user, :agent, :service_account]
           ]
         )
         |> Enum.filter(&match?({:ok, _}, Access.principal(Ankole.AuthZ.Actor.new(&1))))
@@ -289,12 +293,14 @@ defmodule Ankole.Pod.Pages.Collaborators do
           filter:
             Ash.Expr.expr(
               status == :active and
-                (type == :human or (type == :agent and agent.type == :ai_colleague))
+                (type == :human or (type == :agent and agent.type == :ai_colleague) or
+                   (type == :system and exists(service_account, kind == :applet)))
             ),
-          load: [:human_user, :agent],
+          load: [:human_user, :agent, :service_account],
           sort: [uid: :asc]
         ]
       )
+      |> Enum.filter(&live_applet_service_or_regular?/1)
       |> Enum.map(&principal_subject/1)
 
     groups =
@@ -307,21 +313,29 @@ defmodule Ankole.Pod.Pages.Collaborators do
     principals ++ groups
   end
 
+  defp live_applet_service_or_regular?(%{type: :system, service_account: %{applet_page_id: id}})
+       when is_binary(id),
+       do: Ankole.Pod.page_live?(id)
+
+  defp live_applet_service_or_regular?(%{type: :system}), do: false
+  defp live_applet_service_or_regular?(_principal), do: true
+
   @doc false
   def principal_subject(principal) do
     name = Ankole.Principals.display_name(principal)
 
-    subtitle =
+    {kind, subtitle} =
       case principal.type do
-        :human -> principal.human_user && principal.human_user.email
-        :agent -> "@" <> principal.uid
+        :human -> {:human, principal.human_user && principal.human_user.email}
+        :agent -> {:agent, "@" <> principal.uid}
+        :system -> {:service, "@" <> principal.uid}
       end
 
     %{
       principal_uid: principal.uid,
       group_id: nil,
       name: name,
-      kind: principal.type,
+      kind: kind,
       avatar_url: principal.avatar_url,
       subtitle: subtitle,
       membership: principal.membership,

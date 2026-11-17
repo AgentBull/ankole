@@ -152,6 +152,7 @@ defmodule Ankole.OIDC.Logout do
   defp transmit(delivery) do
     with %Session{} = session <-
            Session |> Ash.Query.filter(id == ^delivery.session_id) |> Ankole.Ash.read_one!(),
+         :ok <- validate_logout_endpoint(session.client_id, delivery.endpoint),
          {:ok, token} <-
            Attesto.LogoutToken.mint(Ankole.OIDC.attesto_config(), session.client_id,
              sub: session.principal_uid,
@@ -172,7 +173,41 @@ defmodule Ankole.OIDC.Logout do
       end
     else
       nil -> {:error, "session unavailable"}
+      {:error, reason} when is_binary(reason) -> {:error, reason}
       {:error, _} -> {:error, "signing key unavailable"}
+    end
+  end
+
+  defp validate_logout_endpoint(client_id, endpoint) do
+    client =
+      Ankole.OIDC.Client
+      |> Ash.Query.filter(id == ^client_id and enabled == true)
+      |> Ankole.Ash.read_one!()
+
+    case client do
+      nil ->
+        {:error, "client unavailable"}
+
+      %{allow_insecure_local_logout: true, client_type: :confidential} ->
+        uri = URI.parse(endpoint)
+
+        if uri.scheme == "http" and uri.host in ["localhost", "127.0.0.1", "::1", "[::1]"] do
+          :ok
+        else
+          validate_remote_logout_url(endpoint, ["https"])
+        end
+
+      _client ->
+        validate_remote_logout_url(endpoint, ["https"])
+    end
+  end
+
+  defp validate_remote_logout_url(endpoint, schemes) do
+    {:ok, ssrf?} = Ankole.Security.SSRFFilter.enabled?()
+
+    case Ankole.Kernel.validate_web_url(endpoint, schemes, ssrf?) do
+      :ok -> :ok
+      {:error, _reason} -> {:error, "logout endpoint blocked by URL policy"}
     end
   end
 

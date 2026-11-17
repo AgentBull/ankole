@@ -3,7 +3,7 @@ import { GardState } from '../state'
 import type { Wordgard } from './editor'
 import { TextTile } from './tile'
 import { coordsAtPos } from './coords'
-import { textRange } from './dom'
+import { textRange, isElt } from './dom'
 import { renderMarks } from './decoration'
 
 export const cursorBlinkRate = GardState.Facet.define<number, number>({
@@ -23,7 +23,7 @@ class CursorStyle {
 
   static read(node: Element | Text, height: number) {
     const win = node.ownerDocument.defaultView || window
-    const elt = node.nodeType == 1 ? (node as Element) : (node.parentNode as Element)
+    const elt = isElt(node) ? node : (node.parentNode as Element)
     const style = win.getComputedStyle(elt)
     return new CursorStyle(
       height,
@@ -172,9 +172,7 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
       bot = vertRect.bottom
     } else {
       const win = ref.dom.ownerDocument.defaultView || window
-      const refAlign = win.getComputedStyle(
-        (ref.dom.nodeType == 1 ? ref.dom : ref.dom.parentNode) as Element
-      ).verticalAlign
+      const refAlign = win.getComputedStyle(isElt(ref.dom) ? ref.dom : (ref.dom.parentNode as Element)).verticalAlign
       if (style && refAlign != style.align) {
         bot += alignOffset(refAlign, rect.height) - alignOffset(style.align, style.height)
       }

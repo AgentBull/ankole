@@ -1,6 +1,15 @@
 defmodule Ankole.Connectors.Gateway do
   @moduledoc "Serves the same stateless MCP contract to Workers and Function Runtime."
-  alias Ankole.Connectors.{AuthWaits, Credentials, OAuth, Registry, RemoteMCP, ToolSpec}
+  alias Ankole.Connectors.{
+    Approvals,
+    AuthWaits,
+    Credentials,
+    OAuth,
+    Registry,
+    RemoteMCP,
+    ToolSpec,
+    WriteReceipts
+  }
 
   def request(target, %{"method" => method} = request, context, options) do
     params = request["params"] || %{}
@@ -70,33 +79,70 @@ defmodule Ankole.Connectors.Gateway do
     end
   end
 
-  defp call({:toolkit, id}, name, args, context, options) when is_binary(name) and is_map(args) do
+  defp call({:toolkit, id} = target, name, args, context, options)
+       when is_binary(name) and is_map(args) do
     with {:ok, adapter, spec, args, credentials} <-
            prepare_toolkit(id, name, args, context, options),
+         :allow <-
+           Approvals.intercept_or_allow(
+             target,
+             name,
+             spec.annotations,
+             args,
+             context,
+             options,
+             credentials.auth_config.public_metadata,
+             %{
+               "connection" => credentials.auth_config.slug,
+               "connection_name" =>
+                 credentials.auth_config.display_name || credentials.auth_config.slug,
+               "auth_config_id" => credentials.auth_config.id,
+               "account" => options["account"],
+               "account_id" => credentials[:account] && credentials[:account].id,
+               "subject_kind" =>
+                 (credentials[:account] && credentials[:account].subject_kind) || "app",
+               "account_owner_uid" =>
+                 credentials[:account] && credentials[:account].owner_principal_uid
+             }
+           ),
          {:ok, result, _used_context} <-
            invoke_toolkit(adapter, spec, args, Map.merge(credentials, context)),
          {:ok, result} <- validate_output(spec, result) do
       {:ok, result_content(int64_strings(result, spec.output_schema, spec.output_schema))}
+    else
+      {:halt, blocked} -> blocked
+      other -> other
     end
     |> consent_return(context, id, name)
   end
 
-  defp call({:skill, _skill, _server} = target, name, args, context, _options)
+  defp call({:skill, skill, server} = target, name, args, context, options)
        when is_binary(name) and is_map(args) do
     with {:ok, declaration, tool, args} <- prepare_skill_call(target, name, args, context),
-         {:ok, result} <-
-           RemoteMCP.call(
-             declaration["url"],
-             declaration["headers"],
+         idempotent? =
+           get_in(tool, ["annotations", "readOnlyHint"]) == true or
+             get_in(tool, ["annotations", "idempotentHint"]) == true,
+         :allow <-
+           Approvals.intercept_or_allow(
+             target,
              name,
+             tool["annotations"] || %{},
              args,
-             Keyword.put(
-               remote_options(context, declaration),
-               :idempotent,
-               get_in(tool, ["annotations", "readOnlyHint"]) == true or
-                 get_in(tool, ["annotations", "idempotentHint"]) == true
+             context,
+             options,
+             declaration,
+             %{"skill" => skill, "server" => server}
+           ),
+         {:ok, result} <-
+           WriteReceipts.execute_skill(skill, server, name, idempotent?, args, context, fn ->
+             RemoteMCP.call(
+               declaration["url"],
+               declaration["headers"],
+               name,
+               args,
+               Keyword.put(remote_options(context, declaration), :idempotent, idempotent?)
              )
-           ) do
+           end) do
       schema = tool["outputSchema"] || %{}
 
       case result do
@@ -106,10 +152,117 @@ defmodule Ankole.Connectors.Gateway do
         _ ->
           {:ok, result}
       end
+    else
+      {:halt, blocked} -> blocked
+      other -> other
     end
   end
 
   defp call(_, _, _, _, _), do: {:error, :invalid_request}
+
+  @doc "Executes a human-confirmed `connectors.tool.call` ActionCard at most once."
+  def execute_approved_card(card, approver_actor) do
+    with {:ok, target, tool_name, args} <- Approvals.verify_locked_payload(card.payload),
+         {:ok, %{status: :active} = agent_principal} <-
+           Ankole.Principals.get_principal(card.agent_uid) do
+      context = %{
+        actor: Ankole.AuthZ.Actor.new(agent_principal),
+        deadline: System.monotonic_time(:millisecond) + 60_000
+      }
+
+      options = %{
+        "connection" => card.payload["auth_config_id"] || card.payload["connection"],
+        "account" => card.payload["account"],
+        approved_card: true,
+        locked_auth_config_id: card.payload["auth_config_id"],
+        has_locked_account_id: Map.has_key?(card.payload, "account_id"),
+        locked_account_id: card.payload["account_id"]
+      }
+
+      toolkit_label =
+        case target do
+          {:toolkit, id} -> id
+          {:skill, _skill, server} -> server
+        end
+
+      connection_label =
+        card.payload["connection_name"] || card.payload["connection"] ||
+          card.payload["server"] || toolkit_label
+
+      raw_outcome =
+        WriteReceipts.execute_scope(
+          "action_card:" <> card.id,
+          WriteReceipts.card_target_identity(target, card.payload),
+          tool_name,
+          args,
+          fn ->
+            case call(target, tool_name, args, context, options) do
+              {:ok, %{"isError" => true} = result} -> {:error, mcp_tool_error(result)}
+              {:ok, result} -> {:ok, result, context}
+              {:error, _} = err -> err
+            end
+          end,
+          recover_settled?: (card.execution_attempts || 0) > 1
+        )
+
+      case raw_outcome do
+        {:error, %{code: "write_already_in_flight"}} ->
+          {:error, :conflict}
+
+        {:error, %{code: "approved_identity_changed"}} ->
+          {:stale,
+           "The approved connector connection or account changed since this card was prepared."}
+
+        _ ->
+          {outcome_kind, {audit_status, receipt_note}} =
+            case raw_outcome do
+              {:recovered, %{status: "succeeded"} = receipt} ->
+                {:succeeded,
+                 Approvals.format_recovered_receipt(tool_name, connection_label, receipt)}
+
+              {:recovered, receipt} ->
+                {:failed_uncertain,
+                 Approvals.format_recovered_receipt(tool_name, connection_label, receipt)}
+
+              {:ok, result, _ctx} ->
+                {:succeeded,
+                 Approvals.format_execution_receipt(tool_name, connection_label, {:ok, result})}
+
+              {:error, err} = err_tuple ->
+                {classify_failure_outcome(err),
+                 Approvals.format_execution_receipt(tool_name, connection_label, err_tuple)}
+            end
+
+          Ankole.Logging.info(
+            "connectors.approval_executed",
+            "Executed approved connector tool call",
+            %{
+              card_id: card.id,
+              approver_uid: Ankole.AuthZ.Actor.uid(approver_actor),
+              agent_uid: card.agent_uid,
+              tool_name: tool_name,
+              connection: card.payload["connection"] || card.payload["server"],
+              account: card.payload["account_id"] || card.payload["account"],
+              status: audit_status
+            }
+          )
+
+          {:ok, outcome_kind, receipt_note}
+      end
+    else
+      {:error, :tampered} ->
+        {:stale, "Locked tool arguments failed integrity verification."}
+
+      {:error, :not_found} ->
+        {:stale, "The requesting Agent no longer exists."}
+
+      {:ok, _disabled_agent} ->
+        {:stale, "The requesting Agent is no longer active."}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp consent_return({:error, %{code: "oauth_consent_required"} = error}, context, toolkit, name) do
     resolved_error =
@@ -142,16 +295,18 @@ defmodule Ankole.Connectors.Gateway do
 
   @doc false
   def invoke_toolkit(adapter, spec, args, context) do
-    case adapter.call(spec, args, context) do
-      {:ok, result} ->
-        {:ok, result, context}
+    Ankole.Connectors.WriteReceipts.execute(spec, args, context, fn ->
+      case adapter.call(spec, args, context) do
+        {:ok, result} ->
+          {:ok, result, context}
 
-      {:error, %{status: 401} = error} ->
-        recover_token(adapter, spec, args, context, error)
+        {:error, %{status: 401} = error} ->
+          recover_token(adapter, spec, args, context, error)
 
-      result ->
-        result
-    end
+        result ->
+          result
+      end
+    end)
   end
 
   defp recover_token(adapter, spec, args, context, error) do
@@ -176,10 +331,13 @@ defmodule Ankole.Connectors.Gateway do
         scopes =
           Enum.uniq(((context.account && context.account.granted_scopes) || []) ++ spec.scopes)
 
-        OAuth.consent_required(context.auth_config.slug, scopes, %{
-          "toolkit" => spec.toolkit,
-          "subject_kind" => (context.account && context.account.subject_kind) || "app"
-        })
+        {:error, map} =
+          OAuth.consent_required(context.auth_config.slug, scopes, %{
+            "toolkit" => spec.toolkit,
+            "subject_kind" => (context.account && context.account.subject_kind) || "app"
+          })
+
+        {:error, Map.put(map, :request_sent, false)}
 
       {:error, reason} when reason in [:oauth_refresh_failed, :oauth_refresh_cooling_down] ->
         {:error,
@@ -188,11 +346,47 @@ defmodule Ankole.Connectors.Gateway do
            message: "The connection could not be refreshed. Retry shortly.",
            retryable: true,
            retryAfterSeconds: 30,
-           request_sent: true
+           request_sent: false
          }}
 
       result ->
         result
+    end
+  end
+
+  defp classify_failure_outcome(err) do
+    if WriteReceipts.uncertain_failure?(err), do: :failed_uncertain, else: :failed_not_sent
+  end
+
+  defp mcp_tool_error(result) when is_map(result) do
+    %{
+      code: "mcp_tool_error",
+      message: extract_mcp_error_message(result),
+      status: 200,
+      retryable: false,
+      request_sent: true
+    }
+  end
+
+  defp extract_mcp_error_message(%{"content" => content}) when is_list(content) do
+    Enum.find_value(content, fn
+      %{"text" => text} when is_binary(text) ->
+        trimmed = String.trim(text)
+        if trimmed != "", do: trimmed
+
+      _ ->
+        nil
+    end) || "Remote MCP tool reported an error"
+  end
+
+  defp extract_mcp_error_message(result) when is_map(result) do
+    case Map.get(result, "message") || Map.get(result, "error") do
+      text when is_binary(text) ->
+        trimmed = String.trim(text)
+        if trimmed != "", do: trimmed, else: "Remote MCP tool reported an error"
+
+      _ ->
+        "Remote MCP tool reported an error"
     end
   end
 
@@ -220,6 +414,7 @@ defmodule Ankole.Connectors.Gateway do
          %{} = spec <- Enum.find(specs, &(&1.name == name)),
          :ok <- readonly(context, spec.annotations),
          {:ok, args} <- ToolSpec.validate_input(spec, args),
+         :ok <- verify_locked_card_targets(options),
          {:ok, credentials} <-
            Ankole.Connectors.resolve_call(
              spec,
@@ -227,12 +422,67 @@ defmodule Ankole.Connectors.Gateway do
              options["connection"],
              options["account"],
              args
-           ) do
+           ),
+         :ok <- verify_locked_card_credentials(credentials, options) do
       {:ok, adapter, spec, args, credentials}
     else
       error -> pre_invocation_error(error)
     end
   end
+
+  defp verify_locked_card_targets(%{approved_card: true} = options) do
+    locked_config_id = options[:locked_auth_config_id]
+    locked_account_id = options[:locked_account_id]
+
+    with :ok <- verify_locked_auth_config_exists(locked_config_id),
+         :ok <- verify_locked_account_exists(locked_account_id, locked_config_id) do
+      :ok
+    end
+  end
+
+  defp verify_locked_card_targets(_options), do: :ok
+
+  defp verify_locked_auth_config_exists(id) when is_binary(id) do
+    case Ankole.Connectors.Store.get_auth_config_for_configuration(id) do
+      {:ok, _config} -> :ok
+      _ -> {:error, :approved_identity_changed}
+    end
+  end
+
+  defp verify_locked_auth_config_exists(_), do: :ok
+
+  defp verify_locked_account_exists(account_id, config_id) when is_binary(account_id) do
+    case Ankole.Connectors.get_account_by_id(account_id) do
+      {:ok, %{status: "active"} = account} ->
+        if is_nil(config_id) or account.auth_config_id == config_id,
+          do: :ok,
+          else: {:error, :approved_identity_changed}
+
+      _ ->
+        {:error, :approved_identity_changed}
+    end
+  end
+
+  defp verify_locked_account_exists(_, _), do: :ok
+
+  defp verify_locked_card_credentials(credentials, %{approved_card: true} = options) do
+    locked_config_id = options[:locked_auth_config_id]
+    resolved_account_id = credentials[:account] && credentials[:account].id
+
+    cond do
+      is_binary(locked_config_id) and credentials.auth_config.id != locked_config_id ->
+        {:error, :approved_identity_changed}
+
+      options[:has_locked_account_id] == true and
+          resolved_account_id != options[:locked_account_id] ->
+        {:error, :approved_identity_changed}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp verify_locked_card_credentials(_credentials, _options), do: :ok
 
   defp prepare_skill_call({:skill, skill, server} = target, name, args, context) do
     with {:ok, declaration} <- skill_server(context, skill, server),
@@ -306,11 +556,21 @@ defmodule Ankole.Connectors.Gateway do
   defp validate_output(spec, result) do
     case ToolSpec.validate_output(spec, result) do
       {:error, reason} ->
-        {:error,
-         %{code: "invalid_upstream_output", message: reason, retryable: false, request_sent: true}}
+        Ankole.Logging.warning(
+          "connectors.gateway.output_schema_drift",
+          "Connector upstream response drifted from declared outputSchema; returning payload",
+          %{
+            tenant_id: Ankole.Repo.tenant_id(),
+            toolkit: spec.toolkit,
+            tool: spec.name,
+            reason: reason
+          }
+        )
 
-      result ->
-        result
+        {:ok, result}
+
+      validated ->
+        validated
     end
   end
 

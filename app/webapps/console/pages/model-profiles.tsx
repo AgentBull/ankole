@@ -1,4 +1,11 @@
-import { useMutation, useQuery, Link, useSearchParams } from '../tenant-context'
+import {
+  ConsoleBoundTenantIDContext,
+  useMutation,
+  useQuery,
+  Link,
+  useSearchParams,
+  useEffectiveDataTenantID
+} from '../tenant-context'
 import { Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from '@ankole/uikit'
 import { recordValue } from '@agentbull/active-support'
 import { useModel } from '@preact/signals-react'
@@ -19,7 +26,6 @@ import {
   listAiGatewayProvidersOptions
 } from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { ErrorBlock } from '../../common/error-block'
-import { dataTenantID } from '../../common/browser-session'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
 import { aiGatewayProviders } from '../state/provider-settings'
 import {
@@ -33,14 +39,39 @@ import { ModelProfileEditorCard } from './model-profile-editor-card'
 import { ProfileEditor, RestoreAllInheritanceButton, useModelProfilesDraft } from './model-profiles-editor'
 
 type DefaultsScope = 'tenant' | 'global'
+
 export function ModelProfilesPage() {
+  const [params, setParams] = useSearchParams()
+  const scope: DefaultsScope = params.get('defaults_scope') === 'tenant' ? 'tenant' : 'global'
+  const selectedTenantID = useEffectiveDataTenantID(scope === 'tenant')
+  const boundTenantID = scope === 'tenant' ? selectedTenantID : null
+  return (
+    <ConsoleBoundTenantIDContext key={`${scope}:${boundTenantID ?? 'none'}`} value={boundTenantID}>
+      <ModelProfilesPageContent
+        params={params}
+        setParams={setParams}
+        scope={scope}
+        selectedTenantID={selectedTenantID}
+      />
+    </ConsoleBoundTenantIDContext>
+  )
+}
+
+function ModelProfilesPageContent({
+  params,
+  setParams,
+  scope,
+  selectedTenantID
+}: {
+  params: URLSearchParams
+  setParams: ReturnType<typeof useSearchParams>[1]
+  scope: DefaultsScope
+  selectedTenantID: string | null
+}) {
   useSignals()
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const model = useModel(ModelProfilesModel)
-  const [params, setParams] = useSearchParams()
-  const scope: DefaultsScope = params.get('defaults_scope') === 'tenant' ? 'tenant' : 'global'
-  const selectedTenantID = dataTenantID()
   const canLoadConfiguration = scope === 'global' || Boolean(selectedTenantID)
   const configuration = useQuery({
     ...listDefaultModelProfilesOptions({ query: { defaults_scope: scope } }),
@@ -222,10 +253,11 @@ function SystemPrincipalEditor({
   const { t } = useTranslation()
   const section = useRef<HTMLElement>(null)
   const model = useModel(ModelProfilesModel)
+  const selectedTenantID = useEffectiveDataTenantID(true)
   const configuration = useQuery(listSystemModelProfilesOptions({ path: { uid: service.uid } }))
   const draftStatus = useModelProfilesDraft(
     model,
-    `system:${dataTenantID() ?? 'privileged'}:${service.uid}`,
+    `system:${selectedTenantID ?? 'privileged'}:${service.uid}`,
     configuration.data
   )
 

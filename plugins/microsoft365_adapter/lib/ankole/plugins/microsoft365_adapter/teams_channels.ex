@@ -15,7 +15,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   """
 
   alias Ankole.Signals.Bindings
-  alias Ankole.{Logging, Principals}
+  alias Ankole.Logging
   alias Ankole.Plugins.ChannelSync
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.Microsoft365Adapter.Config
@@ -228,8 +228,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
              group_projection_options(config, mirror)
            ),
          {:ok, members} <- list_members(client, mirror),
-         {:ok, uids} <- member_principal_uids(config, members),
-         {:ok, replace} <- IMGroupMembers.replace_members(group.id, uids) do
+         {:ok, uids, unmapped?} <- member_principal_uids(context.binding_id, config, members),
+         {:ok, replace} <-
+           IMGroupMembers.replace_members(group.id, uids, has_unmapped_members: unmapped?) do
       {:ok,
        %{
          conversation_id: mirror.conversation_id,
@@ -252,19 +253,30 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     end
   end
 
-  defp member_principal_uids(config, members) do
-    members
-    |> Enum.reject(&bot_member?/1)
-    |> Enum.reduce_while({:ok, []}, fn member, {:ok, acc} ->
-      case upsert_member(config, member) do
-        {:ok, observed} -> {:cont, {:ok, [observed.principal.uid | acc]}}
-        {:error, reason} -> {:halt, {:error, reason}}
+  defp member_principal_uids(binding_or_id, config, members) do
+    eligible = Enum.reject(members, &bot_member?/1)
+
+    IMGroupMembers.resolve_roster_members(binding_or_id, eligible, fn member ->
+      case MapHelpers.optional_text(member, "aadObjectId") ||
+             MapHelpers.optional_text(member, "id") do
+        nil ->
+          {:error, :missing_member_id}
+
+        external_id ->
+          attrs =
+            %{
+              provider: Config.subject_namespace(config),
+              external_id: external_id,
+              display_name: MapHelpers.optional_text(member, "name"),
+              email:
+                MapHelpers.optional_text(member, "email") ||
+                  MapHelpers.optional_text(member, "userPrincipalName")
+            }
+            |> MapHelpers.compact_map()
+
+          {:resolve, attrs}
       end
     end)
-    |> case do
-      {:ok, uids} -> {:ok, uids |> Enum.uniq() |> Enum.sort()}
-      error -> error
-    end
   end
 
   defp bot_member?(member) do
@@ -273,26 +285,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     String.starts_with?(id, "28:") or
       (is_nil(MapHelpers.optional_text(member, "aadObjectId")) and
          MapHelpers.optional_text(member, "userRole") == "bot")
-  end
-
-  defp upsert_member(config, member) do
-    case MapHelpers.optional_text(member, "aadObjectId") || MapHelpers.optional_text(member, "id") do
-      nil ->
-        {:error, :missing_member_id}
-
-      external_id ->
-        Principals.upsert_platform_subject_human(
-          %{
-            provider: Config.subject_namespace(config),
-            external_id: external_id,
-            display_name: MapHelpers.optional_text(member, "name"),
-            email:
-              MapHelpers.optional_text(member, "email") ||
-                MapHelpers.optional_text(member, "userPrincipalName")
-          }
-          |> MapHelpers.compact_map()
-        )
-    end
   end
 
   @doc false

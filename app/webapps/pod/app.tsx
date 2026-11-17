@@ -11,7 +11,7 @@ import {
   type CSSProperties,
   type ReactNode
 } from 'react'
-import { SidebarInset, SidebarProvider, TooltipProvider } from '@ankole/uikit'
+import { Button, SidebarInset, SidebarProvider, TooltipProvider } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
 import {
   createMemoryHistory,
@@ -51,6 +51,7 @@ import { pageMetadata } from './state/page-metadata'
 import { knownPageTitle } from './use-page-metadata'
 import { StandaloneActionCardDialog } from './chat/standalone-action-card-dialog'
 import { StandaloneInteractionDialog } from './chat/standalone-interaction-dialog'
+import { TrashBrainScopeConfirmDialog } from './page-actions'
 import { PodCommandContext, PodCommandMenu, resolvePodTarget, type PodCommandNavigationState } from './command-menu'
 import { SidebarLayoutModel } from './state/sidebar-layout'
 import { PodTopBar, PodTopBarProvider } from './top-bar'
@@ -100,7 +101,7 @@ export function podRouteTitle(
   } else if (pathname.startsWith('/dm/')) {
     label = stripBidi(conversationTitle).trim() || stripBidi(decodeURIComponent(pathname.slice('/dm/'.length))).trim()
   } else if (pathname === '/') {
-    label = t('pod.sidebar.tabs.chat')
+    label = t('pod.sidebar.tabs.home')
   } else if (pathname.startsWith('/conversations/')) {
     label = stripBidi(conversationTitle).trim() || t('pod.sidebar.tabs.chat')
   } else if (pathname.startsWith('/content/')) {
@@ -244,6 +245,9 @@ export function PodApp({ slots = {}, initialHref }: { slots?: PodAppSlots; initi
       createRoute({
         getParentRoute: () => rootRoute,
         path: 'settings',
+        validateSearch: (search: Record<string, unknown>) => ({
+          section: typeof search.section === 'string' ? search.section : undefined
+        }),
         component: lazyRouteComponent(() => import('./pod-settings'), 'PodSettings'),
         ...routeFeedback
       }),
@@ -298,6 +302,11 @@ export function PodApp({ slots = {}, initialHref }: { slots?: PodAppSlots; initi
         path: 'conversations/$conversationID',
         component: LazyChatRoute,
         ...routeFeedback
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: '$',
+        component: PodNotFoundPage
       })
     ])
 
@@ -342,9 +351,24 @@ export function PodApp({ slots = {}, initialHref }: { slots?: PodAppSlots; initi
       <ContentProvider>
         <ChatDraftProvider>
           <RouterProvider router={router} />
+          <TrashBrainScopeConfirmDialog />
         </ChatDraftProvider>
       </ContentProvider>
     </PodSlotsContext>
+  )
+}
+
+function PodNotFoundPage() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+      <h1 className="text-xl font-semibold text-fg-primary">{t('pod.content.not_found_title')}</h1>
+      <p className="max-w-md text-sm text-fg-secondary">{t('pod.content.not_found_description')}</p>
+      <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void navigate({ to: '/' })}>
+        {t('auth.go_home')}
+      </Button>
+    </div>
   )
 }
 

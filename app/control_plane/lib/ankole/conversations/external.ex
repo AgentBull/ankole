@@ -127,14 +127,19 @@ defmodule Ankole.Conversations.External do
   end
 
   def observe_conversation_in_tx(%{agent_uid: agent_uid}, observation, now) do
-    :ok = Ankole.Pod.lock_tree_in_tx()
     provider_id = Ankole.Attrs.get(observation, :provider_conversation_id)
 
     if is_binary(provider_id) and String.trim(provider_id) != "" do
+      existing = get_conversation(provider_id)
+
+      needs_root? =
+        is_nil(existing) or
+          match?({:error, :not_found}, Ankole.Pod.Pages.Tree.conversation_root(existing.id))
+
+      if needs_root?, do: :ok = Ankole.Pod.lock_tree_in_tx()
       lock_identity([provider_id])
 
       existing = get_conversation(provider_id)
-
       attrs = conversation_attrs(existing, observation, now)
 
       with {:ok, conversation} <-
@@ -144,7 +149,11 @@ defmodule Ankole.Conversations.External do
                  provider_conversation_id: provider_id
                })
              ),
-           {:ok, _} <- Ankole.Pod.Pages.Tree.ensure_conversation_root_in_tx(conversation.id),
+           {:ok, _} <-
+             if(needs_root?,
+               do: Ankole.Pod.Pages.Tree.ensure_conversation_root_in_tx(conversation.id),
+               else: {:ok, :existing}
+             ),
            {:ok, _} <- ensure_agent(conversation.id, agent_uid) do
         {:ok, conversation}
       end
@@ -154,7 +163,9 @@ defmodule Ankole.Conversations.External do
   end
 
   def observe_in_tx(conversation_id, observation, now) do
-    :ok = Ankole.Pod.lock_tree_in_tx()
+    if (Ankole.Attrs.get(observation, :attachments) || []) != [],
+      do: :ok = Ankole.Pod.lock_tree_in_tx()
+
     provider_id = Ankole.Attrs.get(observation, :provider_message_id)
 
     with :ok <- validate_provider_message_id(provider_id),
@@ -322,6 +333,7 @@ defmodule Ankole.Conversations.External do
     case is_binary(uid) and uid != "" and Ankole.Principals.get_principal_record!(uid) do
       %{uid: uid, type: :human} -> {:human, uid}
       %{uid: uid, type: :agent} -> {:agent, uid}
+      %{uid: uid, type: :system} -> {:unknown, uid}
       _ -> {:unknown, nil}
     end
   end

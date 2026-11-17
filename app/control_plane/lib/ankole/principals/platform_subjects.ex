@@ -278,8 +278,14 @@ defmodule Ankole.Principals.PlatformSubjects do
   end
 
   defp new_subject_uid(attrs) do
-    with {:ok, uid} <- Principals.normalize_uid(Ankole.Attrs.get(attrs, :external_id)),
-         do: {:ok, {:new, uid}}
+    with {:ok, uid} <- Principals.normalize_uid(Ankole.Attrs.get(attrs, :external_id)) do
+      safe_uid =
+        if Ankole.Principals.ServiceAccounts.reserved_non_system_uid?(uid),
+          do: Humans.allocate_non_system_handle_in_tx(uid),
+          else: uid
+
+      {:ok, {:new, safe_uid}}
+    end
   end
 
   defp email_owner_uids(email) do
@@ -480,10 +486,10 @@ defmodule Ankole.Principals.PlatformSubjects do
   defp active_human_result(%{principal: %Principal{status: :disabled}}),
     do: {:error, :principal_disabled}
 
-  defp active_human_result(%{principal: %Principal{type: :agent}}), do: {:error, :not_human}
-
   defp active_human_result(%{principal: %Principal{type: :human, status: :active} = principal}),
     do: {:ok, principal}
+
+  defp active_human_result(%{principal: %Principal{type: _non_human}}), do: {:error, :not_human}
 
   defp required_provider(attrs, key) do
     with {:ok, value} <- Humans.required_text(attrs, key) do

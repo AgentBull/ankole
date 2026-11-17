@@ -558,7 +558,7 @@ export class ChangeSet {
   }
 
   /**
-   * Clip the set to only a sub-region. This can fail, if there are
+   * Clip the set to only a sub-region. This can fail if there are
    * replacements across the region's sides, in which case the
    * method returns null
    */
@@ -570,10 +570,10 @@ export class ChangeSet {
         len = this.sections[i++]!,
         ins = this.sections[i++]!
       const end = pos + len
-      if (ins > 0) {
-        if (pos >= from && end <= to) addSection(sections, data, end - pos, ins, value)
-        else if (end > from && pos < from) return null
-      } else if (pos < to && end > from) {
+      if (pos >= from && end <= to) {
+        addSection(sections, data, len, ins, value)
+      } else if (end > from && pos < to) {
+        if (ins >= 0) return null
         addSection(sections, data, Math.min(end, to) - Math.max(pos, from), ins, value)
       }
       pos = end

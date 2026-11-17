@@ -460,6 +460,38 @@ describe('composition', () => {
     ist(wg.state.doc, listDoc(emptyUl(emptyLi(p('你')))), eq)
   })
 
+  it('ends an unclosed composition on non-composing keydown, blur, or pointer selection', () => {
+    const wg = requireFocus(tempEditor(doc(p('hello world'))))
+    const text = wg.contentDOM.firstChild!.firstChild as Text
+    document.getSelection()!.setBaseAndExtent(text, 0, text, 5)
+    document.dispatchEvent(new Event('selectionchange'))
+    wg.flush()
+    ist(document.getSelection()!.isCollapsed, false)
+
+    compositionEvent(wg, 'compositionstart')
+    ist(wg.composing)
+    // An uncommitted empty composition does not claim an unchanged text node or block DOM selection sync.
+    wg.dispatch({ selection: GardSelection.cursor(8), userEvent: 'select.pointer' })
+    wg.flush()
+    ist(!wg.composing)
+    ist(document.getSelection()!.isCollapsed, true)
+    ist(wg.posAtDOM(document.getSelection()!.focusNode!, document.getSelection()!.focusOffset), 8)
+
+    const wgKey = requireFocus(tempEditor(doc(p('hello'))))
+    compositionEvent(wgKey, 'compositionstart')
+    ist(wgKey.composing)
+    wgKey.contentDOM.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', keyCode: 65, isComposing: false, bubbles: true })
+    )
+    ist(!wgKey.composing)
+
+    const wgBlur = requireFocus(tempEditor(doc(p('hello'))))
+    compositionEvent(wgBlur, 'compositionstart')
+    ist(wgBlur.composing)
+    wgBlur.contentDOM.dispatchEvent(new FocusEvent('blur'))
+    ist(!wgBlur.composing)
+  })
+
   // FIXME text composition next to widgets
 
   // FIXME test enter-at-end-of-selection situation (especially on Android)

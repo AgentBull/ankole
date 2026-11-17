@@ -1,4 +1,4 @@
-import { expectMarkdown, caret, expect, openDocument, reopen, test } from './helpers'
+import { caret, clipboard, expect, expectMarkdown, openDocument, reopen, selectText, test } from './helpers'
 
 test('a code block shows Kirari tokens and changes language from its toolbar', async ({ page }) => {
   await openDocument(page, '```js\nconst answer = 42\n```')
@@ -260,4 +260,129 @@ test('Enter and Escape that confirm an IME candidate in the language search do n
   await expect(page.locator('.editor-code-language')).toHaveText('JavaScript')
   await page.keyboard.press('Enter')
   await expect(page.locator('.editor-code-language')).toHaveText('Python')
+})
+
+test('inline formulas render inside prose, edit in place, and resume typing after Enter', async ({ page }) => {
+  await openDocument(page, 'Before $$E = mc^2$$ after')
+  const inline = page.locator('.math-inline')
+  await expect(inline).toHaveCount(1)
+  await expect(inline.locator('math')).toBeVisible()
+  await expect(inline).toHaveAttribute('data-inline-math', 'E = mc^2')
+
+  await inline.click()
+  const editor = page.locator('.math-editor')
+  const input = editor.locator('input')
+  await expect(editor).toBeVisible()
+  await expect(inline).toHaveAttribute('data-editing', 'true')
+  await expect(input).toBeFocused()
+  await expect(input).toHaveValue('E = mc^2')
+
+  // IME candidate confirmation Enter/Escape inside the formula input does not dismiss the panel.
+  for (const key of ['Enter', 'Escape']) {
+    await input.evaluate((el, key) => {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key, isComposing: true, bubbles: true, cancelable: true }))
+    }, key)
+  }
+  await expect(editor).toBeVisible()
+
+  await input.fill('x^2 + y^2')
+  await expect(editor).not.toHaveAttribute('data-invalid', 'true')
+  await editor.getByRole('button', { name: '完成' }).click()
+  await expect(editor).toHaveCount(0)
+  await expect(inline).not.toHaveAttribute('data-editing', 'true')
+  await page.keyboard.type('!')
+  await expectMarkdown(page, 'Before $$x^2 + y^2$$! after')
+})
+
+test('block and inline formulas ignore outer $xxxx$ and \\(xxxx\\) delimiters and normalize on close', async ({
+  page
+}) => {
+  await openDocument(page, 'Inline <inline-math>$y^2$</inline-math>\n\n$$\n$x^2 + 1$\n$$')
+  const inline = page.locator('.math-inline')
+  const block = page.locator('.math-block')
+  await expect(inline.locator('math')).toBeVisible()
+  await expect(block.locator('math')).toBeVisible()
+  await expect(inline).not.toHaveClass(/is-invalid/)
+  await expect(block).not.toHaveClass(/is-invalid/)
+
+  await block.click()
+  const editor = page.locator('.math-editor')
+  const input = editor.locator('input')
+  await expect(input).toBeFocused()
+  await input.fill('$E = mc^2$')
+  await expect(editor).not.toHaveAttribute('data-invalid', 'true')
+  await expect(block.locator('math')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(block).toHaveAttribute('data-math', 'E = mc^2')
+
+  await inline.click()
+  await expect(input).toBeFocused()
+  await input.fill('\\(a + b\\)')
+  await expect(editor).not.toHaveAttribute('data-invalid', 'true')
+  await expect(inline.locator('math')).toBeVisible()
+  await page.keyboard.press('Enter')
+  await expect(inline).toHaveAttribute('data-inline-math', 'a + b')
+  await expectMarkdown(page, 'Inline $$a + b$$\n\n$$\nE = mc^2\n$$')
+})
+
+test('typing shortcuts, slash menu, selection toolbar, and Mod+Shift+E create inline and block formulas', async ({
+  page
+}) => {
+  await openDocument(page, 'Energy')
+  await caret(page.locator('.editor-content > p'), 'end')
+  await page.keyboard.type(' $$mc^2$$')
+  await expect(page.locator('.math-inline')).toHaveAttribute('data-inline-math', 'mc^2')
+  await expectMarkdown(page, 'Energy $$mc^2$$')
+
+  // Undoing the typing shortcut restores the literal typed characters in one step.
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect(page.locator('.math-inline')).toHaveCount(0)
+  await expectMarkdown(page, 'Energy \\$\\$mc^2\\$\\$')
+
+  // `$$` + Enter on an empty paragraph opens a display formula block.
+  await openDocument(page, 'Lead')
+  await caret(page.locator('.editor-content > p'), 'end')
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('$$')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.math-editor')).toBeVisible()
+  await page.locator('.math-editor input').fill('a = b')
+  await page.keyboard.press('Escape')
+  await expectMarkdown(page, 'Lead\n\n$$\na = b\n$$\n\n<p />')
+
+  // Slash menu `/行内公式` inserts an empty inline formula chip and opens its editor.
+  await openDocument(page, 'Value:')
+  await caret(page.locator('.editor-content > p'), 'end')
+  await page.keyboard.type(' /inline')
+  await page.getByRole('option', { name: /行内公式/ }).click()
+  await expect(page.locator('.math-editor')).toBeVisible()
+  await expect(page.locator('.math-inline')).toContainText('新公式')
+  await page.locator('.math-editor input').fill('k + 1')
+  await page.keyboard.press('Enter')
+  await page.keyboard.type(' items')
+  await expectMarkdown(page, 'Value: $$k + 1$$ items')
+
+  // Selection toolbar button and Mod+Shift+E convert selected text (unwrapping `$…$`) into inline math.
+  await openDocument(page, 'Wrap $x + y$ and z')
+  await selectText(page, 'Wrap $x + y$ and z', 5, 'Wrap $x + y$ and z', 12)
+  await page.getByRole('toolbar', { name: '选区格式' }).getByRole('button', { name: '行内公式' }).click()
+  await expect(page.locator('.math-editor input')).toHaveValue('x + y')
+  await page.keyboard.press('Escape')
+
+  await selectText(page, ' and z', 5, ' and z', 6)
+  await expect(page.getByRole('toolbar', { name: '选区格式' })).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+Shift+E')
+  await expect(page.locator('.math-editor input')).toHaveValue('z')
+  await page.keyboard.press('Enter')
+  await expectMarkdown(page, 'Wrap $$x + y$$ and $$z$$')
+
+  // Pasting rendered KaTeX HTML (such as from Ankole Pod Chat) preserves inline and display formulas cleanly.
+  await openDocument(page, '')
+  await clipboard(page.locator('.editor-content'), 'paste', {
+    'text/html':
+      '<p>From chat: <span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi>E</mi></mrow><annotation encoding="application/x-tex">E = mc^2</annotation></semantics></math></span><span class="katex-html">E=mc2</span></span></p>' +
+      '<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math display="block"><semantics><mrow><mi>x</mi></mrow><annotation encoding="application/x-tex">x + y = z</annotation></semantics></math></span><span class="katex-html">x+y=z</span></span></span></p>',
+    'text/plain': 'From chat: E = mc^2E=mc2\nx + y = zx+y=z'
+  })
+  await expectMarkdown(page, 'From chat: $$E = mc^2$$\n\n$$\nx + y = z\n$$')
 })

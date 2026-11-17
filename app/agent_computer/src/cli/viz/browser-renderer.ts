@@ -352,7 +352,7 @@ export class VizBrowserSession {
     const page = await context.newPage()
     await page.goto(htmlFileUrl, { waitUntil: 'load' })
     await page.waitForFunction(
-      () => Boolean((window as unknown as { __ANKOLE_VIZ_HARNESS__?: AnkoleVizBrowserHarness }).__ANKOLE_VIZ_HARNESS__),
+      () => Boolean((window as Window & { __ANKOLE_VIZ_HARNESS__?: AnkoleVizBrowserHarness }).__ANKOLE_VIZ_HARNESS__),
       undefined,
       { timeout: 15_000 }
     )

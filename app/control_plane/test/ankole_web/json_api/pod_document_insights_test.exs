@@ -28,7 +28,7 @@ defmodule AnkoleWeb.JSONAPI.PodDocumentInsightsTest do
     assert updated == DateTime.to_iso8601(page.updated_at)
   end
 
-  test "browser visits and privacy expose typed insights and paginated readers", %{conn: conn} do
+  test "browser visits expose typed insights and paginated readers", %{conn: conn} do
     {conn, uid} = console_conn_with_principal(conn)
     actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
     {:ok, page} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: uid})
@@ -38,12 +38,13 @@ defmodule AnkoleWeb.JSONAPI.PodDocumentInsightsTest do
       |> put_req_header("accept", "application/vnd.api+json")
       |> put_req_header("content-type", "application/vnd.api+json")
 
-    assert %{"user_state" => %{"visited_at" => visited}} =
+    assert %{"user_state" => %{"visited_at" => visited} = user_state} =
              conn
              |> put("/api/v2/pod/pages/#{page.id}/user-state", %{data: %{visited: true}})
              |> json_response(200)
 
     assert is_binary(visited)
+    refute Map.has_key?(user_state, "hide_visits")
 
     assert %{
              "total" => 1,
@@ -51,11 +52,18 @@ defmodule AnkoleWeb.JSONAPI.PodDocumentInsightsTest do
            } = conn |> get("/api/v2/pod/pages/#{page.id}/viewers") |> json_response(200)
 
     assert %{"daily" => [%{"views" => 1}], "can_view_readers" => true} =
-             conn |> get("/api/v2/pod/pages/#{page.id}/insights") |> json_response(200)
+             insights = conn |> get("/api/v2/pod/pages/#{page.id}/insights") |> json_response(200)
 
-    assert %{"user_state" => %{"hide_visits" => true}} =
+    refute Map.has_key?(insights, "hide_visits")
+
+    assert %{"errors" => [_ | _]} =
              conn
              |> put("/api/v2/pod/pages/#{page.id}/user-state", %{data: %{hide_visits: true}})
+             |> json_response(400)
+
+    assert %{"user_state" => %{"visited_at" => nil}} =
+             conn
+             |> put("/api/v2/pod/pages/#{page.id}/user-state", %{data: %{visited: false}})
              |> json_response(200)
 
     assert %{"total" => 0, "viewers" => []} =

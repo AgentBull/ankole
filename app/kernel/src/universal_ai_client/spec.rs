@@ -423,6 +423,8 @@ impl ResponseContext {
         request.remove("__ankole_stateful_provider_replay");
         request.remove("__ankole_emulate_custom_tools");
         request.remove("__ankole_chat_max_tokens_field");
+        request.remove("__ankole_upstream_previous_response_id");
+        request.remove("__ankole_anthropic_thread");
 
         if let Some(stream) = self.stream {
             request.insert("stream".to_string(), json!(stream));

@@ -73,6 +73,8 @@ type FakeCodexBehavior = {
   repeatIncompleteResponse?: boolean
   /** The first turn overflows the context window; the retry turn compacts automatically part-way through. */
   compactFirstTurn?: boolean
+  suppressCompactionCompletion?: boolean
+  turnStartDelayMs?: number
 }
 
 function parsedJSON(bytes: Uint8Array | undefined): JSONObject | undefined {
@@ -1382,6 +1384,48 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
+  it('stopping during compaction ends the handshake without starting another turn', async () => {
+    const fixture = prepareFixture('must not continue', {
+      compactFirstTurn: true,
+      suppressCompactionCompletion: true
+    })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const controller = new AbortController()
+    const opts = options(fixture.root, statusUpdates, [])
+    opts.abortSignal = controller.signal
+    try {
+      const run = runCodexJob(turnStart(), opts)
+      await waitForFile(join(codexHomeFor(fixture.root), 'compact-start.json'))
+      controller.abort(new Error('stop while compacting'))
+      await run
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'stopped'])
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('1')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('interrupts a turn whose start reply arrives after the stop', async () => {
+    const fixture = prepareFixture('must not continue', { turnStartDelayMs: 100 })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const controller = new AbortController()
+    const opts = options(fixture.root, statusUpdates, [])
+    opts.abortSignal = controller.signal
+    try {
+      const run = runCodexJob(turnStart(), opts)
+      await waitForFile(join(codexHomeFor(fixture.root), 'turn-count.txt'))
+      controller.abort(new Error('stop during turn/start'))
+      await run
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'stopped'])
+      expect(JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'turn-interrupt.json'), 'utf8'))).toEqual({
+        threadId: 'thread-1',
+        turnId: 'turn-1'
+      })
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
   it('does not prepare or spawn Codex for a turn that was already stopped', async () => {
     const fixture = prepareFixture('must not run')
     const statusUpdates: RecordedStatusUpdate[] = []
@@ -1774,6 +1818,8 @@ const workAfterResponse = ${JSON.stringify(behavior.workAfterResponse)}
 const compactionAfterResponse = ${JSON.stringify(behavior.compactionAfterResponse)}
 const repeatIncompleteResponse = ${JSON.stringify(behavior.repeatIncompleteResponse)}
 const compactFirstTurn = ${JSON.stringify(behavior.compactFirstTurn)}
+const suppressCompactionCompletion = ${JSON.stringify(behavior.suppressCompactionCompletion)}
+const turnStartDelayMs = ${JSON.stringify(behavior.turnStartDelayMs)}
 function write(message) { process.stdout.write(JSON.stringify(message) + '\\n') }
 function handle(message) {
   if (message.id === 101 && Object.hasOwn(message, 'result')) {
@@ -1835,6 +1881,10 @@ function handle(message) {
     const input = Array.isArray(message.params.input) ? message.params.input[0]?.text : ''
     if (turnCount === 1) writeFileSync(process.env.CODEX_HOME + '/turn-input.txt', input || '')
     const turnID = 'turn-' + turnCount
+    if (turnStartDelayMs) {
+      setTimeout(() => write({ id: message.id, result: { turn: { id: turnID, status: 'in_progress' } } }), turnStartDelayMs)
+      return
+    }
     write({ id: message.id, result: { turn: { id: turnID, status: 'in_progress' } } })
     if (suppressTurnNotifications) return
     if (compactFirstTurn) {
@@ -1978,10 +2028,14 @@ function handle(message) {
     setTimeout(() => write({ id: message.id, error: { code: -32000, message: 'turn already completed' } }), 5)
     return
   }
-  if (message.method === 'turn/interrupt') return write({ id: message.id, result: {} })
+  if (message.method === 'turn/interrupt') {
+    writeFileSync(process.env.CODEX_HOME + '/turn-interrupt.json', JSON.stringify(message.params))
+    return write({ id: message.id, result: {} })
+  }
   if (message.method === 'thread/compact/start') {
     writeFileSync(process.env.CODEX_HOME + '/compact-start.json', JSON.stringify(message.params))
     write({ id: message.id, result: {} })
+    if (suppressCompactionCompletion) return
     setTimeout(() => {
       write({ method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-compact', status: 'inProgress', items: [] } } })
       write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: 'turn-compact', item: { type: 'contextCompaction', id: 'compaction-1' } } })

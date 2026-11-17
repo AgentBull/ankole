@@ -42,7 +42,6 @@ import i18n from '../../common/i18n'
 import { requestErrorCode, requestErrorDetailList, requestErrorMessage } from '../../common/request-errors'
 import {
   decryptSiteAppConfigurationMutation,
-  getPrivilegedTenantOptions,
   resetSiteAppConfigurationMutation,
   listSiteAppConfigurationsOptions,
   getSiteAppConfigurationOptions,
@@ -51,7 +50,6 @@ import {
   testSiteAuthenticationMailMutation,
   listAiGatewayProvidersOptions
 } from '../api/v2-site/generated/@tanstack/react-query.gen'
-import { fromDocument } from '../api/json-api'
 import {
   decryptAppConfigurationMutation,
   resetAppConfigurationMutation,
@@ -68,7 +66,7 @@ import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
 import { settingDescription, settingGroup, settingGroupID, settingOwnerRoute } from '../state/setting-groups'
 import { SettingsList, SettingsTenantContext } from './settings-list'
 import { settingsScope, settingsSearch } from '../state/settings-search'
-import { SettingEditorModel, syncConsoleLocaleIfPrivileged } from '../state/setting-editor-model'
+import { SettingEditorModel } from '../state/setting-editor-model'
 import { SettingGroupEditorModel } from '../state/setting-group-editor-model'
 import {
   BRAIN_KEYS,
@@ -82,6 +80,7 @@ import { OBSERVABILITY_TRACE_KEYS } from '../state/observability-setting-editor'
 import { BrainSettingsEditor } from './brain-settings-editor'
 import { ObservabilitySettingsEditor } from './observability-settings-editor'
 import { SettingValueEditor } from './setting-value-editors'
+import { useConsoleSlots } from '../slots'
 import { SettingsTaskEditor } from './settings-task-editor'
 import { DURATION_SWITCHES, retentionLength, settingDurationParts } from '../state/setting-value-editor'
 
@@ -117,11 +116,12 @@ export function SettingsPage() {
 }
 
 export function SettingEditorDrawer() {
+  const { settingGroups, settingOwners } = useConsoleSlots()
   const params = useParams({ strict: false })
   const [search] = useSearchParams()
   const key = params.key ?? ''
-  const group = settingGroupID(key)
-  const owner = settingOwnerRoute(key, settingsScope(search))
+  const group = settingGroupID(key, settingGroups)
+  const owner = settingOwnerRoute(key, settingsScope(search), settingOwners)
   if (group) return <Navigate to={`/settings/group/${group}`} search={settingsSearch(search, { focus: key })} replace />
   if (owner) {
     return <Navigate {...linkTarget(owner)} replace />
@@ -149,11 +149,6 @@ function SingleSettingEditorDrawer() {
     }) > 0
 
   const list = useQuery(api.index())
-  const privilegedTenant = useBaseQuery({
-    ...getPrivilegedTenantOptions(),
-    select: document => fromDocument(document),
-    enabled: scope === 'tenant' && key === 'i18n.default_locale'
-  })
   const summary = list.data?.app_configurations.find(item => item.key === key)
   const detail = useQuery({
     ...api.show({ path: { key } }),
@@ -206,17 +201,7 @@ function SingleSettingEditorDrawer() {
     if (!item?.overridden) return
     return model
       .restore(
-        async () => {
-          const restored = (await restoreDefault.mutateAsync({ path: { key: item.key } })).app_configuration
-          await syncConsoleLocaleIfPrivileged({
-            scope,
-            key: item.key,
-            value: restored.value,
-            selectedTenantID: dataTenantID(),
-            privilegedTenantID: privilegedTenant.data?.id
-          })
-          return restored
-        },
+        async () => (await restoreDefault.mutateAsync({ path: { key: item.key } })).app_configuration,
         clean => {
           setRestoreDefaultOpen(false)
           finish(i18n.t('console.settings.reset_done', { key: item.key }), clean)
@@ -256,17 +241,7 @@ function SingleSettingEditorDrawer() {
       .save(
         item.encrypted,
         t,
-        async body => {
-          const saved = (await update.mutateAsync({ body: { data: body }, path: { key: item.key } })).app_configuration
-          await syncConsoleLocaleIfPrivileged({
-            scope,
-            key: item.key,
-            value: saved.value,
-            selectedTenantID: dataTenantID(),
-            privilegedTenantID: privilegedTenant.data?.id
-          })
-          return saved
-        },
+        async body => (await update.mutateAsync({ body: { data: body }, path: { key: item.key } })).app_configuration,
         clean => finish(i18n.t('console.settings.saved', { key: item.key }), clean)
       )
       .catch(error => toast.error(requestErrorMessage(error)))
@@ -441,6 +416,7 @@ function SingleSettingEditorDrawer() {
  * Edits one declared task in one scope. The server validates and commits the entire batch.
  */
 export function SettingGroupDrawer() {
+  const { settingGroups } = useConsoleSlots()
   useSignals()
   const queryClient = useQueryClient()
   const { t } = useTranslation()
@@ -452,7 +428,7 @@ export function SettingGroupDrawer() {
   const scope = settingsScope(searchParams)
   const api = SETTING_API[scope]
   const groupID = params.group ?? ''
-  const group = settingGroup(groupID)
+  const group = settingGroup(groupID, settingGroups)
   const [restoreItem, setRestoreItem] = useState<AppConfigurationItem>()
   const [embeddingChangeOpen, setEmbeddingChangeOpen] = useState(false)
   const providers = useBaseQuery({
@@ -466,7 +442,9 @@ export function SettingGroupDrawer() {
     }) > 0
 
   const list = useQuery({ ...api.index(), enabled: !writing, staleTime: 0 })
-  const members = (list.data?.app_configurations ?? []).filter(item => group && settingGroupID(item.key) === group.id)
+  const members = (list.data?.app_configurations ?? []).filter(
+    item => group && settingGroupID(item.key, settingGroups) === group.id
+  )
   const items = members.filter(item => item.editable)
   const sourceKey = `setting-group:${scope}:${dataTenantID() ?? 'privileged'}:${groupID}`
   const sourceReady =
@@ -713,7 +691,7 @@ export function SettingGroupDrawer() {
                     ) : draftStatus === 'ready' && group ? (
                       <SettingsTaskEditor
                         key={sourceKey}
-                        group={group.id}
+                        group={group}
                         items={items}
                         drafts={model.drafts.value}
                         onDraftChange={model.setDraft}

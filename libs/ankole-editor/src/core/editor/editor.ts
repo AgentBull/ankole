@@ -32,7 +32,7 @@ import {
 } from './input'
 import { ViewState, scrollIntoView, ScrollTarget, UpdateFlag } from './viewstate'
 import browser from './browser'
-import { DOMNode, getRoot, clearScratchRange, scrollRectIntoView } from './dom'
+import { DOMNode, getRoot, clearScratchRange, scrollRectIntoView, isElt } from './dom'
 import { setDOMSelection, moveVertically, moveToLineBoundary } from './selection'
 import { cursorBlinkRate, CursorLayer } from './drawcursor'
 import { exceptionSink, logException, logException as reportException } from './util'
@@ -398,8 +398,15 @@ export class Wordgard {
     if (!update.empty || rejected) this.inputState.update(update)
     this.docTile = prevDocTile.update(update.state, changes, this, composition)
 
+    const focusedNow = update.transactions.some(tr => tr.annotation(isFocusChange) === true)
     if (
-      (composition?.wrapCursor || (!composition && (prevDocTile != this.docTile || update.selectionSet || rejected))) &&
+      (composition?.wrapCursor ||
+        (!composition &&
+          (prevDocTile != this.docTile ||
+            update.selectionSet ||
+            this.observer.selectionChanged ||
+            focusedNow ||
+            rejected))) &&
       this.hasFocus
     ) {
       setDOMSelection(this)
@@ -582,8 +589,8 @@ export class Wordgard {
   nodeDOM(pos: number): Element | null {
     this.ensureFlushed()
     const tile = this.docTile.nodeTile(pos)
-    if (!tile || tile.dom.nodeType != 1) return null
-    return tile.dom as Element
+    if (!tile || !isElt(tile.dom)) return null
+    return tile.dom
   }
 
   /**
@@ -1294,6 +1301,11 @@ export namespace Wordgard {
           if (value) observer(event as HTMLElementEventMap[Event], wg, value)
         }
       })
+    }
+
+    /** @internal */
+    toString() {
+      return 'Plugin'
     }
   }
 

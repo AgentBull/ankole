@@ -121,6 +121,47 @@ export function SetupApp() {
     { id: 'identity', label: t('setup.step_identity') }
   ]
 
+  const renderStepContent = () => {
+    if (state.error) {
+      return (
+        <SetupPanel title={t('setup.title')}>
+          <ErrorBlock
+            error={state.error}
+            action={
+              <Button size="sm" type="button" variant="outline" onClick={() => void state.refetch()}>
+                {t('common.retry')}
+              </Button>
+            }
+          />
+        </SetupPanel>
+      )
+    }
+    if (state.isLoading) return <SetupPanel title={t('setup.title')}>{t('common.loading')}</SetupPanel>
+    if (!authenticated) {
+      return (
+        <BootstrapGate
+          setupState={state.data}
+          onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ['setup-state'] })}
+        />
+      )
+    }
+    if (plugins.error) return <ErrorBlock error={plugins.error} />
+    if (!pluginsModel.sourceKey.value) return <SetupPanel title={t('setup.title')}>{t('common.loading')}</SetupPanel>
+    if (step === 'plugins') {
+      return <PluginsStep model={pluginsModel} onContinue={() => completeStep('plugins', 'industry')} />
+    }
+    if (step === 'industry') {
+      return <BrainPacksStep onContinue={() => completeStep('industry', 'identity')} />
+    }
+    return (
+      <IdentityStep
+        model={identityModel}
+        pluginsModel={pluginsModel}
+        publicBaseURL={state.data?.publicBaseURL ?? window.location.origin}
+      />
+    )
+  }
+
   return (
     <SetupLayout>
       <fieldset
@@ -170,39 +211,7 @@ export function SetupApp() {
 
         <div className="min-w-0">
           <ErrorBoundary variant="panel" resetKeys={[currentStep, authenticated]}>
-            {state.error ? (
-              <SetupPanel title={t('setup.title')}>
-                <ErrorBlock
-                  error={state.error}
-                  action={
-                    <Button size="sm" type="button" variant="outline" onClick={() => void state.refetch()}>
-                      {t('common.retry')}
-                    </Button>
-                  }
-                />
-              </SetupPanel>
-            ) : state.isLoading ? (
-              <SetupPanel title={t('setup.title')}>{t('common.loading')}</SetupPanel>
-            ) : !authenticated ? (
-              <BootstrapGate
-                setupState={state.data}
-                onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ['setup-state'] })}
-              />
-            ) : plugins.error ? (
-              <ErrorBlock error={plugins.error} />
-            ) : !pluginsModel.sourceKey.value ? (
-              <SetupPanel title={t('setup.title')}>{t('common.loading')}</SetupPanel>
-            ) : step === 'plugins' ? (
-              <PluginsStep model={pluginsModel} onContinue={() => completeStep('plugins', 'industry')} />
-            ) : step === 'industry' ? (
-              <BrainPacksStep onContinue={() => completeStep('industry', 'identity')} />
-            ) : (
-              <IdentityStep
-                model={identityModel}
-                pluginsModel={pluginsModel}
-                publicBaseURL={state.data?.publicBaseURL ?? window.location.origin}
-              />
-            )}
+            {renderStepContent()}
           </ErrorBoundary>
         </div>
       </fieldset>

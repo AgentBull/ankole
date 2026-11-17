@@ -94,8 +94,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       |> init_test_session(%{})
       |> get(~p"/sessions/oidc/lark-main/callback", %{"code" => "code", "state" => "missing"})
 
-    assert api_response(conn, 401)["error"] ==
-             "login_expired"
+    assert html_response(conn, 401) =~ ~s(<meta name="ankole-auth-error" content="login_expired">)
 
     assert WebSession.site_admin_session(conn) == nil
   end
@@ -117,8 +116,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       end)
       |> get(~p"/sessions/oidc/other-main/callback", %{"code" => "code", "state" => "state-1"})
 
-    assert api_response(conn, 401)["error"] ==
-             "login_expired"
+    assert html_response(conn, 401) =~ ~s(<meta name="ankole-auth-error" content="login_expired">)
 
     assert WebSession.site_admin_session(conn) == nil
   end
@@ -144,8 +142,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       end)
       |> get(~p"/sessions/oidc/lark-main/callback", %{"code" => "code", "state" => "state-1"})
 
-    assert api_response(conn, 401)["error"] ==
-             "login_expired"
+    assert html_response(conn, 401) =~ ~s(<meta name="ankole-auth-error" content="login_expired">)
 
     assert WebSession.site_admin_session(conn) == nil
   end
@@ -167,10 +164,86 @@ defmodule AnkoleWeb.AuthControllerTest do
       })
       |> get(~p"/sessions/oidc/lark-main/callback", %{"code" => "code", "state" => "setup-state"})
 
-    assert api_response(conn, 409)["error"] ==
-             "setup already completed"
+    assert html_response(conn, 409) =~
+             ~s(<meta name="ankole-auth-error" content="setup already completed">)
 
     assert WebSession.site_admin_session(conn) == nil
+  end
+
+  test "OIDC callback tuple failure renders HTTP 400 auth error page instead of Protocol.UndefinedError",
+       %{conn: conn, tenant: tenant} do
+    Req.Test.set_req_test_to_shared()
+    previous = Req.default_options()
+    Req.default_options(plug: {Req.Test, __MODULE__})
+    on_exit(fn -> Req.default_options(previous) end)
+
+    directory = "11111111-1111-1111-1111-111111111111"
+    issuer = "https://login.microsoftonline.com/#{directory}/v2.0"
+    token_path = "/#{directory}/oauth2/v2.0/token"
+
+    assert {:ok, true} =
+             Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
+
+    assert {:ok, _} =
+             IdentityProviders.save_provider(
+               "entra-bad-token",
+               "entra-id",
+               %{
+                 "tenantID" => directory,
+                 "clientID" => "upstream-client",
+                 "clientSecret" => "test-secret",
+                 "sync" => %{"contacts" => false}
+               },
+               true
+             )
+
+    Req.Test.stub(__MODULE__, fn req_conn ->
+      case req_conn.request_path do
+        ^token_path ->
+          Req.Test.json(req_conn, %{
+            "id_token" => "malformed.id.token",
+            "access_token" => "access",
+            "expires_in" => 300
+          })
+
+        "/v1.0/me" ->
+          Req.Test.json(req_conn, %{
+            "id" => "graph-user",
+            "displayName" => "Upstream Human",
+            "mail" => "upstream@example.com"
+          })
+
+        _discovery ->
+          Ankole.OIDCClientFixture.discovery(req_conn, issuer, %{"keys" => []})
+      end
+    end)
+
+    authorized =
+      conn
+      |> init_test_session(%{})
+      |> pod_conn(tenant)
+      |> get("/sessions/oidc/entra-bad-token/authorization", %{"return_to" => "/content/space"})
+
+    upstream =
+      authorized
+      |> redirected_to(302)
+      |> URI.parse()
+      |> Map.fetch!(:query)
+      |> URI.decode_query()
+
+    failed =
+      authorized
+      |> recycle()
+      |> pod_conn(tenant)
+      |> get("/sessions/oidc/entra-bad-token/callback", %{
+        "code" => "code-1",
+        "state" => upstream["state"]
+      })
+
+    assert html_response(failed, 400) =~
+             ~s(<meta name="ankole-auth-error" content="invalid_id_token">)
+
+    assert WebSession.pod_session(failed) == nil
   end
 
   test "requesting email OTP and starting SSO do not lock out switching between sign-in methods",
@@ -208,15 +281,8 @@ defmodule AnkoleWeb.AuthControllerTest do
         display_name: "Method Switcher"
       })
 
-    otp_origin =
-      if @host_policy do
-        site = URI.parse(AnkoleWeb.PodURL.site_origin(conn))
-        URI.to_string(%{site | host: String.replace_prefix(site.host, "console.", "accounts.")})
-      else
-        AnkoleWeb.PodURL.origin(conn, tenant)
-      end
-
-    otp_uri = URI.parse(otp_origin)
+    login_uri = URI.parse(AnkoleWeb.PodURL.login_url(conn, tenant))
+    otp_uri = %{login_uri | path: nil, query: nil}
 
     otp_payload =
       if @host_policy do

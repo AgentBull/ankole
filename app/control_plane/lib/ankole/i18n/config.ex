@@ -34,6 +34,7 @@ defmodule Ankole.I18n.Config do
       encrypted: false,
       schema: Schema.new(&validate_locale/1),
       default_value: @default_locale,
+      console_writable: false,
       description: "Default locale used when rendering Ankole text in this Pod."
     )
   end

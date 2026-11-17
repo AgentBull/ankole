@@ -1,9 +1,38 @@
 defmodule Ankole.CredentialUpgrade do
-  @moduledoc false
+  @moduledoc """
+  One-time 1.x -> 2.0 credential preflight and OIDC session migration helpers.
+
+  Sunset: Remove at 2.0.0 GA alongside `Ankole.Upgrade202610`.
+  """
   Module.register_attribute(__MODULE__, :raw_sql_scope, persist: true)
   @raw_sql_scope :site
   # The tenant created by the frozen AddMultiTenancy migration.
   @legacy_tenant_id "019a2b00-0000-7000-8000-000000000001"
+
+  @doc "O(1) sentinel check ensuring an unmigrated 1.x database runs `upgrade_from_1x`."
+  def ensure_not_unmigrated_1x!(repo) do
+    if table?(repo, "schema_migrations") do
+      %{rows: [[legacy_1x?]]} =
+        repo.query!(
+          """
+          SELECT EXISTS (SELECT 1 FROM schema_migrations LIMIT 1)
+            AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version = 20261009120000 LIMIT 1)
+          """,
+          []
+        )
+
+      if legacy_1x? do
+        raise """
+        Detected an unmigrated 1.x Ankole database.
+        Run the explicit one-time 1.x upgrade command before running standard 2.0 migrations:
+          /app/bin/upgrade_from_1x
+        (or in Mix: mix run --no-start -e 'Ankole.Release.upgrade_from_1x()')
+        """
+      end
+    end
+
+    :ok
+  end
 
   # Use the same classification before and during the schema migration.
   def offboarded_sql(alias_name \\ "p", tenant_scoped? \\ true) do
@@ -63,13 +92,6 @@ defmodule Ankole.CredentialUpgrade do
   def preflight!(repo) do
     sources =
       [
-        {"saas_accounts",
-         """
-         SELECT #{tenant_column(repo, "principal_external_identities", "i")} AS tenant_id, i.principal_uid, lower(btrim(a.email)) AS email
-         FROM principal_external_identities i
-         JOIN saas_accounts a ON a.id::text = i.external_id
-         WHERE i.provider = 'saas-account'
-         """},
         {"human_user_local_credentials",
          """
          SELECT #{tenant_column(repo, "human_users", "h")} AS tenant_id, h.principal_uid, lower(btrim(h.email)) AS email
@@ -82,6 +104,7 @@ defmodule Ankole.CredentialUpgrade do
          FROM principal_site_credentials c WHERE provider = 'email_otp'
          """}
       ]
+      |> Kernel.++(edition_sources(repo))
       |> Enum.filter(fn {table, _} -> table?(repo, table) end)
       |> Enum.map(&elem(&1, 1))
 
@@ -132,7 +155,17 @@ defmodule Ankole.CredentialUpgrade do
     :ok
   end
 
-  defp tenant_column(repo, table, alias_name) do
+  defp edition_sources(repo) do
+    module = Application.get_env(:ankole, :edition_config)
+
+    if module && Code.ensure_loaded?(module) &&
+         function_exported?(module, :legacy_credential_sources, 1),
+       do: module.legacy_credential_sources(repo),
+       else: []
+  end
+
+  @doc false
+  def tenant_column(repo, table, alias_name) do
     %{rows: [[scoped?]]} =
       repo.query!(
         """

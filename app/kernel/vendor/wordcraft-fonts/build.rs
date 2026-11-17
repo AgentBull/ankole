@@ -12,15 +12,15 @@ use std::path::PathBuf;
 fn main() {
     println!("cargo::rerun-if-env-changed=CRAFT_FONTS_DIR");
     println!("cargo::rerun-if-env-changed=CRAFT_FONTS_REQUIRED");
+    let wasm = std::env::var("CARGO_CFG_TARGET_ARCH").is_ok_and(|a| a == "wasm32");
     let mut src = String::from("pub static CRAFT_FONTS: &[CraftFont] = &[\n");
-    if let Some(dir) = std::env::var_os("CRAFT_FONTS_DIR").map(PathBuf::from) {
+    if !wasm && let Some(dir) = std::env::var_os("CRAFT_FONTS_DIR").map(PathBuf::from) {
         match craft_fonts(&dir) {
             Ok((entries, covered)) => {
                 src.push_str(&entries);
                 // Each CJK interface language needs its own face: without the Chinese one, Chinese
                 // menus fall back to the Japanese face and show boxes for simplified hanzi (#241).
-                let wasm = std::env::var("CARGO_CFG_TARGET_ARCH").is_ok_and(|a| a == "wasm32");
-                if std::env::var_os("CRAFT_FONTS_REQUIRED").is_some() && !wasm {
+                if std::env::var_os("CRAFT_FONTS_REQUIRED").is_some() {
                     for s in REQUIRED_SCRIPTS
                         .iter()
                         .filter(|s| !covered.iter().any(|c| c == *s))

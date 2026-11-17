@@ -10,7 +10,7 @@ defmodule Ankole.AgentWorkers.Providers.ConsoleActions do
     items =
       Enum.map(
         Ankole.AgentWorkers.ProviderKind.all(),
-        &Map.take(&1.definition(), [:kind, :example, :credentials])
+        &Map.take(&1.definition(), [:kind, :support_tier, :example, :credentials])
       )
 
     {:ok, %{worker_provider_kinds: items}}

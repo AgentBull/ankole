@@ -1396,6 +1396,106 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     assert :ok = :otel_tracer_provider.force_flush()
   end
 
+  test "exports allowlisted provider_options reasoning parameters and channel dimensions while filtering secrets" do
+    enable_export(self(), "langfuse")
+
+    signal = %Ankole.Signals.Signal{
+      id: "019a5000-channel-trace-1",
+      tenant_id: Ankole.Repo.tenant_id!(),
+      agent_uid: "agent-channel",
+      session_id: "conv-channel",
+      conversation_id: nil,
+      source: "test://lark",
+      source_event_id: "evt-lark-1",
+      type: "conversation.message.addressed",
+      reply_binding_name: "lark",
+      data: %{"channel" => %{"adapter" => "lark", "kind" => "im_group"}},
+      occurred_at: DateTime.utc_now(:microsecond),
+      attempt_count: 1
+    }
+
+    turn =
+      Observability.start_turn(signal, %{
+        request_context: %{"session_epoch" => 1},
+        runtime_env: %{}
+      })
+
+    observation =
+      AIGatewayObservability.start_response(
+        "agent-channel",
+        %{"input" => "hello", "metadata" => %{}},
+        request_context: %{
+          "traceparent" => turn.traceparent,
+          "observability_user_id" => turn.user_id,
+          "channel_adapter" => "lark",
+          "channel_kind" => "im_group"
+        },
+        stateful: %{conversation_id: "conv-channel"},
+        subject_type: "agent"
+      )
+
+    observation =
+      AIGatewayObservability.start_round(
+        observation,
+        %{runtime: %{"provider_kind" => "openai_compatible"}},
+        %{
+          response_context: %{
+            model: "deepseek/deepseek-chat",
+            provider_options: %{
+              "reasoningEffort" => "high",
+              "thinking" => %{"type" => "enabled"},
+              "verbosity" => "medium",
+              "service_tier" => "priority",
+              "api_key" => "sk-secret",
+              "headers" => %{"authorization" => "Bearer leak"},
+              "custom_secret" => "do-not-export"
+            },
+            request: %{"input" => "hello", "temperature" => 0.2}
+          }
+        }
+      )
+
+    response = %{
+      body: %{
+        "id" => "resp-channel",
+        "model" => "deepseek/deepseek-chat",
+        "status" => "completed",
+        "output" => [%{"type" => "message", "content" => "hi"}]
+      }
+    }
+
+    observation = AIGatewayObservability.finish_round(observation, response)
+    _observation = AIGatewayObservability.finish_response(observation, response)
+    Observability.finish_turn(turn, outcome: :loop_finished)
+
+    spans =
+      exported_spans(fn list ->
+        Enum.any?(list, &(&1.name == "turn conversation.message.addressed"))
+      end)
+
+    turn_span = span!(spans, "turn conversation.message.addressed")
+    assert turn_span.attributes["channel.adapter"] == "lark"
+    assert turn_span.attributes["channel.kind"] == "im_group"
+    assert turn_span.attributes["langfuse.trace.metadata.channel_adapter"] == "lark"
+    assert turn_span.attributes["langfuse.trace.metadata.channel_kind"] == "im_group"
+    tags = Enum.map(turn_span.attributes["langfuse.trace.tags"].values, &elem(&1.value, 1))
+    assert "channel:lark" in tags
+
+    gen_span = span!(spans, "chat deepseek/deepseek-chat")
+    assert gen_span.attributes["channel.adapter"] == "lark"
+    assert gen_span.attributes["channel.kind"] == "im_group"
+
+    params = Ankole.JSON.decode!(gen_span.attributes["langfuse.observation.model.parameters"])
+    assert params["reasoningEffort"] == "high"
+    assert params["thinking"] == %{"type" => "enabled"}
+    assert params["verbosity"] == "medium"
+    assert params["service_tier"] == "priority"
+    assert params["temperature"] == 0.2
+    refute Map.has_key?(params, "api_key")
+    refute Map.has_key?(params, "headers")
+    refute Map.has_key?(params, "custom_secret")
+  end
+
   defp start_otlp_receiver(path) do
     server =
       start_supervised!(

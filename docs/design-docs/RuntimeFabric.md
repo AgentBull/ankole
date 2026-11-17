@@ -578,7 +578,14 @@ Every `rpc_error` includes an explicit `retryable` boolean and diagnostic
   Agent Computer preserves `code`, `retryable`, `details_json`, and `failure_id`
   into Actor and Background Agent Job recovery.
 
-Worker-initiated RPCs use a 300-second deadline. In Job retry accounting, the
+Worker-initiated RPCs use a 300-second deadline, and `InboundDispatcher` pushes
+`rpc_response` and `rpc_error` frames directly back onto the originating
+`WorkerChannel` process without a round-trip through Phoenix Tracker or
+PostgreSQL route fencing. On the Worker side, `TurnRecorder` retains `.jsonl`
+event spools until the control plane acknowledges receipt, and Agent Computer
+maintains a 14-day / 256-directory / `< 512 MiB` free-space LRU sweep over idle
+`/workspace/sessions/*` and `/workspace/jobs/*` directories alongside a shared
+content-addressed `skills-cas` blob store. In Job retry accounting, the
 Worker maps transport push timeouts to
 `runtime_fabric_timeout` and RPC deadlines to `runtime_rpc_timeout`; only those
 two codes and `socket_closed` count as infrastructure interruptions (ordinary

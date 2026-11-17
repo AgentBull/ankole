@@ -28,6 +28,7 @@ defmodule Ankole.Plugins.VercelWorkerProvider.Provider do
       kind: "vercel",
       credentials: %{"token" => %{required: true}},
       pause: false,
+      support_tier: :cloud_extension,
       max_instance_lifetime: 86_400,
       schema:
         C.object(
@@ -234,13 +235,15 @@ defmodule Ankole.Plugins.VercelWorkerProvider.Provider do
   end
 
   def delete_instance(provider, object, :now) do
+    sandbox_name = get_in(object, [:provider_metadata, "sandbox_name"]) || name(provider, object)
+
     with {:ok, :gone} <- stop_session(provider, object.instance_ref),
-         {:ok, sessions} <- sessions(provider, object.sandbox_name) do
+         {:ok, sessions} <- sessions(provider, sandbox_name) do
       if Enum.all?(sessions, &(&1["status"] in @terminal)) do
         case Client.request(
                provider,
                :delete,
-               "/v2/sandboxes/" <> Client.path(object.sandbox_name),
+               "/v2/sandboxes/" <> Client.path(sandbox_name),
                params: [projectId: provider.settings["projectId"]]
              ) do
           {:ok, _} -> :ok
@@ -260,10 +263,6 @@ defmodule Ankole.Plugins.VercelWorkerProvider.Provider do
   def current_storage_ref(_provider, _uid), do: {:ok, nil, nil}
   @impl true
   def delete_cache(_provider, _uid), do: :ok
-  @impl true
-  def pause_instance(_provider, _object), do: {:error, :pause_not_supported}
-  @impl true
-  def resume_instance(_provider, _object), do: {:error, :pause_not_supported}
 
   @impl true
   def delete_storage(provider, uid, _ref) do
@@ -379,7 +378,7 @@ defmodule Ankole.Plugins.VercelWorkerProvider.Provider do
          agent_uid: row.agent_uid,
          generation: row.generation,
          instance_ref: row.instance_ref,
-         sandbox_name: name(provider, row),
+         provider_metadata: %{"sandbox_name" => name(provider, row)},
          phase: :exited,
          reason: reason,
          started_at: nil
@@ -396,7 +395,7 @@ defmodule Ankole.Plugins.VercelWorkerProvider.Provider do
          agent_uid: uid,
          generation: generation,
          instance_ref: session["id"],
-         sandbox_name: name,
+         provider_metadata: %{"sandbox_name" => name},
          phase: phase,
          reason: reason,
          started_at:

@@ -1,5 +1,24 @@
 import { expect, test } from 'bun:test'
 import { resolveRoute, useRoute, useRouteMutation } from '../src/index'
+import type { AnkoleRuntimeAPI, FactInput, FactWriteResult } from '../src/server'
+
+test('server RuntimeCapabilities expose brain.writeFact and admin.brain.writeFact with structured recordRef', () => {
+  const input: FactInput = {
+    sourceNodeId: '019a2b00-0000-7000-8000-000000000010',
+    subjectPageId: '019a2b00-0000-7000-8000-000000000011',
+    claim: 'Shipment arrived 4 days late',
+    kind: 'event',
+    notability: 'high',
+    confidence: 0.95,
+    provenance: 'Warehouse receipt',
+    recordRef: { tableId: 'tbl_1', recordId: 'rec_1' }
+  }
+  const verify = (api: AnkoleRuntimeAPI): [Promise<FactWriteResult>, Promise<FactWriteResult>] => [
+    api.brain.writeFact(input),
+    api.admin.brain.writeFact(input)
+  ]
+  expect(typeof verify).toBe('function')
+})
 
 test('route substitution encodes each value as one segment and does not replace query values', () => {
   expect(resolveRoute('POST /orders/:id/items/:item', { id: 'a/b %中文', item: ':id' })).toEqual({

@@ -1,4 +1,4 @@
-import { Avatar, AvatarFallback, cn, Textarea, toast, useIsMobile } from '@ankole/uikit'
+import { Avatar, AvatarFallback, cn, ScrollFade, Textarea, toast, useIsMobile } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import { LockClosedRegular } from '@ankole/uikit/icons'
 import { useQueryClient } from '@tanstack/react-query'
@@ -1060,8 +1060,11 @@ function PresentationWorkspace({
 
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           {!isMobile && railOpen && (
-            <aside className="w-48 shrink-0 overflow-y-auto border-r border-border-subtle bg-layer-03/20 p-2">
-              <ol aria-label={t('pod.presentation.slides_rail')} className="flex flex-col gap-1.5">
+            <aside className="flex min-h-0 w-48 shrink-0 flex-col border-r border-border-subtle bg-layer-03/20 p-2">
+              <ScrollFade
+                axis="y"
+                render={<ol aria-label={t('pod.presentation.slides_rail')} />}
+                className="flex min-h-0 flex-1 flex-col gap-1.5">
                 {slides.map(slide => {
                   const isActive = slide.index === activeSlideIndex
                   const stamp = isActive
@@ -1083,7 +1086,7 @@ function PresentationWorkspace({
                     />
                   )
                 })}
-              </ol>
+              </ScrollFade>
             </aside>
           )}
 
@@ -1273,8 +1276,10 @@ function PresentationWorkspace({
           </div>
 
           {isMobile && railOpen && (
-            <aside className="shrink-0 overflow-x-auto border-t border-border-subtle bg-layer-03/20 p-2">
-              <ol aria-label={t('pod.presentation.slides_rail')} className="flex items-center gap-2">
+            <aside className="shrink-0 border-t border-border-subtle bg-layer-03/20 p-2">
+              <ScrollFade
+                render={<ol aria-label={t('pod.presentation.slides_rail')} />}
+                className="flex items-center gap-2">
                 {slides.map(slide => {
                   const isActive = slide.index === activeSlideIndex
                   const stamp = isActive
@@ -1294,7 +1299,7 @@ function PresentationWorkspace({
                     />
                   )
                 })}
-              </ol>
+              </ScrollFade>
             </aside>
           )}
         </div>

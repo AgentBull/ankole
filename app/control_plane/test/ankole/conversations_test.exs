@@ -302,7 +302,7 @@ defmodule Ankole.ConversationsTest do
              :idle
 
     :ok = Conversations.Events.subscribe(attrs.conversation_id)
-    assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
+    assert {:ok, %{status: :disabled}} = Ankole.Principals.disable_agent(agent.uid)
     assert_receive {:conversation_event, id, :status}
     assert id == attrs.conversation_id
     assert Conversations.agents(Ankole.PrincipalsFixtures.actor_fixture(human.uid)) == []
@@ -330,7 +330,7 @@ defmodule Ankole.ConversationsTest do
     assert {:ok, %{agent: %{status: :active}}} =
              Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
 
-    assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
+    assert {:ok, %{status: :disabled}} = Ankole.Principals.disable_agent(agent.uid)
     assert_receive {:conversation_event, ^id, :status}
     assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
     assert_receive {:conversation_event, ^id, :status}
@@ -363,7 +363,7 @@ defmodule Ankole.ConversationsTest do
     assert {:error, :rollback} =
              Repo.transact(fn ->
                assert {:ok, {%{status: :disabled}, _ids}} =
-                        Ankole.Principals.delete_agent_in_tx(agent.uid)
+                        Ankole.Principals.disable_agent_in_tx(agent.uid)
 
                {:error, :rollback}
              end)
@@ -376,7 +376,7 @@ defmodule Ankole.ConversationsTest do
                first.conversation_id
              )
 
-    assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
+    assert {:ok, %{status: :disabled}} = Ankole.Principals.disable_agent(agent.uid)
     first_id = first.conversation_id
     second_id = second.conversation_id
     assert_receive {:conversation_event, ^first_id, :status}

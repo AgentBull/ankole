@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     const stdoutText = Buffer.from(stdoutBytes).toString('utf8')
     const stderrText = Buffer.from(stderrBytes).toString('utf8')
 
-    if (plan.family === 'curl_json' || plan.family === 'shell_cat') {
+    if (plan.family === 'curl_json') {
       const { output } = shapeCommandOutput(plan, { exitCode, output: stdoutText })
       if (output.length > 0) {
         process.stdout.write(output.endsWith('\n') || !stdoutText.endsWith('\n') ? output : `${output}\n`)

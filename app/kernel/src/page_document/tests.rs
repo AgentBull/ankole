@@ -80,6 +80,30 @@ fn resource_marks_follow_xml_attribute_limits() {
 }
 
 #[test]
+fn embed_props_use_validated_ot_marks_and_utf8_limits() {
+    let original = r#"<page><embed ref="report" view="remote" /></page>"#;
+    let props = r#"{"region":"华东"}"#;
+    let changes = json!([[1, [{"add": "EmbedProps", "value": props}]]]);
+    let changed = apply(original, &changes.to_string()).unwrap();
+    assert!(changed.xml.contains("view=\"remote\""));
+    assert!(changed.xml.contains("props="));
+    let delta = diff(original, &changed.xml).unwrap();
+    assert_eq!(
+        apply(original, &delta.to_string()).unwrap().xml,
+        changed.xml
+    );
+    for invalid in ["null", "[]", "3", "\"text\"", "{bad}"] {
+        assert!(document_schema::validate_mark("EmbedProps", &json!(invalid)).is_err());
+        assert!(validate(&format!("<page><embed props='{invalid}' /></page>")).is_err());
+    }
+    let boundary = json!({"x": "a".repeat(16 * 1024 - 8)}).to_string();
+    assert_eq!(boundary.len(), 16 * 1024);
+    assert!(document_schema::validate_mark("EmbedProps", &json!(boundary)).is_ok());
+    let too_large = json!({"x": "中".repeat(5500)}).to_string();
+    assert!(document_schema::validate_mark("EmbedProps", &json!(too_large)).is_err());
+}
+
+#[test]
 fn shared_xml_and_documents_match_the_editor() {
     for sample in corpus()["xml"].as_array().unwrap() {
         let name = sample["name"].as_str().unwrap();
@@ -730,4 +754,95 @@ fn line_breaks_across_many_inline_atoms_normalize_linearly() {
         )
     );
     assert!(start.elapsed() < std::time::Duration::from_secs(1));
+}
+
+#[test]
+fn document_map_range_shifts_untouched_comment_spans_and_detects_overlaps() {
+    let id = "019a2b00-0000-7000-8000-000000000099";
+    let rev1 = "<page><p>Alpha 🙂 Beta Gamma</p></page>";
+    // Verify initial comment quote on "Beta":
+    // `<p>` (1) + `"Alpha "` (6) + `"🙂"` (2 UTF-16 units) + `" "` (1) = 10; `"Beta"` = [10, 14)
+    let initial = super::annotate_comment(rev1, id, 10, 14).unwrap();
+    assert_eq!(initial.quote, "Beta");
+
+    // Step 1a: Insert a new paragraph strictly before `from`.
+    let rev1a = "<page><p>Header</p><p>Alpha 🙂 Beta Gamma</p></page>";
+    let cs1a = super::diff(rev1, rev1a).unwrap();
+
+    // Step 1b: Edit text strictly before `from` (including emoji surrogate growth).
+    let rev2 = "<page><p>Header</p><p>Alphabet 🙂🙂 Beta Gamma</p></page>";
+    let cs1b = super::diff(rev1a, rev2).unwrap();
+
+    // Step 1c: Delete text strictly before `from` (negative net delta before `from`).
+    let rev2b = "<page><p>Hi</p><p>Alphabet 🙂 Beta Gamma</p></page>";
+    let cs1c = super::diff(rev2, rev2b).unwrap();
+
+    // Step 2: Edit strictly after `to` (appending text and trailing paragraph).
+    let rev3 = "<page><p>Hi</p><p>Alphabet 🙂 Beta Gamma Delta</p><p>Footer</p></page>";
+    let cs2 = super::diff(rev2b, rev3).unwrap();
+
+    // Step 3: Pure mark change over `"Beta"` preserves source span.
+    let rev4 =
+        "<page><p>Hi</p><p>Alphabet 🙂 <strong>Beta</strong> Gamma Delta</p><p>Footer</p></page>";
+    let cs3 = super::diff(rev3, rev4).unwrap();
+
+    let sequence = serde_json::json!([cs1a, cs1b, [], cs1c, cs2, cs3]).to_string();
+    let (mapped_from, mapped_to) = super::document_map_range(&sequence, 10, 14)
+        .unwrap()
+        .expect("untouched span should map cleanly");
+
+    let annotated = super::annotate_comment(rev4, id, mapped_from, mapped_to).unwrap();
+    assert_eq!(annotated.quote, "Beta");
+
+    // Empty sequence returns original range unchanged.
+    assert_eq!(
+        super::document_map_range("[]", 10, 14).unwrap(),
+        Some((10, 14))
+    );
+
+    // Single ChangeSet input is also accepted directly.
+    let single_mapped = super::document_map_range(&cs1a.to_string(), 10, 14)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        super::annotate_comment(rev1a, id, single_mapped.0, single_mapped.1)
+            .unwrap()
+            .quote,
+        "Beta"
+    );
+
+    // Insertion right at `from` shifts `[from, to)` forward; insertion right at `to` leaves it unchanged.
+    let insert_at_from = "<page><p>Alpha 🙂 PreBeta Gamma</p></page>";
+    let cs_at_from = super::diff(rev1, insert_at_from).unwrap();
+    assert_eq!(
+        super::document_map_range(&serde_json::json!([cs_at_from]).to_string(), 10, 14).unwrap(),
+        Some((13, 17))
+    );
+    let insert_at_to = "<page><p>Alpha 🙂 BetaPost Gamma</p></page>";
+    let cs_at_to = super::diff(rev1, insert_at_to).unwrap();
+    assert_eq!(
+        super::document_map_range(&serde_json::json!([cs_at_to]).to_string(), 10, 14).unwrap(),
+        Some((10, 14))
+    );
+
+    // Insertion strictly inside `(from, to)` returns `None` (true conflict).
+    let insert_inside = "<page><p>Alpha 🙂 BeXta Gamma</p></page>";
+    let cs_inside = super::diff(rev1, insert_inside).unwrap();
+    assert_eq!(
+        super::document_map_range(&serde_json::json!([cs_inside]).to_string(), 10, 14).unwrap(),
+        None
+    );
+
+    // Replacement overlapping `[from, to)` returns `None` (true conflict).
+    let replace_overlap = "<page><p>Alpha 🙂 Zeta Gamma</p></page>";
+    let cs_overlap = super::diff(rev1, replace_overlap).unwrap();
+    assert_eq!(
+        super::document_map_range(&serde_json::json!([cs_overlap]).to_string(), 10, 14).unwrap(),
+        None
+    );
+
+    // Invalid ranges are rejected.
+    assert!(super::document_map_range("[]", 10, 10).is_err());
+    assert!(super::document_map_range("[]", 14, 10).is_err());
+    assert!(super::document_map_range(&cs1a.to_string(), 10, 999).is_err());
 }

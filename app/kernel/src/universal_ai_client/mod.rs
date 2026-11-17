@@ -21,7 +21,8 @@ pub mod wire;
 pub use api_resolver::APIResolver;
 pub use client::{
     ChunkOrigin, EventSink, RequestHandle, RequestResultSink, StreamEvent, StreamHandle,
-    start_model_request, start_raw_request, start_stream,
+    WebSocketSession, start_model_request, start_raw_request, start_stream,
+    start_stream_with_session,
 };
 pub use error::StreamError;
 pub use spec::{

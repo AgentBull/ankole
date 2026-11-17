@@ -54,6 +54,9 @@ defmodule Ankole.AIGateway.FailureResponse do
   def public_message(%{error_code: "agent_token_quota_exceeded"}),
     do: "The Agent has used its token quota for the current period."
 
+  def public_message(%{error_code: "service_token_quota_exceeded"}),
+    do: "The service has used its token quota for the current period."
+
   def public_message(%{error_code: code})
       when code in ["provider_stream_error", "response_stream_cleanup_error"],
       do: "AIGateway provider stream failed before a terminal response."
@@ -153,14 +156,16 @@ defmodule Ankole.AIGateway.FailureResponse do
   end
 
   # Codex does not retry a 429 whose type is usage_limit_reached.
-  def project({:agent_token_quota_exceeded, window}, _opts) when is_map(window) do
+  def project({tag, window}, _opts)
+      when tag in [:agent_token_quota_exceeded, :service_token_quota_exceeded] and is_map(window) do
+    code = Atom.to_string(tag)
     window_ends_at = Map.fetch!(window, :window_ends_at)
 
     error =
       429
       |> error_object(
-        "agent_token_quota_exceeded",
-        public_message(%{error_code: "agent_token_quota_exceeded"}),
+        code,
+        public_message(%{error_code: code}),
         nil,
         %{
           "used_tokens" => Map.fetch!(window, :used_tokens),
@@ -236,10 +241,15 @@ defmodule Ankole.AIGateway.FailureResponse do
   # The caller's request is well formed: the summarizer produced nothing usable
   # after its retry. That is an upstream fault, so it must not read as a client
   # error that the caller could fix by changing the request.
-  defp row(reason) when reason in [:empty_compaction_summary, :invalid_summary_shape],
-    do:
-      {502, Atom.to_string(reason), "upstream provider returned no usable compaction summary.",
-       nil, nil}
+  defp row(reason)
+       when reason in [
+              :empty_compaction_summary,
+              :invalid_summary_shape,
+              :content_filtered_compaction_summary
+            ],
+       do:
+         {502, Atom.to_string(reason), "upstream provider returned no usable compaction summary.",
+          nil, nil}
 
   defp row(:invalid_input),
     do:
@@ -318,6 +328,14 @@ defmodule Ankole.AIGateway.FailureResponse do
        "input", details}
 
   defp row(:provider_disabled), do: {422, "provider_disabled", "provider is disabled", nil, nil}
+
+  defp row(:credential_disabled),
+    do: {422, "credential_disabled", "provider credential is disabled", nil, nil}
+
+  defp row(:credential_reauth_required),
+    do:
+      {422, "credential_reauth_required", "provider credential requires reauthentication", nil,
+       nil}
 
   defp row(:request_too_large),
     do: {422, "request_too_large", "request_too_large", nil, nil}

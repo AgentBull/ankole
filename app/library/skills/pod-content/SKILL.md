@@ -81,15 +81,35 @@ rename before retrying. Updates to other metadata do not require a title base.
    `pages.search {query}` to find titles and document text, or read a known page
    ID; search returns at most 30 matches by default. Use
    `pages.children {parent_id?, scope?: "space" | "private"}` to page through one
-   directory (`next_cursor` -> `cursor`). `pages.list` provides scoped lists.
+   directory (`next_cursor` -> `cursor`). `pages.list` provides scoped lists;
+   pages shared directly from another person's Private section ("Shared with me")
+   are not mounted under `/drive`—discover them with `ankole-pod pages.list '{"scope":"shared"}'`
+   (or `pod_list_pages` with `scope: "shared"`) and read or download them via
+   `ankole-pod pages.read` / `ankole-pod files.download`.
 2. Read its Markdown and revision before a change.
-3. Use `pages.write` for a target body, `pages.append` for Markdown at the end,
-   or `pages.patch` for exact `old_text` and `new_text` edits. Each operation
-   requires that `base_revision`. A patch rejects missing or ambiguous text;
-   `replace_all: true` permits all matches. The Worker uses the editor's codec.
-   The control plane commits minimal structural and UTF-16 text changes.
-4. If the write conflicts, read again and reconsider the change. Do not
-   overwrite a newer revision or claim the old write succeeded.
+3. Prefer `pages.patch` and `pages.append` over `pages.write` whenever editing
+   an existing document, especially on shared Pages where humans or peer Agents
+   may edit concurrently:
+   - Use `pages.patch` (`{id, base_revision, edits: [{old_text, new_text, replace_all?}]}`)
+     for targeted edits. A patch rejects missing or ambiguous text unless
+     `replace_all: true` is supplied on an unchanged revision. When the Page
+     advances concurrently, the CLI rereads the latest Markdown and rebases the
+     patch automatically (up to 3 retries) as long as every edit's `old_text`
+     still matches uniquely; if any hunk matches zero or multiple times, the
+     CLI returns the revision conflict immediately without guessing.
+   - Use `pages.append` (`{id, base_revision, markdown, idempotency_key?}` or
+     `--idempotency-key <key>`) to add sections, logs, or findings to the end of
+     a Page. Supplying a deterministic `--idempotency-key` makes retries across
+     turns idempotent, and the CLI attaches a per-invocation UUID key by default
+     for safe transport retries.
+   - Reserve `pages.write` for initial authoring or intentional whole-document
+     replacement. `pages.write` checks `base_revision` strictly and never
+     overwrites a newer revision automatically.
+   The Worker uses the editor's codec, and the control plane commits minimal
+   structural and UTF-16 text changes.
+4. If a write or patch still conflicts, read the latest Page content again and
+   reconcile your changes against the newer text rather than overwriting a
+   collaborator's work or claiming the stale write succeeded.
 
 `pages.create` without `parent_id` or `private_owner_uid` creates at the shared
 Workspace (`Space`) root. Before creating a new Page, inspect `pages.tree` (and
@@ -108,7 +128,9 @@ remains in the page tree. Removing a reference from Markdown removes only the
 reference. The page link form is `ankole:page/<page-id>`.
 
 In document Markdown, put each inline embed on its own line. For an Applet,
-use `<embed ref="<applet-page-id>" />`. For a Base view (including `grid`,
+use `<embed ref="<applet-page-id>" />`, optionally with a `props` attribute
+containing a JSON object (at most 16 KiB). The Applet reads it through
+`usePod().embedProps`; changing props preserves its iframe and local state. For a Base view (including `grid`,
 `kanban`, `gallery`, and `chart` views), use
 `<embed ref="<base-page-id>" table="<table-id>" view="<view-id>" />` for a
 shared saved view, or pass an inline JSON `ViewConfig` in `view` when a chart
@@ -202,7 +224,8 @@ The generated entry exports `provider = defineApplet(App)` from
 and `@ankole/applet-sdk` are host dependencies. Keep all four out of
 `package.json`; the host supplies them. Do not bundle another React
 or add a global CSS reset. Keep custom CSS inside the Applet frame.
-Import UIKit components from its root export. The build rejects UIKit component
+Import UIKit components from its root export and icons from `@ankole/uikit/icons`.
+Icons load when imported. The build rejects UIKit component
 subpaths and stylesheet imports; the host already loads those styles.
 Import local images, fonts, and media from source, or reference them with CSS
 `url()`. The build embeds imported resources in the published module graph. A plain
@@ -213,6 +236,24 @@ The build compiles the Worker and resolves its URL from nested modules and
 dynamic chunks. Applet init supplies the Worker URL import types.
 Source pull requires edit access,
 checks each file digest, and runs `bun install --ignore-scripts`.
+
+Publish with `"draft": true` and an optional `summary` to prepare a preview
+without changing the live version. Capture the returned `draft.id` and
+`base_revision`: `applet promote` and `applet discard` require
+`expected_draft_id` plus `base_revision`. A replaced draft returns
+`draft_changed`; inspect the replacement before acting on it. `applet revisions`
+lists retained versions, and `applet rollback` takes `target_revision` and the
+current `base_revision`, creating a new publication while preserving runtime
+assets and page-level configuration overrides.
+
+Run `ankole-pod applet inspect <page-id>` for a real browser snapshot;
+add `--draft-id <UUID>` to inspect that exact draft and `--props <JSON>` to supply
+embedded parameters. Use `--screenshot <PNG path>` to save the rendering. Inspect reports runtime errors, console errors, failed requests,
+visible text, and an optional screenshot. Table queries, aggregates and GET
+routes work with real data; writes return `403 diagnostic_read_only`. Treat any
+reported failure as a failed check even when `mounted` is true. Builds mark JSX
+with `data-ankole-src`; a selected-element comment or Page Chat quote carries
+source coordinates and component names for locating the requested edit.
 
 ### Pod UI and theme integration
 
@@ -342,6 +383,23 @@ the sheet's edge:
     `@base-ui/react` (not Radix): compose trigger buttons with
     `render={<Button variant="outline" />}` instead of `asChild`.
 
+Declare reusable data slots in optional `applet.bindings.json` (at most 64 KiB):
+`tables` maps slot names to `tableId`, `required`, `description`, and `fields`;
+each field slot declares `fieldId`, `type`, and `description`. Types match Base
+field types. Editors or Agents can override the table and field mapping in Applet Settings
+or via `applets.bindings.list` / `applets.bindings.put` / `applets.bindings.delete`.
+Changing a table uses explicit field overrides or unique same-name/type matches
+in that table. Missing mappings appear as unconfigured slots.
+
+Use `useTable(slotKey)` for `{tableId, fields, field, read, patch, create, update,
+remove}` and top-level `useTableRecords(slotKey, query?)` or
+`useTableAggregate(slotKey, query)` for subscriptions. The helpers contain no
+nested hooks. `table.update(capturedRecord, logicalPatch)` requires the record
+snapshot from the start of editing, so concurrent field changes remain conflicts.
+Check `configured` before displaying an unbound query. Backend routes use
+`AnkoleRuntime.bindings.table(slotKey)` (or `AnkoleRuntime.admin.bindings`) for
+`tableId`, `fields`, `schema`, `query`, `aggregate`, and `write`.
+
 Use `useRecords(tableID, query)` for records and its `create`, `update`, and
 `remove` methods for writes. Its TanStack Query result holds rows at
 `result.data?.records`; `useAggregate` holds groups at `result.data?.groups`.
@@ -443,9 +501,10 @@ bounded diagnostic logs and handler exception details.
 
 The function worker supplies Node built-ins, public `fetch`, an in-memory
 `/tmp`, merged environment values, and `AnkoleRuntime` capabilities:
+`idempotent(key, fn, {ttlSeconds?})` (wrapping external side effects under the reserved `_idempotency:<key>` namespace with TTL);
 `base.schema`, `base.query`, `base.aggregate`, `base.write`; `file.list`, `file.read`,
 `file.write`; `metrics.query`, which runs a published Brain metric; `brain.listFacts`,
-`brain.listTakes`, `brain.writeTake`, `brain.calibration`; `notifications.post`;
+`brain.listTakes`, `brain.writeFact`, `brain.writeTake`, `brain.calibration`; `notifications.post`;
 `approvals.request/get/list/decide`; `ai.generateText`, `ai.generateImage`,
 `ai.generateSpeech`, `ai.transcribe`, `ai.ocr`, `ai.decide`; `web.search`,
 `web.fetch`; `mcp.call`; and `signals.call/emit/run`
@@ -483,7 +542,14 @@ in their signed-in browser. A request or a decision can be retried with the
 same values. If the request or decision conflicts, display the stored result.
 Link the Applet in a native notification when reviewers need a reminder.
 
-Use `brain.writeTake({sourceNodeId, subjectPageId?, claim, kind, weight,
+Use `brain.writeFact({sourceNodeId, subjectPageId?, claim, kind?, notability?,
+confidence?, context?, validFrom?, provenance, recordRef?})` (or
+`AnkoleRuntime.admin.brain.writeFact` in shared Applet Actions) to record
+high-value business milestones, anomalies, or verified operational facts directly
+into Company Brain with zero model cost (`recordRef: {tableId, recordId}` stamps
+canonical Base row provenance; query ordinary tabular ledgers via `base.query` /
+`metrics.query` rather than writing every row change as a Fact). Use
+`brain.writeTake({sourceNodeId, subjectPageId?, claim, kind, weight,
 sinceDate?, untilDate?, provenance})` for a signed prediction. Call it as the
 researcher or colleague to retain their authorship and use a source Page they can
 contribute to. `brain.listTakes`, `brain.listFacts`, and `brain.calibration` use

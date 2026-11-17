@@ -91,8 +91,11 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
              }
            } = conn |> send_v2(:get, "/api/v2/agents/#{agent_uid}") |> json_response(200)
 
-    assert %{"status" => "disabled"} =
-             conn |> send_v2(:delete, "/api/v2/agents/#{agent_uid}") |> json_response(200)
+    assert %{"errors" => [%{"code" => "agent_must_be_disabled"}]} =
+             conn |> send_v2(:delete, "/api/v2/agents/#{agent_uid}") |> json_response(409)
+
+    assert %{"status" => "disabled", "type" => "ai_colleague"} =
+             conn |> send_v2(:post, "/api/v2/agents/#{agent_uid}/disable") |> json_response(201)
 
     for id <- conversation_ids, do: assert_receive({:conversation_event, ^id, :status})
 
@@ -109,9 +112,9 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
 
     for id <- conversation_ids, do: assert_receive({:conversation_event, ^id, :status})
 
-    # Deleting requires disabling first; the second delete removes the row.
+    # Deleting requires disabling first via /disable; DELETE then removes the disabled row.
     assert %{"status" => "disabled"} =
-             conn |> send_v2(:delete, "/api/v2/agents/#{agent_uid}") |> json_response(200)
+             conn |> send_v2(:post, "/api/v2/agents/#{agent_uid}/disable") |> json_response(201)
 
     for id <- conversation_ids, do: assert_receive({:conversation_event, ^id, :status})
 
@@ -140,6 +143,7 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
 
     for {method, path} <- [
           {:delete, "/api/v2/agents/#{human.uid}"},
+          {:post, "/api/v2/agents/#{human.uid}/disable"},
           {:post, "/api/v2/agents/#{human.uid}/enable"}
         ] do
       assert %{"errors" => [%{"code" => "not_found"}]} =

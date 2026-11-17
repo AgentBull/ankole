@@ -394,16 +394,11 @@ describe('history', () => {
     }
     for (let i = 0; i < 500; i++) {
       const c = r(5)
-      state =
-        c == 0
-          ? command(state, undo, null)
-          : c == 1
-            ? command(state, redo, null)
-            : c == 2
-              ? type(state, 'ABCDEFGHIJKL'[r(12)]!, rPos())
-              : c == 3
-                ? receive(state, 'abcdefghijkl'[r(12)]!, rPos())
-                : state.update({ changes: rRange() }).state
+      if (c == 0) state = command(state, undo, null)
+      else if (c == 1) state = command(state, redo, null)
+      else if (c == 2) state = type(state, 'ABCDEFGHIJKL'[r(12)]!, rPos())
+      else if (c == 3) state = receive(state, 'abcdefghijkl'[r(12)]!, rPos())
+      else state = state.update({ changes: rRange() }).state
     }
   })
 

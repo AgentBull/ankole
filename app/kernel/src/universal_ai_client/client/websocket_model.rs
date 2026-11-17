@@ -1,4 +1,4 @@
-use super::stream::{websocket_initial_messages, websocket_read_error};
+use super::stream::{websocket_initial_messages, websocket_provider_error, websocket_read_error};
 use crate::universal_ai_client::transport::SemanticIdle;
 use crate::universal_ai_client::{
     api_resolver,
@@ -106,6 +106,9 @@ pub(in crate::universal_ai_client) async fn run_websocket_model_request_once(
                         format!("WebSocket text payload was not valid JSON: {reason}"),
                     )
                 })?;
+                if value.get("type").and_then(Value::as_str) == Some("error") {
+                    return Err(websocket_provider_error(&resolver, &value, &text));
+                }
                 let events = resolver.ingest(value)?;
                 remember_completed_items(
                     &events,
@@ -120,12 +123,14 @@ pub(in crate::universal_ai_client) async fn run_websocket_model_request_once(
                         &Value::Array(completed_items.values().cloned().collect()),
                         spec.limits.max_pending_bytes,
                     )?;
+                    let request_bytes: usize = initial_messages.iter().map(String::len).sum();
                     return Ok(CollectedWebSocketModelResponse {
                         wrapper: json!({
                         "status": status,
                         "headers": response_headers,
                         "body": body,
                         "raw_body_bytes": raw_body_bytes,
+                        "request_bytes": request_bytes,
                         "upstream_kind": spec.upstream.kind.as_str(),
                         "websocket_initial_messages": initial_messages.len()
                         }),

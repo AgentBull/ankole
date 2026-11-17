@@ -5,16 +5,20 @@
   padding: 10px 8px;
   border-radius: var(--radius-control);
   color: var(--fg-primary);
-  cursor: pointer;
   overflow-x: auto;
   overflow-y: hidden;
 }
 
-:where(.ankole-editor) .editor-content .math-block:is(:hover, :focus-visible) {
+:where(.ankole-editor) .editor-content[contenteditable='true'] .math-block {
+  cursor: pointer;
+}
+
+:where(.ankole-editor) .editor-content[contenteditable='true'] .math-block:hover,
+:where(.ankole-editor) .editor-content .math-block:is(:focus-visible, [data-editing='true']) {
   background: var(--layer-hover);
 }
 
-:where(.ankole-editor) .editor-content .math-block:focus-visible {
+:where(.ankole-editor) .editor-content .math-block:is(:focus-visible, [data-editing='true']) {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
@@ -36,7 +40,48 @@
   white-space: pre-wrap;
 }
 
-/* The formula editor is a ceramic surface under the block, following Notion and Feishu. */
+:where(.ankole-editor) .editor-content .math-inline {
+  display: inline-block;
+  padding: 1px 3px;
+  margin: 0 1px;
+  border-radius: 4px;
+  color: inherit;
+  vertical-align: baseline;
+}
+
+:where(.ankole-editor) .editor-content[contenteditable='true'] .math-inline {
+  cursor: pointer;
+}
+
+:where(.ankole-editor) .editor-content[contenteditable='true'] .math-inline:hover {
+  background: var(--layer-hover);
+}
+
+:where(.ankole-editor) .editor-content :is(.wg-selected-node > .math-inline, .math-inline[data-editing='true']) {
+  background: var(--layer-hover);
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+:where(.ankole-editor) .editor-content .math-inline.is-empty {
+  padding: 1px 6px;
+  background: var(--layer-hover);
+}
+
+:where(.ankole-editor) .editor-content .math-inline .math-placeholder {
+  color: var(--fg-placeholder);
+  font-family: var(--font-family-mono);
+  font-size: 0.9em;
+}
+
+:where(.ankole-editor) .editor-content .math-inline.is-invalid {
+  padding: 1px 5px;
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  color: var(--destructive-foreground);
+  font-family: var(--font-family-mono);
+  font-size: 0.9em;
+}
+
 :where(.ankole-editor-overlay).math-editor {
   position: fixed;
   z-index: 40;
@@ -94,6 +139,30 @@
   color: var(--fg-primary);
   font-family: var(--font-family-mono);
   font-size: 14px;
+}
+
+:where(.ankole-editor-overlay).math-editor .math-editor-submit {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--layer-hover);
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+}
+
+:where(.ankole-editor-overlay).math-editor .math-editor-submit:hover {
+  border-color: var(--border-strong);
+  background: var(--layer-active, var(--layer-hover));
+}
+
+:where(.ankole-editor-overlay).math-editor .math-editor-submit:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
 }
 
 :where(.ankole-editor-overlay).math-editor .math-editor-footer {

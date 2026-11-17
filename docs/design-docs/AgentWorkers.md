@@ -113,13 +113,30 @@ checks at `GET /api/v2/site/worker-providers/:provider_id/check`, whose typed
 transport action invokes the provider adapter outside any database transaction
 and returns the platform name and diagnostic reason on failure. At the tenant
 level, the Console lists each Agent's Worker via `GET /api/v2/agent-workers`
-(`console_list` on `AgentWorker`) and supports one-time provider assignment for
+(`console_list` on `AgentWorker`), lets operators force-settle a wedged
+non-healthy Worker generation back to `absent` via
+`POST /api/v2/agent-workers/:agent_uid/force-reset-generation` after best-effort
+platform cleanup, and supports one-time provider assignment for
 an unassigned Agent via `PUT /api/v2/agents/:agent_uid/worker-provider`
 (`console_assign_provider`), returning `404` if the Agent or provider does not
 exist and `409` if the Agent already has a provider or is being deleted.
+`PrepareImageJob` caches verified `(image, settings_digest)` pairs on the
+`worker_providers` row (`prepared_digest` and `prepared_verified_at`) for 24
+hours so cold Worker starts skip redundant provider image checks, while
+`Sessions.WorkerAcquisition` grants a 150-second acquisition window and renews
+its phase deadline when a Worker advances out of `:preparing` into `:starting`.
 
-Docker, Kubernetes, Cloudflare, and Lambda are built in. Control Plane Plugins
-can register additional provider kinds by declaring
+Docker, Kubernetes, Cloudflare, and Lambda are built in. Provider kinds fall into
+two support tiers declared on `ProviderKind.Definition.support_tier`:
+
+- **Core production providers (`:core`: `docker`, `kubernetes`)**: support crash-persistent
+  `/workspace` volumes, kernel FUSE `/drive` mounts, and warm-pool scheduling.
+- **Cloud sandbox extension providers (`:cloud_extension`: `cloudflare`, `lambda`,
+  `vercel`, `function_compute`)**: run burst or serverless sandboxes and surface an
+  explicit `limitations_key` note in the Console creation wizard describing each
+  platform's `/workspace` persistence and hibernation guarantees.
+
+Control Plane Plugins can register additional provider kinds by declaring
 `contract_id: "agent_workers.provider_kind"`, an `id`, and a `module`
 implementing `ProviderKind` whose `definition().kind` matches `id` (verified at
 compile time with `warnings_as_errors`). At startup, the Plugin Registry rejects
@@ -129,6 +146,12 @@ discovered kind's module, owning Plugin ID (`nil` for built-in kinds), and
 active flag. Worker lookups read this `persistent_term` map directly without
 calling the Registry GenServer, so lookups keep working even while the Registry
 process restarts and republishes its boot snapshot.
+
+The general Worker container image ships Bun (with a `/usr/local/bin/node` wrapper
+shim delegating to `/usr/local/bin/bun` for `#!/usr/bin/env node` and version-probe
+compatibility), Python data-science and OCR tools, LibreOffice/Typst, and Chromium,
+keeping build-only Rust toolchains isolated to multi-stage builder layers.
+Deployments can add their own operations tools in a derived image.
 
 Two first-party Plugins provide cloud Worker kinds today:
 `china-market-ai-providers` owns `function_compute` (alongside its model
@@ -161,11 +184,10 @@ Registry and boot ordering:
   and Console Plugin controls use the same Plugin configuration API; general
   Console settings display the key as read-only.
 - During node boot, Oban starts before Plugins because Plugin startup can
-  enqueue jobs. `Ankole.Upgrade202610.WorkerProviders` then imports the provider
-  seed after the Plugin cohort can resolve provider kinds. This bootstrap owner
-  also assigns imported Workers to the provider holding their Agent Homes in
-  the same transaction. Provider and Worker runtime modules operate on the
-  resulting ownership records.
+  enqueue jobs. `Ankole.AgentWorkers.BootstrapSeed` then imports the initial
+  provider seed configured by `ANKOLE_WORKER_PROVIDERS_FILE` when no Worker
+  provider rows exist in the database. Provider and Worker runtime modules
+  operate on the resulting ownership records.
 
 PostgreSQL stores each provider's YAML verbatim as entered by the operator and
 reports validation failures with YAML path and line numbers. Location and
@@ -290,6 +312,11 @@ Attachments and published files map
 to paths in the Agent's control-plane drive (see [Files](Files.md)). Both Job
 workspaces and Codex thread files live in persistent Home so Background Agent
 Jobs can resume Codex sessions across instance restarts.
+
+The Worker holds a local workspace lease while a Session or Job uses its
+directory. Acquiring that lease prevents new eviction and waits for any
+in-flight recursive deletion at the same path before initializing or reopening
+the directory. Job preparation acquires the lease before any asynchronous setup.
 
 Session and Job workspaces serve as scratch directories, whereas the unified
 Drive acts as the durable store and delivery outlet. Each conversation mounts
@@ -756,11 +783,10 @@ accepts instance size, network, OCI runtime, and extra environment variables,
 while disallowing Linux capability or `security-opt` overrides; source-tree bind
 mounts in development come from the node's dev configuration. Running `bun dev`
 configures the local Worker image, Docker socket, provider seed, and control-plane
-addresses: both FOSS and SaaS Workers connect back to `host.docker.internal` on
-the control-plane port, and SaaS dev mode accepts
-`runtime_fabric_internal_origin` as a valid site origin so Worker WebSockets and
-AIGateway calls route over the Docker bridge (production SaaS uses the canonical
-site origin). Setup commands can boot the control plane without a Worker image,
+addresses: Workers connect back to `host.docker.internal` on the control-plane
+port so Worker WebSockets and AIGateway calls route over the Docker bridge.
+The selected host policy must accept the configured local runtime origin.
+Setup commands can boot the control plane without a Worker image,
 whereas running Workers requires the full runtime settings supplied by `bun dev`.
 
 Kubernetes manages the Worker Pod, launch-contract Secret, persistent Home PVCs,
@@ -911,6 +937,10 @@ rebuilds the generation from Home (AgenticFS mounts do not need this step).
 
 For storage backends:
 
+`ProviderKind.storage_name/2` supplies the storage name for both backends. The
+name includes the installation and a hash of `tenant_id:agent_uid`, so Agents
+with the same UID in different tenants or installations use separate storage.
+
 - **AgenticFS** mounts a stable root directory named
   `/ankole-<installation>-<agent-hash>` with explicit byte-capacity and
   file-count quotas. NAS provisions the `AgenticSpace` and a RAM-enabled access
@@ -924,11 +954,12 @@ For storage backends:
   image leaves `/workspace` completely empty at build time (using a temporary
   mount for build caches) because `ossfs2` refuses to mount over a non-empty
   directory, and the entrypoint creates runtime subdirectories after mounting
-  `<root>/<agent_uid>` at `/workspace`. Because OSS lacks full POSIX semantics
-  and can reject `chown` with `EIO` even on a writable mount, the entrypoint
-  tests whether `uid 1000` can write `/workspace` first and runs `chown` only if
-  that write probe fails. Deleting OSS storage records a helper request in
-  `storage_ref`, picks a single winning sandbox to receive the deletion contract
+  `<root>/ankole-<installation>-<agent-hash>` at `/workspace`. Because OSS lacks
+  full POSIX semantics and can reject `chown` with `EIO` even on a writable
+  mount, the entrypoint tests whether `uid 1000` can write `/workspace` first
+  and runs `chown` only if that write probe fails. Deleting OSS storage records
+  a helper request in `storage_ref` with the Agent's `ankole.tenant` metadata and the same storage
+  prefix, picks a single winning sandbox to receive the deletion contract
   (leaving any extra helpers without delete authority), deletes the prefix
   contents once, writes a completion marker, and confirms helper termination
   before removing the `agent_workers` row.

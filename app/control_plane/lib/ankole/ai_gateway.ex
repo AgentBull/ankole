@@ -12,6 +12,7 @@ defmodule Ankole.AIGateway do
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
+  alias Ankole.AIGateway.ClaudeMessageThreads
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.CompactionRequests
   alias Ankole.AIGateway.Audio
@@ -31,6 +32,7 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.ResponseStream
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.StatefulLifecycle
+  alias Ankole.AIGateway.UpstreamWebSocketPool
   alias Ankole.AIGateway.UsageLedger
   alias Ankole.AIGateway.WebSearch
   alias Ankole.Attrs
@@ -78,7 +80,7 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  @stateful_http_fields ~w(previous_response_id conversation store)
+  @stateful_http_fields ~w(previous_response_id conversation store background)
 
   @type gateway_response :: %{
           required(:status) => pos_integer(),
@@ -557,6 +559,16 @@ defmodule Ankole.AIGateway do
   def cancel_response_stream(stream, reason \\ "consumer_cancelled"),
     do: ResponseStream.cancel(stream, reason)
 
+  @doc false
+  @spec evict_socket_session(term(), String.t(), String.t()) :: :ok
+  def evict_socket_session(tenant_id, subject_uid, socket_session_id)
+      when not is_nil(tenant_id) and is_binary(subject_uid) and is_binary(socket_session_id) do
+    scope = {:socket, socket_session_id}
+    UpstreamWebSocketPool.evict_scope(tenant_id, subject_uid, scope)
+    ClaudeMessageThreads.evict_scope(tenant_id, subject_uid, scope)
+    :ok
+  end
+
   defp execute_web_fetch(runtime, request, opts) do
     if Providers.single_url_web_fetch?(runtime) do
       execute_single_url_web_fetch(runtime, request, opts)
@@ -827,26 +839,27 @@ defmodule Ankole.AIGateway do
   # Completions upstreams such as Google AI Studio reject an unknown `store`.
   defp stateless_http_request(request) do
     with :ok <- reject_http_stateful_fields(request),
-         do: {:ok, Map.delete(request, "store")}
+         do: {:ok, Map.drop(request, ["store", "background"])}
   end
 
   defp reject_http_stateful_fields(request) do
     request = Attrs.normalize_external_attrs(request)
 
-    case Enum.find(@stateful_http_fields, &Map.has_key?(request, &1)) do
-      "store" ->
-        if request["store"] == false do
-          :ok
+    Enum.reduce_while(@stateful_http_fields, :ok, fn
+      field, :ok when field in ["store", "background"] ->
+        if not Map.has_key?(request, field) or request[field] == false do
+          {:cont, :ok}
         else
-          {:error, {:stateful_http_field_forbidden, "store"}}
+          {:halt, {:error, {:stateful_http_field_forbidden, field}}}
         end
 
-      field when is_binary(field) ->
-        {:error, {:stateful_http_field_forbidden, field}}
-
-      nil ->
-        :ok
-    end
+      field, :ok ->
+        if Map.has_key?(request, field) do
+          {:halt, {:error, {:stateful_http_field_forbidden, field}}}
+        else
+          {:cont, :ok}
+        end
+    end)
   end
 
   defp validate_embeddings_request(request) do
@@ -933,10 +946,10 @@ defmodule Ankole.AIGateway do
 
   # The kernel owns URL parsing, host classification, and the SSRF toggle so
   # the provider path and the Agent Computer web/browser guards share one
-  # policy; the gateway keeps only its HTTPS-only scheme rule. Cloud metadata
+  # policy; the gateway keeps only its HTTP and HTTPS scheme rule. Cloud metadata
   # endpoints are rejected regardless of the `security.ssrf_filter` policy.
   defp safe_web_url?(url, ssrf_filter?) when is_binary(url),
-    do: NativeKernel.validate_web_url(url, ["https"], ssrf_filter?) == :ok
+    do: NativeKernel.validate_web_url(url, ["http", "https"], ssrf_filter?) == :ok
 
   defp safe_web_url?(_url, _ssrf_filter?), do: false
 

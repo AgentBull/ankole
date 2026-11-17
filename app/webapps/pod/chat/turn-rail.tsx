@@ -77,16 +77,14 @@ export function TurnRail({
       onKeyDown={event => {
         const buttons = Array.from(ticks.current?.querySelectorAll('button') ?? [])
         const index = buttons.indexOf(event.target as HTMLButtonElement)
-        const next =
-          event.key === 'ArrowUp'
-            ? index - 1
-            : event.key === 'ArrowDown'
-              ? index + 1
-              : event.key === 'Home'
-                ? 0
-                : event.key === 'End'
-                  ? buttons.length - 1
-                  : undefined
+        const nextIndexForKey = () => {
+          if (event.key === 'ArrowUp') return index - 1
+          if (event.key === 'ArrowDown') return index + 1
+          if (event.key === 'Home') return 0
+          if (event.key === 'End') return buttons.length - 1
+          return undefined
+        }
+        const next = nextIndexForKey()
         if (next !== undefined) {
           event.preventDefault()
           buttons[Math.max(0, Math.min(next, buttons.length - 1))]?.focus()

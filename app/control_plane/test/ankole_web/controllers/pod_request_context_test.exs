@@ -52,7 +52,7 @@ defmodule AnkoleWeb.PodRequestContextTest do
       |> put_req_header("x-forwarded-for", "10.0.0.1")
       |> get(path)
 
-    if Application.fetch_env!(:ankole, :edition) == :saas do
+    if :x_forwarded_for in Application.get_env(:ankole, :http_rewrite_on, [:x_forwarded_proto]) do
       assert response(forwarded, 200) == "restricted bytes"
     else
       assert json_response(forwarded, 403)["error"]["code"] == "forbidden"

@@ -9,9 +9,12 @@ export {
   type CommentRange
 } from './comments'
 export { insertEmbed } from '../blocks/embed'
+export { insertInlineMath } from '../blocks/math'
+export { parseEmbedProps } from '../document/embed-props'
 export type {
   EditorHost,
   EmbedAttributes,
+  EmbedMount,
   LinkMetadata,
   MentionItem,
   MentionQueryResult,

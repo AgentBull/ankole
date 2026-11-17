@@ -12,6 +12,7 @@ import * as T from '../core/types'
 import { blocks } from '../blocks'
 import { Embed, EmbedHref, EmbedView } from '../blocks/embed'
 import { InfographicBlock } from '../blocks/infographic'
+import { insertInlineMathSpec } from '../blocks/math'
 import { MermaidBlock } from '../blocks/mermaid'
 import { openResourceEditor } from '../blocks/resources'
 import { fileUploadSpec } from './file-upload'
@@ -417,6 +418,8 @@ export function blockChange(state: GardState, type: CoreBlockType): Transaction.
       return columnInsertion(state, Number(type.at(-1)))
     case 'mention':
       return mentionTriggerSpec(state)
+    case 'inline_math':
+      return insertInlineMathSpec(state)
     case 'file':
       return fileUploadSpec(state)
     case 'bookmark':
@@ -634,7 +637,7 @@ function codeContent(node: Plot): Node[] {
       ? (leaf.param as string)
       : leaf.type === T.LineBreak.type
         ? '\n'
-        : leaf.type === S.InlineElement
+        : leaf.type === S.InlineElement || leaf.type === S.InlineMath
           ? leaf.type.spec.toText!(leaf as Leaf)
           : ''
     const marks = leaf.marks.filter(mark => mark.type === S.Comment)

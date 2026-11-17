@@ -20,6 +20,18 @@ defmodule Ankole.Conversations.Delivery.Text do
 
   def visible_text(_items), do: nil
 
+  @doc "Returns normalized assistant reply text, or the localized content-filter notice when output was filtered empty."
+  def response_text(items, metadata) do
+    visible = visible_text(items) || ""
+
+    if visible == "" and
+         get_in(metadata || %{}, ["incomplete_details", "reason"]) == "content_filter" do
+      Ankole.I18n.t("conversations.delivery.reply.content_filtered")
+    else
+      visible
+    end
+  end
+
   def normalize_visible_text(text) when is_binary(text) do
     text
     |> String.replace(@citation_span, "")

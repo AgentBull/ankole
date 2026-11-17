@@ -71,7 +71,7 @@ defmodule Ankole.Principals.AccessRestriction do
     end
 
     update :clear_in_tx do
-      accept([:cleared_at])
+      accept([:cleared_at, :recovery_verified_at])
     end
   end
 

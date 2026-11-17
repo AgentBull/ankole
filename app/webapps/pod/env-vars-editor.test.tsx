@@ -448,6 +448,8 @@ describe('AppletMissingEnvBanner', () => {
 
   function makeDetail(actions: PageDetail['actions']): PageDetail {
     return {
+      bindings: {},
+      bindings_digest: '',
       page: {
         id: pageID,
         name: 'Research Console',

@@ -699,6 +699,138 @@ defmodule Ankole.Sessions.BackgroundAgentJobBrokerTest do
     end
   end
 
+  test "RPCLane registers every control-plane RPC method and retains live plus continuation Job workspaces" do
+    contract_path =
+      Path.expand(
+        "../../../../kernel/proto/ankole/runtime_fabric/v1/rpc_methods.json",
+        __DIR__
+      )
+
+    expected_methods =
+      contract_path
+      |> File.read!()
+      |> Torque.decode!()
+      |> Enum.reject(&(&1["owner"] == "worker"))
+      |> MapSet.new(& &1["method"])
+
+    operations = RPCLane.operations()
+    assert MapSet.new(Map.keys(operations)) == expected_methods
+
+    for {_method, {module, function, _scope, _req_mod, _resp_mod}} <- operations do
+      assert Code.ensure_loaded?(module)
+      assert function_exported?(module, function, 3)
+    end
+
+    assert {
+             Ankole.Sessions.BackgroundAgentJobBroker,
+             :handle_retained_workspaces,
+             :worker_agent,
+             FabricProto.BackgroundAgentJobRetainedWorkspacesRequest,
+             FabricProto.BackgroundAgentJobRetainedWorkspacesResponse
+           } = operations["background_agent_job.retained_workspaces"]
+
+    %{principal: agent} = agent_fixture()
+    %{principal: other_agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+    route = unique_route()
+    parent = start_parent_turn!(agent.uid, route)
+
+    waiting_job =
+      create_job!(agent.uid, parent, "waiting")
+      |> Ecto.Changeset.change(status: :waiting_on_user, attempts: 1)
+      |> Repo.update!()
+
+    running_job =
+      create_job!(agent.uid, parent, "running")
+      |> Ecto.Changeset.change(status: :running, attempts: 1)
+      |> Repo.update!()
+
+    source_job =
+      create_job!(agent.uid, parent, "cont-source")
+      |> Ecto.Changeset.change(
+        status: :succeeded,
+        runtime_thread_id: "cont-thread",
+        completed_at: DateTime.utc_now(:microsecond)
+      )
+      |> Repo.update!()
+
+    assert {:ok, %{job: queued_successor}} =
+             with_stubbed_session_drivers(agent.uid, fn ->
+               BackgroundAgentJobs.respawn_with_dispatch(source_job.id, %{
+                 "agent_uid" => agent.uid,
+                 "owner_session_id" => parent.session.session_id,
+                 "source_signal_id" => parent.signal_id,
+                 "source_tool_call_id" => "continue-retained",
+                 "message" => "Continue in existing workspace.",
+                 "reply_route" => source_job.reply_route
+               })
+             end)
+
+    assert queued_successor.status == :queued
+    assert queued_successor.workspace_owner_job_id == source_job.id
+
+    terminal_job =
+      create_job!(agent.uid, parent, "terminal-done")
+      |> Ecto.Changeset.change(status: :succeeded, completed_at: DateTime.utc_now(:microsecond))
+      |> Repo.update!()
+
+    other_agent_live = create_job!(other_agent.uid, parent, "other-live")
+
+    candidates = [
+      "shared",
+      "tmp",
+      "-7",
+      Integer.to_string(waiting_job.id),
+      Integer.to_string(running_job.id),
+      Integer.to_string(source_job.id),
+      Integer.to_string(terminal_job.id),
+      Integer.to_string(other_agent_live.id)
+    ]
+
+    assert {:ok, envelope} =
+             handle_rpc(
+               rpc_request(
+                 "retained-workspaces",
+                 "background_agent_job.retained_workspaces",
+                 %FabricProto.BackgroundAgentJobRetainedWorkspacesRequest{
+                   candidate_job_ids: candidates
+                 }
+               ),
+               route,
+               agent.uid
+             )
+
+    payload =
+      rpc_response_payload!(
+        envelope,
+        FabricProto.BackgroundAgentJobRetainedWorkspacesResponse
+      )
+
+    assert payload.retained_job_ids == [
+             Integer.to_string(waiting_job.id),
+             Integer.to_string(running_job.id),
+             Integer.to_string(source_job.id)
+           ]
+
+    oversized = Enum.map(1..2_049, &Integer.to_string/1)
+
+    assert {:ok, err_envelope} =
+             handle_rpc(
+               rpc_request(
+                 "retained-workspaces-too-many",
+                 "background_agent_job.retained_workspaces",
+                 %FabricProto.BackgroundAgentJobRetainedWorkspacesRequest{
+                   candidate_job_ids: oversized
+                 }
+               ),
+               route,
+               agent.uid
+             )
+
+    assert {:rpc_error, %FabricProto.RPCError{code: "too_many_retained_workspace_candidates"}} =
+             err_envelope.body
+  end
+
   defp read_result!(job_id, offset, turn, route, agent_uid) do
     assert {:ok, response} =
              handle_rpc(

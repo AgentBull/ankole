@@ -1,6 +1,6 @@
 import { isAbsolute, join, normalize, resolve } from 'node:path'
 import { scopedPath, visibleDrivePath } from '../../drive/paths'
-import type { DriveView } from '../../drive/mounts'
+import { formatDriveFlushSummary, type DriveView } from '../../drive/mounts'
 import { commandEnv } from '../../core/execution/command-env'
 import { agentProcessArgv, killProcessGroup } from '../../core/execution/process-group'
 import commandProcess from './command-process.py' with { type: 'text' }
@@ -75,7 +75,10 @@ export async function runWorkspaceCommand(
     signal: input.signal
   })
   const driveSummary = startSeq
-    ? await input.driveView!.flush(startSeq).catch(error => `Drive synchronization is still pending: ${String(error)}`)
+    ? await input
+        .driveView!.flush(startSeq)
+        .then(formatDriveFlushSummary)
+        .catch(error => `Drive synchronization is still pending: ${String(error)}`)
     : ''
   return finishedCommand(
     result.exitCode,

@@ -56,6 +56,8 @@ export type BlockEditorProps = {
   host?: EditorHost
   /** Resolved threads retain document anchors without passive highlights or click targets. */
   resolvedCommentIDs?: readonly string[]
+  /** Controls the corner `/` button that morphs into the slash menu (`auto` shows it when the editor is <= 640px wide). */
+  slashTrigger?: 'auto' | 'always' | 'never'
 }
 
 type Options = { readOnly: boolean; ariaLabel?: string; placeholder?: string; labels?: Partial<EditorLabels> }
@@ -173,9 +175,12 @@ export function BlockEditor({
   insertMenu,
   children,
   host,
-  resolvedCommentIDs = noResolvedComments
+  resolvedCommentIDs = noResolvedComments,
+  slashTrigger = 'auto'
 }: BlockEditorProps) {
   const [failure, setFailure] = useState<unknown>()
+  const [shell, setShell] = useState<HTMLDivElement | null>(null)
+  const [narrow, setNarrow] = useState(false)
   const changed = useEffectEvent(() => {
     setFailure(undefined)
     onChange?.()
@@ -221,10 +226,31 @@ export function BlockEditor({
   useEffect(() => {
     editor.dispatch({ effects: commentPresentation.reconfigure(commentAppearance(resolvedCommentIDs)) })
   }, [editor, resolvedCommentIDs])
+  useEffect(() => {
+    if (!shell || slashTrigger !== 'auto') {
+      setNarrow(false)
+      return
+    }
+    const check = () => {
+      const width = shell.getBoundingClientRect().width
+      setNarrow(width > 0 && width <= 640)
+    }
+    check()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(check)
+    observer.observe(shell)
+    return () => observer.disconnect()
+  }, [shell, slashTrigger])
+
+  const compactSlash = slashTrigger === 'always' || (slashTrigger === 'auto' && narrow)
 
   return (
     <EditorContext.Provider value={handle}>
-      <div translate="no" data-immersive-translate-ignore="" className={`ankole-editor notranslate ${className}`}>
+      <div
+        ref={setShell}
+        translate="no"
+        data-immersive-translate-ignore=""
+        className={`ankole-editor notranslate ${className}`}>
         {failure !== undefined && <p role="alert">{failure instanceof Error ? failure.message : String(failure)}</p>}
         <fieldset disabled={readOnly} style={{ display: 'contents' }}>
           {toolbar === undefined ? <EditorToolbar /> : toolbar}
@@ -238,7 +264,7 @@ export function BlockEditor({
             {anchor && <MermaidExpanded />}
             {!readOnly && anchor && (
               <>
-                <SlashMenu />
+                <SlashMenu compact={compactSlash} container={shell} />
                 <MentionMenu />
                 <CodeLanguageMenu />
                 {kind !== 'knowledge' && <MathEditor />}

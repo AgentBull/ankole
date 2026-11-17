@@ -246,6 +246,18 @@ impl APIProtocol for OpenAIResponsesState {
     ) -> Result<Vec<String>, StreamError> {
         let mut event = self.build_body(context)?;
         event.remove("background");
+        if let Some(previous_response_id) = context
+            .request
+            .get("__ankole_upstream_previous_response_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            event.insert(
+                "previous_response_id".to_string(),
+                json!(previous_response_id),
+            );
+        }
         event.insert("type".to_string(), json!("response.create"));
         Ok(vec![encode_protocol_json(Value::Object(event))?])
     }

@@ -90,12 +90,19 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
   in Rust.
   """
   def prepare_language_model(ctx) do
+    ctx = drop_unsupported_chat_fields(ctx)
+
     ctx
     |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
     |> UniversalAIRequest.put_new_header("x-goog-api-client", "ankole-ai-gateway/0.1")
     |> UniversalAIRequest.bearer_auth()
     |> ReasoningEffort.put_provider_options(ctx, reasoning_effort_options())
   end
+
+  defp drop_unsupported_chat_fields(%{request: request} = ctx) when is_map(request),
+    do: %{ctx | request: Map.delete(request, "prompt_cache_key")}
+
+  defp drop_unsupported_chat_fields(ctx), do: ctx
 
   @doc """
   Builds a Google native embeddings request.

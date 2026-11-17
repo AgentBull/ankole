@@ -131,6 +131,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:ok, capability} = ProviderDefinition.capability(definition, :language_model)
     refute capability.supports_parallel_tool_calls?
 
+    assert {:ok, ark_definition} = Providers.fetch("volcengine_ark")
+    assert {:ok, ark_capability} = ProviderDefinition.capability(ark_definition, :language_model)
+    assert ark_capability.supports_parallel_tool_calls?
+
     assert is_nil(azure_openai["default_base_url"])
 
     assert Enum.all?(kinds, fn provider ->
@@ -933,6 +937,57 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, turn_start_spec} = Context.runtime(actor_key)
     refute Map.has_key?(turn_start_spec, :hosted_tools)
+  end
+
+  test "openai_compatible resolves per-model supports_parallel_tool_calls from provider_options or metadata" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "compat-parallel-check",
+               provider_kind: "openai_compatible",
+               base_url: "https://compat.example.test/v1",
+               connection_options: %{"endpoint_kind" => "chat_completions"},
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "compat-parallel-check",
+               model: "unknown/model"
+             })
+
+    assert {:ok, default_ref} = ModelProfiles.resolve_runtime_model_ref(agent.uid, "primary")
+    assert default_ref["supports_parallel_tool_calls"] == false
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "compat-parallel-check",
+               model: "deepseek/deepseek-chat"
+             })
+
+    assert {:ok, inferred_ref} = ModelProfiles.resolve_runtime_model_ref(agent.uid, "primary")
+    assert is_boolean(inferred_ref["supports_parallel_tool_calls"])
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "compat-parallel-check",
+               model: "unknown/model",
+               provider_options: %{"supportsParallelToolCalls" => true}
+             })
+
+    assert {:ok, enabled_ref} = ModelProfiles.resolve_runtime_model_ref(agent.uid, "primary")
+    assert enabled_ref["supports_parallel_tool_calls"] == true
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "compat-parallel-check",
+               model: "deepseek/deepseek-chat",
+               provider_options: %{"supportsParallelToolCalls" => false}
+             })
+
+    assert {:ok, disabled_ref} = ModelProfiles.resolve_runtime_model_ref(agent.uid, "primary")
+    assert disabled_ref["supports_parallel_tool_calls"] == false
   end
 
   test "turn start specs declare the hosted brain tool while Brain is enabled" do

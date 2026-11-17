@@ -309,20 +309,22 @@ defmodule Ankole.Principals.Agents do
 
   def disable_agent(uid) do
     case Repo.transact_top_level(
-           fn ->
-             with :ok <- Ankole.AuthZ.ensure_can_disable_principal(uid),
-                  {:ok, principal} <- Humans.lock_principal_in_tx(uid),
-                  :ok <- Humans.ensure_principal_type(principal, :agent),
-                  conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(uid),
-                  {:ok, principal} <- Ankole.Ash.update(principal, :disable_in_tx, %{}),
-                  :ok <- Ankole.Brain.Namespace.sync_principal_status_in_tx(principal) do
-               {:ok, {principal, conversation_ids}}
-             end
-           end,
+           fn -> disable_agent_in_tx(uid) end,
            after_commit: &publish_agent_deletion/1
          ) do
       {:ok, {principal, _}} -> {:ok, principal}
       error -> error
+    end
+  end
+
+  def disable_agent_in_tx(uid) do
+    with :ok <- Ankole.AuthZ.ensure_can_disable_principal(uid),
+         {:ok, principal} <- Humans.lock_principal_in_tx(uid),
+         :ok <- Humans.ensure_principal_type(principal, :agent),
+         conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(principal.uid),
+         {:ok, principal} <- Ankole.Ash.update(principal, :disable_in_tx, %{}),
+         :ok <- Ankole.Brain.Namespace.sync_principal_status_in_tx(principal) do
+      {:ok, {principal, conversation_ids}}
     end
   end
 
@@ -344,37 +346,32 @@ defmodule Ankole.Principals.Agents do
          {:ok, principal} <- Humans.lock_principal_in_tx(uid),
          :ok <- Humans.ensure_principal_type(principal, :agent),
          conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(principal.uid),
-         {:ok, principal} <- change_agent_status_in_tx(principal) do
+         {:ok, principal} <- destroy_disabled_agent_in_tx(principal) do
       {:ok, {principal, conversation_ids}}
     end
   end
 
-  defp change_agent_status_in_tx(principal) do
-    case principal.status do
-      :active ->
-        with {:ok, principal} <- Ankole.Ash.update(principal, :disable_in_tx, %{}),
-             :ok <- Ankole.Brain.Namespace.sync_principal_status_in_tx(principal),
-             do: {:ok, principal}
+  defp destroy_disabled_agent_in_tx(%Principal{status: :active}),
+    do: {:error, :agent_must_be_disabled}
 
-      :disabled ->
-        :ok =
-          Ankole.Pod.purge_root_jobs_in_tx(
-            Ankole.Pod.root_ids_for_principal(principal.uid) ++
-              Ankole.Conversations.deletion_root_ids_for_agent_in_tx(principal.uid)
-          )
+  defp destroy_disabled_agent_in_tx(%Principal{status: :disabled} = principal) do
+    :ok =
+      Ankole.Pod.purge_root_jobs_in_tx(
+        Ankole.Pod.root_ids_for_principal(principal.uid) ++
+          Ankole.Conversations.deletion_root_ids_for_agent_in_tx(principal.uid)
+      )
 
-        Access.grants(principal_uid: principal.uid, action: [in: Access.page_actions()])
-        |> Access.remove_grants()
+    Access.grants(principal_uid: principal.uid, action: [in: Access.page_actions()])
+    |> Access.remove_grants()
 
-        :ok = Ankole.AuthZ.Grants.delete_principal_resource_grants_in_tx(principal.uid)
-        :ok = Ankole.Pod.release_applet_owners_for_principal_in_tx(principal.uid)
-        :ok = Ankole.Pod.delete_private_root_in_tx(principal.uid)
-        :ok = Ankole.Conversations.delete_for_agent_in_tx(principal.uid)
-        :ok = AgentWorkers.mark_deleting_in_tx(principal.uid)
-        :ok = Ankole.Signals.Bindings.delete_agent_config_rows_in_tx(principal.uid)
-        :ok = Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(principal.uid)
-        Ankole.Ash.destroy(principal, :delete_in_tx)
-    end
+    :ok = Ankole.AuthZ.Grants.delete_principal_resource_grants_in_tx(principal.uid)
+    :ok = Ankole.Pod.release_applet_owners_for_principal_in_tx(principal.uid)
+    :ok = Ankole.Pod.delete_private_root_in_tx(principal.uid)
+    :ok = Ankole.Conversations.delete_for_agent_in_tx(principal.uid)
+    :ok = AgentWorkers.mark_deleting_in_tx(principal.uid)
+    :ok = Ankole.Signals.Bindings.delete_agent_config_rows_in_tx(principal.uid)
+    :ok = Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(principal.uid)
+    Ankole.Ash.destroy(principal, :delete_in_tx)
   end
 
   def publish_agent_changes({%{tenant_id: tenant_id}, conversation_ids}) do

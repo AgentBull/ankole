@@ -27,7 +27,7 @@ export function buildCodexJobProjection(input: { tools: WorkerAgentTool[] }): Co
   for (const tool of input.tools) {
     try {
       if (tools.has(tool.name)) throw new Error(`Duplicate dynamic tool ${tool.name}`)
-      const inputSchema = (tool.inputSchema ?? zodToJSONSchema(tool.schema)) as unknown as JSONValue
+      const inputSchema = (tool.inputSchema ?? zodToJSONSchema(tool.schema)) as JSONValue
       dynamicTools.push({ type: 'function', name: tool.name, description: tool.description, inputSchema })
       tools.set(tool.name, tool)
     } catch {

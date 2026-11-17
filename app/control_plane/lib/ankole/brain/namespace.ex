@@ -222,6 +222,76 @@ defmodule Ankole.Brain.Namespace do
   defp restrict_inheritance(node),
     do: Access.update_anchor_in_tx(node, :sharing, %{inherit_permissions: false})
 
+  @doc "Initializes Brain roots and categories across all tenants when the Brain schema migration runs."
+  @spec ensure_initial_meta_namespaces() :: :ok
+  def ensure_initial_meta_namespaces do
+    {:ok, _apps} = Application.ensure_all_started(:ankole_kernel)
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+
+    {:ok, :ok, _apps} =
+      Ecto.Migrator.with_repo(Repo, fn _repo ->
+        Repo.without_tenant(fn ->
+          started =
+            Enum.flat_map(
+              [
+                {Ankole.AppConfigure.Registry, []},
+                {Phoenix.PubSub.Supervisor, [name: Ankole.PubSub]},
+                {Ankole.AppConfigure.Cache, []}
+              ],
+              &start_temp_child/1
+            )
+
+          try do
+            ensure_all_tenants()
+            :ok
+          after
+            Enum.each(Enum.reverse(started), fn pid ->
+              if Process.alive?(pid), do: GenServer.stop(pid)
+            end)
+          end
+        end)
+      end)
+
+    :ok
+  end
+
+  defp start_temp_child(spec) do
+    %{start: {mod, fun, args}} = Supervisor.child_spec(spec, [])
+
+    case apply(mod, fun, args) do
+      {:ok, pid} -> [pid]
+      {:error, {:already_started, _}} -> []
+    end
+  end
+
+  @doc "Ensures every tenant has its Brain root, ontology categories, and Agent pages."
+  @spec ensure_all_tenants() :: :ok
+  def ensure_all_tenants do
+    Enum.each(Ankole.Tenants.list_tenants!(), fn tenant ->
+      Repo.with_tenant(tenant.id, fn ->
+        {:ok, :ok} =
+          Repo.transact_top_level(fn ->
+            with {:ok, _} <- ensure_namespace_in_tx(),
+                 :ok <- ensure_categories_in_tx(),
+                 :ok <- ensure_agent_pages(),
+                 do: {:ok, :ok}
+          end)
+      end)
+    end)
+  end
+
+  defp ensure_agent_pages do
+    Enum.reduce_while(Ankole.Principals.list_agents(), :ok, fn %{principal: principal} = entry,
+                                                               :ok ->
+      with {:ok, _} <- ensure_agent_in_tx(principal.uid, entry.agent.type),
+           :ok <- sync_principal_status_in_tx(principal) do
+        {:cont, :ok}
+      else
+        error -> {:halt, error}
+      end
+    end)
+  end
+
   defp ensure_empty_content(node, metadata) do
     case Knowledge.read_in_tx(node.id) do
       {:ok, %{page: page, content: content}} when not is_nil(content) and page.revision > 0 ->

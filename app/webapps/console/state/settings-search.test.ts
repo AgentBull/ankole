@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AppConfigurationItem } from '../api/configuration-types'
 import { settingFocus, settingMatches, settingsScope, settingsSearch } from './settings-search'
-import { settingGroupID, settingOwnerRoute } from './setting-groups'
+import { settingGroupID } from './setting-groups'
 import { retentionLength, settingDurationParts } from './setting-value-editor'
 
 const item = (key: string, value: unknown = null, encrypted = false) =>
@@ -56,6 +56,5 @@ describe('settings navigation and search', () => {
   test('task prefixes have one owner and links name the relevant management tab', () => {
     expect(settingGroupID('authn.email.mail')).toBe('smtp')
     expect(settingGroupID('authn.email.send_limits')).toBe('otp')
-    expect(settingOwnerRoute('saas.require_invitation_code')).toBe('/invitation-codes?focus=require-invitation-code')
   })
 })

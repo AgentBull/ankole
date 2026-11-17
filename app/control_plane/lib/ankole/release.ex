@@ -18,6 +18,49 @@ defmodule Ankole.Release do
     :ok
   end
 
+  @doc """
+  Runs the explicit one-time 1.x -> 2.0 schema and data upgrade (`Remove at 2.0.0 GA`).
+  """
+  @spec upgrade_from_1x() :: :ok
+  def upgrade_from_1x do
+    load_app()
+    {:ok, _apps} = Application.ensure_all_started(:ankole_kernel)
+    {:ok, _apps} = Application.ensure_all_started(:req)
+
+    with_repo(fn repo ->
+      paths = Ankole.Migrations.paths()
+      Ankole.Migrations.validate!(paths)
+      Ankole.CredentialUpgrade.preflight!(repo)
+      _migrated = Ankole.Upgrade202610.migrate(repo, paths, :up, all: true)
+
+      start_child!(Registry)
+      start_pubsub!()
+      start_child!(Cache)
+      {:ok, snapshot} = Ankole.Plugins.Registry.prepare_snapshot([])
+      start_child!(Ankole.Plugins.Registry, name: Ankole.Plugins.Registry, snapshot: snapshot)
+
+      case Ankole.Connectors.LegacyUpgrade.run() do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          raise "Legacy connector credential upgrade failed: #{inspect(reason)}"
+      end
+
+      case Ankole.Upgrade202610.WorkerProviders.import_file(
+             Application.get_env(:ankole, :worker_providers_file)
+           ) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          raise "Legacy worker provider seed failed: #{inspect(reason)}"
+      end
+    end)
+
+    :ok
+  end
+
   @doc "Updates the encrypted site SMTP configuration from a JSON object."
   def put_authn_mail(json) when is_binary(json) do
     load_app()

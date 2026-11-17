@@ -681,39 +681,17 @@ defmodule Ankole.Upgrade202610Test do
   defp intent!(filter),
     do: Ankole.Conversations.list_intents!(query: [filter: filter]) |> List.first()
 
-  test "site mail settings decrypt with the old key and seal with the authentication key" do
-    mail = %{
-      "server" => "smtp.example.test",
-      "from" => "login@example.test",
-      "username" => "mailer",
-      "password" => "old-mail-secret"
-    }
-
-    old = seed_config("saas.email.mail", mail)
-    assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
-    refute Repo.get_by(SiteConfig, scope: "global", key: "saas.email.mail")
-    row = Repo.get_by!(SiteConfig, scope: "global", key: "authn.email.mail")
-    assert row.value["type"] == "cipher"
-    refute row.value["value"] == old["value"]
-    assert {:ok, ^mail} = Crypto.unseal(row.value["value"], "global", "authn.email.mail")
-    assert {:error, _} = Crypto.unseal(row.value["value"], "global", "saas.email.mail")
-    assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
-    assert Repo.get_by!(SiteConfig, scope: "global", key: "authn.email.mail").value == row.value
-  end
-
   test "legacy empty mail configuration becomes an unconfigured nil value" do
-    for key <- ["saas.email.mail", "authn.email.mail"] do
-      Repo.delete_all(
-        from row in SiteConfig, where: row.scope == "global" and row.key == "authn.email.mail"
-      )
+    Repo.delete_all(
+      from row in SiteConfig, where: row.scope == "global" and row.key == "authn.email.mail"
+    )
 
-      seed_config(key, %{})
-      assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
-      row = Repo.get_by!(SiteConfig, scope: "global", key: "authn.email.mail")
-      assert {:ok, nil} = Crypto.unseal(row.value["value"], "global", "authn.email.mail")
-      assert {:ok, nil} = Ankole.Authn.Config.get("mail")
-      refute Ankole.Authn.Mailer.configured?()
-    end
+    seed_config("authn.email.mail", %{})
+    assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
+    row = Repo.get_by!(SiteConfig, scope: "global", key: "authn.email.mail")
+    assert {:ok, nil} = Crypto.unseal(row.value["value"], "global", "authn.email.mail")
+    assert {:ok, nil} = Ankole.Authn.Config.get("mail")
+    refute Ankole.Authn.Mailer.configured?()
   end
 
   test "retired local activations refresh each tenant's configuration in its own context", %{
@@ -752,6 +730,26 @@ defmodule Ankole.Upgrade202610Test do
         assert {:ok, []} = Ankole.AppConfigure.get_by_key(key)
       end)
     end
+  end
+
+  test "standard 2.0 migrations pass O(1) sentinel check while 1.x databases point to upgrade_from_1x" do
+    assert :ok = Ankole.CredentialUpgrade.ensure_not_unmigrated_1x!(Repo)
+    assert :ignore = Ankole.AgentWorkers.BootstrapSeed.start_link([])
+
+    defmodule FakeUnmigrated1xRepo do
+      def query!("SELECT to_regclass($1) IS NOT NULL", ["schema_migrations"]),
+        do: %{rows: [[true]]}
+
+      def query!(_sentinel_sql, []),
+        do: %{rows: [[true]]}
+    end
+
+    error =
+      assert_raise RuntimeError, fn ->
+        Ankole.CredentialUpgrade.ensure_not_unmigrated_1x!(FakeUnmigrated1xRepo)
+      end
+
+    assert error.message =~ "/app/bin/upgrade_from_1x"
   end
 
   defp seed_config(key, config) do

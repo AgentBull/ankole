@@ -15,6 +15,8 @@ import {
   ActorTurnAbortResponseSchema,
   BackgroundAgentJobGetRequestSchema,
   BackgroundAgentJobResponseSchema,
+  BackgroundAgentJobRetainedWorkspacesRequestSchema,
+  BackgroundAgentJobRetainedWorkspacesResponseSchema,
   BackgroundAgentJobStatusUpdateRequestSchema,
   BackgroundAgentJobTurnUpsertRequestSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
@@ -81,6 +83,11 @@ export const rpcOperations = {
     effect: 'read',
     request: BackgroundAgentJobGetRequestSchema,
     response: BackgroundAgentJobResponseSchema
+  },
+  'background_agent_job.retained_workspaces': {
+    scope: 'worker_agent',
+    request: BackgroundAgentJobRetainedWorkspacesRequestSchema,
+    response: BackgroundAgentJobRetainedWorkspacesResponseSchema
   },
   'background_agent_job.status.update': {
     scope: 'turn',

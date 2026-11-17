@@ -107,8 +107,12 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
              group_projection_options(config, channel)
            ),
          {:ok, members} <- list_members(config, channel_id),
-         {:ok, principal_uids} <- member_principal_uids(config, members, bot_ids),
-         {:ok, replace} <- IMGroupMembers.replace_members(group.id, principal_uids) do
+         {:ok, principal_uids, unmapped?} <-
+           member_principal_uids(binding, config, members, bot_ids),
+         {:ok, replace} <-
+           IMGroupMembers.replace_members(group.id, principal_uids,
+             has_unmapped_members: unmapped?
+           ) do
       {:ok,
        %{
          channel_id: channel_id,
@@ -136,10 +140,19 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
       enqueue_refresh_result(consumer, channel_id, "bot_joined")
     else
       with {:ok, group} <- IMGroupProjection.get_group(namespace(consumer.config), channel_id),
-           {:ok, observed} <- upsert_member(consumer.config, user_id),
-           {:ok, _membership} <-
-             AuthZ.add_synced_group_member(group.id, :im_group, observed.principal.uid) do
-        {:ok, %{status: :member_added, group_id: group.id, principal_uid: observed.principal.uid}}
+           {:ok, resolution} <-
+             resolve_member(consumer.context.binding_id, consumer.config, user_id) do
+        case resolution do
+          {:mapped, principal} ->
+            with {:ok, _membership} <-
+                   AuthZ.add_synced_group_member(group.id, :im_group, principal.uid) do
+              {:ok, %{status: :member_added, group_id: group.id, principal_uid: principal.uid}}
+            end
+
+          :unmapped ->
+            {:ok, _} = IMGroupMembers.mark_group_has_unmapped_members(group.id)
+            {:ok, %{status: :member_unmapped, group_id: group.id}}
+        end
       else
         {:error, :not_found} ->
           enqueue_refresh_result(consumer, channel_id, "member_added_missing_group")
@@ -205,8 +218,10 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
                  group_projection_options(config, channel)
                ),
              {:ok, members} <- list_members(config, channel["id"]),
-             {:ok, uids} <- member_principal_uids(config, members, bot_ids),
-             {:ok, _result} <- IMGroupMembers.replace_members(group.id, uids) do
+             {:ok, uids, unmapped?} <-
+               member_principal_uids(context.binding_id, config, members, bot_ids),
+             {:ok, _result} <-
+               IMGroupMembers.replace_members(group.id, uids, has_unmapped_members: unmapped?) do
           {:ok, group}
         end
 
@@ -316,29 +331,28 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     ]
   end
 
-  defp member_principal_uids(config, members, bot_ids) do
+  defp member_principal_uids(binding_or_id, config, members, bot_ids) do
     members
     |> Enum.reject(&(&1 == runtime_bot_user_id(config) or MapSet.member?(bot_ids, &1)))
-    |> Enum.reduce_while({:ok, []}, fn user_id, {:ok, acc} ->
-      case upsert_member(config, user_id) do
-        {:ok, observed} -> {:cont, {:ok, [observed.principal.uid | acc]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
+    |> then(fn eligible_ids ->
+      IMGroupMembers.resolve_roster_members(binding_or_id, eligible_ids, fn
+        user_id when is_binary(user_id) ->
+          {:resolve, %{provider: namespace(config), external_id: user_id}}
+
+        _ ->
+          {:error, :missing_user_id}
+      end)
     end)
-    |> case do
-      {:ok, uids} -> {:ok, uids |> Enum.uniq() |> Enum.sort()}
-      error -> error
-    end
   end
 
-  defp upsert_member(config, user_id) when is_binary(user_id) do
-    Principals.upsert_platform_subject_human(%{
+  defp resolve_member(binding_or_id, config, user_id) when is_binary(user_id) do
+    IMGroupMembers.resolve_roster_member(binding_or_id, %{
       provider: namespace(config),
       external_id: user_id
     })
   end
 
-  defp upsert_member(_config, _user_id), do: {:error, :missing_user_id}
+  defp resolve_member(_binding_or_id, _config, _user_id), do: {:error, :missing_user_id}
 
   defp enqueue_refresh_result(consumer, channel_id, reason) when is_binary(channel_id) do
     case enqueue_channel_refresh(consumer.context, consumer.config, channel_id, reason: reason) do

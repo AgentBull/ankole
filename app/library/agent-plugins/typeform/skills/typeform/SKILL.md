@@ -1,6 +1,7 @@
 ---
 name: typeform
 description: "Find and use typeform operations through Ankole connections."
+default_enabled: false
 ---
 
 # typeform

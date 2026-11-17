@@ -4,16 +4,9 @@ import { createAppletRuns } from './applet-runs'
 import { pageCreated } from './state/navigation-cache'
 import { t } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import { AppletRuntimeProvider, useAggregate, useRecords, useRecordWrites } from '@ankole/applet-sdk'
-import type {
-  AppletRuntime,
-  BaseField,
-  BaseTable,
-  BaseView,
-  Filter,
-  RecordQuery,
-  ViewType
-} from '@ankole/applet-sdk/types'
+import { AppletRuntimeProvider, useAggregate, useRecordWrites } from '@ankole/applet-sdk'
+import { useInfiniteBaseRecords, type InfiniteRecordQuery } from './use-infinite-base-records'
+import type { AppletRuntime, BaseField, BaseTable, BaseView, Filter, ViewType } from '@ankole/applet-sdk/types'
 import {
   Button,
   Checkbox,
@@ -37,7 +30,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { TableWorkspaceModel } from './state/table-workspace'
+import { TableWorkspaceModel, type ChartAutoSavePersist } from './state/table-workspace'
 import { isUnconfiguredChartSpec, parseViewConfig, type ViewConfig, type ConfiguredView } from './state/view-config'
 import { deriveDefaultChartSpec, serializeResolvedToViewConfig } from './state/chart-view'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -550,9 +543,8 @@ function TableWorkspace({
   model.load(initialView)
   const viewID = model.viewID.value,
     draft = model.draft.value,
-    pageToken = model.pageToken.value,
-    history = model.history.value,
-    newRecord = model.newRecord.value
+    newRecord = model.newRecord.value,
+    chartAutoSaveError = model.autoSaveError.value
   const setNewRecord = (value: boolean) => {
     model.newRecord.value = value
   }
@@ -560,12 +552,6 @@ function TableWorkspace({
   const viewSaving = useRef(false)
   const inlineDebounceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const pendingInlineFlush = useRef<(() => void) | undefined>(undefined)
-  const chartAutoSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const pendingChartSave = useRef<{ viewId: string; config: ViewConfig } | undefined>(undefined)
-  const chartSaveInFlight = useRef<Promise<void> | null>(null)
-  const latestViewVersions = useRef<Map<string, number>>(new Map())
-  const flushChartAutoSaveRef = useRef<() => void>(() => {})
-  const [chartAutoSaveError, setChartAutoSaveError] = useState<unknown>(undefined)
   const [renamingView, setRenamingView] = useState<string>()
   const [deletingView, setDeletingView] = useState<BaseView>()
   const [copiedPageID, setCopiedPageID] = useState<string>()
@@ -573,52 +559,28 @@ function TableWorkspace({
   const client = useQueryClient()
 
   if (schema.data?.views) {
-    for (const v of schema.data.views) {
-      const prev = latestViewVersions.current.get(v.id) ?? 0
-      if (v.version > prev) {
-        latestViewVersions.current.set(v.id, v.version)
-      }
-    }
+    model.observeViewVersions(schema.data.views)
   }
 
-  const flushChartAutoSave = () => {
-    if (chartAutoSaveTimer.current) {
-      clearTimeout(chartAutoSaveTimer.current)
-      chartAutoSaveTimer.current = undefined
+  const persistChartAutoSave: ChartAutoSavePersist = async (payload, targetVersion) => {
+    try {
+      const res = await baseHTTP.updateView(payload.viewId, { config: payload.config }, targetVersion)
+      const nextVer =
+        res && typeof res === 'object' && 'view' in res && res.view && typeof res.view.version === 'number'
+          ? res.view.version
+          : targetVersion + 1
+      model.recordViewVersion(payload.viewId, nextVer)
+      await client.invalidateQueries({ queryKey: base.key(tableID) })
+      const freshSchema = client.getQueryData<typeof schema.data>(baseSchemaQuery(tableID).queryKey)
+      if (freshSchema?.views) model.observeViewVersions(freshSchema.views)
+      return { version: nextVer }
+    } catch (error) {
+      await client.invalidateQueries({ queryKey: [...base.key(tableID), 'schema'] }).catch(() => {})
+      const freshSchema = client.getQueryData<typeof schema.data>(baseSchemaQuery(tableID).queryKey)
+      if (freshSchema?.views) model.observeViewVersions(freshSchema.views)
+      throw error
     }
-    const payload = pendingChartSave.current
-    if (!payload) return
-    pendingChartSave.current = undefined
-    const execute = async () => {
-      const targetVersion =
-        latestViewVersions.current.get(payload.viewId) ??
-        schema.data?.views.find(v => v.id === payload.viewId)?.version ??
-        0
-      try {
-        const res = await baseHTTP.updateView(payload.viewId, { config: payload.config }, targetVersion)
-        const nextVer =
-          res && typeof res === 'object' && 'view' in res && res.view && typeof res.view.version === 'number'
-            ? res.view.version
-            : targetVersion + 1
-        latestViewVersions.current.set(payload.viewId, nextVer)
-        setChartAutoSaveError(undefined)
-        await client.invalidateQueries({ queryKey: base.key(tableID) })
-        const activeViewId = model.viewID.value || schema.data?.views[0]?.id
-        if (activeViewId === payload.viewId && !pendingChartSave.current) {
-          model.draft.value = undefined
-        }
-      } catch (error) {
-        setChartAutoSaveError(error)
-        await client.invalidateQueries({ queryKey: [...base.key(tableID), 'schema'] })
-      }
-    }
-    const prev = chartSaveInFlight.current ?? Promise.resolve()
-    const next = prev.then(execute, execute).finally(() => {
-      if (chartSaveInFlight.current === next) chartSaveInFlight.current = null
-    })
-    chartSaveInFlight.current = next
   }
-  flushChartAutoSaveRef.current = flushChartAutoSave
 
   useRegisterBaseFlush(async () => {
     let flushed = false
@@ -629,14 +591,8 @@ function TableWorkspace({
       pendingInlineFlush.current = undefined
       flushed = true
     }
-    if (chartAutoSaveTimer.current || pendingChartSave.current) {
-      flushChartAutoSaveRef.current()
-    }
-    if (chartSaveInFlight.current) {
-      flushed = true
-      await chartSaveInFlight.current.catch(() => {})
-    }
-    return flushed
+    const chartFlushed = await model.flushChartAutoSave()
+    return flushed || chartFlushed
   })
 
   useEffect(() => {
@@ -647,11 +603,9 @@ function TableWorkspace({
         pendingInlineFlush.current?.()
         pendingInlineFlush.current = undefined
       }
-      if (chartAutoSaveTimer.current || pendingChartSave.current) {
-        flushChartAutoSaveRef.current()
-      }
+      void model.flushChartAutoSave()
     }
-  }, [])
+  }, [model])
 
   const removeView = useMutation({
     mutationFn: (view: BaseView) => baseHTTP.removeView(view.id, view.version),
@@ -700,12 +654,13 @@ function TableWorkspace({
     Boolean(isInlineConfigEmbed && isUnconfiguredChartSpec(effective.config))
   )
   const quietSingleChartEmbed = Boolean(embed) && effective.type === 'chart'
-  const query: RecordQuery = {
-    filter: effective.config.filter,
-    sort: effective.config.sort,
-    page_size: 100,
-    page_token: pageToken
-  }
+  const query: InfiniteRecordQuery = useMemo(
+    () => ({
+      filter: effective.config.filter,
+      sort: effective.config.sort
+    }),
+    [effective.config.filter, effective.config.sort]
+  )
   const writes = useRecordWrites(tableID)
   const stats = useAggregate(tableID, {
     filter: query.filter,
@@ -722,9 +677,9 @@ function TableWorkspace({
           }),
     onSuccess: async res => {
       if (view && res && typeof res === 'object' && 'view' in res && res.view && typeof res.view.version === 'number') {
-        latestViewVersions.current.set(view.id, res.view.version)
+        model.recordViewVersion(view.id, res.view.version)
       }
-      setChartAutoSaveError(undefined)
+      model.clearAutoSaveError()
       await client.invalidateQueries({ queryKey: base.key(tableID) })
       model.draft.value = undefined
     },
@@ -755,13 +710,12 @@ function TableWorkspace({
   const configure = (config: ViewConfig) => {
     if (viewSaving.current) return
     const next = schema.data ? sanitizeViewConfig(config, schema.data.fields, effective.type) : config
-    model.resetPages()
     if (isInlineConfigEmbed && canEditDocInline) {
-      model.configure(next, 0)
+      const seq = model.configure(next, 0)
       if (inlineDebounceTimer.current) clearTimeout(inlineDebounceTimer.current)
       const flush = () => {
         embed!.configureInline!({ ...next, type: effective.type }, tableID)
-        model.draft.value = undefined
+        model.acknowledgeDraft(seq)
       }
       pendingInlineFlush.current = flush
       inlineDebounceTimer.current = setTimeout(() => {
@@ -770,14 +724,12 @@ function TableWorkspace({
         flush()
       }, 400)
     } else if (autoSaveChart && view) {
-      const targetVersion = latestViewVersions.current.get(view.id) ?? view.version
-      model.configure(next, targetVersion)
-      setChartAutoSaveError(undefined)
-      pendingChartSave.current = { viewId: view.id, config: next }
-      if (chartAutoSaveTimer.current) clearTimeout(chartAutoSaveTimer.current)
-      chartAutoSaveTimer.current = setTimeout(() => {
-        flushChartAutoSaveRef.current()
-      }, 600)
+      model.scheduleChartAutoSave({
+        viewId: view.id,
+        config: next,
+        fallbackVersion: view.version,
+        persist: persistChartAutoSave
+      })
     } else {
       model.configure(next, view?.version ?? 0)
     }
@@ -910,7 +862,7 @@ function TableWorkspace({
                         disabled={updateView.isPending}
                         onDoubleClick={() => schemaEditable && setRenamingView(item.id)}
                         onClick={() => {
-                          flushChartAutoSave()
+                          void model.flushChartAutoSave()
                           model.select(item.id)
                           if (embed?.bindSavedView) {
                             embed.bindSavedView(item.id, tableID)
@@ -918,10 +870,7 @@ function TableWorkspace({
                             const config = parseViewConfig(item.config)
                             if (config.success) embed!.configureInline!({ ...config.data, type: item.type }, tableID)
                           }
-                          model.draft.value = undefined
                           updateView.reset()
-                          setNewRecord(false)
-                          model.resetPages()
                         }}>
                         <Icon aria-hidden="true" />
                         <span>{item.name}</span>
@@ -965,7 +914,7 @@ function TableWorkspace({
                   fields={schema.data.fields}
                   views={schema.data.views}
                   onCreated={id => {
-                    flushChartAutoSave()
+                    void model.flushChartAutoSave()
                     model.select(id)
                     embed?.bindSavedView?.(id, tableID)
                   }}
@@ -984,6 +933,7 @@ function TableWorkspace({
                     onClick={() => {
                       if (viewSaving.current) return
                       viewSaving.current = true
+                      model.cancelPendingChartAutoSave()
                       updateView.mutate({
                         config: sanitizeViewConfig(draft.config, schema.data.fields, effective.type),
                         version: updateView.error ? (view?.version ?? 0) : draft.version
@@ -1154,6 +1104,7 @@ function TableWorkspace({
               onClick={() => {
                 if (viewSaving.current) return
                 viewSaving.current = true
+                model.cancelPendingChartAutoSave()
                 updateView.mutate({
                   config: sanitizeViewConfig(draft.config, schema.data.fields, effective.type),
                   version: updateView.error || chartAutoSaveError ? (view?.version ?? 0) : draft.version
@@ -1185,7 +1136,6 @@ function TableWorkspace({
             variant="ghost"
             disabled={updateView.isPending}
             onClick={() => {
-              setChartAutoSaveError(undefined)
               model.discard()
               updateView.reset()
             }}>
@@ -1231,13 +1181,9 @@ function TableWorkspace({
         <UngroupedWorkspaceBody
           tableID={tableID}
           query={query}
-          mode={schema.data.mode}
           sharedViewProps={sharedViewProps}
           statsCount={stats.data?.groups[0]?.metrics.count}
           upstreamError={updateView.error || stats.error || schema.error}
-          historyLength={history.length}
-          onPrevious={() => model.previous()}
-          onNext={token => model.next(token)}
           summary={
             <ErrorBoundary fallback={null} resetKeys={[tableID]}>
               <BaseSummary tableID={tableID} fields={schema.data.fields} filter={query.filter} />
@@ -1299,29 +1245,22 @@ function TableWorkspace({
 function UngroupedWorkspaceBody({
   tableID,
   query,
-  mode,
   sharedViewProps,
   statsCount,
   upstreamError,
-  historyLength,
-  onPrevious,
-  onNext,
   summary
 }: {
   tableID: string
-  query: RecordQuery
-  mode: string
+  query: InfiniteRecordQuery
   sharedViewProps: Omit<ViewProps, 'records' | 'pending' | 'create' | 'update' | 'remove'>
   statsCount: unknown
   upstreamError: unknown
-  historyLength: number
-  onPrevious(): void
-  onNext(token: string): void
   summary: React.ReactNode
 }) {
   const { t } = useTranslation()
-  const records = useRecords(tableID, query)
-  const rows = records.data?.records ?? []
+  const records = useInfiniteBaseRecords(tableID, query, 200)
+  const rows = records.records
+  const parsedCount = typeof statsCount === 'number' ? statsCount : undefined
   return (
     <>
       <ContentError
@@ -1334,6 +1273,12 @@ function UngroupedWorkspaceBody({
             key={`${sharedViewProps.view.id}:${sharedViewProps.view.type}`}
             {...sharedViewProps}
             records={rows}
+            totalCount={parsedCount}
+            hasNextPage={records.hasNextPage}
+            isFetchingNextPage={records.isFetchingNextPage}
+            fetchNextError={records.fetchNextError}
+            fetchNextPage={records.fetchNextPage}
+            isFetchingRecords={records.isFetching}
             pending={records.write.isPending}
             create={records.create}
             update={records.update}
@@ -1357,22 +1302,6 @@ function UngroupedWorkspaceBody({
         {records.write.isPending ? t('pod.content.saving_2') : ''}
       </p>
       {summary}
-      {(mode === 'remote' || !!records.data?.page_token || historyLength > 0) && (
-        <div className="pod-base-pagination flex items-center gap-2">
-          <Button size="sm" variant="outline" disabled={!historyLength || records.isFetching} onClick={onPrevious}>
-            {t('pod.content.previous_page')}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!records.data?.page_token || records.isFetching}
-            onClick={() => {
-              if (records.data?.page_token) onNext(records.data.page_token)
-            }}>
-            {t('pod.content.next_page')}
-          </Button>
-        </div>
-      )}
     </>
   )
 }

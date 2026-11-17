@@ -17,7 +17,7 @@ In FOSS production deployments where `BASE_DB_URLS` is unset, `Ankole.Pod.BaseRe
 |---|---|---|
 | `ANKOLE_MAX_CONCURRENT_SLOTS` | `12` | Open environment workspaces and active Codex turns on a single Agent's Worker |
 | `POOL_SIZE` (`ANKOLE_DATABASE_POOL_SIZE` in Compose/Helm) | `10` | Connections per replica in the `Ankole.Repo` pool for the control-plane database |
-| `BASE_DB_URLS` (`ankole_pool_size`) | `10` in FOSS production, `5` in SaaS production, `2` in dev/test | Connections per replica in each `Ankole.Pod.BaseRepo` pool for a Base shard |
+| `BASE_DB_URLS` (`ankole_pool_size`) | `10` in FOSS production, `2` in dev/test | Connections per replica in each `Ankole.Pod.BaseRepo` pool for a Base shard |
 | `ANKOLE_POSTGRES_MAX_CONNECTIONS` | `300` | `max_connections` on the bundled PostgreSQL server |
 | `background_agent_jobs.max_running_per_agent` | `3` | Concurrently running Background Agent Jobs per Agent (tenant-scoped) |
 | `idleReleaseAfter` | `15m` across all six providers (`never` disables idle stop) | How long a Worker stays idle before the control plane stops it to free CPU and memory |

@@ -163,7 +163,11 @@ defmodule Ankole.Brain.RequestContext do
           %{mode: :strict, asker_uid: asker, present_uids: present_uids}
       end
     else
-      {:error, _unresolved_recipient_set} -> closed_disclosure()
+      {:workspace_public_fallback, _} ->
+        %{mode: :workspace_public_fallback, asker_uid: asker, present_uids: []}
+
+      {:error, _unresolved_recipient_set} ->
+        closed_disclosure()
     end
   end
 
@@ -195,18 +199,20 @@ defmodule Ankole.Brain.RequestContext do
   defp strict_present_uids(channels, asker, replying_agent_uid) do
     Enum.reduce_while(channels, {:ok, []}, fn channel, {:ok, acc} ->
       case strict_channel_recipient_uids(channel, asker, replying_agent_uid) do
+        {:ok, :workspace_public_fallback} -> {:halt, {:workspace_public_fallback, :public_only}}
         {:ok, recipients} -> {:cont, {:ok, recipients ++ acc}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
     |> then(fn
       {:ok, recipients} -> {:ok, Enum.uniq(recipients)}
-      {:error, _reason} = error -> error
+      other -> other
     end)
   end
 
   def external_audience(%Conversation{kind: :external} = channel) do
     case strict_channel_recipient_uids(channel, nil, nil) do
+      {:ok, :workspace_public_fallback} -> []
       {:ok, people} -> people
       {:error, _} -> []
     end
@@ -217,12 +223,18 @@ defmodule Ankole.Brain.RequestContext do
          _asker,
          _replying_agent_uid
        ) do
-    with {:ok, recipients} <- channel_group_member_uids(channel),
-         true <- recipients != [] do
-      {:ok, recipients}
-    else
-      false -> {:error, :empty_group_recipient_set}
-      {:error, _reason} = error -> error
+    case channel_group_member_uids(channel) do
+      {:ok, :workspace_public_fallback} ->
+        {:ok, :workspace_public_fallback}
+
+      {:ok, recipients} when recipients != [] ->
+        {:ok, recipients}
+
+      {:ok, []} ->
+        {:error, :empty_group_recipient_set}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -282,7 +294,7 @@ defmodule Ankole.Brain.RequestContext do
        do: group_member_uids(group_id)
 
   defp channel_group_member_uids(%Conversation{external_kind: :im_group}),
-    do: {:error, :group_recipient_set_unavailable}
+    do: {:ok, :workspace_public_fallback}
 
   defp im_channel?(%Conversation{kind: :native}), do: true
   defp im_channel?(%Conversation{external_kind: kind}), do: kind in [:im_dm, :im_group]
@@ -321,8 +333,19 @@ defmodule Ankole.Brain.RequestContext do
   end
 
   defp group_member_uids(group_id) do
-    case Ankole.AuthZ.list_group_members(group_id) do
-      {:ok, members} -> {:ok, Enum.map(members, & &1.principal.uid)}
+    with [group] <-
+           Ankole.AuthZ.list_groups!(query: [filter: [id: group_id], select: [:id, :metadata]]),
+         false <- Map.get(group.metadata || %{}, "has_unmapped_members", false),
+         {:ok, members} <- Ankole.AuthZ.list_group_members(group_id) do
+      uids =
+        members
+        |> Enum.reject(&(&1.principal.type == :system))
+        |> Enum.map(& &1.principal.uid)
+
+      {:ok, uids}
+    else
+      true -> {:ok, :workspace_public_fallback}
+      [] -> {:error, :group_not_found}
       {:error, _missing_or_computed} = error -> error
     end
   end

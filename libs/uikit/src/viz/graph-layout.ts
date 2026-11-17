@@ -190,7 +190,9 @@ function truncateLabel(value: string, maxChars: number): string {
 }
 
 // The force layout settles once its cooling factor drops below this threshold, the same stopping point that d3's
-// own simulation timer uses. At this decay rate the simulation reaches it after 103 ticks.
+// own simulation timer uses. At this decay rate a cold simulation reaches it after 103 ticks, while an incremental
+// update starting from `INCREMENTAL_FORCE_ALPHA` relaxes in 32 ticks without scrambling settled neighborhoods.
+export const INCREMENTAL_FORCE_ALPHA = 0.12
 const FORCE_ALPHA_MIN = 0.001
 const FORCE_ALPHA_DECAY = 0.065
 
@@ -207,7 +209,8 @@ function settleForceLayout(
   nodeMap: ReadonlyMap<string, AnkoleGraphNode>,
   seeds: Map<string, { x: number; y: number }>,
   width: number,
-  height: number
+  height: number,
+  initialAlpha = 1
 ) {
   const bodies: ForceBody[] = nodes.map(node => ({
     id: node.id,
@@ -218,6 +221,7 @@ function settleForceLayout(
     .map(edge => ({ source: edge.source, target: edge.target }))
   const simulation = forceSimulation(bodies)
     .stop()
+    .alpha(initialAlpha)
     .alphaMin(FORCE_ALPHA_MIN)
     .alphaDecay(FORCE_ALPHA_DECAY)
     .velocityDecay(0.44)
@@ -240,7 +244,8 @@ function settleForceLayout(
 /**
  * Computes degree centrality, 1-hop adjacency, visual node radii, and node coordinates so accessible
  * hit targets have viewport positions before the canvas finishes drawing. The force layout settles
- * here; the other layouts start from these coordinates and finish in `@antv/g6`.
+ * here (reusing `previousPositions` at `INCREMENTAL_FORCE_ALPHA` when at least half of the nodes are
+ * retained); the other layouts start from these coordinates and finish in `@antv/g6`.
  */
 export function computeGraphTopology(
   nodes: readonly AnkoleGraphNode[],
@@ -248,7 +253,8 @@ export function computeGraphTopology(
   layout: AnkoleGraphLayoutMode,
   width: number,
   height: number,
-  focusCenterNodeId?: string | null
+  focusCenterNodeId?: string | null,
+  previousPositions?: ReadonlyMap<string, { x: number; y: number }> | null
 ): AnkoleGraphTopology {
   const safeWidth = Math.max(320, width)
   const safeHeight = Math.max(260, height)
@@ -478,7 +484,61 @@ export function computeGraphTopology(
     })
   })
 
-  if (layout === 'force') settleForceLayout(nodes, edges, nodeMap, initialPositions, safeWidth, safeHeight)
+  if (layout === 'force') {
+    let retainedCount = 0
+    if (previousPositions && previousPositions.size > 0) {
+      for (const node of nodes) {
+        const prev = previousPositions.get(node.id)
+        if (prev && Number.isFinite(prev.x) && Number.isFinite(prev.y)) {
+          retainedCount += 1
+        }
+      }
+    }
+
+    const useIncremental = Boolean(previousPositions && retainedCount > 0 && retainedCount * 2 >= nodes.length)
+    if (useIncremental && previousPositions) {
+      nodes.forEach((node, index) => {
+        const prev = previousPositions.get(node.id)
+        if (prev && Number.isFinite(prev.x) && Number.isFinite(prev.y)) {
+          initialPositions.set(node.id, { x: prev.x, y: prev.y })
+          return
+        }
+
+        let sumX = 0
+        let sumY = 0
+        let positionedNeighbors = 0
+        for (const neighborId of neighbors.get(node.id) ?? []) {
+          const neighborPos = previousPositions.get(neighborId)
+          if (neighborPos && Number.isFinite(neighborPos.x) && Number.isFinite(neighborPos.y)) {
+            sumX += neighborPos.x
+            sumY += neighborPos.y
+            positionedNeighbors += 1
+          }
+        }
+
+        if (positionedNeighbors > 0) {
+          const theta = index * goldenAngle
+          const offsetRadius = 42
+          const rawX = sumX / positionedNeighbors + Math.cos(theta) * offsetRadius
+          const rawY = sumY / positionedNeighbors + Math.sin(theta) * offsetRadius
+          initialPositions.set(node.id, {
+            x: Math.min(safeWidth - padX, Math.max(padX, rawX)),
+            y: Math.min(safeHeight - padY, Math.max(padY, rawY))
+          })
+        }
+      })
+    }
+
+    settleForceLayout(
+      nodes,
+      edges,
+      nodeMap,
+      initialPositions,
+      safeWidth,
+      safeHeight,
+      useIncremental ? INCREMENTAL_FORCE_ALPHA : 1
+    )
+  }
 
   return { degrees, neighbors, incidentEdges, radii, initialPositions, hubNodeId }
 }

@@ -31,7 +31,8 @@ defmodule Ankole.Brain.OIDCClientLearning do
              {:ok, _job} <- LearnSource.enqueue(source.id) do
           true
         else
-          {:error, :source_archived} ->
+          {:error, paused}
+          when paused in [:source_archived, :source_attention_required, :source_scope_trashed] ->
             false
 
           [] ->
@@ -62,17 +63,24 @@ defmodule Ankole.Brain.OIDCClientLearning do
         {:ok, _object} ->
           {:cont, %{report | learned: report.learned + 1}}
 
-        {:error, :source_archived} ->
-          {:halt, %{report | failed: [:source_archived]}}
+        {:error, paused}
+        when paused in [:source_archived, :source_attention_required, :source_scope_trashed] ->
+          {:halt, %{report | failed: [paused]}}
 
         {:error, reason} ->
           {:cont, %{report | failed: [{conversation.id, reason} | report.failed]}}
       end
     end)
     |> case do
-      %{failed: [], learned: count} -> {:ok, %{status: :learned, conversations: count}}
-      %{failed: [:source_archived]} -> {:error, :source_archived}
-      %{failed: failures} -> {:error, {:conversation_learning_failed, failures}}
+      %{failed: [], learned: count} ->
+        {:ok, %{status: :learned, conversations: count}}
+
+      %{failed: [paused]}
+      when paused in [:source_archived, :source_attention_required, :source_scope_trashed] ->
+        {:error, paused}
+
+      %{failed: failures} ->
+        {:error, {:conversation_learning_failed, failures}}
     end
   end
 

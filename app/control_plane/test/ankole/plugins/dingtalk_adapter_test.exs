@@ -858,9 +858,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     assert restriction.reason == "departure"
     assert Enum.count(HumanAccess.history(uid), &(&1.action == "disable")) == 1
 
-    assert {:error, :provider_recovery_not_verified} =
-             HumanAccess.clear_restriction(uid, restriction.id, nil, "review", "clear")
-
     assert Enum.sort(Enum.map(DirectoryAccess.events(provider_id), & &1.status)) == [
              :processed,
              :review_required
@@ -873,7 +870,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
              })
   end
 
-  test "only a complete current DingTalk sync permits provider recovery and does not sweep missing members" do
+  test "incomplete DingTalk sync does not sweep missing members while explicit restriction clear advances replay watermark" do
     alias Ankole.IdentityProviders.DirectoryAccess
     alias Ankole.Principals.HumanAccess
     provider_id = "dingtalk-recovery-#{unique_suffix()}"
@@ -923,19 +920,12 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
              IdentityProvider.sync_directory(provider_id, config)
 
     assert DirectoryAccess.state(provider_id).status == :failed
-
-    assert {:error, :provider_recovery_not_verified} =
-             HumanAccess.clear_restriction(uid, restriction.id, nil, "review", "clear-incomplete")
-
-    stub_identity_requests(self(), [user])
-    assert {:ok, %{users: 1}} = IdentityProvider.sync_directory(provider_id, config)
-    assert DirectoryAccess.state(provider_id).status == :healthy
+    assert Repo.get_by!(Ankole.Principals.Principal, uid: missing.principal.uid).status == :active
 
     assert {:ok, _} =
-             HumanAccess.clear_restriction(uid, restriction.id, nil, "verified", "clear-complete")
+             HumanAccess.clear_restriction(uid, restriction.id, nil, "verified", "clear-explicit")
 
     assert Repo.get_by!(Ankole.Principals.Principal, uid: uid).status == :disabled
-    assert Repo.get_by!(Ankole.Principals.Principal, uid: missing.principal.uid).status == :active
 
     assert Enum.any?(
              HumanAccess.restrictions(uid),

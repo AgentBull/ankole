@@ -11,10 +11,11 @@ import {
   DialogTitle,
   RadioGroup,
   RadioGroupItem,
+  SplitLinkField,
   Switch,
   toast
 } from '@ankole/uikit'
-import { DismissRegular, LinkRegular } from '@ankole/uikit/icons'
+import { DismissRegular, GlobeRegular } from '@ankole/uikit/icons'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useDebouncedValue } from '../../common/use-debounced-value'
@@ -88,21 +89,15 @@ export function SharePopover({
         <DialogContent className="pod-chat-share" closeLabel={t('common.close')}>
           <div className="flex items-center justify-between gap-2 pr-8">
             <DialogTitle>{t(canParticipate ? 'pod.chat_room.invite' : 'pod.chat_room.in_room')}</DialogTitle>
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() => {
-                void navigator.clipboard
-                  .writeText(new URL(podLocation(`/conversations/${room.id}`).pathname, podPublicOrigin()).href)
-                  .then(
-                    () => toast.success(t('pod.chat_room.link_copied')),
-                    () => toast.error(t('pod.chat_room.copy_failed'))
-                  )
-              }}>
-              <LinkRegular aria-hidden />
-              {t('pod.chat_room.copy_link')}
-            </Button>
           </div>
+          <SplitLinkField
+            url={new URL(podLocation(`/conversations/${room.id}`).pathname, podPublicOrigin()).href}
+            label={t('pod.chat_room.copy_link')}
+            copiedLabel={t('pod.chat_room.link_copied')}
+            failedLabel={t('pod.chat_room.copy_failed')}
+            icon={<GlobeRegular />}
+            onCopyError={() => toast.error(t('pod.chat_room.copy_failed'))}
+          />
           {canParticipate && (
             <Command shouldFilter={false}>
               <CommandInput

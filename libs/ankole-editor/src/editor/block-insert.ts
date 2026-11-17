@@ -148,6 +148,10 @@ export function blockInsertion(state: GardState, node: Node): Transaction.Spec {
   return insertion(state, node).spec
 }
 
+export function blockInsertionAt(state: GardState, node: Node): { spec: Transaction.Spec; at: number } {
+  return insertion(state, node)
+}
+
 /**
  * The spec of `first` followed by the spec that `next` computes for the state after `first`. The
  * corrections that `first` causes are part of the result, so that positions in `next` stay valid.

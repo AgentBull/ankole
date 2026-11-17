@@ -75,6 +75,7 @@ defmodule Ankole.AIAgent.Library do
       "source_kind" => to_string(skill.source_kind),
       "agent_plugin_id" => skill.agent_plugin_id,
       "enabled_for_all" => skill.enabled_for_all,
+      "has_upstream_update" => Skills.has_upstream_update?(skill),
       "bound" => personal? or MapSet.member?(bindings, skill.id),
       "effective_enabled" => Skills.enabled_for_agent?(skill, uid, bindings),
       "revision" => skill.revision

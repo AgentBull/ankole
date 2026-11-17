@@ -30,7 +30,10 @@ defmodule Ankole.TenancyGuardTest do
   # which holds no Ankole rows; that connection's credentials scope the reads.
   # A site Provider's reference check reads Agent, configuration, and enabled OIDC
   # Client model profiles across tenants and returns only tenant-qualified labels.
+  # SiteConsole.Aggregates serves site_console read-only listings joined against
+  # non-deleting tenants with explicit tenant identity on every projected row.
   @reviewed_query_escapes %{
+    "across_tenants:lib/ankole/site_console/aggregates/actions.ex:run" => 1,
     "across_tenants:lib/ankole/connectors/jobs/reconcile_triggers.ex:run" => 1,
     "across_tenants:lib/ankole/connectors/jobs/refresh_accounts.ex:run" => 1,
     "raw_sql:lib/ankole/schedule/store.ex:reserve_event_id" => 1,
@@ -167,7 +170,8 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/pod/bases/physical.ex:state" => 1,
     "raw_sql:lib/ankole/pod/bases/physical.ex:validate_sizes" => 1,
     "raw_sql:lib/ankole/pod/bases/physical.ex:versions" => 1,
-    "raw_sql:lib/ankole/pod/bases/promote.ex:records" => 1,
+    "raw_sql:lib/ankole/credential_upgrade.ex:ensure_not_unmigrated_1x!" => 1,
+    "raw_sql:lib/ankole/pod/bases/promote.ex:records" => 2,
     "raw_sql:lib/ankole/pod/bases_write.ex:commit" => 1,
     "raw_sql:lib/ankole/pod/copy.ex:attachment_paths" => 1,
     "raw_sql:lib/ankole/pod/copy.ex:batches" => 1,

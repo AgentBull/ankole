@@ -16,6 +16,8 @@ import type {
   WriteResult
 } from './types'
 export type { ActionRun, MetricQueryOptions, MetricResult } from './types'
+export type { IdempotentOptions } from './idempotency'
+import type { IdempotentOptions } from './idempotency'
 
 export type RouteContext = {
   method: RouteMethod
@@ -264,6 +266,21 @@ export type Take = {
   resolutionProvenance: string | null
   supersededBy: string | null
 }
+export type FactKind = 'event' | 'fact' | 'commitment' | 'preference' | 'belief'
+export type FactInput = TakeScope & {
+  claim: string
+  kind?: FactKind
+  notability?: FactNotability
+  confidence?: number
+  context?: string
+  validFrom?: string
+  holder?: string
+  provenance: string
+  recordRef?: { tableId: string; recordId: string }
+}
+export type FactWriteResult = Fact & {
+  status: 'inserted' | 'duplicate' | 'superseded'
+}
 export type Fact = {
   id: string
   sourceNodeId: string
@@ -282,6 +299,18 @@ export type Fact = {
   createdAt: string
 }
 export type RuntimeCapabilities = {
+  /** Executes `fn` at most once per `key` within the TTL window under `_idempotency:<key>`. */
+  idempotent<T>(key: string, fn: () => T | Promise<T>, options?: IdempotentOptions): Promise<T>
+  bindings: {
+    table(slotKey: string): {
+      tableId: string
+      fields: Readonly<Record<string, string | null>>
+      schema(): Promise<TableSchema>
+      query(query?: Omit<RecordQuery, 'local'>): Promise<RecordsResult>
+      aggregate(query: AggregateQuery): Promise<AggregateResult>
+      write(changes: RecordWrite): Promise<WriteResult>
+    }
+  }
   base: {
     schema(tableId: string): Promise<TableSchema>
     query(tableId: string, query?: Omit<RecordQuery, 'local'>): Promise<RecordsResult>
@@ -294,6 +323,7 @@ export type RuntimeCapabilities = {
     listTakes(options: TakeFilter & { limit?: number }): Promise<{ takes: Take[] }>
     listFacts(options: FactFilter & { limit?: number }): Promise<{ facts: Fact[] }>
     writeTake(options: TakeInput): Promise<Take>
+    writeFact(options: FactInput): Promise<FactWriteResult>
     calibration(options: TakeFilter & { domain?: string }): Promise<{ resolvedCount: number; brier: number | null }>
   }
   notifications: {

@@ -7,14 +7,17 @@ defmodule Ankole.FunctionRuntimeHelpers do
     isolate_runtime(lane)
     {:ok, endpoint, lease} = EndpointPool.checkout()
     source = "export default {'GET /':()=>true}"
-    digest = :crypto.hash(:sha256, source <> "\n[]") |> Base.encode16(case: :lower)
+    bindings_digest = Ankole.Pod.Applets.Bindings.digest(%{})
+
+    digest =
+      :crypto.hash(:sha256, source <> "\n[]\n" <> bindings_digest) |> Base.encode16(case: :lower)
 
     assert {:ok, 204, _} =
              HTTP.at(
                endpoint,
                :put,
                "/v1/applet/code/" <> digest,
-               %{source: source, env: %{}},
+               %{source: source, env: %{}, bindings: %{}, bindings_digest: bindings_digest},
                5_000
              )
 

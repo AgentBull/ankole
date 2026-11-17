@@ -29,6 +29,7 @@ import { type AgentItem, agentListOptions, agentOptions } from '../api/agents'
 import {
   createAgentMutation,
   deleteAgentMutation,
+  disableAgentMutation,
   enableAgentMutation,
   listPrincipalsOptions,
   updateAgentMutation
@@ -82,9 +83,10 @@ export function AgentsListPage() {
       t(`console.status.${agent.status}`)
     )
   )
-  // The DELETE response reports status "disabled" for both steps, so the
-  // toast keys on the row's status at click time: a disabled row's delete is
-  // the permanent one.
+  const disableAgent = useMutation({
+    ...disableAgentMutation(),
+    onError: error => toast.error(requestErrorMessage(error))
+  })
   const deleteAgent = useMutation({
     ...deleteAgentMutation(),
     onError: error => toast.error(requestErrorMessage(error))
@@ -161,7 +163,7 @@ export function AgentsListPage() {
                     ]
                   : []
               }
-              deletePending={deleteAgent.isPending}
+              deletePending={disabled ? deleteAgent.isPending : disableAgent.isPending}
               deleteConfirm={
                 disabled
                   ? {
@@ -177,17 +179,19 @@ export function AgentsListPage() {
                     }
               }
               onDelete={() =>
-                deleteAgent.mutate(
-                  { path: { uid: agent.uid } },
-                  {
-                    onSuccess: () =>
-                      toast.success(
-                        t(disabled ? 'console.agents.deleted' : 'console.agents.disabled_toast', {
-                          id: agent.uid
-                        })
-                      )
-                  }
-                )
+                disabled
+                  ? deleteAgent.mutate(
+                      { path: { uid: agent.uid } },
+                      {
+                        onSuccess: () => toast.success(t('console.agents.deleted', { id: agent.uid }))
+                      }
+                    )
+                  : disableAgent.mutate(
+                      { path: { uid: agent.uid } },
+                      {
+                        onSuccess: () => toast.success(t('console.agents.disabled_toast', { id: agent.uid }))
+                      }
+                    )
               }
             />
           </TableRow>

@@ -16,7 +16,7 @@ export type PrincipalGroupEditorDraft = {
 }
 
 /** Client-side draft problems, reported as i18n key suffixes under `console.principal_groups`. */
-export type PrincipalGroupDraftError = 'name_required' | 'display_name_required' | 'condition_required'
+type PrincipalGroupDraftError = 'name_required' | 'display_name_required' | 'condition_required'
 
 export const PrincipalGroupEditorModel = createModel(() => {
   let generation = Symbol()
@@ -56,7 +56,7 @@ export const PrincipalGroupEditorModel = createModel(() => {
     dirty,
     validationError,
     initialize(nextSourceKey: string, draft: PrincipalGroupEditorDraft) {
-      if (nextSourceKey === 'new') void preloadTransliteration()
+      if (nextSourceKey === 'new' || nextSourceKey.endsWith(':new')) void preloadTransliteration()
       if (sourceKey.value === nextSourceKey) return
       generation = Symbol()
       nameManuallyEdited = false

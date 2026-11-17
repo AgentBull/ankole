@@ -6,8 +6,8 @@ defmodule Ankole.Pod.RPCBroker do
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.WorkerFiles
 
-  @read_operations ~w(jobs.actions jobs.runs jobs.list jobs.get_run bindings.list jobs.schedules.list jobs.schedules.runs jobs.webhooks.list skills.bundle pages.list pages.children pages.tree pages.search pages.read pages.sharing comments.list comments.show files.manifest files.download chat.attachment.get base.tables base.schema base.query base.aggregate office.inspect office.render office.commands)
-  @write_operations ~w(jobs.schedules.put jobs.schedules.pause jobs.schedules.resume jobs.schedules.run jobs.schedules.delete jobs.webhooks.create jobs.webhooks.update jobs.webhooks.pause jobs.webhooks.resume jobs.webhooks.cancel jobs.webhooks.delete chat.send_to_agent pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.update_sharing pages.write pages.append comments.reply comments.resolve files.upload applets.publish applets.call applets.transfer_owner jobs.create jobs.configure jobs.delete bindings.put base.configure_table base.create_table base.delete_table base.create_field base.update_field base.delete_field base.create_view base.update_view base.delete_view base.write base.copy office.apply office.to_document)
+  @read_operations ~w(applets.revisions applets.bindings.list applets.inspect_ticket jobs.actions jobs.runs jobs.list jobs.get_run bindings.list jobs.schedules.list jobs.schedules.runs jobs.webhooks.list skills.bundle pages.list pages.children pages.tree pages.search pages.read pages.sharing comments.list comments.show files.manifest files.download chat.attachment.get base.tables base.schema base.query base.aggregate office.inspect office.render office.commands)
+  @write_operations ~w(jobs.schedules.put jobs.schedules.pause jobs.schedules.resume jobs.schedules.run jobs.schedules.delete jobs.webhooks.create jobs.webhooks.update jobs.webhooks.pause jobs.webhooks.resume jobs.webhooks.cancel jobs.webhooks.delete chat.send_to_agent pages.create pages.update pages.move pages.delete pages.restore pages.set_sharing pages.update_sharing pages.write pages.append comments.reply comments.resolve files.upload applets.publish applets.promote_draft applets.discard_draft applets.rollback applets.bindings.put applets.bindings.delete applets.call applets.transfer_owner jobs.create jobs.configure jobs.delete bindings.put base.configure_table base.create_table base.delete_table base.create_field base.update_field base.delete_field base.create_view base.update_view base.delete_view base.write base.copy office.apply office.to_document)
 
   def handle_read(turn, %FabricProto.PodRequest{} = request, ctx) do
     with {:ok, actor} <- actor_for_request(turn, ctx) do
@@ -303,6 +303,9 @@ defmodule Ankole.Pod.RPCBroker do
     end
   end
 
+  defp dispatch("applets.inspect_ticket", actor, params, _ctx),
+    do: Ankole.Pod.Applets.Diagnostics.ticket(actor, params)
+
   defp dispatch("applets.publish", actor, params, ctx),
     do:
       Files.publish_from_worker(
@@ -311,8 +314,49 @@ defmodule Ankole.Pod.RPCBroker do
         params["base_revision"],
         params["files"],
         Ankole.AgentWorkers.WorkerRoute.caller(ctx),
-        ctx.write_authority
+        ctx.write_authority,
+        draft: params["draft"] == true,
+        summary: params["summary"]
       )
+
+  defp dispatch("applets.revisions", actor, params, _ctx),
+    do: Ankole.Pod.Applets.Revisions.list(actor, params["id"])
+
+  defp dispatch("applets.promote_draft", actor, params, _ctx),
+    do:
+      Ankole.Pod.Applets.Revisions.promote(
+        actor,
+        params["id"],
+        params["expected_draft_id"],
+        params["base_revision"]
+      )
+
+  defp dispatch("applets.discard_draft", actor, params, _ctx),
+    do:
+      Ankole.Pod.Applets.Revisions.discard(
+        actor,
+        params["id"],
+        params["expected_draft_id"],
+        params["base_revision"]
+      )
+
+  defp dispatch("applets.rollback", actor, params, _ctx),
+    do:
+      Ankole.Pod.Applets.Revisions.rollback(
+        actor,
+        params["id"],
+        params["target_revision"],
+        params["base_revision"]
+      )
+
+  defp dispatch("applets.bindings.list", actor, params, _ctx),
+    do: Ankole.Pod.Applets.Bindings.list(actor, params["id"])
+
+  defp dispatch("applets.bindings.put", actor, params, _ctx),
+    do: Ankole.Pod.Applets.Bindings.put(actor, params["id"], params["slot_key"], params)
+
+  defp dispatch("applets.bindings.delete", actor, params, _ctx),
+    do: Ankole.Pod.Applets.Bindings.delete(actor, params["id"], params["slot_key"])
 
   defp dispatch("applets.call", actor, params, ctx) do
     request = Map.put_new(params, "query", %{})
@@ -548,7 +592,7 @@ defmodule Ankole.Pod.RPCBroker do
     do: Bases.copy_table(actor, params["id"], params, ctx.write_authority)
 
   defp disclosure_target(operation, actor, params)
-       when operation in ~w(pages.sharing comments.list comments.show files.manifest files.download base.tables office.inspect office.render office.commands) do
+       when operation in ~w(applets.revisions applets.bindings.list applets.inspect_ticket pages.sharing comments.list comments.show files.manifest files.download base.tables office.inspect office.render office.commands) do
     readable_target(actor, params["id"] || params["page_id"])
   end
 
@@ -617,20 +661,28 @@ defmodule Ankole.Pod.RPCBroker do
   end
 
   defp page_detail(actor, id) do
-    Ankole.Repo.transact_top_level(fn ->
-      with {:ok, context} <- page_context(actor),
-           {:ok, page} <- Pages.lock(id, :share),
-           {:ok, reachable} <- Ankole.Pod.AgentPages.visible(context, page),
-           {:ok, detail} <- Pages.get_in_tx(actor, id),
-           {:ok, ancestors} <-
-             Ankole.Pod.Pages.Queries.readable_ancestors_in_tx(actor, page, reachable) do
-        {:ok,
-         Map.merge(detail, %{
-           ancestors: ancestors,
-           child_count: Ankole.Pod.Pages.Queries.visible_child_count_in_tx(actor, page, reachable)
-         })}
-      end
-    end)
+    snapshot =
+      Ankole.Repo.transact_top_level(fn ->
+        with {:ok, context} <- page_context(actor),
+             {:ok, page} <- Pages.lock(id, :share),
+             {:ok, reachable} <- Ankole.Pod.AgentPages.visible(context, page),
+             {:ok, {detail, bindings_snapshot}} <- Pages.get_snapshot_in_tx(actor, id),
+             {:ok, ancestors} <-
+               Ankole.Pod.Pages.Queries.readable_ancestors_in_tx(actor, page, reachable) do
+          {:ok,
+           {Map.merge(detail, %{
+              ancestors: ancestors,
+              child_count:
+                Ankole.Pod.Pages.Queries.visible_child_count_in_tx(actor, page, reachable)
+            }), bindings_snapshot}}
+        end
+      end)
+
+    with {:ok, {detail, bindings_snapshot}} <- snapshot,
+         {:ok, applet_bindings} <-
+           Ankole.Pod.Applets.Bindings.detail_from_snapshot(detail.page, bindings_snapshot) do
+      {:ok, Map.merge(detail, applet_bindings)}
+    end
   end
 
   defp read_document(actor, params, ctx) do
@@ -731,6 +783,11 @@ defmodule Ankole.Pod.RPCBroker do
                Ankole.Pod.Pages.Tree.root_ids([params["id"]]) ++
                  if(operation == :move, do: Pages.destination_root_ids(actor, params), else: [])
              end,
+             before_turn: fn ->
+               if operation == :update,
+                 do: Pages.lock_applet_rename_in_tx(params["id"], params),
+                 else: :ok
+             end,
              after_commit: fn result -> publish_page_change(operation, result) end
            ) do
       if operation == :update_sharing do
@@ -815,7 +872,8 @@ defmodule Ankole.Pod.RPCBroker do
                params["base_revision"],
                markdown,
                if(operation == "pages.append", do: :append, else: :write),
-               ctx.write_authority
+               ctx.write_authority,
+               idempotency_key: params["idempotency_key"]
              ),
            do: {:ok, Map.drop(result, [:content])}
     end)

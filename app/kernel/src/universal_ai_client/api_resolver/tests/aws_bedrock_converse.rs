@@ -80,19 +80,65 @@ fn bedrock_converse_one_shot_max_tokens_maps_to_incomplete() {
 }
 
 #[test]
-fn bedrock_converse_one_shot_content_filtered_fails() {
-    let mut resolver =
-        APIResolver::new(APIResolverKind::BedrockConverse, ResponseContext::default());
+fn bedrock_converse_safety_and_guardrail_stop_reasons_map_to_incomplete_content_filter() {
+    for stop_reason in ["content_filtered", "guardrail_intervened"] {
+        let mut one_shot = APIResolver::new(
+            APIResolverKind::BedrockConverse,
+            ResponseContext {
+                policy: ConversionPolicy::Strict,
+                ..ResponseContext::default()
+            },
+        );
+        let response = one_shot
+            .normalize_body(
+                200,
+                json!({
+                    "output": {"message": {"content": [{"text": "blocked by policy"}]}},
+                    "stopReason": stop_reason,
+                    "usage": {"inputTokens": 4, "outputTokens": 3}
+                }),
+            )
+            .unwrap();
 
-    let error = resolver
+        assert_eq!(response["status"], "incomplete");
+        assert_eq!(response["incomplete_details"]["reason"], "content_filter");
+        assert!(response["completed_at"].is_null());
+        assert_eq!(response["output"][0]["status"], "incomplete");
+        assert_eq!(
+            response["output"][0]["content"][0]["text"],
+            "blocked by policy"
+        );
+
+        let mut stream = APIResolver::new(
+            APIResolverKind::BedrockConverse,
+            ResponseContext {
+                policy: ConversionPolicy::Strict,
+                ..ResponseContext::default()
+            },
+        );
+        stream
+            .ingest(json!({"messageStop": {"stopReason": stop_reason}}))
+            .unwrap();
+        let events = stream.finish().unwrap();
+        let terminal = events.last().unwrap();
+        assert_eq!(terminal["type"], "response.incomplete");
+        assert_eq!(terminal["response"]["status"], "incomplete");
+        assert_eq!(
+            terminal["response"]["incomplete_details"]["reason"],
+            "content_filter"
+        );
+    }
+
+    let mut unknown =
+        APIResolver::new(APIResolverKind::BedrockConverse, ResponseContext::default());
+    let error = unknown
         .normalize_body(
             200,
             json!({
-                "output": {"message": {"content": [{"text": "blocked"}]}},
-                "stopReason": "content_filtered"
+                "output": {"message": {"content": []}},
+                "stopReason": "unknown_stop_reason"
             }),
         )
         .unwrap_err();
-
     assert_eq!(error.code, "provider_terminal_rejected");
 }

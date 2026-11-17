@@ -288,7 +288,7 @@ describe('the normal form keeps what a reader sees', () => {
     expect(parseXml('<page><ul x="1"><li /></ul><ul y="2"><li /></ul></page>')).toEqual(
       page(e('ul', { x: '1', y: '2' }, [e('li'), e('li')]))
     )
-    expect(() => parseXml('<page><ul x="1"><li /></ul><ul x="2"><li /></ul></page>')).toThrow('属性 x 不同')
+    expect(() => parseXml('<page><ul x="1"><li /></ul><ul x="2"><li /></ul></page>')).toThrow('different x attributes')
   })
   test('defaults and empty optional values equal missing attributes', () => {
     expect(parseXml('<page><ol start="1"><li /></ol><p><img alt="" src="x" title="" /></p></page>')).toEqual(
@@ -332,7 +332,7 @@ describe('Markdown tags', () => {
       page(e('p', { align: 'center' }, [t('一')]), e('p', { align: 'right' }, [t('二')]))
     )
     // Text beside a block element is still an error.
-    expect(() => parseMarkdown('<callout>x</callout>\n**more**')).toThrow('空行')
+    expect(() => parseMarkdown('<callout>x</callout>\n**more**')).toThrow('blank lines')
   })
   test('an inline element written as a block tag joins a paragraph', () => {
     expect(parseMarkdown('<u>\nunder **line**\n</u>')).toEqual(
@@ -384,26 +384,34 @@ function rejection(read: () => unknown) {
   throw new Error('The source was accepted')
 }
 
-describe('rejected Markdown names the place and the repair', () => {
+describe('rejected Markdown names the place, machine code, and the repair', () => {
   test.each([
-    ['a <!-- note --> b', 1, 3, '注释'],
-    ['x\n\nsee <https://x.com>', 3, 5, '尖括号自动链接'],
-    ['- `provenance`: report <job_id>, report.md', 1, 24, '<job_id> 没有闭合'],
-    ['<a href="u">x</b>', 1, 14, '不匹配'],
-    ['<callout>\ntext</callout>', 2, 5, '</callout> 和开始标签不在同一层'],
-    ['<p>a\n<br />\nb</p>', 1, 1, '请在同一段里写 </p>'],
-    ['[a](<b)c', 1, 7, '字符 )'],
-    ['<x a={1} />', 1, 1, '表达式'],
-    ['<x a="1" a="2" />', 1, 1, '重复属性'],
-    ['<>x</>', 1, 1, '片段'],
-    ['<x:y />', 1, 1, '元素名'],
-    ['<ul>\n<li task="maybe">x</li>\n</ul>', 2, 1, 'task'],
-    ['<table>\n<thead>\n<tr><th>A</th></tr>\n</thead>\n</table>', 2, 1, '请去掉 <thead> 标签'],
-    ['text <callout>x</callout> more', 1, 6, '块元素'],
-    ['bad\u0000text', 1, 4, 'U+0000']
-  ] as const)('%s', (source, line, column, reason) => {
+    ['a <!-- note --> b', 1, 3, 'unsupported_syntax', 'comment nodes'],
+    ['x\n\nsee <https://x.com>', 3, 5, 'unsupported_syntax', 'angle-bracket autolinks'],
+    ['- `provenance`: report <job_id>, report.md', 1, 24, 'unclosed_tag', '<job_id> is not closed'],
+    ['<a href="u">x</b>', 1, 14, 'mismatched_closing_tag', 'does not match'],
+    ['<callout>\ntext</callout>', 2, 5, 'misaligned_closing_tag', 'not at the same block/inline level'],
+    ['<p>a\n<br />\nb</p>', 1, 1, 'unclosed_tag', 'Close it with </p> in the same paragraph'],
+    ['[a](<b)c', 1, 7, 'invalid_tag_syntax', 'character )'],
+    ['<x a={1} />', 1, 1, 'expression_attribute', 'expression'],
+    ['<x a="1" a="2" />', 1, 1, 'duplicate_attribute', 'Duplicate attribute'],
+    ['<>x</>', 1, 1, 'unsupported_syntax', 'fragments'],
+    ['<x:y />', 1, 1, 'invalid_element_name', 'element name'],
+    ['<ul>\n<li task="maybe">x</li>\n</ul>', 2, 1, 'invalid_attribute', 'task'],
+    [
+      '<table>\n<thead>\n<tr><th>A</th></tr>\n</thead>\n</table>',
+      2,
+      1,
+      'invalid_content',
+      'Remove the <thead> wrapper'
+    ],
+    ['text <callout>x</callout> more', 1, 6, 'invalid_content', 'block element'],
+    ['bad\u0000text', 1, 4, 'invalid_character', 'U+0000']
+  ] as const)('%s', (source, line, column, code, reason) => {
     const error = rejection(() => parseMarkdown(source))
     expect([error.line, error.column]).toEqual([line, column])
+    expect(error.code).toBe(code)
+    expect(error.message).toContain(`[${code}]`)
     expect(error.message).toContain(reason)
   })
 })
@@ -437,7 +445,7 @@ test.each([
 
 test('the repair for an invalid value names the valid values', () => {
   expect(rejection(() => parseXml('<page><ol start="1234567890"><li /></ol></page>')).fix).toBe(
-    'start 的值应为 0 或不超过 9 位的正整数。'
+    'The value of start must be 0 or a positive integer of at most 9 digits.'
   )
 })
 
@@ -449,15 +457,19 @@ test('XML errors point to the element', () => {
 test('the node limit counts each element and text once', () => {
   expect(() => normalizeTree(page(p(...Array.from({ length: 50_000 }, () => e('br')))))).not.toThrow()
   expect(() => normalizeTree(page(...Array.from({ length: 60_000 }, () => e('pre', {}, [t('x')]))))).toThrow(
-    '100000 个节点'
+    '100000 nodes'
   )
 })
 
 test('source and depth limits are reported, not truncated', () => {
-  expect(() => parseMarkdown('a'.repeat(limits.source + 1))).toThrow('超过')
-  expect(() =>
+  const sourceErr = rejection(() => parseMarkdown('a'.repeat(limits.source + 1)))
+  expect(sourceErr.code).toBe('source_too_large')
+  expect(sourceErr.message).toContain('exceeds')
+  const depthErr = rejection(() =>
     parseXml(`<page>${'<foo>'.repeat(limits.depth + 1)}${'</foo>'.repeat(limits.depth + 1)}</page>`)
-  ).toThrow('嵌套')
+  )
+  expect(depthErr.code).toBe('limit_exceeded')
+  expect(depthErr.message).toContain('levels of nesting')
 })
 
 test.each([

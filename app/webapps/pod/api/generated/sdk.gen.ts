@@ -9,6 +9,9 @@ import type {
   AnswerPodInteractionData,
   AnswerPodInteractionErrors,
   AnswerPodInteractionResponses,
+  ApprovePodIdentityDirectoryData,
+  ApprovePodIdentityDirectoryErrors,
+  ApprovePodIdentityDirectoryResponses,
   BindPodRunnerDeviceData,
   BindPodRunnerDeviceErrors,
   BindPodRunnerDeviceResponses,
@@ -171,12 +174,18 @@ import type {
   PodAdminAgentsData,
   PodAdminAgentsErrors,
   PodAdminAgentsResponses,
+  PodAdminIdentityDirectoryData,
+  PodAdminIdentityDirectoryErrors,
+  PodAdminIdentityDirectoryResponses,
   PodAdminIdentityProvidersData,
   PodAdminIdentityProvidersErrors,
   PodAdminIdentityProvidersResponses,
   PodAdminInvitationsData,
   PodAdminInvitationsErrors,
   PodAdminInvitationsResponses,
+  PodAdminMemberAccessData,
+  PodAdminMemberAccessErrors,
+  PodAdminMemberAccessResponses,
   PodAdminMembersData,
   PodAdminMembersErrors,
   PodAdminMembersResponses,
@@ -189,6 +198,21 @@ import type {
   PodAgentsData,
   PodAgentsErrors,
   PodAgentsResponses,
+  PodAppletBindingDeleteData,
+  PodAppletBindingDeleteErrors,
+  PodAppletBindingDeleteResponses,
+  PodAppletBindingPutData,
+  PodAppletBindingPutErrors,
+  PodAppletBindingPutResponses,
+  PodAppletBindingsData,
+  PodAppletBindingsErrors,
+  PodAppletBindingsResponses,
+  PodAppletDiscardDraftData,
+  PodAppletDiscardDraftErrors,
+  PodAppletDiscardDraftResponses,
+  PodAppletDraftData,
+  PodAppletDraftErrors,
+  PodAppletDraftResponses,
   PodAppletEnvDecryptData,
   PodAppletEnvDecryptErrors,
   PodAppletEnvDecryptResponses,
@@ -228,6 +252,15 @@ import type {
   PodAppletOwnerData,
   PodAppletOwnerErrors,
   PodAppletOwnerResponses,
+  PodAppletPromoteDraftData,
+  PodAppletPromoteDraftErrors,
+  PodAppletPromoteDraftResponses,
+  PodAppletRevisionsData,
+  PodAppletRevisionsErrors,
+  PodAppletRevisionsResponses,
+  PodAppletRollbackData,
+  PodAppletRollbackErrors,
+  PodAppletRollbackResponses,
   PodAppletRunData,
   PodAppletRunErrors,
   PodAppletRunResponses,
@@ -609,6 +642,12 @@ import type {
   RestorePodMemberData,
   RestorePodMemberErrors,
   RestorePodMemberResponses,
+  RetryPodMemberWorkCleanupData,
+  RetryPodMemberWorkCleanupErrors,
+  RetryPodMemberWorkCleanupResponses,
+  ReviewPodIdentityDirectoryEventData,
+  ReviewPodIdentityDirectoryEventErrors,
+  ReviewPodIdentityDirectoryEventResponses,
   RevokePodInvitationData,
   RevokePodInvitationErrors,
   RevokePodInvitationResponses,
@@ -1278,6 +1317,19 @@ export const podAppletJobConfigure = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podAppletDiscardDraft operation on applet_workspace_operation resource
+ */
+export const podAppletDiscardDraft = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletDiscardDraftData, ThrowOnError>
+): RequestResult<PodAppletDiscardDraftResponses, PodAppletDiscardDraftErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodAppletDiscardDraftResponses, PodAppletDiscardDraftErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/applet-draft',
+    ...options
+  })
+
+/**
  * podLinkUnfurl operation on pod_page_operation resource
  */
 export const podLinkUnfurl = <ThrowOnError extends boolean = true>(
@@ -1884,6 +1936,19 @@ export const syncPodDirectory = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podAdminMemberAccess operation on pod_admin_operation resource
+ */
+export const podAdminMemberAccess = <ThrowOnError extends boolean = true>(
+  options: Options<PodAdminMemberAccessData, ThrowOnError>
+): RequestResult<PodAdminMemberAccessResponses, PodAdminMemberAccessErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAdminMemberAccessResponses, PodAdminMemberAccessErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}/access',
+    ...options
+  })
+
+/**
  * podConnectorAuthConfigsList operation on connector_operation resource
  */
 export const podConnectorAuthConfigsList = <ThrowOnError extends boolean = true>(
@@ -1967,6 +2032,28 @@ export const renamePodAgent = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * approvePodIdentityDirectory operation on pod_admin_operation resource
+ */
+export const approvePodIdentityDirectory = <ThrowOnError extends boolean = true>(
+  options: Options<ApprovePodIdentityDirectoryData, ThrowOnError>
+): RequestResult<ApprovePodIdentityDirectoryResponses, ApprovePodIdentityDirectoryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    ApprovePodIdentityDirectoryResponses,
+    ApprovePodIdentityDirectoryErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/identity-providers/{provider_id}/directory-reviews',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podConnectorAccountsConnectPersonal operation on connector_operation resource
  */
 export const podConnectorAccountsConnectPersonal = <ThrowOnError extends boolean = true>(
@@ -2008,6 +2095,19 @@ export const verifyPodEmailBinding = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podAppletRevisions operation on applet_workspace_operation resource
+ */
+export const podAppletRevisions = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletRevisionsData, ThrowOnError>
+): RequestResult<PodAppletRevisionsResponses, PodAppletRevisionsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletRevisionsResponses, PodAppletRevisionsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/applet-revisions',
+    ...options
   })
 
 /**
@@ -2187,6 +2287,24 @@ export const podJobWebhooksUpdate = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podAdminIdentityDirectory operation on pod_admin_operation resource
+ */
+export const podAdminIdentityDirectory = <ThrowOnError extends boolean = true>(
+  options: Options<PodAdminIdentityDirectoryData, ThrowOnError>
+): RequestResult<PodAdminIdentityDirectoryResponses, PodAdminIdentityDirectoryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<
+    PodAdminIdentityDirectoryResponses,
+    PodAdminIdentityDirectoryErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/identity-providers/{provider_id}/directory',
+    ...options
+  })
+
+/**
  * podBaseFieldCreate operation on pod_base_operation resource
  */
 export const podBaseFieldCreate = <ThrowOnError extends boolean = true>(
@@ -2265,6 +2383,33 @@ export const podPageCommentAnchor = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{id}/comments/{comment_id}/anchor',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * reviewPodIdentityDirectoryEvent operation on pod_admin_operation resource
+ */
+export const reviewPodIdentityDirectoryEvent = <ThrowOnError extends boolean = true>(
+  options: Options<ReviewPodIdentityDirectoryEventData, ThrowOnError>
+): RequestResult<
+  ReviewPodIdentityDirectoryEventResponses,
+  ReviewPodIdentityDirectoryEventErrors,
+  ThrowOnError,
+  'data'
+> =>
+  (options.client ?? client).post<
+    ReviewPodIdentityDirectoryEventResponses,
+    ReviewPodIdentityDirectoryEventErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/identity-providers/{provider_id}/directory-events/{event_id}/reviews',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2352,6 +2497,41 @@ export const podConnectorsCatalog = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/connectors',
     ...options
+  })
+
+/**
+ * podAppletBindingDelete operation on applet_workspace_operation resource
+ */
+export const podAppletBindingDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletBindingDeleteData, ThrowOnError>
+): RequestResult<PodAppletBindingDeleteResponses, PodAppletBindingDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<
+    PodAppletBindingDeleteResponses,
+    PodAppletBindingDeleteErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/applet-bindings/{slot_key}',
+    ...options
+  })
+
+/**
+ * podAppletBindingPut operation on applet_workspace_operation resource
+ */
+export const podAppletBindingPut = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletBindingPutData, ThrowOnError>
+): RequestResult<PodAppletBindingPutResponses, PodAppletBindingPutErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodAppletBindingPutResponses, PodAppletBindingPutErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/applet-bindings/{slot_key}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -3314,6 +3494,23 @@ export const podSpaceAgentDelete = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podAppletRollback operation on applet_workspace_operation resource
+ */
+export const podAppletRollback = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletRollbackData, ThrowOnError>
+): RequestResult<PodAppletRollbackResponses, PodAppletRollbackErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodAppletRollbackResponses, PodAppletRollbackErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/applet-rollback',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podNextSteps operation on pod_chat_operation resource
  */
 export const podNextSteps = <ThrowOnError extends boolean = true>(
@@ -3599,6 +3796,19 @@ export const metaImportSkill = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podAppletBindings operation on applet_workspace_operation resource
+ */
+export const podAppletBindings = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletBindingsData, ThrowOnError>
+): RequestResult<PodAppletBindingsResponses, PodAppletBindingsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletBindingsResponses, PodAppletBindingsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/applet-bindings',
+    ...options
   })
 
 /**
@@ -3939,6 +4149,36 @@ export const reauthenticatePodMember = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podAppletDraft operation on applet_workspace_operation resource
+ */
+export const podAppletDraft = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletDraftData, ThrowOnError>
+): RequestResult<PodAppletDraftResponses, PodAppletDraftErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletDraftResponses, PodAppletDraftErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/applet-draft/{draft_id}',
+    ...options
+  })
+
+/**
+ * podAppletPromoteDraft operation on applet_workspace_operation resource
+ */
+export const podAppletPromoteDraft = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletPromoteDraftData, ThrowOnError>
+): RequestResult<PodAppletPromoteDraftResponses, PodAppletPromoteDraftErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodAppletPromoteDraftResponses, PodAppletPromoteDraftErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/applet-draft/promote',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podCommentAttention operation on pod_document_comment_operation resource
  */
 export const podCommentAttention = <ThrowOnError extends boolean = true>(
@@ -4026,6 +4266,24 @@ export const podReplySuggestion = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * retryPodMemberWorkCleanup operation on pod_admin_operation resource
+ */
+export const retryPodMemberWorkCleanup = <ThrowOnError extends boolean = true>(
+  options: Options<RetryPodMemberWorkCleanupData, ThrowOnError>
+): RequestResult<RetryPodMemberWorkCleanupResponses, RetryPodMemberWorkCleanupErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    RetryPodMemberWorkCleanupResponses,
+    RetryPodMemberWorkCleanupErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}/work-cleanup-retries',
+    ...options
   })
 
 /**

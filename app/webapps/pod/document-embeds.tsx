@@ -1,4 +1,4 @@
-import type { EmbedAttributes } from '@ankole/block-editor/editor'
+import { parseEmbedProps, type EmbedAttributes } from '@ankole/block-editor/editor'
 import type { BaseTable, BaseView } from '@ankole/applet-sdk/types'
 import {
   Button,
@@ -9,12 +9,15 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger
+  DropdownMenuTrigger,
+  Label,
+  Textarea
 } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
   CheckmarkRegular,
   ChevronDownRegular,
+  CodeRegular,
   DataHistogramRegular,
   DismissRegular,
   MentionRegular,
@@ -22,7 +25,7 @@ import {
   WindowRegular
 } from '@ankole/uikit/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ErrorBoundary } from '../common/error-boundary'
 import { baseSchemaQuery, baseTablesQuery } from './base-api'
@@ -35,6 +38,7 @@ import { looksLikeChartEmbedView, parseEmbedView } from './state/view-config'
 import { usePageMetadata } from './use-page-metadata'
 
 const BasePage = lazy(() => import('./base-page').then(module => ({ default: module.BasePage })))
+const AppletPage = lazy(() => import('./applet-page').then(module => ({ default: module.AppletPage })))
 const PagePicker = lazy(() => import('./page-picker').then(module => ({ default: module.PagePicker })))
 
 export function ChartEmbedPickerDialog({
@@ -54,6 +58,13 @@ export function ChartEmbedPickerDialog({
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
+  const requestIdRef = useRef(0)
+  useEffect(
+    () => () => {
+      requestIdRef.current++
+    },
+    []
+  )
   const [inspecting, setInspecting] = useState(false)
   const [choiceState, setChoiceState] = useState<{
     baseId: string
@@ -61,9 +72,11 @@ export function ChartEmbedPickerDialog({
   } | null>(null)
 
   const handleBaseSelected = async (baseId: string) => {
+    const requestId = ++requestIdRef.current
     setInspecting(true)
     try {
       const { tables } = await client.fetchQuery(baseTablesQuery(baseId))
+      if (requestId !== requestIdRef.current) return
       const schemas = await Promise.all(
         tables.map(async table => {
           const schema = await client.fetchQuery(baseSchemaQuery(table.id))
@@ -73,6 +86,7 @@ export function ChartEmbedPickerDialog({
           }
         })
       )
+      if (requestId !== requestIdRef.current) return
       const totalSavedCharts = schemas.reduce((sum, entry) => sum + entry.chartViews.length, 0)
       if (tables.length <= 1 && totalSavedCharts === 0) {
         onInsert({
@@ -84,16 +98,24 @@ export function ChartEmbedPickerDialog({
       }
       setChoiceState({ baseId, tables: schemas })
     } catch {
+      if (requestId !== requestIdRef.current) return
       onInsert({ ref: baseId, view: JSON.stringify({ type: 'chart' }) })
     } finally {
-      setInspecting(false)
+      if (requestId === requestIdRef.current) setInspecting(false)
     }
   }
 
   const savedCharts = choiceState?.tables.flatMap(entry => entry.chartViews.map(view => ({ table: entry.table, view })))
 
   return (
-    <Dialog open onOpenChange={next => !next && onClose()}>
+    <Dialog
+      open
+      onOpenChange={next => {
+        if (!next) {
+          requestIdRef.current++
+          onClose()
+        }
+      }}>
       <DialogContent
         className="pod-dialog pod-picker-dialog"
         closeLabel={t('common.close')}
@@ -202,6 +224,7 @@ export function PageEmbed({
   remove,
   collapseToMention,
   configure,
+  configureProps,
   bindSavedView,
   openPage
 }: {
@@ -212,6 +235,7 @@ export function PageEmbed({
   remove(): void
   collapseToMention?(): void
   configure(config: Record<string, unknown>, table?: string): void
+  configureProps?(props: string): void
   bindSavedView?(viewID: string, table?: string): void
   openPage(id: string): void
 }) {
@@ -222,6 +246,8 @@ export function PageEmbed({
   const page = usePageMetadata(query.data?.page)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const view = parseEmbedView(attributes.view)
+  const embedProps = useMemo(() => parseEmbedProps(attributes.props), [attributes.props])
+  const [propsOpen, setPropsOpen] = useState(false)
   const isChartIntent =
     (view.kind === 'inline' && view.config.type === 'chart') || looksLikeChartEmbedView(attributes.view)
   const [chartVisible, setChartVisible] = useState<boolean>(
@@ -296,7 +322,7 @@ export function PageEmbed({
           <span className="truncate">{page.title || t('pod.content.untitled')}</span>
           <OpenRegular aria-hidden className="shrink-0" />
         </Button>
-        {canConfigureEmbed && collapseToMention && (
+        {canConfigureEmbed && (collapseToMention || configureProps) && (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger
               render={
@@ -312,15 +338,23 @@ export function PageEmbed({
               <ChevronDownRegular aria-hidden />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" aria-label={t('pod.editor.resource_view')}>
-              <DropdownMenuItem onClick={collapseToMention}>
-                <MentionRegular aria-hidden />
-                <span>{t('pod.editor.mention_view_inline')}</span>
-              </DropdownMenuItem>
+              {collapseToMention && (
+                <DropdownMenuItem onClick={collapseToMention}>
+                  <MentionRegular aria-hidden />
+                  <span>{t('pod.editor.mention_view_inline')}</span>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem data-active="true">
                 <WindowRegular aria-hidden />
                 <span>{t('pod.editor.mention_view_embed')}</span>
                 <CheckmarkRegular aria-hidden className="ml-auto text-fg-primary" />
               </DropdownMenuItem>
+              {page.type === 'applet' && configureProps && (
+                <DropdownMenuItem onClick={() => setPropsOpen(true)}>
+                  <CodeRegular aria-hidden />
+                  <span>{t('pod.content.embed_props')}</span>
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -359,9 +393,79 @@ export function PageEmbed({
         <div className="p-4 text-sm text-fg-secondary" role="status">
           {t('pod.content.applet_inactive_in_trash')}
         </div>
+      ) : page.type === 'applet' ? (
+        <Suspense fallback={<ContentLoading label={t('pod.content.loading_applet')} />}>
+          <AppletPage detail={embeddedDetail} embedProps={embedProps} embedded />
+        </Suspense>
       ) : (
         <PageContent detail={embeddedDetail} embedded />
       )}
+      {propsOpen && canConfigureEmbed && configureProps && (
+        <EmbedPropsDialog
+          source={attributes.props}
+          onClose={() => setPropsOpen(false)}
+          onSave={props => {
+            configureProps(props)
+            setPropsOpen(false)
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+function EmbedPropsDialog({
+  source,
+  onSave,
+  onClose
+}: {
+  source?: string
+  onSave(props: string): void
+  onClose(): void
+}) {
+  const { t } = useTranslation()
+  const id = useId()
+  const [draft, setDraft] = useState(() => JSON.stringify(parseEmbedProps(source), null, 2))
+  let value: string | undefined
+  let validationError: string | undefined
+  try {
+    value = JSON.stringify(parseEmbedProps(draft))
+  } catch (error) {
+    value = undefined
+    validationError = error instanceof Error ? error.message : String(error)
+  }
+  return (
+    <Dialog open onOpenChange={open => !open && onClose()}>
+      <DialogContent className="pod-dialog max-w-lg" closeLabel={t('common.close')}>
+        <DialogTitle>{t('pod.content.embed_props')}</DialogTitle>
+        <div className="pod-dialog-body space-y-2">
+          <Label htmlFor={id}>{t('pod.content.embed_props_json')}</Label>
+          <Textarea
+            id={id}
+            className="min-h-48 font-mono"
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            aria-invalid={value === undefined}
+            aria-describedby={validationError ? `${id}-error ${id}-hint` : `${id}-hint`}
+          />
+          {validationError && (
+            <p id={`${id}-error`} role="alert" className="text-xs text-destructive">
+              {validationError}
+            </p>
+          )}
+          <p id={`${id}-hint`} className="text-xs text-fg-secondary">
+            {t('pod.content.embed_props_hint')}
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button disabled={value === undefined} onClick={() => value !== undefined && onSave(value)}>
+            {t('common.save')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -9,6 +9,7 @@ import type { BackgroundAgentJobResponse } from '../../../fabric/generated/ankol
 import { RPCTimeoutError } from '../../../lanes/rpc-lane'
 import type { JobTurnRef, TurnStart, TurnSteerUpdate } from '../../../lanes/session-lane'
 import { boundedBackgroundAgentJobPaths, type BackgroundAgentJobPathHandoff } from '../../background-agent-job-handoff'
+import type { BackgroundAgentJobTurnKind } from '../../background-agent-job-documents'
 import { pathIsWithin } from '../../path-boundary'
 import type { AgentLoopLogger } from '../../types'
 import type { CodexJobOptions } from '../options'
@@ -280,17 +281,24 @@ export async function steerActiveTurn(
   client: CodexAppServerClient,
   threadID: string,
   turnID: string,
-  updates: TurnSteerUpdate[],
+  updates: readonly TurnSteerUpdate[],
   acceptsOutcome: () => boolean,
   onTrajectorySteering: (eventID: string, text: string, update: TurnSteerUpdate) => Promise<void>,
-  onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
+  onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>,
+  onSteeringSkipped?: (update: TurnSteerUpdate) => void
 ): Promise<void> {
   for (const update of updates) {
     const event = update.signal
-    if (!event) continue
+    if (!event) {
+      onSteeringSkipped?.(update)
+      continue
+    }
     const command = jsonObject(jsonObject(jsonObject(event.payload_json).data).command)
     const message = stringValue(command.argsText)
-    if (!message) continue
+    if (!message) {
+      onSteeringSkipped?.(update)
+      continue
+    }
     const originalRequest = stringValue(jsonObject(event.payload_json).original_human_request)
     const text = originalRequest ? `${originalRequest}\n\nDelegated message:\n${message}` : message
     try {
@@ -300,12 +308,14 @@ export async function steerActiveTurn(
         ['clientUserMessageId']: event.signal_id,
         input: textInput(text)
       })
-      if (!acceptsOutcome()) continue
+      // Once turn/steer resolves, Codex has already appended this steer into the thread transcript,
+      // so record the trajectory item and receipt unconditionally before settlement reads appliedEventIDs.
       await onTrajectorySteering(event.signal_id, text, update)
       await onSteeringApplied?.(update)
     } catch (error) {
       if (!acceptsOutcome()) continue
-      if (!isSteerCompletionRace(error)) throw new BackgroundAgentJobMessageDeliveryError(error)
+      if (isSteerCompletionRace(error)) return
+      throw new BackgroundAgentJobMessageDeliveryError(error)
     }
   }
 }
@@ -328,7 +338,7 @@ export async function steerDisabledSkills(
         ['clientUserMessageId']: eventID,
         input: textInput(text)
       })
-      if (acceptsOutcome()) await onApplied(name, eventID, text)
+      await onApplied(name, eventID, text)
     } catch (error) {
       if (!acceptsOutcome()) continue
       if (!isSteerCompletionRace(error)) throw new BackgroundAgentJobMessageDeliveryError(error)
@@ -423,4 +433,54 @@ export class BackgroundAgentJobMessageDeliveryError extends Error {
 export function abortReason(signal?: AbortSignal): string {
   if (!signal?.aborted) return 'stopped'
   return signal.reason instanceof Error ? signal.reason.message : String(signal.reason ?? 'stopped')
+}
+
+export async function runSessionThreadCompaction(input: {
+  isStopping: () => boolean
+  client: CodexAppServerClient | undefined
+  runtimeThreadID: string | undefined
+  setCompaction: (compaction: CompactionHandshake | undefined) => void
+}): Promise<void> {
+  if (input.isStopping()) return
+  const { client, runtimeThreadID: threadID } = input
+  if (!client || !threadID) throw new Error('codex thread is not available for compaction')
+  const compacted = new Promise<void>((resolve, reject) => {
+    input.setCompaction({ threadID, resolve, reject })
+  })
+  void compacted.catch(() => undefined)
+  try {
+    await client.request('thread/compact/start', { ['threadId']: threadID })
+    if (input.isStopping()) return
+    await compacted
+  } finally {
+    input.setCompaction(undefined)
+  }
+}
+
+export function declareSessionTurnKind(
+  compaction: CompactionHandshake | undefined,
+  projection: { threadID?: string; turnID?: string }
+): BackgroundAgentJobTurnKind {
+  if (!compaction || projection.threadID !== compaction.threadID || compaction.turnID !== undefined) {
+    return 'agent'
+  }
+  compaction.turnID = projection.turnID
+  return 'compaction'
+}
+
+export function settleSessionCompaction(
+  compaction: CompactionHandshake | undefined,
+  projection: { turnID?: string; codexTurnStatus: string; error: JSONObject },
+  onCompleted: () => void
+): boolean {
+  if (!compaction || (compaction.turnID !== undefined && projection.turnID !== compaction.turnID)) return false
+  if (projection.codexTurnStatus === 'completed') {
+    onCompleted()
+    compaction.resolve()
+  } else {
+    compaction.reject(
+      new Error(stringValue(projection.error.message) ?? `Codex compaction turn ${projection.codexTurnStatus}`)
+    )
+  }
+  return true
 }

@@ -22,30 +22,42 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   defmodule FakeBotClient do
     use GenServer
 
-    def start_link(key, parent) do
-      GenServer.start_link(__MODULE__, parent, name: ConnectionOwner.client_name(key))
+    def start_link(key, parent, fail_type) do
+      GenServer.start_link(__MODULE__, {parent, fail_type},
+        name: ConnectionOwner.client_name(key)
+      )
     end
 
     @impl true
-    def init(parent), do: {:ok, parent}
+    def init(state), do: {:ok, state}
 
     @impl true
-    def handle_call({:send_frame, cmd, req_id, body}, _from, parent) do
+    def handle_call({:send_frame, cmd, req_id, body, _deadline_ms}, from, state) do
+      handle_call({:send_frame, cmd, req_id, body}, from, state)
+    end
+
+    def handle_call({:send_frame, cmd, req_id, body}, _from, {parent, fail_type} = state) do
       send(parent, {:bot_frame, cmd, req_id, body})
 
-      {:reply,
-       {:ok,
-        %{
-          "headers" => %{"req_id" => req_id},
-          "errcode" => 0,
-          "body" => %{"msgid" => "provider-#{req_id}"}
-        }}, parent}
+      result =
+        if body["msgtype"] == fail_type do
+          {:error, %WeComOpenAPI.Error{reason: :transport}}
+        else
+          {:ok,
+           %{
+             "headers" => %{"req_id" => req_id},
+             "errcode" => 0,
+             "body" => %{"msgid" => "provider-#{req_id}"}
+           }}
+        end
+
+      {:reply, result, state}
     end
   end
 
   @channel_id "wecom:wr-stream-1"
 
-  defp setup_stream_binding(channel_metadata) do
+  defp setup_stream_binding(channel_metadata, fail_type \\ nil) do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
 
@@ -95,7 +107,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
 
     start_supervised!(%{
       id: {:fake_bot, key},
-      start: {FakeBotClient, :start_link, [key, self()]}
+      start: {FakeBotClient, :start_link, [key, self(), fail_type]}
     })
 
     event
@@ -419,6 +431,57 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     assert {:entry, "ankole:#{event.id}"} in Ankole.Plugins.WeComAdapter.AIStream.surface_ids(
              checkpoint
            )
+  end
+
+  for stream? <- [false, true] do
+    test "an uncertain presentation card preserves confirmed #{if stream?, do: "stream", else: "plain"} progress" do
+      assert_uncertain_card_progress(unquote(stream?))
+    end
+  end
+
+  defp assert_uncertain_card_progress(stream?) do
+    metadata = if stream?, do: fresh_anchor_metadata(), else: %{}
+    event = setup_stream_binding(metadata, "template_card")
+
+    presentation =
+      working("Confirm this change")
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "revision" => 1,
+        "prompt" => "Confirm",
+        "controls" => [
+          %{
+            "id" => "confirm",
+            "type" => "button",
+            "label" => "Confirm",
+            "interaction_id" => "action_card:card-1",
+            "source_signal_id" => event.id,
+            "control_id" => "action-card-decision",
+            "selected_option_id" => "confirm",
+            "option_value" => "confirm",
+            "revision" => 1
+          }
+        ]
+      })
+
+    assert :unknown = finalize(request(event, presentation, :awaiting_input))
+
+    checkpoint =
+      fresh(event)
+      |> PreviewStates.get()
+      |> Map.fetch!(:checkpoint)
+      |> PreviewAdapter.adapter_checkpoint()
+
+    assert [%{"source" => source}] =
+             checkpoint[if(stream?, do: "pages", else: "plain_chunks")]
+
+    assert source =~ "Confirm this change"
+
+    refute checkpoint["card_task_id"]
+  end
+
+  test "an uncertain plain fallback settles as unknown" do
+    event = setup_stream_binding(%{}, "markdown")
+    assert :unknown = finalize(request(event, completed("hello"), :terminal))
   end
 
   defp collect_frames(acc) do

@@ -145,13 +145,14 @@ fn aws_bedrock_converse_body_to_response(
             text.push_str(delta);
         }
     }
+    let item_status = response_item_status(status);
     let output = if text.is_empty() {
         json!([])
     } else {
         json!([{
             "id": generated_id("msg"),
             "type": "message",
-            "status": "completed",
+            "status": item_status,
             "role": "assistant",
             "content": [{"type": "output_text", "text": text, "annotations": []}]
         }])
@@ -173,6 +174,9 @@ fn bedrock_terminal(reason: &str) -> ProviderTerminal {
         "end_turn" | "stop_sequence" | "tool_use" => ProviderTerminal::Completed,
         "max_tokens" | "model_context_window_exceeded" => {
             ProviderTerminal::Incomplete("max_output_tokens")
+        }
+        "guardrail_intervened" | "content_filtered" => {
+            ProviderTerminal::Incomplete("content_filter")
         }
         other => ProviderTerminal::Failed(provider_terminal_rejected("AWS Bedrock", other)),
     }

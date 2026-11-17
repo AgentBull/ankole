@@ -731,6 +731,9 @@ defmodule Ankole.Pod.AppletsTest do
                publish(ctx.owner, page, 1, "export default {'GET /next':()=>1}")
 
       actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.owner)
+      assert {:ok, []} = Ankole.AutomationJobs.list_applet_actions(actor, page.id)
+
+      Ankole.FunctionRuntime.AppletClient.clear_inspect_cache()
       assert {:error, reason} = Ankole.AutomationJobs.list_applet_actions(actor, page.id)
 
       assert %{code: "applet_busy", message: "applet_busy", status: 503} =

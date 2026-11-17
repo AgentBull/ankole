@@ -22,13 +22,14 @@ defmodule Ankole.Files.Path do
   """
   @spec normalize(term()) :: {:ok, String.t()} | {:error, {:invalid_path, term()}}
   def normalize(path) when is_binary(path) do
-    segments = String.split(path, "/")
+    normalized = if String.valid?(path), do: nfc(path), else: path
+    segments = String.split(normalized, "/")
 
     valid? =
-      String.valid?(path) and byte_size(path) in 1..@max_path_bytes and
+      String.valid?(normalized) and byte_size(normalized) in 1..@max_path_bytes and
         Enum.all?(segments, &valid_segment?/1)
 
-    if valid?, do: {:ok, path}, else: {:error, {:invalid_path, path}}
+    if valid?, do: {:ok, normalized}, else: {:error, {:invalid_path, path}}
   end
 
   def normalize(path), do: {:error, {:invalid_path, path}}

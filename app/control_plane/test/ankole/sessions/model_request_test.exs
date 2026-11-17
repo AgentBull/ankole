@@ -69,7 +69,7 @@ defmodule Ankole.Sessions.ModelRequestTest do
     end
   end
 
-  test "appends server tool_search and programmatic_tool_calling when catalog declares deferred and programmatic tools" do
+  test "omits tool_search and programmatic_tool_calling by default and mounts them at >= 8 deferred tools or explicit model opt-in" do
     read_tool =
       Tool.new(
         %{
@@ -81,21 +81,53 @@ defmodule Ankole.Sessions.ModelRequestTest do
         Ankole.Sessions.Tools.Pod
       )
 
-    deferred_tool =
+    deferred_tool = fn idx ->
       Tool.new(
         %{
           "type" => "function",
-          "name" => "set_channel_standing_orders",
+          "name" => "deferred_tool_#{idx}",
           "defer_loading" => true,
           "parameters" => %{"type" => "object"}
         },
         Ankole.Sessions.Tools.Session
       )
+    end
 
-    request = Model.request(%{run() | kind: :main, tools: [read_tool, deferred_tool]})
+    few_deferred = Enum.map(1..2, deferred_tool)
+    default_request = Model.request(%{run() | kind: :main, tools: [read_tool | few_deferred]})
 
-    assert %{"type" => "tool_search", "execution" => "server"} in request["tools"]
-    assert %{"type" => "programmatic_tool_calling"} in request["tools"]
+    refute %{"type" => "tool_search", "execution" => "server"} in default_request["tools"]
+    refute %{"type" => "programmatic_tool_calling"} in default_request["tools"]
+
+    Enum.each(default_request["tools"], fn tool ->
+      refute Map.has_key?(tool, "defer_loading")
+      refute Map.has_key?(tool, "allowed_callers")
+    end)
+
+    many_deferred = Enum.map(1..8, deferred_tool)
+    threshold_request = Model.request(%{run() | kind: :main, tools: [read_tool | many_deferred]})
+
+    assert %{"type" => "tool_search", "execution" => "server"} in threshold_request["tools"]
+    refute %{"type" => "programmatic_tool_calling"} in threshold_request["tools"]
+
+    opted_in_run = %{
+      run()
+      | kind: :main,
+        tools: [read_tool | few_deferred],
+        spec: %{
+          run().spec
+          | model_ref:
+              Map.merge(run().spec.model_ref, %{
+                "supports_tool_search" => true,
+                "supports_programmatic_tool_calling" => true
+              })
+        }
+    }
+
+    opted_in_request = Model.request(opted_in_run)
+
+    assert %{"type" => "tool_search", "execution" => "server"} in opted_in_request["tools"]
+    assert %{"type" => "programmatic_tool_calling"} in opted_in_request["tools"]
   end
 
   defp run do

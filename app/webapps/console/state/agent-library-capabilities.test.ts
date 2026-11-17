@@ -22,6 +22,7 @@ const spreadsheetSkill: AgentLibrarySkillCapabilityItem = {
   description: 'Create and validate spreadsheet files',
   effective_enabled: true,
   enabled_for_all: true,
+  has_upstream_update: false,
   revision: 1,
   id: 'office:xlsx',
   name: 'xlsx',

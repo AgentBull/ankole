@@ -2,6 +2,7 @@ import { recordValue, safeJsonParse } from '@agentbull/active-support'
 import { Button, Input, SwitchRow } from '@ankole/uikit'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { SettingGroupDefinition } from '../state/setting-groups'
 import type { AppConfigurationItem } from '../api/configuration-types'
 import { LabeledField } from '../console-form'
 import { SettingGroupField } from './setting-group-field'
@@ -17,7 +18,7 @@ export function SettingsTaskEditor({
   saving,
   testMail
 }: {
-  group: string
+  group: SettingGroupDefinition
   items: AppConfigurationItem[]
   drafts: Record<string, string>
   onDraftChange: (key: string, value: string) => void
@@ -26,7 +27,7 @@ export function SettingsTaskEditor({
   testMail: (settings: Record<string, unknown>, recipient: string) => Promise<unknown>
 }) {
   const { t } = useTranslation()
-  if (group === 'smtp') {
+  if (group.id === 'smtp') {
     const item = items[0]
     return item ? (
       <SettingGroupField
@@ -46,9 +47,6 @@ export function SettingsTaskEditor({
   }
   return (
     <div className="grid gap-7">
-      {group === 'pod-access' ? (
-        <p className="text-sm text-fg-secondary">{t('console.settings.guest_access_warning')}</p>
-      ) : null}
       {items.map(item => (
         <SettingGroupField
           key={item.key}
@@ -58,16 +56,14 @@ export function SettingsTaskEditor({
           saving={saving}
           onRestore={onRestore}>
           <SettingValueEditor
-            required={group !== 'turnstile' || drafts['saas.turnstile.enabled'] === 'true'}
+            required={group.required?.(drafts) ?? true}
             item={item}
             value={drafts[item.key] ?? ''}
             onChange={value => onDraftChange(item.key, value)}
           />
         </SettingGroupField>
       ))}
-      {group === 'turnstile' ? (
-        <p className="text-sm text-fg-secondary">{t('console.settings.turnstile_disable_hint')}</p>
-      ) : null}
+      {group.hint ? <p className="text-sm text-fg-secondary">{t(group.hint)}</p> : null}
     </div>
   )
 }

@@ -1,3 +1,4 @@
+import { SidebarProvider, TooltipProvider } from '@ankole/uikit'
 import { expect, spyOn, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router'
@@ -7,13 +8,15 @@ import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 import * as browserContext from '../common/browser-context'
 import i18n, { loadLocale } from '../common/i18n'
 import { AccountMenu } from './account-menu'
+import { PodCommandContext } from './command-menu'
 import { profileAvatarURL } from './native-transfers'
+import { PodTopBar } from './top-bar'
 
 for (const [locale, menuLabel, tenantName] of [
   ['en-US', 'Account menu:', 'Harbor Pod'],
   ['zh-Hans-CN', '账户菜单：', '']
 ] as const) {
-  test(`${locale} account button includes the visible identity for tenant "${tenantName}"`, async () => {
+  test(`${locale} account button shows the person's name while PodTopBar shows the organization name "${tenantName}"`, async () => {
     await loadLocale(locale)
     const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, staleTime: Infinity } } })
     const session: BrowserSessionResponse = {
@@ -27,7 +30,18 @@ for (const [locale, menuLabel, tenantName] of [
       siteAuthentications: []
     }
     client.setQueryData(['pod-session', '', ''], session)
-    const rootRoute = createRootRoute({ component: AccountMenu })
+    const rootRoute = createRootRoute({
+      component: () => (
+        <PodCommandContext value={() => {}}>
+          <TooltipProvider>
+            <SidebarProvider>
+              <PodTopBar />
+              <AccountMenu />
+            </SidebarProvider>
+          </TooltipProvider>
+        </PodCommandContext>
+      )
+    })
     const router = createRouter({ routeTree: rootRoute, history: createMemoryHistory({ initialEntries: ['/'] }) })
     await router.load()
     try {
@@ -40,6 +54,7 @@ for (const [locale, menuLabel, tenantName] of [
       )
       let accessibleName = ''
       let visibleText = ''
+      let topBarMarkText = ''
       await new HTMLRewriter()
         .on('button.pod-account-trigger', {
           element: element => {
@@ -51,10 +66,16 @@ for (const [locale, menuLabel, tenantName] of [
             visibleText += chunk.text
           }
         })
+        .on('[data-slot="top-bar-leading"] a.pod-top-bar-mark', {
+          text: chunk => {
+            topBarMarkText += chunk.text
+          }
+        })
         .transform(new Response(html))
         .text()
 
-      expect(visibleText).toBe(`${tenantName}Alice Reviewer`)
+      expect(visibleText).toBe('Alice Reviewer')
+      expect(topBarMarkText).toBe(tenantName ? `HP${tenantName}` : '')
       expect(accessibleName).toStartWith(menuLabel)
       if (tenantName) {
         expect(accessibleName).toMatch(/Harbor Pod.*Alice Reviewer/u)

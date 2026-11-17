@@ -20,31 +20,47 @@ defmodule Ankole.HumanAccessTest do
     manual = Enum.find(restrictions, &(&1.source == "manual"))
     provider = Enum.find(restrictions, &(&1.source == "provider:lark"))
 
-    assert {:error, :provider_recovery_not_verified} =
-             HumanAccess.clear_restriction(human.uid, provider.id, nil, "reviewed", "clear-1")
-
     assert {:ok, _} =
-             HumanAccess.clear_restriction(human.uid, manual.id, nil, "reviewed", "clear-2")
+             HumanAccess.clear_restriction(human.uid, manual.id, nil, "reviewed", "clear-1")
 
-    assert {:error, :provider_recovery_not_verified} =
-             HumanAccess.restore(human.uid, nil, "reviewed", "restore-1")
-
-    alias Ankole.IdentityProviders.DirectoryAccess
-    assert {:ok, ticket} = DirectoryAccess.begin_sync("lark")
-
-    assert {:ok, _} =
-             DirectoryAccess.finish_sync(ticket, "scope", [{human.uid, :healthy}],
-               admission_scope: "none",
-               maximum_removal_percent: 20
-             )
+    pre_restore_time = DateTime.add(DateTime.utc_now(), -60, :second)
 
     assert {:ok, restored} =
              HumanAccess.restore(human.uid, nil, "reviewed", "restore-1")
 
     assert restored.status == :active
+    cleared_provider = Enum.find(HumanAccess.restrictions(human.uid), &(&1.id == provider.id))
+    assert %DateTime{} = cleared_provider.cleared_at
+    assert %DateTime{} = cleared_provider.recovery_verified_at
     assert {:error, :human_access_revoked} = HumanAccess.check(human.uid, human.access_version)
     assert :ok = HumanAccess.check(human.uid, restored.access_version)
     assert {:error, :human_access_revoked} = HumanAccess.check(human.uid, nil)
+
+    # Delayed pre-restore provider events are ignored via recovery_verified_at watermark
+    assert {:ok, still_active} =
+             HumanAccess.restrict_from_provider(
+               human.uid,
+               "lark",
+               "departed",
+               "delayed-old-event",
+               pre_restore_time
+             )
+
+    assert still_active.status == :active
+
+    # Post-restore provider observations still restrict normally
+    post_restore_time = DateTime.add(DateTime.utc_now(), 60, :second)
+
+    assert {:ok, re_disabled} =
+             HumanAccess.restrict_from_provider(
+               human.uid,
+               "lark",
+               "departed",
+               "fresh-event",
+               post_restore_time
+             )
+
+    assert re_disabled.status == :disabled
   end
 
   test "restoration applies current grants and Usersets without a permission approval" do

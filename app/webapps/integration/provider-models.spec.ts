@@ -4,6 +4,60 @@ import type { AIGatewayCredentialPoolEntry } from '../console/state/provider-set
 const revealField = (field: string) => `Reveal \u2068${field}\u2069`
 const hideField = (field: string) => `Hide \u2068${field}\u2069`
 
+// Browser unit coverage: API replies control polling outcomes while the real login dialog runs.
+test('device login retries temporary failures, stops at denial, and obtains a new code with the same account settings', async ({
+  page
+}) => {
+  await providerPage(page, 'chatgpt_subscription')
+  const starts: unknown[] = []
+  let polls = 0
+  await page.route('**/chatgpt-login', route => {
+    starts.push(route.request().postDataJSON().data)
+    return route.fulfill({
+      json:
+        starts.length === 1
+          ? {
+              mode: 'device',
+              user_code: 'FIRST',
+              verification_url: 'https://auth.example.test/device',
+              interval: 0.01,
+              login_context: { attempt: 1 }
+            }
+          : {
+              mode: 'browser_paste',
+              authorization_url: 'https://auth.example.test/authorize',
+              login_context: { attempt: 2 }
+            }
+    })
+  })
+  await page.route('**/chatgpt-login/poll', route => {
+    const status = [503, 429, 400, 403][polls++] ?? 403
+    const code = polls === 3 ? 'chatgpt_login_unreachable' : polls === 4 ? 'chatgpt_login_denied' : 'request_failed'
+    if (status === 503) return route.fulfill({ status, contentType: 'text/plain', body: 'Temporarily unavailable' })
+    return route.fulfill({ status, json: { errors: [{ code, detail: code }] } })
+  })
+  await page.getByRole('button', { name: 'Add ChatGPT account', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('textbox', { name: 'Label (required)', exact: true }).fill('Device account')
+  await dialog.getByRole('spinbutton', { name: 'Priority', exact: true }).fill('7')
+  await dialog.getByRole('button', { name: 'Start login', exact: true }).click()
+  const restart = dialog.getByRole('button', { name: 'Get a new code', exact: true })
+  await expect(restart).toBeVisible()
+  expect(polls).toBe(4)
+  await expect(dialog.getByText('FIRST', { exact: true })).toHaveCount(0)
+  await expect(dialog.getByRole('textbox', { name: 'Label (required)', exact: true })).toBeVisible()
+  await expect(dialog.getByText(/Waiting for authorization/)).toHaveCount(0)
+  await page.clock.install()
+  await page.clock.fastForward(60_000)
+  expect(polls).toBe(4)
+  await restart.click()
+  await expect(dialog.getByRole('link', { name: 'Open authorization page', exact: true })).toBeVisible()
+  expect(starts).toEqual([
+    { label: 'Device account', priority: 7 },
+    { label: 'Device account', priority: 7 }
+  ])
+})
+
 async function providerPage(
   page: Page,
   kind = 'openai',

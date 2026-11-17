@@ -79,6 +79,20 @@ impl rustler::Resource for UniversalAIClientStreamResource {
     }
 }
 
+/// Holds a reusable upstream WebSocket across model turns until closed or garbage-collected.
+pub struct UniversalAIClientWebSocketSessionResource(
+    pub Arc<universal_ai_client::WebSocketSession>,
+);
+
+#[rustler::resource_impl]
+impl rustler::Resource for UniversalAIClientWebSocketSessionResource {
+    const IMPLEMENTS_DESTRUCTOR: bool = true;
+
+    fn destructor(self, _env: Env<'_>) {
+        self.0.close();
+    }
+}
+
 /// Retained by the completion sink until the native request ends. The monitor
 /// cancels its I/O if the BEAM owner exits while waiting for a provider.
 pub struct UniversalAIClientRequestResource {
@@ -355,6 +369,19 @@ pub fn page_restore_comments_nif(
     })
     .map_err(error_message)?;
     Ok((page.xml, page.plain_text))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn document_map_range_nif(
+    changes: Term<'_>,
+    from: usize,
+    to: usize,
+) -> NIFResult<Option<(usize, usize)>> {
+    let changes = decode_string(changes, "changes")?;
+    stacker::grow(8 * 1024 * 1024, || {
+        crate::page_document::document_map_range(&changes, from, to)
+    })
+    .map_err(error_message)
 }
 
 static WORD_SITE_FONTS_ONCE: Once = Once::new();
@@ -1131,10 +1158,53 @@ pub fn authz_validate_resource_pattern(pattern: Term<'_>) -> NIFResult<bool> {
         .map_err(error)
 }
 
+#[rustler::nif]
+pub fn universal_ai_client_ws_session_new_nif()
+-> ResourceArc<UniversalAIClientWebSocketSessionResource> {
+    ResourceArc::new(UniversalAIClientWebSocketSessionResource(Arc::new(
+        universal_ai_client::WebSocketSession::new(),
+    )))
+}
+
+#[rustler::nif]
+pub fn universal_ai_client_ws_session_close_nif(
+    session: ResourceArc<UniversalAIClientWebSocketSessionResource>,
+) -> rustler::Atom {
+    session.0.close();
+    atoms::ok()
+}
+
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn universal_ai_client_open_nif<'a>(
     env: Env<'a>,
     encoded_spec: Term<'a>,
+    owner_pid: LocalPid,
+    stream_ref: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    open_universal_ai_client_stream_nif(env, encoded_spec, None, owner_pid, stream_ref)
+}
+
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn universal_ai_client_open_with_session_nif<'a>(
+    env: Env<'a>,
+    encoded_spec: Term<'a>,
+    session: ResourceArc<UniversalAIClientWebSocketSessionResource>,
+    owner_pid: LocalPid,
+    stream_ref: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    open_universal_ai_client_stream_nif(
+        env,
+        encoded_spec,
+        Some(Arc::clone(&session.0)),
+        owner_pid,
+        stream_ref,
+    )
+}
+
+fn open_universal_ai_client_stream_nif<'a>(
+    env: Env<'a>,
+    encoded_spec: Term<'a>,
+    session: Option<Arc<universal_ai_client::WebSocketSession>>,
     owner_pid: LocalPid,
     stream_ref: Term<'a>,
 ) -> NIFResult<Term<'a>> {
@@ -1149,7 +1219,7 @@ pub fn universal_ai_client_open_nif<'a>(
 
     // Model specs include nested tool schemas that exceed a dirty scheduler's stack.
     let result = stacker::grow(8 * 1024 * 1024, || {
-        universal_ai_client::start_stream(&encoded_spec, sink)
+        universal_ai_client::start_stream_with_session(&encoded_spec, session, sink)
     });
     match result {
         Ok(handle) => {

@@ -11,6 +11,7 @@ import { PodSettings } from '../../pod/pod-settings'
 import { PodApp } from '../../pod/app'
 import '../../pod/pod.css'
 import { PodSlotsContext } from '../../pod/slots'
+import { createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 
 declare global {
   interface Window {
@@ -124,6 +125,9 @@ function BoundaryHarness() {
 
 const params = new URLSearchParams(window.location.search)
 const surface = params.get('surface')
+const settingsRouter = createRouter({
+  routeTree: createRootRoute({ component: PodSettings })
+})
 if (surface === 'auth') {
   window.history.replaceState(null, '', '/sessions/new')
 } else if (surface === 'pod-sidebar') {
@@ -165,7 +169,7 @@ await mountApp(
           }
         ]
       }}>
-      <PodSettings />
+      <RouterProvider router={settingsRouter} />
     </PodSlotsContext>
   ) : (
     <BoundaryHarness />

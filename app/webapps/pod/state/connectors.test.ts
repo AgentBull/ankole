@@ -4,13 +4,16 @@ import i18n, { loadLocale } from '../../common/i18n'
 import { desktopConnectorHref } from '../chat/connector-auth-card-view'
 import {
   automationJobID,
+  ConnectionEditorModel,
   connectorAutomationContext,
   connectorAutomationReturnTo,
   connectorFailureMessage,
   connectorParamsAfterAuthorization,
   connectorReturnTo,
   connectorTriggerConfigFromURL,
-  ConnectorsModel
+  ConnectorsModel,
+  larkLinkPreviewRules,
+  larkPlatformName
 } from './connectors'
 
 test('subscription diagnostics keep the upstream reason and localize missing authorization', async () => {
@@ -241,4 +244,67 @@ test('desktop connector authorization marks return_to for deep-link handoff and 
   expect(afterClaim.has('connector_completion')).toBe(false)
   expect(afterClaim.has('connection')).toBe(false)
   expect(afterClaim.get('intent')).toBe('/conversations/0024h36h2ncsvrh6daqf6dvvqz')
+})
+
+test('Feishu and Lark link preview URL rules cover both /pages/* and /meta/brain/* and flag local hosts', () => {
+  expect(larkLinkPreviewRules('https://acme.ankole.example')).toEqual({
+    pagesRule: 'acme.ankole.example/pages/*',
+    brainRule: 'acme.ankole.example/meta/brain/*',
+    unsupportedHost: false
+  })
+  expect(larkLinkPreviewRules('https://acme.ankole.example:8443/connectors')).toEqual({
+    pagesRule: 'acme.ankole.example:8443/pages/*',
+    brainRule: 'acme.ankole.example:8443/meta/brain/*',
+    unsupportedHost: false
+  })
+  for (const localOrigin of [
+    'http://localhost:4000',
+    'http://acme.ankole.localhost:4000',
+    'http://127.0.0.1:4000',
+    'http://[::1]:4000'
+  ]) {
+    expect(larkLinkPreviewRules(localOrigin)?.unsupportedHost).toBe(true)
+  }
+  expect(larkPlatformName('feishu', 'zh-Hans-CN')).toBe('飞书')
+  expect(larkPlatformName('feishu', 'en-US')).toBe('Feishu')
+  expect(larkPlatformName('lark', 'zh-Hans-CN')).toBe('Lark')
+})
+
+test('ConnectionEditorModel preserves linkPreview true and false across save and reopen', () => {
+  const initial = new ConnectionEditorModel(null)
+  try {
+    expect(initial.plugin.value).toBe('lark')
+    expect(initial.metadata.value.linkPreview).toBeUndefined()
+    initial.metadata.value = { ...initial.metadata.value, domain: 'feishu', linkPreview: true }
+  } finally {
+    initial[Symbol.dispose]()
+  }
+
+  const savedEnabled = {
+    ...hostedConnection,
+    id: '019a8c3e-1234-7000-8000-000000000099',
+    plugin_id: 'lark',
+    mode: 'local',
+    slug: 'feishu-main',
+    display_name: 'Feishu',
+    auth_scheme: 'lark_app',
+    public_metadata: { domain: 'feishu', linkPreview: true }
+  }
+  const reopenedEnabled = new ConnectionEditorModel(savedEnabled)
+  try {
+    expect(reopenedEnabled.metadata.value.linkPreview).toBe(true)
+    reopenedEnabled.metadata.value = { ...reopenedEnabled.metadata.value, linkPreview: false }
+  } finally {
+    reopenedEnabled[Symbol.dispose]()
+  }
+
+  const reopenedDisabled = new ConnectionEditorModel({
+    ...savedEnabled,
+    public_metadata: { domain: 'feishu', linkPreview: false }
+  })
+  try {
+    expect(reopenedDisabled.metadata.value.linkPreview).toBe(false)
+  } finally {
+    reopenedDisabled[Symbol.dispose]()
+  }
 })

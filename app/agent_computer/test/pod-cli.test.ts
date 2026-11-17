@@ -858,4 +858,74 @@ export default { 'POST /total': async ({ body }) => ({total: total(body.a, body.
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it('passes explicit --idempotency-key on pages.append and auto-generates a stable UUID key when omitted', async () => {
+    const explicit = await commandFromArgs([
+      'pages.append',
+      '{"id":"page-1","base_revision":3,"markdown":"## Notes"}',
+      '--idempotency-key',
+      'append-turn-1'
+    ])
+    expect(explicit).toEqual({
+      operation: 'pages.append',
+      params: { id: 'page-1', base_revision: 3, markdown: '## Notes', idempotency_key: 'append-turn-1' },
+      cwd: process.cwd()
+    })
+
+    const eqFlag = await commandFromArgs([
+      'pages.append',
+      '--idempotency-key=append-turn-2',
+      '{"id":"page-1","base_revision":3,"markdown":"## Notes"}'
+    ])
+    expect(eqFlag.params).toMatchObject({ idempotency_key: 'append-turn-2' })
+    await expect(commandFromArgs(['pages.append', '{"id":"page-1"}', '--idempotency-key', '   '])).rejects.toThrow(
+      '--idempotency-key requires a non-empty key'
+    )
+
+    const root = await mkdtemp(join(tmpdir(), 'pod-cli-append-idem-'))
+    const seen: { params: Record<string, unknown>; retry: unknown }[] = []
+    const rpc = (async (method, payload, _frame, opts) => {
+      const req = payload as { operation: string; paramsJson: Uint8Array }
+      if (method === 'pod.read') {
+        const params = jsonObjectFromBytes(req.paramsJson, 'params')!
+        await writeFile(join(root, params.markdown_home_relative_path as string), '# Title\n')
+        return create(JSONPassthroughResponseSchema, {
+          bodyJson: jsonBytes({ result: { page: { revision: 3, type: 'doc' }, content: { markdown_file: true } } })
+        })
+      }
+      seen.push({
+        params: jsonObjectFromBytes(req.paramsJson, 'params') ?? {},
+        retry: opts?.retryOnDisconnect
+      })
+      return create(JSONPassthroughResponseSchema, {
+        bodyJson: jsonBytes({ result: { page: { revision: 4 } } })
+      })
+    }) as RPCRequester
+    const bridge = startPodCLIBridge({
+      rpc,
+      frame: { run: { session: { session_id: 'conversation:pod' }, signal_id: 'signal' } },
+      drive: new FakeDrive(root).drive(),
+      socketRoot: root
+    })
+    try {
+      const omitted = await commandFromArgs(
+        ['pages.append', '{"id":"page-1","base_revision":3,"markdown":"Appended section"}'],
+        root
+      )
+      await requestSocketLineBridge(bridge.socketPath, JSON.stringify(omitted), 'bad response')
+      await requestSocketLineBridge(bridge.socketPath, JSON.stringify({ ...explicit, cwd: root }), 'bad response')
+
+      expect(seen).toHaveLength(2)
+      expect(seen[0]!.retry).toBe(true)
+      expect(typeof seen[0]!.params.idempotency_key).toBe('string')
+      expect(String(seen[0]!.params.idempotency_key)).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      )
+      expect(seen[1]!.retry).toBe(true)
+      expect(seen[1]!.params.idempotency_key).toBe('append-turn-1')
+    } finally {
+      bridge.close()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })

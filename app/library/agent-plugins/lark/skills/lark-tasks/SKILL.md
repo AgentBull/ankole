@@ -1,6 +1,7 @@
 ---
 name: lark-tasks
 description: "Manage Feishu or Lark personal and team tasks, tasklists, sections, subtasks, reminders, and comments."
+default_enabled: false
 ---
 
 # lark-tasks

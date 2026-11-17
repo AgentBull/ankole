@@ -732,6 +732,7 @@ export namespace GardState {
       return this.derive(s => get(s.field(field)))
     }
 
+    /** @hidden */
     tag!: Output
   }
 
@@ -1104,7 +1105,7 @@ export namespace GardState {
     Schema.Element | readonly Schema.Element[],
     readonly Schema.Element[]
   >({
-    combine: values => values.reduce((set: readonly Schema.Element[], elt) => set.concat(elt), none),
+    combine: values => (values.length ? values.flat() : none),
     static: true
   })
 

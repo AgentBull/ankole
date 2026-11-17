@@ -123,7 +123,7 @@ export function validateAndNormalizeChartSpec(
     }
   }
 
-  return { ok: true, spec: parsed.data as unknown as StatisticalChartSpec }
+  return { ok: true, spec: parsed.data as StatisticalChartSpec }
 }
 
 const KlineOhlcPointSchema = z.object({
