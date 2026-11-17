@@ -266,6 +266,10 @@ jobs:
           inspect_ref worker_exists "${WORKER_IMAGE}"
           inspect_ref function_runtime_exists "${FUNCTION_RUNTIME_IMAGE}"
 
+  # The repository variables ANKOLE_RELEASE_AMD64_RUNNER and ANKOLE_RELEASE_ARM64_RUNNER move the image builds
+  # to the self-hosted runners in the ankole-trusted organization runner group. That group admits only this
+  # workflow on refs/heads/main, so pull requests and other branches cannot schedule onto those runners.
+  # Delete the variables to return the builds to GitHub-hosted runners.
   build_base:
     name: Build OS base image (${{ matrix.arch }})
     needs: inspect_existing
@@ -280,10 +284,10 @@ jobs:
         include:
           - arch: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ${{ vars.ANKOLE_RELEASE_AMD64_RUNNER || 'ubuntu-latest' }}
           - arch: arm64
             platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            runner: ${{ vars.ANKOLE_RELEASE_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
 
     steps:
       - name: Checkout
@@ -422,10 +426,10 @@ jobs:
         include:
           - arch: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ${{ vars.ANKOLE_RELEASE_AMD64_RUNNER || 'ubuntu-latest' }}
           - arch: arm64
             platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            runner: ${{ vars.ANKOLE_RELEASE_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
 
     steps:
       - name: Checkout
@@ -517,10 +521,10 @@ jobs:
         include:
           - arch: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ${{ vars.ANKOLE_RELEASE_AMD64_RUNNER || 'ubuntu-latest' }}
           - arch: arm64
             platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            runner: ${{ vars.ANKOLE_RELEASE_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
 
     steps:
       - name: Checkout
@@ -614,10 +618,10 @@ jobs:
         include:
           - arch: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ${{ vars.ANKOLE_RELEASE_AMD64_RUNNER || 'ubuntu-latest' }}
           - arch: arm64
             platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            runner: ${{ vars.ANKOLE_RELEASE_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
 
     steps:
       - name: Checkout
