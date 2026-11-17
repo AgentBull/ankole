@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { beforeEach, describe, expect, it } from 'bun:test'
 import { configureWorkerTracing, forceFlushWorkerTracing, workerTurnTrace } from '../src/observability/turn-tracing'
 import {
   actorTurn,
@@ -11,6 +11,9 @@ import {
 } from './support/codex-turn-recorder'
 
 describe('Codex observations from accepted recorder events', () => {
+  // Deliver queued spans to the previous exporter before this test installs its own.
+  beforeEach(forceFlushWorkerTracing)
+
   it.each([true, false])('exports one tool span across repeated notifications, with start = %s', async withStart => {
     const { recorder, upserts, exports } = traceFixture()
     recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', 'execute once')
