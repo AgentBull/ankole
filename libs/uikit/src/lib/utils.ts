@@ -15,9 +15,9 @@ const twMerge = extendTailwindMerge<'ceramic'>({
   extend: {
     theme: {
       text: [...typeSteps, ...typeSteps.map(step => `num-${step}`)],
-      radius: ['control', 'mini', 'micro', 'panel', 'surface'],
-      spacing: ['top-bar', 'sidebar'],
-      shadow: ['control'],
+      radius: ['control', 'mini', 'micro', 'panel', 'surface', 'menu-field'],
+      spacing: ['top-bar', 'sidebar', 'control-xs', 'control-sm', 'control-md', 'control-lg'],
+      shadow: ['control', 'paper', 'composer'],
       blur: ['composer']
     },
     classGroups: {
