@@ -247,6 +247,7 @@ defmodule AnkoleWeb.Router do
     pipe_through :pod_manifest
 
     get "/pod/manifest.webmanifest", SpaController, :pod_manifest
+    get "/pod/service-worker.js", SpaController, :pod_service_worker
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own

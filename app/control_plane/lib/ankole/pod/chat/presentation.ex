@@ -114,6 +114,7 @@ defmodule Ankole.Pod.Chat.Presentation do
       canManage: detail.owner?,
       titleCustomized: conversation.title_customized,
       lastMessageSeq: conversation.sequence_high_water,
+      lastNotifiableSeq: conversation.last_notifiable_seq,
       latestMessagePreview: Map.get(detail, :latest_message_preview, ""),
       searchMatch: Map.get(detail, :search_match),
       viewer: %{

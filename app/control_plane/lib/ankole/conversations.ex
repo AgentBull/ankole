@@ -104,6 +104,10 @@ defmodule Ankole.Conversations do
     to: Ankole.Conversations.Executions,
     as: :message
 
+  defdelegate claim_notifications(id, opts \\ []),
+    to: Ankole.Conversations.Notifications,
+    as: :claim
+
   defdelegate direct_conversations(human_uid), to: NativeRoom
   defdelegate teammates(actor, query \\ nil), to: NativeRoom
   defdelegate update_conversation(actor, id, attrs), to: NativeRoom, as: :update

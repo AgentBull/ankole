@@ -96,6 +96,7 @@ test('selecting either Agent in a group enables sending and retains the selectio
       titleCustomized: true,
       createdBy: 'person',
       lastMessageSeq: 0,
+      lastNotifiableSeq: 0,
       lastActivityAt: '2026-10-16T00:00:00Z',
       rowStatus: 'idle',
       viewer: { uid: 'person', pinned: false, muted: false, lastReadSeq: 0 },

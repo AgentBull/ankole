@@ -32,6 +32,11 @@ defmodule Ankole.Conversations.Events do
 
     if publications != [], do: publish_rooms_changed()
 
+    publications
+    |> Enum.flat_map(fn {id, type} -> if type == :message, do: [id], else: [] end)
+    |> Enum.uniq()
+    |> Enum.each(&Ankole.Pod.WebPush.enqueue/1)
+
     :ok
   end
 

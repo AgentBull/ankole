@@ -280,6 +280,19 @@ defmodule AnkoleWeb.SpaController do
     end
   end
 
+  @service_worker Path.expand("../../../priv/pod/service-worker.js", __DIR__)
+  @external_resource @service_worker
+  @service_worker_source File.read!(@service_worker)
+
+  # The worker must come from the Pod origin, not the asset CDN, to control the whole Pod.
+  def pod_service_worker(conn, _params) do
+    conn
+    |> put_resp_header("cache-control", "no-cache")
+    |> put_resp_header("service-worker-allowed", "/")
+    |> put_resp_content_type("text/javascript")
+    |> send_resp(200, @service_worker_source)
+  end
+
   defp put_pod_target(conn) do
     with {:ok, id} <- entry_tenant(conn),
          do: Ankole.Repo.put_tenant_id(id)
@@ -501,7 +514,11 @@ defmodule AnkoleWeb.SpaController do
     [
       "    <link rel=\"manifest\" href=\"",
       html_escape(~p"/pod/manifest.webmanifest"),
-      "\" crossorigin=\"use-credentials\">\n"
+      "\" crossorigin=\"use-credentials\">\n",
+      # iOS takes the Home Screen icon from this link rather than from the manifest.
+      "    <link rel=\"apple-touch-icon\" href=\"",
+      html_escape(Assets.static_path(~p"/images/pwa-192.png")),
+      "\">\n"
     ]
   end
 

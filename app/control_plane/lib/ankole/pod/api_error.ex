@@ -61,6 +61,8 @@ defmodule Ankole.Pod.APIError do
     conversation_busy:
       {409, "Wait for the current work to finish before deleting this conversation."},
     invalid_id: {422, "ID is invalid"},
+    invalid_endpoint: {422, "The browser offered a push service address that Ankole cannot use"},
+    invalid_subscription: {422, "The browser push subscription is incomplete or invalid"},
     invalid_text: {422, "Message text is invalid"},
     invalid_attachment: {422, "The attachment upload is invalid"},
     attachment_expired: {422, "The attachment upload expired. Upload it again"},

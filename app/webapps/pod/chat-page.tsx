@@ -39,6 +39,7 @@ import { useConversationEvents } from './use-conversation-events'
 import { refreshConversationDetail } from './query-cache'
 import { deleteConversation } from './api/generated/sdk.gen'
 import { Composer } from './chat/composer'
+import { NotificationPrompt } from './browser-notifications'
 import { RunnerJobDialog } from './chat/runner-job-dialog'
 import { isExecutionActive, isPeerActive } from './chat/timeline-projections'
 import { TurnTimeline } from './chat/turn-timeline'
@@ -770,6 +771,7 @@ export function ChatPage({
                     }}
                   />
                 )}
+              {conversationID && <NotificationPrompt />}
               {composer}
             </div>
           </div>

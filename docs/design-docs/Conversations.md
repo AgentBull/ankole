@@ -438,6 +438,9 @@ expose only active Agents on which the Human holds `chat` permission.
 | `POST /conversations/:id/executions/:kind/:run_id/stop` | Stop an active linked Background Job or Workflow when the Human may command its owning Agent |
 | `POST /conversations/:id/executions/background_agent_job/:run_id/messages` | Send a live steer message, answer pending questions, or resume a terminal Background Job in the same workspace (`clientMessageKey`) |
 | `PATCH /conversations/:id` | Title, access scope, or the current Human's pin, mute, and read position |
+| `GET /web-push` | The site's VAPID public key, which a browser uses to subscribe to Web Push |
+| `POST /web-push/subscriptions` | Store the browser's push endpoint and keys for the current Human, moving an endpoint that another Human registered |
+| `POST /web-push/unsubscribe` | Remove the current Human's subscription for one push endpoint |
 | `POST /conversations/:id/participants` | Add or remove participants, or change an Agent's intervention setting |
 | `POST /conversations/:id/messages` | Human message with structured mentions, links, and optional Agent target |
 | `POST /conversations/:id/queue` | Queue, stop, or retry command for the selected Agent |
@@ -1097,6 +1100,83 @@ the passage with a fresh Page read before editing. A draft quotes one passage at
 a time: a quoted message and a Page selection replace each other. Choosing the
 action changes nothing in the document and needs only access to the Assistant panel, not
 edit permission.
+
+## Browser Notifications
+
+Pod notifies a Human about the same rooms that its unread and "Needs you" marks
+show. A room notifies when a new notifiable message that the Human did not send
+leaves it unread for them, or when it starts waiting on the Human's decision.
+Muting a room silences its ordinary messages, while a Clarify question, an
+Action Card, a connector authorization, or a Page access request still
+notifies in a muted room. Membership notices advance the notifiable watermark, so being
+added to a room also notifies. Pages with new relevant comments notify while a
+Pod tab is open.
+
+An open Pod tab compares each refetch of `GET /conversations/attention` with
+the previous one and shows a notification for each room that changed: a room
+whose `rowStatus` becomes `waiting_choice`, or an unmuted room whose
+`lastNotifiableSeq` rises past both the viewer's read position and the
+previous read. The rule reads the watermarks because a room that is also
+working or waiting shows that status instead of `unread`. After a send, Pod
+records the sent message's sequence and shares it with the browser's other Pod
+tabs, so no tab notifies the Human about their own message. The first read
+after load only sets the baseline, and a room that the focused tab is showing
+does not notify. The
+same tab prefixes the document title with the Chat and Home attention count and
+sets the installed app's badge.
+
+Web Push also reaches the Human when no Pod tab is open. The control plane
+sends it whether or not a tab is open, and the shared tag lets the browser show
+one notification for both paths. After a room message commits,
+`Conversations.Events.publish_committed/1` schedules `Pod.Jobs.DeliverWebPush`
+for that room five seconds later; messages that commit while the delivery waits
+join it. The delivery runs only once the room's newest notifiable message is
+five seconds old, snoozing until then, and stops waiting a minute after it was
+scheduled, so a Human who is reading the room has time to mark it read. It then
+asks `Conversations.claim_notifications/2` for the Humans to notify. The claim
+advances `notified_seq` to the message for every Human participant behind it
+with a compare-and-set update, so one message is claimed once even when
+deliveries race and a muted or unread room never pushes an older message later.
+Of the claimed Humans, it notifies those who did not write the message, whose
+read position is behind it, who can still see the room, and who have not muted
+it unless the message asks for a decision. The migration that added
+`notified_seq` set it to each room's watermark, so existing messages never
+push.
+
+`Pod.WebPush` encrypts one `aes128gcm` record per subscription (RFC 8291) and
+signs an RFC 8292 VAPID token for the push service's origin. Ankole derives the
+VAPID P-256 key pair from the endpoint's `secret_key_base`, so the installation
+stores no key; a browser whose subscription uses another key subscribes again.
+The payload carries the title, a preview of at most 240 characters, the room
+path, a tag equal to the room ID, and whether the message asks for a decision.
+The push service's `Topic` header and the shared tag let a newer notification
+for a room replace an older one, both in the push service queue and on screen.
+A `404` or `410` response deletes the subscription, and a failure for one
+subscription leaves the others to deliver.
+
+`web_push_subscriptions` stores one row per tenant and push endpoint with the
+Human's UID, the browser keys, and the user agent. Subscribing requires a public
+`https` endpoint and a browser key on the P-256 curve. The browser registers the
+subscription for the signed-in Human on every load, so a browser that signs in
+as another Human moves its subscription to that Human, and signing out removes
+it. When the browser cannot subscribe, personal settings say that notifications
+arrive only while Pod is open.
+
+The Pod origin serves the service worker at `GET /pod/service-worker.js` with
+`Service-Worker-Allowed: /`, so the worker controls the whole Pod even when
+assets come from a CDN. The worker shows each push, keeps decision
+notifications on screen until the Human acts, and on a click focuses an open
+Pod tab and asks it to open the room, or opens a new window at the room. The
+Web App Manifest and the `apple-touch-icon` link let iPhone and iPad users add
+the Pod to the Home Screen, which Safari on those devices requires before it
+offers notifications.
+
+The Human turns notifications on per device in personal settings, or from the
+offer above the composer that Pod shows until the browser has been asked once.
+The permission request runs from that click. Turning notifications off on a
+device removes its push subscription and stops in-tab notifications there.
+The desktop app shows in-tab notifications through its notification plugin and
+has no Web Push.
 
 ## SSE and Visible History
 

@@ -781,6 +781,26 @@ export type PodMemberAccount = {
 }
 
 /**
+ * A "Resource object" representing a pod_web_push_operation
+ */
+export type PodWebPushOperation = {
+  /**
+   * An attributes object for a pod_web_push_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_web_push_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * Filters the query to results matching the given filter object
  */
 export type PodMemberAccountFilter = {
@@ -1769,6 +1789,7 @@ export type UpdateConversationQueueResponses = {
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      lastNotifiableSeq: number
       latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
@@ -4024,6 +4045,7 @@ export type PodConversationAttentionResponses = {
     id: string
     lastActivityAt: string
     lastMessageSeq: number
+    lastNotifiableSeq: number
     latestMessagePreview?: string | null
     pageID?: string | null
     participants: Array<{
@@ -4268,6 +4290,7 @@ export type ConversationDetailResponses = {
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      lastNotifiableSeq: number
       latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
@@ -4575,6 +4598,7 @@ export type UpdateConversationResponses = {
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      lastNotifiableSeq: number
       latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
@@ -4975,6 +4999,7 @@ export type AnswerConversationInteractionResponses = {
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      lastNotifiableSeq: number
       latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
@@ -5707,6 +5732,7 @@ export type ResolveConversationActionCardResponses = {
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      lastNotifiableSeq: number
       latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
@@ -5959,6 +5985,33 @@ export type PodBaseCopyResponses = {
 }
 
 export type PodBaseCopyResponse = PodBaseCopyResponses[keyof PodBaseCopyResponses]
+
+export type GetPodWebPushData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/web-push'
+}
+
+export type GetPodWebPushErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetPodWebPushError = GetPodWebPushErrors[keyof GetPodWebPushErrors]
+
+export type GetPodWebPushResponses = {
+  /**
+   * Success
+   */
+  200: {
+    publicKey: string
+  }
+}
+
+export type GetPodWebPushResponse = GetPodWebPushResponses[keyof GetPodWebPushResponses]
 
 export type RestorePodMemberData = {
   /**
@@ -8095,6 +8148,7 @@ export type PostConversationMessageResponses = {
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      lastNotifiableSeq: number
       latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
@@ -9165,6 +9219,40 @@ export type SavePodIdentityProviderResponses = {
 
 export type SavePodIdentityProviderResponse = SavePodIdentityProviderResponses[keyof SavePodIdentityProviderResponses]
 
+export type UnsubscribePodWebPushData = {
+  /**
+   * Request body for the unsubscribe_pod_web_push operation on pod_web_push_operation resource
+   */
+  body: {
+    data: {
+      endpoint: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/web-push/unsubscribe'
+}
+
+export type UnsubscribePodWebPushErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UnsubscribePodWebPushError = UnsubscribePodWebPushErrors[keyof UnsubscribePodWebPushErrors]
+
+export type UnsubscribePodWebPushResponses = {
+  /**
+   * Success
+   */
+  201: {
+    subscribed: boolean
+  }
+}
+
+export type UnsubscribePodWebPushResponse = UnsubscribePodWebPushResponses[keyof UnsubscribePodWebPushResponses]
+
 export type PodJobSchedulesRunsData = {
   body?: never
   path: {
@@ -9861,6 +9949,7 @@ export type GrantConversationPageAccessResponses = {
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      lastNotifiableSeq: number
       latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
@@ -11726,6 +11815,7 @@ export type PodConversationsResponses = {
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      lastNotifiableSeq: number
       latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
@@ -11893,6 +11983,7 @@ export type CreateConversationResponses = {
       id: string
       lastActivityAt: string
       lastMessageSeq: number
+      lastNotifiableSeq: number
       latestMessagePreview?: string | null
       pageID?: string | null
       participants: Array<{
@@ -13516,6 +13607,43 @@ export type PodSpaceWriteResponses = {
 }
 
 export type PodSpaceWriteResponse = PodSpaceWriteResponses[keyof PodSpaceWriteResponses]
+
+export type SubscribePodWebPushData = {
+  /**
+   * Request body for the subscribe_pod_web_push operation on pod_web_push_operation resource
+   */
+  body: {
+    data: {
+      auth: string
+      endpoint: string
+      p256dh: string
+      userAgent?: string | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/web-push/subscriptions'
+}
+
+export type SubscribePodWebPushErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SubscribePodWebPushError = SubscribePodWebPushErrors[keyof SubscribePodWebPushErrors]
+
+export type SubscribePodWebPushResponses = {
+  /**
+   * Success
+   */
+  201: {
+    subscribed: boolean
+  }
+}
+
+export type SubscribePodWebPushResponse = SubscribePodWebPushResponses[keyof SubscribePodWebPushResponses]
 
 export type AnswerPodInteractionData = {
   /**

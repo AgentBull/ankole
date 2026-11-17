@@ -26,6 +26,7 @@ import {
   postConversationMessage,
   updateConversationQueue
 } from './api/generated/sdk.gen'
+import { noteOwnMessage } from './state/notifications'
 
 export type ConversationDetail = ConversationDetailResponse
 export type StandaloneActionCard = GetPodActionCardResponse
@@ -137,21 +138,27 @@ export function postMessage(submission: MessageSubmission, create: boolean): Pro
     targetAgentUID,
     ...(attachments?.length ? { attachments } : {})
   }
-  return create
-    ? createConversation({
-        body: {
-          data: {
-            conversationID,
-            messageID,
-            agentUID,
-            accessScope,
-            modelProfile,
-            ...content,
-            ...(pageID ? { pageID } : {})
+  return (
+    create
+      ? createConversation({
+          body: {
+            data: {
+              conversationID,
+              messageID,
+              agentUID,
+              accessScope,
+              modelProfile,
+              ...content,
+              ...(pageID ? { pageID } : {})
+            }
           }
-        }
-      })
-    : postConversationMessage({ path: { id: conversationID }, body: { data: { messageID, ...content } } })
+        })
+      : postConversationMessage({ path: { id: conversationID }, body: { data: { messageID, ...content } } })
+  ).then(detail => {
+    const own = detail.messages.find(message => message.id === messageID)
+    if (own) noteOwnMessage(detail.conversation.id, own.seq)
+    return detail
+  })
 }
 
 export function updateQueue(conversationID: string, body: ConversationQueueRequest): Promise<ConversationDetail> {

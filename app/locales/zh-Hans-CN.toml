@@ -4707,6 +4707,23 @@ manage_in_browser = "在浏览器管理"
 manage_in_browser_login_description = "绑定或解绑登录方式需要在系统浏览器中验证身份。"
 manage_in_browser_exit_description = "退出该空间需要在系统浏览器中验证身份后完成。"
 
+[pod.notifications]
+title = "通知"
+description = "Agent 回复、任务完成、有人给你发消息或有事项等你决定时，在这台设备上通知你。静音某个会话后，它的普通消息不再通知，但需要你决定的事项仍会通知。"
+enable = "在这台设备上通知我"
+blocked = "浏览器已禁止这个空间发送通知。请在浏览器的网站设置中允许通知，然后刷新页面。"
+push_failed = "这个浏览器无法注册后台通知，只有在 Ankole 打开时才能收到通知。"
+unsupported = "这个浏览器无法显示通知。"
+ios_home_screen = "在 iPhone 和 iPad 上，请先把这个空间添加到主屏幕，再从主屏幕打开并开启通知。"
+test = "发送测试通知"
+test_title = "通知已开启"
+test_body = "Agent 回复或需要你处理时，Ankole 会在这里通知你。"
+prompt = "Agent 回复或需要你处理时通知你。"
+prompt_enable = "开启"
+prompt_dismiss = "暂不"
+untitled = "会话"
+new_comments = "有新评论"
+
 [pod.settings]
 description = "管理空间形象、成员、访问权限和集成。"
 navigation = "空间设置分区"

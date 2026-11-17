@@ -32,6 +32,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { ErrorBoundary, ErrorFallback } from '../common/error-boundary'
 import { InternalAPIError } from '../common/internal-api-client'
 import { PodSidebar } from './sidebar'
+import { PodNotifications } from './browser-notifications'
 import { ContentListRoute } from './content-list'
 import { ContentProvider } from './content-context'
 import { ContentError, ContentLoading, ContentSkeleton } from './content-primitives'
@@ -649,6 +650,7 @@ function PodShell() {
                 </div>
               </SidebarInset>
             </div>
+            <PodNotifications />
             <PodCommandMenu open={commandOpen} onOpenChange={setCommandOpen} returnFocus={commandReturnFocus} />
             {actionCardID && <StandaloneActionCardDialog cardID={actionCardID} onClose={closeActionCardDialog} />}
             {interactionID && (
