@@ -5,9 +5,18 @@ import { I18nextProvider } from 'react-i18next'
 import { normalizeSeriesPoints } from './charts'
 import { buildKeyValueRecord, DeclarativeFields, formatKeyValueEntry } from './fields'
 import { resolveRouteTabSelection } from './resources'
-import { executeWizardStep, parseBatchLine, redactBatchLine, redactUrlCredentials, WizardActionTable } from './wizard'
+import {
+  applyWizardPreview,
+  executeWizardStep,
+  parseBatchLine,
+  redactBatchLine,
+  redactUrlCredentials,
+  toggleWizardPreviewRow,
+  WizardActionTable
+} from './wizard'
 import {
   executeDeclarativeAction,
+  normalizeDeclarativeResponse,
   useDeclarativeVisibility,
   serializeDeclarativeFields,
   serializeNullablePatchPayload
@@ -438,6 +447,7 @@ const PREVIEW_ACTION: DeclarativeSurfaceDescriptor = {
   kind: 'action',
   operationKind: 'action',
   method: 'POST',
+  responseEnvelope: 'flat',
   columns: ['widget_name', 'details', 'access_key'],
   fields: [
     { name: 'source', type: 'string', labelKey: 'source', required: true, readOnly: false },
@@ -470,7 +480,9 @@ test('wizard step executes the visible action and renders the preview table shar
     { source: 'widget input', unrelated: 'draft only' }
   )
   expect(preview.columns).toEqual(['widget_name', 'details'])
-  expect(preview.rows).toEqual([{ widget_name: 'Blue widget', details: 'https://***@example.test/' }])
+  expect(preview.rows.map(row => row.cells)).toEqual([
+    { widget_name: 'Blue widget', details: 'https://***@example.test/' }
+  ])
   const html = renderToStaticMarkup(
     <I18nextProvider i18n={i18n}>
       <WizardActionTable i18nPrefix="widgets" preview={preview} />
@@ -500,6 +512,144 @@ test('wizard step rejects unknown and hidden actions before execution and report
   scope.visibleIds.add(PREVIEW_ACTION.surface)
   await expect(executeWizardStep(scope, PREVIEW_ACTION.id, {})).rejects.toThrow('Preview unavailable')
   expect(calls).toBe(1)
+})
+
+test('wizard preview unwraps flat result envelopes while preserving regular action rows', async () => {
+  const entries = [{ widget_name: 'Blue widget' }, { widget_name: 'Red widget' }]
+  const preview = (result: unknown, itemsField?: string, action = PREVIEW_ACTION) =>
+    executeWizardStep(
+      {
+        surfaceById: new Map([[action.id, action]]),
+        visibleIds: new Set([action.surface]),
+        onExecute: async () => normalizeDeclarativeResponse(result, action.responseEnvelope)
+      },
+      action.id,
+      { source: 'widgets' },
+      { config: itemsField ? { itemsField } : undefined }
+    )
+  for (const result of [entries, { items: entries }]) {
+    expect((await preview(result)).rows.map(row => row.cells.widget_name)).toEqual(['Blue widget', 'Red widget'])
+  }
+  expect((await preview(entries[0])).rows[0]?.cells.widget_name).toBe('Blue widget')
+  expect((await preview({ items: [] })).rows).toEqual([])
+  expect((await preview({ entries }, 'entries')).rows).toHaveLength(2)
+  const resource = { data: { id: 'batch-1', attributes: { widget_name: 'Widget batch', items: entries } } }
+  const jsonapi = { ...PREVIEW_ACTION, responseEnvelope: 'jsonapi' } satisfies DeclarativeSurfaceDescriptor
+  expect((await preview(resource, undefined, jsonapi)).rows.map(row => row.cells.widget_name)).toEqual(['Widget batch'])
+})
+
+test('wizard form preview carries declared metadata and commits only checked widget rows', async () => {
+  const fields: DeclarativeFieldDescriptor[] = [
+    { name: 'source', type: 'secret', labelKey: 'source', required: true, readOnly: false, multiline: true },
+    { name: 'revision', type: 'string', labelKey: 'revision', required: true, readOnly: false },
+    { name: 'count', type: 'integer', labelKey: 'count', required: true, readOnly: false },
+    { name: 'verified', type: 'boolean', labelKey: 'verified', required: true, readOnly: false },
+    { name: 'operator', type: 'string', labelKey: 'operator', required: false, readOnly: true },
+    { name: 'chosen_widgets', type: 'string_array', labelKey: 'chosen_widgets', required: true, readOnly: false }
+  ]
+  const action = { ...PREVIEW_ACTION, fields: fields.slice(0, 1) }
+  const wizard: DeclarativeSurfaceDescriptor = {
+    ...action,
+    id: 'import-widgets',
+    kind: 'wizard',
+    endpoint: '/api/v2/fixture-site/widgets/import',
+    payloadEnvelope: 'data',
+    fields,
+    stepSchemas: [
+      {
+        id: 'enter_widgets',
+        labelKey: 'enter_widgets',
+        kind: 'form',
+        fields: action.fields,
+        actionSurfaceId: action.id,
+        actionPreview: { selection: { field: 'chosen_widgets', rowKeyField: 'id' } }
+      },
+      { id: 'choose_widgets', labelKey: 'choose_widgets', kind: 'preview_items', fields: [] },
+      { id: 'confirm_widgets', labelKey: 'confirm_widgets', kind: 'confirm', fields: [] }
+    ]
+  }
+  const step = wizard.stepSchemas[0]
+  if (step?.kind !== 'form' || !step.actionSurfaceId) throw new Error('Missing form preview action')
+  const source = 'widget: first\nwidget: second\n'
+  const result = {
+    items: [
+      { id: 'first', widget_name: 'Same Name', selectable: true },
+      { id: 'second', widget_name: 'Same Name', selectable: true },
+      { id: 'invalid', widget_name: 'Invalid widget', selectable: false }
+    ],
+    revision: 'rev-a',
+    count: 0,
+    verified: false,
+    source: 'secret response',
+    operator: 'read only',
+    unknown: 'undeclared'
+  }
+  const preview = await executeWizardStep(
+    {
+      surfaceById: new Map([[action.id, action]]),
+      visibleIds: new Set([action.surface]),
+      onExecute: async (target, payload) => {
+        expect(target).toBe(action)
+        expect(payload).toEqual({ source })
+        return normalizeDeclarativeResponse(result, 'flat')
+      }
+    },
+    step.actionSurfaceId,
+    { source },
+    { config: step.actionPreview, fields: wizard.fields }
+  )
+  expect(preview.carryForward).toEqual({ revision: 'rev-a', count: 0, verified: false })
+  expect(preview.rows.map(({ id, selectable }) => [id, selectable])).toEqual([
+    ['first', true],
+    ['second', true],
+    ['invalid', false]
+  ])
+  let draft = applyWizardPreview({ source }, preview)
+  draft = toggleWizardPreviewRow(draft, preview, 'first', true)
+  draft = toggleWizardPreviewRow(draft, preview, 'second', true)
+  draft = toggleWizardPreviewRow(draft, preview, 'first', false)
+  draft = toggleWizardPreviewRow(draft, preview, 'invalid', true)
+  expect(draft.chosen_widgets).toEqual(['second'])
+
+  const i18n = i18next.createInstance()
+  await i18n.init({ lng: 'en', resources: { en: { translation: {} } } })
+  const render = (selecting: boolean) =>
+    renderToStaticMarkup(
+      <I18nextProvider i18n={i18n}>
+        <WizardActionTable
+          i18nPrefix="widgets"
+          preview={preview}
+          selectedIds={['second']}
+          onToggle={selecting ? () => {} : undefined}
+        />
+      </I18nextProvider>
+    )
+  const previewHtml = render(true)
+  expect(previewHtml.match(/role="checkbox"/g)).toHaveLength(3)
+  expect(previewHtml).toMatch(/<button(?=[^>]*aria-label="Select row 3")(?=[^>]*aria-disabled="true")/)
+  expect(render(false).match(/>Same Name<\/td>/g)).toHaveLength(1)
+  expect(render(false)).not.toContain('Invalid widget')
+
+  const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ imported: 1 }))
+  try {
+    await executeDeclarativeAction(wizard, serializeDeclarativeFields(wizard, draft))
+    const [endpoint, options] = fetchSpy.mock.calls[0] ?? []
+    expect(endpoint).toBe(wizard.endpoint)
+    expect(JSON.parse(String(options?.body))).toEqual({
+      data: { source, revision: 'rev-a', count: 0, verified: false, chosen_widgets: ['second'] }
+    })
+  } finally {
+    fetchSpy.mockRestore()
+  }
+  expect(
+    applyWizardPreview(
+      { ...draft, source: 'new widget input' },
+      {
+        ...preview,
+        carryForward: { revision: 'rev-b' }
+      }
+    )
+  ).toMatchObject({ source: 'new widget input', revision: 'rev-b', chosen_widgets: [] })
 })
 
 test('parseBatchLine keeps the name and scheme while sending the original endpoint', () => {

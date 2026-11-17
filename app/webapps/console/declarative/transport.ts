@@ -142,6 +142,10 @@ export function surfaceQueryEndpoint(
   return searchParams.size > 0 ? `${pathname}?${searchParams}` : base
 }
 
+export function actionResponseEnvelope(surface: DeclarativeSurfaceDescriptor): DeclarativeEnvelope {
+  return surface.responseEnvelope ?? (surface.payloadEnvelope === 'jsonapi' ? 'jsonapi' : 'flat')
+}
+
 export async function executeDeclarativeAction(
   surface: DeclarativeSurfaceDescriptor,
   payload: Readonly<Record<string, unknown>>,
@@ -155,7 +159,7 @@ export async function executeDeclarativeAction(
   const url = resolveRecordEndpoint(surface.endpoint, recordId)
   if (!url) throw new Error('Missing target endpoint')
 
-  const responseEnvelope = surface.responseEnvelope ?? (surface.payloadEnvelope === 'jsonapi' ? 'jsonapi' : 'flat')
+  const responseEnvelope = actionResponseEnvelope(surface)
   if (surface.method === 'DELETE') {
     return declarativeRequest(url, 'DELETE', undefined, responseEnvelope, headers)
   }

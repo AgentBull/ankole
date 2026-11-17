@@ -664,6 +664,26 @@ function DeclarativeField({
   const isSecret = descriptor.type === 'secret'
   const isArray = descriptor.type === 'string_array'
 
+  if (descriptor.multiline) {
+    return (
+      <LabeledField description={description} label={label} required={descriptor.required}>
+        <Textarea
+          aria-label={label}
+          autoCapitalize="none"
+          autoComplete="off"
+          autoCorrect="off"
+          disabled={isDisabled}
+          placeholder={descriptor.placeholderKey ? t(descriptor.placeholderKey) : undefined}
+          required={descriptor.required}
+          rows={6}
+          spellCheck={false}
+          value={String(value ?? '')}
+          onChange={event => onChange(event.target.value)}
+        />
+      </LabeledField>
+    )
+  }
+
   return (
     <LabeledField
       description={

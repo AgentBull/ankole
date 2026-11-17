@@ -50,6 +50,7 @@ export interface DeclarativeFieldDescriptor {
   readonly valueLabelKey?: string
   readonly valueType?: 'string' | 'number'
   readonly inputUnit?: 'date' | 'datetime'
+  readonly multiline?: boolean
   readonly expiryPresets?: readonly number[]
 }
 
@@ -99,6 +100,15 @@ export interface DeclarativeBatchLinesConfig {
   readonly schemes: readonly string[]
 }
 
+export interface DeclarativeActionPreviewConfig {
+  readonly itemsField?: string
+  readonly selection?: {
+    readonly field: string
+    readonly rowKeyField: string
+    readonly selectableField?: string
+  }
+}
+
 export interface DeclarativeStepSchema {
   readonly id: string
   readonly labelKey: string
@@ -107,6 +117,7 @@ export interface DeclarativeStepSchema {
   readonly oauthConfig?: DeclarativeOAuthPkceConfig
   readonly batchLinesConfig?: DeclarativeBatchLinesConfig
   readonly actionSurfaceId?: string
+  readonly actionPreview?: DeclarativeActionPreviewConfig
 }
 
 export type DeclarativeRowActionDescriptor =

@@ -1,5 +1,6 @@
 import {
   Button,
+  Checkbox,
   CopyButton,
   Dialog,
   DialogContent,
@@ -20,8 +21,21 @@ import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LabeledField } from '../console-form'
 import { DeclarativeFields, DeclarativeSelect } from './fields'
-import { withFieldDefaults, asRecord, formatIdentifierLabel, serializeDeclarativeFields } from './transport'
-import type { DeclarativeBatchLinesConfig, DeclarativeOAuthPkceConfig, DeclarativeSurfaceDescriptor } from './types'
+import {
+  actionResponseEnvelope,
+  asRecord,
+  formatIdentifierLabel,
+  isRecord,
+  serializeDeclarativeFields,
+  withFieldDefaults
+} from './transport'
+import type {
+  DeclarativeActionPreviewConfig,
+  DeclarativeBatchLinesConfig,
+  DeclarativeFieldDescriptor,
+  DeclarativeOAuthPkceConfig,
+  DeclarativeSurfaceDescriptor
+} from './types'
 
 export type ParsedBatchItem = Readonly<Record<string, string>>
 
@@ -103,9 +117,17 @@ function sanitizeConfirmValue(value: unknown): string {
   )
 }
 
+interface WizardPreviewRow {
+  readonly cells: Readonly<Record<string, string>>
+  readonly id?: string
+  readonly selectable: boolean
+}
+
 interface WizardActionPreview {
   readonly columns: readonly string[]
-  readonly rows: readonly Readonly<Record<string, string>>[]
+  readonly rows: readonly WizardPreviewRow[]
+  readonly carryForward: Readonly<Record<string, string | number | boolean>>
+  readonly selectionField?: string
 }
 
 interface WizardTriggerProps {
@@ -120,32 +142,117 @@ interface WizardTriggerProps {
   ) => Promise<readonly Record<string, unknown>[]>
 }
 
+function selectedRowIds(draft: Readonly<Record<string, unknown>>, field: string | undefined): readonly string[] {
+  const value = field === undefined ? undefined : draft[field]
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
+}
+
+export function applyWizardPreview(draft: Readonly<Record<string, unknown>>, preview: WizardActionPreview) {
+  return {
+    ...draft,
+    ...preview.carryForward,
+    ...(preview.selectionField === undefined ? {} : { [preview.selectionField]: [] })
+  }
+}
+
+export function toggleWizardPreviewRow(
+  draft: Record<string, unknown>,
+  preview: WizardActionPreview,
+  id: string,
+  checked: boolean
+): Record<string, unknown> {
+  const field = preview.selectionField
+  if (field === undefined || !preview.rows.some(row => row.id === id && row.selectable)) return draft
+  const ids = new Set(selectedRowIds(draft, field))
+  if (checked) ids.add(id)
+  else ids.delete(id)
+  return { ...draft, [field]: [...ids] }
+}
+
 export async function executeWizardStep(
   { surfaceById, visibleIds, onExecute }: Pick<WizardTriggerProps, 'surfaceById' | 'visibleIds' | 'onExecute'>,
   actionSurfaceId: string,
-  draft: Readonly<Record<string, unknown>>
+  draft: Readonly<Record<string, unknown>>,
+  {
+    config,
+    fields = []
+  }: { config?: DeclarativeActionPreviewConfig; fields?: readonly DeclarativeFieldDescriptor[] } = {}
 ): Promise<WizardActionPreview> {
   const action = surfaceById.get(actionSurfaceId)
   if (action?.kind !== 'action') throw new Error(`Unknown wizard action: ${actionSurfaceId}`)
   if (!visibleIds.has(action.surface)) throw new Error('Unauthorized')
+  const secretFields = new Set(
+    [...action.fields, ...fields].filter(field => field.type === 'secret').map(field => field.name)
+  )
+  const readOnlyFields = new Set(fields.filter(field => field.readOnly).map(field => field.name))
+  const writableFields = fields.filter(field => !secretFields.has(field.name) && !readOnlyFields.has(field.name))
+  const selection = config?.selection
+  const selectionField =
+    selection && writableFields.some(field => field.name === selection.field && field.type === 'string_array')
+      ? selection.field
+      : undefined
+  const rowKeyField = selectionField ? selection?.rowKeyField : undefined
+  const selectableField = selectionField ? (selection?.selectableField ?? 'selectable') : undefined
   const columns = action.columns.filter(
-    column => !action.fields.some(field => field.name === column && field.type === 'secret')
+    column => !secretFields.has(column) && column !== rowKeyField && column !== selectableField
   )
   const result = await onExecute(action, serializeDeclarativeFields(action, draft))
+  const envelope =
+    result.length === 1 && (config?.itemsField || actionResponseEnvelope(action) === 'flat') ? result[0] : undefined
+  const items = envelope?.[config?.itemsField ?? 'items']
+  const carryForward: Record<string, string | number | boolean> = {}
+  if (envelope && Array.isArray(items)) {
+    for (const { name } of writableFields) {
+      if (!Object.hasOwn(envelope, name)) continue
+      const value = envelope[name]
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        carryForward[name] = value
+      }
+    }
+  }
+  const rows = Array.isArray(items) ? items.filter(isRecord) : result
   return {
     columns,
-    rows: result.map(row => Object.fromEntries(columns.map(column => [column, sanitizeConfirmValue(row[column])])))
+    carryForward,
+    selectionField,
+    rows: rows.map(row => {
+      const key = rowKeyField === undefined ? undefined : row[rowKeyField]
+      const id = typeof key === 'string' && key !== '' ? key : undefined
+      return {
+        id,
+        selectable: id !== undefined && (selectableField === undefined || row[selectableField] !== false),
+        cells: Object.fromEntries(columns.map(column => [column, sanitizeConfirmValue(row[column])]))
+      }
+    })
   }
 }
 
-export function WizardActionTable({ preview, i18nPrefix }: { preview: WizardActionPreview; i18nPrefix: string }) {
+export function WizardActionTable({
+  preview,
+  i18nPrefix,
+  selectedIds = [],
+  onToggle
+}: {
+  preview: WizardActionPreview
+  i18nPrefix: string
+  selectedIds?: readonly string[]
+  onToggle?: (id: string, checked: boolean) => void
+}) {
   const { t } = useTranslation()
-  if (preview.columns.length === 0) return null
+  const showSelection = preview.selectionField !== undefined && onToggle !== undefined
+  const rows =
+    preview.selectionField && !showSelection
+      ? preview.rows.filter(row => row.selectable && row.id !== undefined && selectedIds.includes(row.id))
+      : preview.rows
+  if (preview.columns.length === 0 && !showSelection) return null
   return (
     <div className="overflow-x-auto border border-border-subtle">
       <Table>
         <TableHeader>
           <TableRow>
+            {showSelection ? (
+              <TableHead>{t(`${i18nPrefix}.ui.select_row`, { defaultValue: 'Select' })}</TableHead>
+            ) : null}
             {preview.columns.map(column => (
               <TableHead key={column}>
                 {t(`${i18nPrefix}.field.${column}`, { defaultValue: formatIdentifierLabel(column) })}
@@ -154,10 +261,25 @@ export function WizardActionTable({ preview, i18nPrefix }: { preview: WizardActi
           </TableRow>
         </TableHeader>
         <TableBody>
-          {preview.rows.map((row, index) => (
-            <TableRow key={index}>
+          {rows.map((row, index) => (
+            <TableRow key={row.id ?? index}>
+              {showSelection ? (
+                <TableCell>
+                  <Checkbox
+                    aria-label={t(`${i18nPrefix}.ui.select_row_number`, {
+                      defaultValue: 'Select row {{number}}',
+                      number: index + 1
+                    })}
+                    checked={row.id !== undefined && selectedIds.includes(row.id)}
+                    disabled={!row.selectable}
+                    onCheckedChange={checked => {
+                      if (row.selectable && row.id !== undefined) onToggle?.(row.id, checked === true)
+                    }}
+                  />
+                </TableCell>
+              ) : null}
               {preview.columns.map(column => (
-                <TableCell key={column}>{row[column]}</TableCell>
+                <TableCell key={column}>{row.cells[column]}</TableCell>
               ))}
             </TableRow>
           ))}
@@ -199,6 +321,10 @@ export function DeclarativeWizardModal({
   const actionPreview = actionPreviews.findLast(item => item !== undefined)
   const step = steps[stepIndex]
   const isFinal = stepIndex >= steps.length - 1
+  const selectionField = actionPreview?.selectionField
+  const selectedIds = selectedRowIds(draft, selectionField)
+  const needsSelection = selectionField !== undefined && (step?.kind === 'preview_items' || isFinal)
+  const selectionMissing = needsSelection && selectedIds.length === 0
   const oauthStep = steps.find(item => item.kind === 'oauth_pkce' && item.oauthConfig)?.oauthConfig
   const batchStep = steps.find(item => item.kind === 'batch_lines' && item.batchLinesConfig)?.batchLinesConfig
 
@@ -268,7 +394,7 @@ export function DeclarativeWizardModal({
   }
 
   const handleAdvance = async () => {
-    if (pending || !step || !formRef.current?.reportValidity()) return
+    if (pending || !step || selectionMissing || !formRef.current?.reportValidity()) return
     setPending(true)
     setError(null)
     try {
@@ -285,7 +411,11 @@ export function DeclarativeWizardModal({
       if (!isFinal) {
         const input = step.kind === 'oauth_pkce' && oauthStep ? validatedOAuthPayload() : draft
         if (step.actionSurfaceId !== undefined) {
-          const preview = await executeWizardStep({ surfaceById, visibleIds, onExecute }, step.actionSurfaceId, input)
+          const preview = await executeWizardStep({ surfaceById, visibleIds, onExecute }, step.actionSurfaceId, input, {
+            config: step.actionPreview,
+            fields: [...surface.fields, ...steps.slice(stepIndex + 1).flatMap(item => item.fields)]
+          })
+          setDraft(previous => applyWizardPreview(previous, preview))
           setActionPreviews(previous => {
             const next = previous.slice(0, stepIndex)
             next[stepIndex] = preview
@@ -437,7 +567,17 @@ export function DeclarativeWizardModal({
             if (actionPreview && (step.kind === 'preview_items' || step.kind === 'confirm')) {
               return (
                 <>
-                  <WizardActionTable i18nPrefix={i18nPrefix} preview={actionPreview} />
+                  <WizardActionTable
+                    i18nPrefix={i18nPrefix}
+                    preview={actionPreview}
+                    selectedIds={selectedIds}
+                    onToggle={
+                      step.kind === 'preview_items' && selectionField !== undefined
+                        ? (id, checked) =>
+                            setDraft(previous => toggleWizardPreviewRow(previous, actionPreview, id, checked))
+                        : undefined
+                    }
+                  />
                   <DeclarativeFields draft={draft} fields={step.fields} i18nPrefix={i18nPrefix} onChange={setDraft} />
                 </>
               )
@@ -505,6 +645,15 @@ export function DeclarativeWizardModal({
               type="button"
               variant="outline"
               onClick={() => {
+                const discarded = actionPreviews[stepIndex - 1]
+                if (discarded) {
+                  setDraft(previous => {
+                    const next = { ...previous }
+                    for (const name of Object.keys(discarded.carryForward)) delete next[name]
+                    if (discarded.selectionField !== undefined) delete next[discarded.selectionField]
+                    return next
+                  })
+                }
                 setActionPreviews(previous => previous.slice(0, stepIndex - 1))
                 setStepIndex(stepIndex - 1)
                 setError(null)
@@ -515,7 +664,7 @@ export function DeclarativeWizardModal({
           <Button disabled={pending} size="sm" type="button" variant="outline" onClick={onClose}>
             {t('common.cancel', { defaultValue: 'Cancel' })}
           </Button>
-          <Button disabled={pending} size="sm" type="button" onClick={() => void handleAdvance()}>
+          <Button disabled={pending || selectionMissing} size="sm" type="button" onClick={() => void handleAdvance()}>
             {pending
               ? t(`${i18nPrefix}.ui.submitting`, { defaultValue: 'Submitting...' })
               : isFinal
