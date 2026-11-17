@@ -4814,13 +4814,6 @@ prompt_dismiss = "Not now"
 untitled = "Conversation"
 new_comments = "New comments"
 
-[pod.agent_ui]
-browser_assistant = "the browser assistant"
-confirm_title = "Allow {$agent} to do this?"
-confirm_description = "Requested action: {$action} on “{$control}”. This control always waits for your approval."
-allow = "Allow"
-deny = "Don't allow"
-
 [pod.settings]
 description = "Manage your space's identity, members, access, and integrations."
 navigation = "Space settings sections"

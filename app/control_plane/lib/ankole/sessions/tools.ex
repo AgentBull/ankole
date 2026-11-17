@@ -264,7 +264,6 @@ defmodule Ankole.Sessions.Tools do
 
   defp wait_owner(%Wait{kind: :job}), do: Ankole.Sessions.Tools.Jobs
   defp wait_owner(%Wait{kind: :outbox}), do: Ankole.Sessions.Tools.Message
-  defp wait_owner(%Wait{kind: :ui}), do: Ankole.Sessions.Tools.PodUI
 
   def cursor(_run, _subject, nil), do: {:ok, nil}
 

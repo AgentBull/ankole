@@ -6,7 +6,6 @@ defmodule AnkoleWeb.PodSocket do
   channel "table:*", AnkoleWeb.PodRoomChannel
   channel "applet:*", AnkoleWeb.PodRoomChannel
   channel "run:*", AnkoleWeb.PodRoomChannel
-  channel "agent_ui", AnkoleWeb.PodAgentUIChannel
 
   def token(%{
         assigns:

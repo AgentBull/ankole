@@ -8,8 +8,7 @@ defmodule Ankole.Sessions.Wait do
     :job_id,
     :command_event_id,
     :binding_name,
-    :outbound_key,
-    :ui_request_id
+    :outbound_key
   ]
 
   @type t :: %__MODULE__{}
@@ -30,11 +29,10 @@ defmodule Ankole.Sessions.Wait do
       case value["kind"] do
         "job" -> :job
         "outbox" -> :outbox
-        "ui" -> :ui
       end
 
     attrs =
-      for key <- ~w(timeout_ms job_id command_event_id binding_name outbound_key ui_request_id),
+      for key <- ~w(timeout_ms job_id command_event_id binding_name outbound_key),
           into: %{},
           do: {String.to_existing_atom(key), value[key]}
 
