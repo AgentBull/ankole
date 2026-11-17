@@ -1,4 +1,5 @@
-import { Input as InputPrimitive } from '@base-ui/react/input'
+import { Input as InputPrimitive } from '@ui-sdk/react/input'
+import { renderElement } from '@ui-sdk/react/primitive'
 import type * as React from 'react'
 
 import { cn } from '../lib/utils'
@@ -12,13 +13,17 @@ function Input({
   className,
   type,
   variant = 'default',
+  'data-slot': slot = 'input',
+  render,
   ...props
-}: React.ComponentProps<'input'> & { variant?: 'default' | 'overlay' | 'inline' }) {
+}: React.ComponentProps<typeof InputPrimitive> & { 'data-slot'?: string; variant?: 'default' | 'overlay' | 'inline' }) {
   return (
     <InputPrimitive
       type={type}
-      data-slot="input"
       data-variant={variant}
+      // ui-sdk names every input `data-slot="input"`. A caller's own slot, such as an input group's control, replaces
+      // that name, so the styles keyed on the caller's slot still find the element.
+      render={(part, state) => renderElement('input', { ...part, 'data-slot': slot }, render, state)}
       className={cn(
         'h-8 w-full min-w-0 px-3 text-sm leading-5 outline-none placeholder:text-fg-placeholder disabled:cursor-not-allowed disabled:text-fg-disabled disabled:placeholder:text-fg-disabled',
         variant !== 'inline' &&

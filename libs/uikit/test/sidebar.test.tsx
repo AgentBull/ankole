@@ -238,14 +238,14 @@ describe('Sidebar menu rows', () => {
     expect(classesOf(group)).toEqual(expect.arrayContaining(['px-2', 'pt-(--sidebar-group-gap)', 'extra']))
   })
 
-  test('draws the header separator as a 1px hairline through the orientation that Base UI sets', () => {
+  test('draws the header separator as a 1px hairline through the orientation that ui-sdk sets', () => {
     const html = shell(
       <SidebarHeader>
         <SidebarSeparator />
       </SidebarHeader>
     )
     const separator = tagWith(html, 'data-slot="sidebar-separator"')
-    // Base UI marks the orientation only in `data-orientation`, so the line's size has to key on that attribute.
+    // ui-sdk marks the orientation only in `data-orientation`, so the line's size has to key on that attribute.
     expect(attributeOf(separator, 'data-orientation')).toBe('horizontal')
     expect(classesOf(separator)).toEqual(
       expect.arrayContaining([
@@ -612,8 +612,9 @@ describe('Sidebar motion', () => {
       )
       expect(group).not.toContain('overflow-hidden')
     }
-    // A group that is open when it renders shows open at once, with its rows' height.
-    expect(attributeOf(tagWith(open, 'data-testid="list"'), 'style')).toContain('--collapsible-panel-height:auto')
+    // A group that is open when it renders shows open at once: ui-sdk measures no height on the server, so the unset
+    // variable leaves the group at its rows' height.
+    expect(attributeOf(tagWith(open, 'data-testid="list"'), 'style')).not.toContain('--collapsible-panel-height')
     expect(attributeOf(tagWith(open, 'data-testid="list"'), 'style')).toContain('--sidebar-menu-level:1')
     expect(open).toContain('Child')
     // The list stays a direct child of its item, and the body of its section, with no wrapper of their own.
@@ -708,7 +709,7 @@ describe('Sidebar footer row', () => {
         'h-10.5',
         'gap-1',
         'pe-1',
-        'data-popup-open:bg-layer-hover',
+        'data-open:bg-layer-hover',
         '*:data-[slot=avatar]:size-6.5',
         '[&>[data-slot=avatar]_[data-slot=avatar-fallback]]:text-50',
         '[&>svg:last-child]:size-4.5',

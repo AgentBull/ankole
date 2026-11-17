@@ -1,5 +1,4 @@
-import { mergeProps } from '@base-ui/react/merge-props'
-import { useRender } from '@base-ui/react/use-render'
+import { mergeProps, renderElement, type RenderProp } from '@ui-sdk/react/primitive'
 import type { ComponentProps, CSSProperties, ReactNode } from 'react'
 
 import { cn } from '../lib/utils'
@@ -166,11 +165,12 @@ function BoardCardHeader({ className, ...props }: ComponentProps<'div'>) {
 }
 
 /** The title of a card, up to two lines. Render it as a button or link when clicking the card opens it. */
-function BoardCardTitle({ className, render, ...props }: useRender.ComponentProps<'div'>) {
-  return useRender({
-    defaultTagName: 'div',
-    props: mergeProps<'div'>(
+function BoardCardTitle({ className, render, ...props }: ComponentProps<'div'> & { render?: RenderProp }) {
+  return renderElement(
+    'div',
+    mergeProps(
       {
+        'data-slot': 'board-card-title',
         className: cn(
           'line-clamp-2 w-full rounded-mini text-start text-65 leading-4.75 font-medium break-words text-fg-primary',
           "[:is(button,a)&]:cursor-pointer [:is(button,a)&]:focus-visible:outline-none [:is(button,a)&]:after:absolute [:is(button,a)&]:after:inset-0 [:is(button,a)&]:after:rounded-surface [:is(button,a)&]:after:content-['']",
@@ -179,9 +179,8 @@ function BoardCardTitle({ className, render, ...props }: useRender.ComponentProp
       },
       props
     ),
-    render,
-    state: { slot: 'board-card-title' }
-  })
+    render
+  )
 }
 
 /** Supporting summary or outcome snippet beneath a card's title, clamped to two lines. */

@@ -28,7 +28,7 @@ export function PageRenameField({
   const [value, setValue] = useState(() => sanitizeRenameValue(page.title))
   const expectedTitle = useRef(page.title)
   const [conflictingTitle, setConflictingTitle] = useState<string | null>(null)
-  const field = useRef<HTMLInputElement>(null)
+  const [field, setField] = useState<HTMLInputElement | null>(null)
   const finished = useRef(false)
   const activePromise = useRef<Promise<unknown> | null>(null)
   const finish = () => {
@@ -119,7 +119,7 @@ export function PageRenameField({
   return (
     <span className="flex min-w-0 flex-1">
       <Input
-        ref={field}
+        ref={setField}
         autoFocus
         variant="inline"
         className={cn('pod-tree-rename', className)}
@@ -145,8 +145,8 @@ export function PageRenameField({
         <PopoverContent
           anchor={field}
           align="start"
-          initialFocus={false}
-          finalFocus={false}
+          initialFocus="none"
+          finalFocus="none"
           className="w-auto max-w-80 gap-2 p-3">
           <span role="alert">{t('pod.document_title.current', { title: conflictingTitle ?? '' })}</span>
           <span className="flex flex-wrap gap-1">

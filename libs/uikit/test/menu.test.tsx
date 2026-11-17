@@ -1,7 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Command, CommandGroup, CommandItem, CommandList } from '../src/components/command'
-import { DropdownMenuLabel } from '../src/components/dropdown-menu'
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../src/components/context-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger
+} from '../src/components/dropdown-menu'
 import { MenuFooter, MenuRichItem } from '../src/components/menu'
 import { attributeOf, classesOf, tagWith } from './markup'
 
@@ -81,5 +88,32 @@ describe('Menu group labels and footer', () => {
   test('ends a menu with a 32px footer row of 12px medium tertiary text', () => {
     const footer = classesOf(tagWith(renderToStaticMarkup(<MenuFooter>Explore</MenuFooter>), 'data-slot="menu-footer"'))
     expect(footer).toEqual(expect.arrayContaining(['h-8', 'px-4', 'text-50', 'font-medium', 'text-fg-tertiary']))
+  })
+})
+
+describe('Menu slots', () => {
+  test('keep the uikit slot names that page styles and the popup check select', () => {
+    const dropdown = renderToStaticMarkup(
+      <DropdownMenu defaultOpen>
+        <DropdownMenuTrigger render={<button type="button" className="custom" />}>Open</DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem>Rename</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+    expect(classesOf(tagWith(dropdown, 'data-slot="dropdown-menu-trigger"'))).toContain('custom')
+    expect(classesOf(tagWith(dropdown, 'data-slot="dropdown-menu-content"'))).toContain('ceramic-menu')
+
+    const context = renderToStaticMarkup(
+      <ContextMenu defaultOpen>
+        <ContextMenuTrigger>Row</ContextMenuTrigger>
+        <ContextMenuContent>
+          <DropdownMenuItem>Rename</DropdownMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    )
+    expect(classesOf(tagWith(context, 'data-slot="context-menu-content"'))).toEqual(
+      expect.arrayContaining(['ceramic-menu', 'w-56'])
+    )
   })
 })

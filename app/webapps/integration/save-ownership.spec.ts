@@ -133,6 +133,8 @@ test('a delayed delete acknowledgement cannot navigate away from the next editor
   await page.getByRole('button', { name: 'Delete', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click()
   await expect.poll(() => Boolean(deletion)).toBe(true)
+  // A closing modal dialog swallows presses on its backdrop until its exit transition ends.
+  await expect(page.locator('[data-slot="dialog-content"]')).toHaveCount(0)
   await page
     .getByRole('navigation', { name: 'Regression navigation' })
     .getByRole('link', { name: 'Settings', exact: true })

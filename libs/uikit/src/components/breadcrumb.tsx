@@ -1,5 +1,4 @@
-import { mergeProps } from '@base-ui/react/merge-props'
-import { useRender } from '@base-ui/react/use-render'
+import { mergeProps, renderElement, type RenderProp } from '@ui-sdk/react/primitive'
 import type * as React from 'react'
 import { cn } from '../lib/utils'
 
@@ -35,11 +34,12 @@ const crumbClassName =
  * A crumb that leads to an earlier place: a link by default, or the element that `render` names, such as a router
  * link. Wrap the label in a `span` so it truncates beside its icon.
  */
-function BreadcrumbLink({ className, render, ...props }: useRender.ComponentProps<'a'> & React.ComponentProps<'a'>) {
-  return useRender({
-    defaultTagName: 'a',
-    props: mergeProps<'a'>(
+function BreadcrumbLink({ className, render, ...props }: React.ComponentProps<'a'> & { render?: RenderProp }) {
+  return renderElement(
+    'a',
+    mergeProps(
       {
+        'data-slot': 'breadcrumb-link',
         className: cn(
           crumbClassName,
           'rounded-mini text-fg-secondary no-underline transition-colors duration-(--duration-feedback) ease-productive hover:text-fg-primary',
@@ -48,11 +48,8 @@ function BreadcrumbLink({ className, render, ...props }: useRender.ComponentProp
       },
       props
     ),
-    render,
-    state: {
-      slot: 'breadcrumb-link'
-    }
-  })
+    render
+  )
 }
 
 /** The open place, the last crumb. It reads like the other crumbs and is not a link. */
@@ -83,11 +80,12 @@ function BreadcrumbEllipsis({
   render,
   label,
   ...props
-}: useRender.ComponentProps<'span'> & Omit<React.ComponentProps<'span'>, 'children'> & { label?: string }) {
-  return useRender({
-    defaultTagName: 'span',
-    props: mergeProps<'span'>(
+}: Omit<React.ComponentProps<'span'>, 'children'> & { render?: RenderProp; label?: string }) {
+  return renderElement(
+    'span',
+    mergeProps(
       {
+        'data-slot': 'breadcrumb-ellipsis',
         className: cn(
           'inline-flex shrink-0 items-center rounded-mini text-75 text-fg-secondary transition-colors duration-(--duration-feedback) ease-productive [&:is(a,button)]:cursor-pointer [&:is(a,button)]:hover:text-fg-primary',
           className
@@ -101,11 +99,8 @@ function BreadcrumbEllipsis({
       },
       props
     ),
-    render,
-    state: {
-      slot: 'breadcrumb-ellipsis'
-    }
-  })
+    render
+  )
 }
 
 export {

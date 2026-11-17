@@ -280,7 +280,7 @@ export function AppletSettingsDialog({
           <Tabs
             orientation={isMobile ? 'horizontal' : 'vertical'}
             value={activeTab}
-            onValueChange={switchTab}
+            onValueChange={next => next && switchTab(next)}
             className="flex min-h-0 flex-1 flex-col gap-0 md:flex-row">
             <aside className="shrink-0 border-b border-border-subtle bg-layer-03/20 px-3 py-2 md:w-52 md:border-r md:border-b-0 md:p-3">
               <TabsList

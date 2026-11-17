@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 2.0.0-alpha.164 (2026-11-17)
+
+- Build the `@ankole/uikit` components on ui-sdk (`@ui-sdk/react`) in place of
+  Base UI. Each component now carries ui-sdk's state and actions, which
+  ui-sdk's agent bridge reads and calls once a page connects it. Menus,
+  popovers, selects, dialogs, and tooltips open in the browser's top layer.
+- Applets keep composing triggers with `render={<Button />}`. Two prop names
+  changed: a Drawer takes `side` in place of `swipeDirection`, and a Combobox
+  takes `itemToLabel`, `itemToValue`, `query`, and `onQueryChange` in place of
+  `itemToStringLabel`, `itemToStringValue`, `inputValue`, and
+  `onInputValueChange`.
+- A Button whose click handler returns a promise shows itself busy and ignores
+  further presses until the promise settles. While a dialog animates closed, a
+  press on the page behind it does nothing, so the press cannot reach a control
+  that the dialog still covers.
+
 ## Version 2.0.0-alpha.163 (2026-11-17)
 
 - Notify people in the browser when an Agent replies, a task finishes, someone

@@ -63,14 +63,14 @@ export function SinglePrincipalPicker({
     <Combobox<PrincipalCandidate>
       items={visible}
       value={selected}
-      inputValue={inputValue}
+      query={inputValue}
       // The page supplies human-readable identity text; UID stays the value.
       // Keep filtering that text and exact IDs in this owner.
-      filter={null}
-      itemToStringLabel={candidate => candidate.label ?? candidate.id}
-      itemToStringValue={candidate => candidate.id}
+      filter={false}
+      itemToLabel={candidate => candidate.label ?? candidate.id}
+      itemToValue={candidate => candidate.id}
       isItemEqualToValue={(candidate, current) => candidate.id === current.id}
-      onInputValueChange={setInputValue}
+      onQueryChange={setInputValue}
       onValueChange={candidate => onChange(candidate?.id ?? '')}>
       {/* The selection renders as the placeholder while the input value stays
           the filter text, so `required` must lift once a selection exists —

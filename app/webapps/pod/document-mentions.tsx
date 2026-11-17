@@ -158,6 +158,8 @@ function InlinePageMention({
   return (
     <HoverCard
       open={hoverOpen}
+      delay={250}
+      closeDelay={150}
       onOpenChange={next => {
         if (
           next &&
@@ -170,8 +172,6 @@ function InlinePageMention({
       }}>
       <HoverCardTrigger
         href={href}
-        delay={250}
-        closeDelay={150}
         data-mention-access={resolved.access}
         className={cn('pod-mention-page', trashed && 'pod-mention-trashed')}
         onClick={event => {

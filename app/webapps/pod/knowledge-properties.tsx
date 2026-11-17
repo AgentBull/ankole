@@ -82,7 +82,7 @@ export function KnowledgeProperties({
           )}
         </dl>
       )}
-      <Drawer open={yaml !== null} onOpenChange={open => !open && setYAML(null)} swipeDirection="right">
+      <Drawer open={yaml !== null} onOpenChange={open => !open && setYAML(null)} side="right">
         <DrawerContent className="data-[swipe-axis=x]:[--drawer-content-width:100%] data-[swipe-axis=x]:sm:[--drawer-content-width:40rem] p-5 gap-4">
           <DrawerHeader className="p-0">
             <DrawerTitle>{t('pod.knowledge.properties_yaml')}</DrawerTitle>

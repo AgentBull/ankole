@@ -2940,7 +2940,7 @@ observer across Applet generations until the Pod unmounts:
   `PrincipalBadge` renders Human member and AI colleague identity chips; and
   `Slider`, `NumberInput`, `DatePicker`, `DateRangePicker`, and `FileDropzone`
   provide accessible numeric scrubbing, timezone-aware ISO calendar selection,
-  and file selection primitives on top of `@base-ui/react` and semantic theme
+  and file selection primitives on top of `@ui-sdk/react` and semantic theme
   tokens.
 - **`usePrincipals`, `usePrincipal`, `normalizePrincipalUID`, and host navigation bridges**:
   `pod.principals()` shares the workspace subject directory cache (`{ uid, name, kind }`),

@@ -274,7 +274,7 @@ function SingleSettingEditorDrawer() {
 
   return (
     <>
-      <Drawer open onOpenChange={open => !open && requestClose()} swipeDirection="right">
+      <Drawer open onOpenChange={open => !open && requestClose()} side="right">
         <DrawerContent className="data-[swipe-axis=x]:[--drawer-content-width:100%] data-[swipe-axis=x]:sm:[--drawer-content-width:42rem]">
           <form
             ref={formCompleteness.formRef}
@@ -575,7 +575,7 @@ export function SettingGroupDrawer() {
 
   return (
     <>
-      <Drawer open onOpenChange={open => !open && requestClose()} swipeDirection="right">
+      <Drawer open onOpenChange={open => !open && requestClose()} side="right">
         <DrawerContent className="data-[swipe-axis=x]:[--drawer-content-width:100%] data-[swipe-axis=x]:sm:[--drawer-content-width:48rem]">
           <form
             ref={formCompleteness.formRef}

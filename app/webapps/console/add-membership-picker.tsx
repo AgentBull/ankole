@@ -57,14 +57,14 @@ export function AddMembershipPicker({
     <Combobox<MembershipCandidate>
       items={visible}
       value={null}
-      inputValue={inputValue}
+      query={inputValue}
       // `visible` already matches label AND id; the built-in filter would
       // re-filter by label only and hide id matches.
-      filter={null}
-      itemToStringLabel={candidate => candidate.label ?? candidate.id}
-      itemToStringValue={candidate => candidate.id}
+      filter={false}
+      itemToLabel={candidate => candidate.label ?? candidate.id}
+      itemToValue={candidate => candidate.id}
       isItemEqualToValue={(candidate, current) => candidate.id === current.id}
-      onInputValueChange={setInputValue}
+      onQueryChange={setInputValue}
       onValueChange={candidate => {
         if (candidate) {
           onAdd(candidate.id)

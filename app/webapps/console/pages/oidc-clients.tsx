@@ -696,14 +696,14 @@ function AllowedGroupsPicker({
     <Combobox<GroupOption, true>
       disabled={disabled}
       multiple
-      filter={null}
-      inputValue={inputValue}
+      filter={false}
+      query={inputValue}
       items={visible}
       value={selected}
       isItemEqualToValue={(option, current) => option.id === current.id}
-      itemToStringLabel={option => option.label}
-      itemToStringValue={option => option.id}
-      onInputValueChange={setInputValue}
+      itemToLabel={option => option.label}
+      itemToValue={option => option.id}
+      onQueryChange={setInputValue}
       onValueChange={next => {
         onChange(next.map(option => option.id))
         setInputValue('')
@@ -714,6 +714,7 @@ function AllowedGroupsPicker({
             selectedOptions.map(option => (
               <ComboboxChip
                 key={option.id}
+                value={option}
                 removeLabel={t('console.oidc_clients.remove_group', { group: option.label })}>
                 {option.label}
               </ComboboxChip>

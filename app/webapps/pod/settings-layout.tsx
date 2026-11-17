@@ -32,7 +32,7 @@ export function SettingsLayout({
       <Tabs
         orientation={isMobile ? 'horizontal' : 'vertical'}
         value={value}
-        onValueChange={onValueChange}
+        onValueChange={next => next && onValueChange(next)}
         className="mx-auto grid w-full max-w-6xl grid-cols-1 content-start gap-6 px-4 py-7 sm:px-6 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-x-10 md:px-8 md:py-10 lg:gap-x-14 lg:px-10">
         <header className="grid gap-1.5 md:col-span-2">
           <h1 className="title-page text-fg-primary">{title}</h1>

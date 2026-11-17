@@ -387,19 +387,31 @@ export function FieldEditorButton({
                   }}
                 />
                 <label className="flex gap-2 text-sm">
-                  <Checkbox disabled={pending} checked={bidirectional} onCheckedChange={setBidirectional} />
+                  <Checkbox
+                    disabled={pending}
+                    checked={bidirectional}
+                    onCheckedChange={checked => setBidirectional(checked === true)}
+                  />
                   {t('pod.content.create_a_two_way_relation')}
                 </label>
               </>
             )}
             {(type === 'select' || type === 'link') && (
               <label className="flex gap-2 text-sm">
-                <Checkbox disabled={pending} checked={multiple} onCheckedChange={setMultiple} />
+                <Checkbox
+                  disabled={pending}
+                  checked={multiple}
+                  onCheckedChange={checked => setMultiple(checked === true)}
+                />
                 {t('pod.content.allow_multiple_selections')}
               </label>
             )}
             <label className="flex items-center gap-2 text-sm">
-              <Checkbox disabled={pending || field?.is_primary} checked={isPrimary} onCheckedChange={setIsPrimary} />
+              <Checkbox
+                disabled={pending || field?.is_primary}
+                checked={isPrimary}
+                onCheckedChange={checked => setIsPrimary(checked === true)}
+              />
               {t('pod.content.use_as_display_field')}
             </label>
           </fieldset>

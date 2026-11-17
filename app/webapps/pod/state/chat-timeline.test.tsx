@@ -1137,7 +1137,8 @@ test('an Agent without an uploaded avatar shows the bot mark beside its message,
     }) as unknown as TimelineMessage
   // What the 32px avatar beside the message shows in place of a picture.
   const avatar = (html: string) =>
-    html.match(/pod-chat-message-avatar[^>]*><span data-slot="avatar-fallback"[^>]*>(.*?)<\/span><\/span>/s)?.[1] ?? ''
+    html.match(/pod-chat-message-avatar[^>]*><span[^>]*data-slot="avatar-fallback"[^>]*>(.*?)<\/span><\/span>/s)?.[1] ??
+    ''
   try {
     const view = (item: TimelineMessage) =>
       render(

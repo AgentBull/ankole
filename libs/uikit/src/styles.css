@@ -1,3 +1,7 @@
+/* ui-sdk adds the little CSS its popups and sheets need to a cascade layer named `ui-sdk`. Declaring the layer
+   first keeps that layer below Tailwind and the uikit theme, so uikit styles win wherever the page loads them. */
+@layer ui-sdk;
+
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import './components/emoji-picker.css';
@@ -819,7 +823,7 @@
   }
 
   @media (prefers-reduced-motion: no-preference) {
-    [data-slot='tabs-list']:is([data-variant='object'], [data-variant='chip']):has(> [role='tab'][data-active]:active)
+    [data-slot='tabs-list']:is([data-variant='object'], [data-variant='chip']):has(> [role='tab'][data-selected]:active)
       > [data-slot='tabs-indicator'] {
       scale: 0.97;
     }
@@ -832,7 +836,7 @@
   }
 
   @media (prefers-reduced-motion: no-preference) {
-    [data-slot='select-content'][data-open]:not([data-side='none']) {
+    [data-slot='select-content'][data-open] {
       animation: ankole-select-enter 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
     }
 
@@ -926,9 +930,9 @@
   :is([data-sidebar='menu-action'][data-reveal='hover'], [data-sidebar='menu-actions']):is(
     :hover,
     :focus-within,
-    [data-popup-open],
+    [data-open],
     [aria-expanded='true'],
-    :has([data-popup-open], [aria-expanded='true'])
+    :has([data-open], [aria-expanded='true'])
   ) {
     opacity: 1;
     pointer-events: auto;
@@ -947,7 +951,7 @@
       [data-active],
       [aria-current='page'],
       [data-sidebar='menu-toggle']:hover + *,
-      :has(~ [data-sidebar='menu-action']:is(:hover, :focus-visible, [data-popup-open], [aria-expanded='true']))
+      :has(~ [data-sidebar='menu-action']:is(:hover, :focus-visible, [data-open], [aria-expanded='true']))
     ) {
     --sidebar-menu-trail: --spacing(6);
   }
@@ -959,7 +963,7 @@
       [aria-current='page'],
       [data-sidebar='menu-toggle']:hover + *,
       :has(~ [data-sidebar='menu-actions']:is(:hover, :focus-within)),
-      :has(~ [data-sidebar='menu-actions'] :is([data-popup-open], [aria-expanded='true']))
+      :has(~ [data-sidebar='menu-actions'] :is([data-open], [aria-expanded='true']))
     ) {
     --sidebar-menu-trail: --spacing(12);
   }

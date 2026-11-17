@@ -183,6 +183,8 @@ test('Human access requires an explicit disposition and restores directly with a
     .check()
   await confirmOffboard.click()
   await expect(offboardDialog).toHaveCount(0)
+  // A closing modal dialog swallows presses on its backdrop until its exit transition ends.
+  await expect(page.locator('[data-slot="dialog-content"]')).toHaveCount(0)
   const restore = page.getByRole('button', { name: 'Restore account', exact: true })
   await expect(restore).toBeEnabled()
   await page.getByRole('form', { name: 'Restore account' }).getByRole('textbox').fill('Approved return')

@@ -1,46 +1,95 @@
-import { Select as SelectPrimitive } from '@base-ui/react/select'
+import {
+  Select as SelectPrimitive,
+  SelectContent as SelectContentPrimitive,
+  SelectGroup as SelectGroupPrimitive,
+  SelectGroupLabel,
+  SelectItem as SelectItemPrimitive,
+  SelectItemIndicator,
+  SelectList,
+  SelectSeparator as SelectSeparatorPrimitive,
+  SelectTrigger as SelectTriggerPrimitive,
+  SelectValue as SelectValuePrimitive,
+  type SelectOptions,
+  type SelectProps as SelectPrimitiveProps
+} from '@ui-sdk/react/select'
 import { CaretDownFilled, ChevronDownRegular, ChevronUpRegular } from '../icons'
 import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
+import { usePopupContainer } from '../lib/popup-container'
 import { cn } from '../lib/utils'
 
-type SelectItems = SelectPrimitive.Root.Props<unknown, boolean | undefined>['items']
+/** Labels for values, keyed by value or listed as pairs. A label may be any node, like an icon beside a name. */
+type SelectItems = Record<string, React.ReactNode> | ReadonlyArray<{ label: React.ReactNode; value: unknown }>
 
 /**
- * Carries the options and their loading state from `Select` to `SelectValue`. Base UI shows a value that matches no
- * option as its raw string, so while the caller still loads the options, `SelectValue` shows a skeleton for such a
- * value instead of an ID that turns into a name a moment later.
+ * Carries the options and their loading state from `Select` to `SelectValue`, which shows the selected option's own
+ * label, icons included. While the caller still loads the options, `SelectValue` shows a skeleton for a value that
+ * matches no option instead of an ID that turns into a name a moment later.
  */
 const SelectOptionsContext = React.createContext<{ items: SelectItems; loading: boolean } | null>(null)
 
-const SelectThemeContext = React.createContext<{
-  theme: string | undefined
-  setTheme: React.Dispatch<React.SetStateAction<string | undefined>>
-} | null>(null)
+/**
+ * The attributes a form field gives the whole select, such as the `id` its label points at. ui-sdk's select root
+ * renders no element, so the trigger, the control a label names, carries them.
+ */
+type SelectControlProps = Pick<React.ComponentProps<'button'>, 'id' | 'aria-describedby' | 'aria-invalid'>
+const SelectControlContext = React.createContext<SelectControlProps>({})
 
-function Select<Value, Multiple extends boolean | undefined = false>(
-  props: SelectPrimitive.Root.Props<Value, Multiple> & {
-    /** The options are still loading, so a value without a matching option shows a skeleton, not its raw value. */
-    loading?: boolean
-  }
-) {
-  const { children, items, loading = false, ...rootProps } = props
-  const [theme, setTheme] = React.useState<string | undefined>()
-  const themeContext = React.useMemo(() => ({ theme, setTheme }), [theme])
+type SelectChangeDetails = Parameters<NonNullable<Extract<SelectOptions, { multiple?: false }>['onValueChange']>>[1]
+
+/** The props of ui-sdk's select, with the value typed by the options the caller passes, as callers infer it. */
+type SelectProps<Value, Multiple extends boolean | undefined> = Omit<
+  SelectPrimitiveProps,
+  | 'items'
+  | 'value'
+  | 'defaultValue'
+  | 'onValueChange'
+  | 'multiple'
+  | 'itemToValue'
+  | 'itemToLabel'
+  | 'isItemEqualToValue'
+> & {
+  multiple?: Multiple
+  itemToValue?: (value: Value) => string
+  itemToLabel?: (value: Value) => string
+  isItemEqualToValue?: (itemValue: Value, value: Value) => boolean
+  value?: (Multiple extends true ? readonly Value[] : Value) | null
+  defaultValue?: (Multiple extends true ? readonly Value[] : Value) | null
+  onValueChange?: (value: Multiple extends true ? Value[] : Value | null, details: SelectChangeDetails) => void
+  /** Labels for values; by default, the `SelectItem` children. */
+  items?: SelectItems
+  /** The options are still loading, so a value without a matching option shows a skeleton, not its raw value. */
+  loading?: boolean
+} & SelectControlProps
+
+function Select<Value, Multiple extends boolean | undefined = false>(props: SelectProps<Value, Multiple>) {
+  const {
+    children,
+    items,
+    loading = false,
+    id,
+    'aria-describedby': describedBy,
+    'aria-invalid': invalid,
+    ...rootProps
+  } = props
   const resolvedItems = React.useMemo(() => items ?? collectSelectItems<Value>(children), [children, items])
-  const optionsContext = React.useMemo(
-    () => ({ items: resolvedItems as SelectItems, loading }),
-    [resolvedItems, loading]
+  const optionsContext = React.useMemo(() => ({ items: resolvedItems, loading }), [resolvedItems, loading])
+  const popupContainer = usePopupContainer(rootProps.container)
+  const controlContext = React.useMemo(
+    () => ({ id, 'aria-describedby': describedBy, 'aria-invalid': invalid }),
+    [id, describedBy, invalid]
   )
 
   return (
-    <SelectThemeContext.Provider value={themeContext}>
-      <SelectOptionsContext.Provider value={optionsContext}>
-        <SelectPrimitive.Root {...rootProps} items={resolvedItems}>
+    <SelectOptionsContext.Provider value={optionsContext}>
+      <SelectControlContext.Provider value={controlContext}>
+        <SelectPrimitive<Value, Multiple>
+          {...(rootProps as unknown as React.ComponentProps<typeof SelectPrimitive<Value, Multiple>>)}
+          container={popupContainer}>
           {children}
-        </SelectPrimitive.Root>
-      </SelectOptionsContext.Provider>
-    </SelectThemeContext.Provider>
+        </SelectPrimitive>
+      </SelectControlContext.Provider>
+    </SelectOptionsContext.Provider>
   )
 }
 
@@ -49,13 +98,10 @@ function selectItemLabel(items: SelectItems, value: unknown): { found: boolean; 
     const item = items.find(entry => Object.is(entry.value, value))
     return item ? { found: true, label: item.label } : { found: false }
   }
-  if (items && typeof items === 'object') {
-    const key = String(value)
-    return Object.hasOwn(items, key)
-      ? { found: true, label: (items as Record<string, React.ReactNode>)[key] }
-      : { found: false }
-  }
-  return { found: false }
+  const key = String(value)
+  return Object.hasOwn(items, key)
+    ? { found: true, label: (items as Record<string, React.ReactNode>)[key] }
+    : { found: false }
 }
 
 function collectSelectItems<Value>(children: React.ReactNode): ReadonlyArray<{ label: React.ReactNode; value: Value }> {
@@ -75,40 +121,51 @@ function collectSelectItems<Value>(children: React.ReactNode): ReadonlyArray<{ l
   return items
 }
 
-function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
-  return <SelectPrimitive.Group data-slot="select-group" className={cn('scroll-my-1', className)} {...props} />
+function SelectGroup({
+  className,
+  ...props
+}: Omit<React.ComponentProps<typeof SelectGroupPrimitive>, 'className'> & { className?: string }) {
+  return <SelectGroupPrimitive className={cn('scroll-my-1', className)} {...props} />
 }
 
-function SelectValue({ children, className, placeholder, ...props }: SelectPrimitive.Value.Props) {
-  // Base UI hands a children function the raw value even when nothing is
-  // selected (null or ''), skipping the placeholder; keep the placeholder for
-  // those values so a function child never paints "null" or a raw key.
-  const guarded =
-    typeof children === 'function' && placeholder != null
-      ? (value: unknown) => (value == null || value === '' ? placeholder : children(value))
-      : children
+/**
+ * The selected option's label, or the placeholder while nothing is selected. A children function receives the
+ * selected value. A value that matches no option shows as its raw string, except while the options load.
+ */
+function SelectValue({
+  children,
+  className,
+  placeholder,
+  ...props
+}: Omit<React.ComponentProps<typeof SelectValuePrimitive>, 'children' | 'className' | 'placeholder'> & {
+  children?: React.ReactNode | ((value: any) => React.ReactNode)
+  className?: string
+  placeholder?: React.ReactNode
+}) {
   const options = React.useContext(SelectOptionsContext)
-  const content =
-    options?.loading === true
-      ? (value: unknown) => {
-          if (value == null || value === '') return placeholder
-          if (Array.isArray(value)) return typeof children === 'function' ? children(value) : children
-          const item = selectItemLabel(options.items, value)
-          if (!item.found) {
-            return <span data-slot="skeleton" aria-hidden className="inline-block h-4 w-24 rounded-mini bg-skeleton" />
-          }
-          if (typeof children === 'function') return children(value)
-          return children ?? item.label
-        }
-      : guarded
+  const content = ({ value, label }: { value: unknown; label: string }) => {
+    if (value == null || (Array.isArray(value) && value.length === 0)) return placeholder
+    const item = options && !Array.isArray(value) ? selectItemLabel(options.items, value) : { found: false }
+    // An empty string is a real option value only when an item declares it. Otherwise it means "nothing chosen yet",
+    // and a function child or a loading list shows the placeholder for it too, so none of them paints a raw key.
+    if (
+      value === '' &&
+      placeholder != null &&
+      (typeof children === 'function' || options?.loading || (options != null && !item.found))
+    ) {
+      return placeholder
+    }
+    if (typeof children === 'function') return children(value)
+    if (Array.isArray(value)) return children ?? label
+    if (options?.loading && !item.found) {
+      return <span data-slot="skeleton" aria-hidden className="inline-block h-4 w-24 rounded-mini bg-skeleton" />
+    }
+    return children ?? (item.found ? item.label : String(value))
+  }
   return (
-    <SelectPrimitive.Value
-      data-slot="select-value"
-      className={cn('flex min-w-0 flex-1 truncate text-left', className)}
-      placeholder={placeholder}
-      {...props}>
+    <SelectValuePrimitive className={cn('flex min-w-0 flex-1 truncate text-left', className)} {...props}>
       {content}
-    </SelectPrimitive.Value>
+    </SelectValuePrimitive>
   )
 }
 
@@ -126,7 +183,7 @@ const selectTriggerVariants = cva(
         field:
           'border-field-edge border-b-field-border bg-field outline-none hover:bg-field-hover focus-visible:border-control-edge focus-visible:border-b-ring focus-visible:bg-page focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)] disabled:border-b-transparent disabled:bg-field aria-invalid:border-b-destructive aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] data-invalid:border-b-destructive data-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)]',
         ghost:
-          'border-transparent bg-transparent text-fg-secondary hover:bg-layer-hover hover:text-fg-primary focus-visible:outline-offset-1 data-popup-open:bg-layer-hover data-popup-open:text-fg-primary'
+          'border-transparent bg-transparent text-fg-secondary hover:bg-layer-hover hover:text-fg-primary focus-visible:outline-offset-1 data-open:bg-layer-hover data-open:text-fg-primary'
       }
     },
     defaultVariants: { variant: 'field' }
@@ -139,40 +196,30 @@ function SelectTrigger({
   variant = 'field',
   children,
   ...props
-}: SelectPrimitive.Trigger.Props &
+}: Omit<React.ComponentProps<typeof SelectTriggerPrimitive>, 'className' | 'children'> &
   VariantProps<typeof selectTriggerVariants> & {
+    className?: string
+    children?: React.ReactNode
     size?: 'sm' | 'default' | 'toolbar'
   }) {
-  const triggerRef = React.useRef<HTMLButtonElement | null>(null)
-  const themeContext = React.useContext(SelectThemeContext)
-
-  React.useLayoutEffect(() => {
-    const theme = triggerRef.current?.closest<HTMLElement>('[data-theme]')?.getAttribute('data-theme') || undefined
-
-    if (themeContext && themeContext.theme !== theme) {
-      themeContext.setTheme(theme)
-    }
-  })
-
+  const control = React.useContext(SelectControlContext)
   return (
-    <SelectPrimitive.Trigger
-      ref={triggerRef}
-      data-slot="select-trigger"
+    <SelectTriggerPrimitive
+      {...control}
       data-size={size}
       data-variant={variant}
       className={cn('group/select-trigger', selectTriggerVariants({ variant }), className)}
       {...props}>
       {children}
-      <SelectPrimitive.Icon
-        render={
-          size === 'toolbar' ? (
-            <CaretDownFilled className="pointer-events-none size-3" />
-          ) : (
-            <ChevronDownRegular className="pointer-events-none size-3.5 text-fg-secondary motion-safe:transition-transform motion-safe:duration-[240ms] motion-safe:ease-(--ease-segment) group-data-popup-open/select-trigger:rotate-180" />
-          )
-        }
-      />
-    </SelectPrimitive.Trigger>
+      {size === 'toolbar' ? (
+        <CaretDownFilled aria-hidden className="pointer-events-none size-3" />
+      ) : (
+        <ChevronDownRegular
+          aria-hidden
+          className="pointer-events-none size-3.5 text-fg-secondary motion-safe:transition-transform motion-safe:duration-[240ms] motion-safe:ease-(--ease-segment) group-data-open/select-trigger:rotate-180"
+        />
+      )}
+    </SelectTriggerPrimitive>
   )
 }
 
@@ -191,52 +238,44 @@ function SelectContent({
   alignOffset = 0,
   alignItemWithTrigger = false,
   ...props
-}: SelectPrimitive.Popup.Props &
-  Pick<SelectPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'alignItemWithTrigger'> & {
-    emptyLabel?: React.ReactNode
-    surface?: 'ceramic' | 'composer'
-  }) {
-  const themeContext = React.useContext(SelectThemeContext)
+}: Omit<React.ComponentProps<typeof SelectContentPrimitive>, 'className' | 'children'> & {
+  className?: string
+  children?: React.ReactNode
+  emptyLabel?: React.ReactNode
+  surface?: 'ceramic' | 'composer'
+}) {
   const isEmpty = collectSelectItems(children).length === 0
 
   return (
-    <SelectPrimitive.Portal data-theme={themeContext?.theme}>
-      <SelectPrimitive.Positioner
-        side={side}
-        sideOffset={sideOffset}
-        align={align}
-        alignOffset={alignOffset}
-        alignItemWithTrigger={alignItemWithTrigger}
-        className="isolate z-50">
-        <SelectPrimitive.Popup
-          data-slot="select-content"
-          data-align-trigger={alignItemWithTrigger}
-          className={cn(
-            'ceramic-menu relative isolate z-50 outline-none max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-fg-primary transition-none data-starting-style:opacity-0 data-ending-style:opacity-0',
-            surface === 'composer' ? 'composer-menu' : 'ceramic ceramic-primary p-1',
-            className
-          )}
-          {...props}>
-          <SelectScrollUpButton />
-          <SelectPrimitive.List className="relative isolate">
-            <SelectHighlight />
-            {isEmpty && emptyLabel ? (
-              <div
-                role="option"
-                aria-disabled="true"
-                aria-selected="false"
-                data-slot="select-empty"
-                className="px-4 py-3 text-sm text-fg-secondary">
-                {emptyLabel}
-              </div>
-            ) : (
-              children
-            )}
-          </SelectPrimitive.List>
-          <SelectScrollDownButton />
-        </SelectPrimitive.Popup>
-      </SelectPrimitive.Positioner>
-    </SelectPrimitive.Portal>
+    <SelectContentPrimitive
+      side={side}
+      sideOffset={sideOffset}
+      align={align}
+      alignOffset={alignOffset}
+      alignItemWithTrigger={alignItemWithTrigger}
+      data-align-trigger={alignItemWithTrigger}
+      className={cn(
+        'ceramic-menu relative isolate z-50 outline-none max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-fg-primary transition-none data-starting-style:opacity-0 data-ending-style:opacity-0',
+        surface === 'composer' ? 'composer-menu' : 'ceramic ceramic-primary p-1',
+        className
+      )}
+      {...props}>
+      <SelectList className="relative isolate">
+        <SelectHighlight />
+        {isEmpty && emptyLabel ? (
+          <div
+            role="option"
+            aria-disabled="true"
+            aria-selected="false"
+            data-slot="select-empty"
+            className="px-4 py-3 text-sm text-fg-secondary">
+            {emptyLabel}
+          </div>
+        ) : (
+          children
+        )}
+      </SelectList>
+    </SelectContentPrimitive>
   )
 }
 
@@ -247,7 +286,7 @@ function SelectHighlight() {
     const list = highlight?.parentElement
     if (!highlight || !list) return
 
-    // Base UI owns the active option for pointer, keyboard and type-ahead. The highlight follows that option.
+    // ui-sdk owns the active option for pointer, keyboard and type-ahead. The highlight follows that option.
     let active: HTMLElement | null = null
     const place = () => {
       const option = list.querySelector<HTMLElement>('[data-slot="select-item"][data-highlighted]:not([data-disabled])')
@@ -301,25 +340,31 @@ function SelectHighlight() {
   )
 }
 
-function SelectLabel({ className, ...props }: SelectPrimitive.GroupLabel.Props) {
-  return (
-    <SelectPrimitive.GroupLabel data-slot="select-label" className={cn('menu-group-label', className)} {...props} />
-  )
+/** The heading of a `SelectGroup`. */
+function SelectLabel({
+  className,
+  ...props
+}: Omit<React.ComponentProps<typeof SelectGroupLabel>, 'className'> & { className?: string }) {
+  return <SelectGroupLabel className={cn('menu-group-label', className)} {...props} />
 }
 
-function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Props) {
+function SelectItem<Value = string>({
+  className,
+  children,
+  ...props
+}: Omit<React.ComponentProps<typeof SelectItemPrimitive<Value>>, 'className' | 'children'> & {
+  className?: string
+  children?: React.ReactNode
+}) {
   return (
-    <SelectPrimitive.Item
-      data-slot="select-item"
+    <SelectItemPrimitive<Value>
       className={cn(
         "relative flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-control py-2 pr-8 pl-2.5 text-sm leading-5 outline-hidden select-none data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:text-fg-disabled [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
         className
       )}
       {...props}>
-      <SelectPrimitive.ItemText className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">
-        {children}
-      </SelectPrimitive.ItemText>
-      <SelectPrimitive.ItemIndicator
+      <span className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">{children}</span>
+      <SelectItemIndicator
         render={<span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />}>
         <svg
           data-slot="select-check"
@@ -332,24 +377,29 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
           aria-hidden>
           <path d="M5 12.5 9.5 17 19 7" pathLength={1} />
         </svg>
-      </SelectPrimitive.ItemIndicator>
-    </SelectPrimitive.Item>
+      </SelectItemIndicator>
+    </SelectItemPrimitive>
   )
 }
 
-function SelectSeparator({ className, ...props }: SelectPrimitive.Separator.Props) {
+function SelectSeparator({
+  className,
+  ...props
+}: Omit<React.ComponentProps<typeof SelectSeparatorPrimitive>, 'className'> & { className?: string }) {
   return (
-    <SelectPrimitive.Separator
-      data-slot="select-separator"
+    <SelectSeparatorPrimitive
       className={cn('pointer-events-none mx-2.5 my-1.5 h-px bg-divider-overlay', className)}
       {...props}
     />
   )
 }
 
-function SelectScrollUpButton({ className, ...props }: React.ComponentProps<typeof SelectPrimitive.ScrollUpArrow>) {
+// shortcut: ui-sdk scrolls a long list natively and has no scroll arrows, so these two only draw the arrow band;
+// give them hover scrolling if a caller places one.
+function SelectScrollUpButton({ className, ...props }: React.ComponentProps<'div'>) {
   return (
-    <SelectPrimitive.ScrollUpArrow
+    <div
+      aria-hidden
       data-slot="select-scroll-up-button"
       className={cn(
         "top-0 z-10 flex w-full cursor-pointer items-center justify-center bg-[rgb(var(--ceramic-body))] bg-[linear-gradient(var(--ceramic-glaze),var(--ceramic-glaze))] py-1 [&_svg:not([class*='size-'])]:size-3.5",
@@ -357,13 +407,14 @@ function SelectScrollUpButton({ className, ...props }: React.ComponentProps<type
       )}
       {...props}>
       <ChevronUpRegular />
-    </SelectPrimitive.ScrollUpArrow>
+    </div>
   )
 }
 
-function SelectScrollDownButton({ className, ...props }: React.ComponentProps<typeof SelectPrimitive.ScrollDownArrow>) {
+function SelectScrollDownButton({ className, ...props }: React.ComponentProps<'div'>) {
   return (
-    <SelectPrimitive.ScrollDownArrow
+    <div
+      aria-hidden
       data-slot="select-scroll-down-button"
       className={cn(
         "bottom-0 z-10 flex w-full cursor-pointer items-center justify-center bg-[rgb(var(--ceramic-body))] bg-[linear-gradient(var(--ceramic-glaze),var(--ceramic-glaze))] py-1 [&_svg:not([class*='size-'])]:size-3.5",
@@ -371,7 +422,7 @@ function SelectScrollDownButton({ className, ...props }: React.ComponentProps<ty
       )}
       {...props}>
       <ChevronDownRegular />
-    </SelectPrimitive.ScrollDownArrow>
+    </div>
   )
 }
 

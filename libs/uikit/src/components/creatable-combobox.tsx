@@ -89,14 +89,14 @@ export function CreatableCombobox({
   return (
     <Combobox
       items={items}
-      filter={null}
+      filter={false}
       value={selected}
-      inputValue={inputValue}
+      query={inputValue}
       disabled={disabled}
-      itemToStringValue={item => item.value}
-      itemToStringLabel={item => item.label || item.value}
+      itemToValue={item => item.value}
+      itemToLabel={item => item.label || item.value}
       isItemEqualToValue={(item, current) => item.value === current.value}
-      onInputValueChange={setInputValue}
+      onQueryChange={setInputValue}
       onValueChange={item => {
         const nextValue = item?.value ?? ''
         setInputValue(displayValue(item))

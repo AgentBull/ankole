@@ -190,7 +190,7 @@ export function PageChat({
       <Sheet
         open={!!selection}
         onOpenChange={(open, eventDetails) => {
-          if (!open && eventDetails.reason === 'escape-key' && eventDetails.event.defaultPrevented) {
+          if (!open && eventDetails.reason === 'escape-key' && eventDetails.event?.defaultPrevented) {
             eventDetails.cancel()
             return
           }

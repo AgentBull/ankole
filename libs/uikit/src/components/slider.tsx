@@ -1,14 +1,21 @@
 'use client'
 
-import { Slider as SliderPrimitive } from '@base-ui/react/slider'
+import {
+  Slider as SliderPrimitive,
+  SliderControl,
+  SliderIndicator,
+  SliderThumb,
+  SliderTrack,
+  SliderValue as SliderValuePrimitive
+} from '@ui-sdk/react/slider'
 import * as React from 'react'
 
 import { cn } from '../lib/utils'
 
-export type SliderValue = number | readonly number[]
+export type SliderValue = number | number[]
 
 export type SliderProps<Value extends SliderValue = SliderValue> = Omit<
-  SliderPrimitive.Root.Props<Value>,
+  React.ComponentProps<typeof SliderPrimitive<Value>>,
   'children'
 > & {
   label?: React.ReactNode
@@ -44,6 +51,9 @@ function Slider<Value extends SliderValue = number>({
   thumbLabels,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
+  // shortcut: ui-sdk formats every thumb's spoken value alike, so screen readers hear the first thumb's format on
+  // each thumb; give each thumb its own format if a range ever formats its ends differently.
+  format = formatValue && (rawValue => formatValue(rawValue, 0)),
   ...props
 }: SliderProps<Value>) {
   const labelId = React.useId()
@@ -56,19 +66,16 @@ function Slider<Value extends SliderValue = number>({
       : ariaLabel
         ? () => ariaLabel
         : undefined
-  const getAriaValueText = formatValue
-    ? (_formatted: string, rawValue: number, index: number) => formatValue(rawValue, index)
-    : undefined
 
   return (
-    <SliderPrimitive.Root
-      data-slot="slider"
+    <SliderPrimitive
       value={value}
       defaultValue={defaultValue}
       min={min}
       max={max}
       step={step}
       disabled={disabled}
+      format={format}
       aria-labelledby={resolvedLabelledBy}
       className={cn('grid w-full gap-1.5 select-none data-disabled:opacity-50', className)}
       {...props}>
@@ -82,37 +89,27 @@ function Slider<Value extends SliderValue = number>({
             <span />
           )}
           {showValue && (
-            <SliderPrimitive.Value
-              data-slot="slider-value"
-              className="font-mono text-xs text-fg-secondary tabular-nums">
-              {(_formatted, values) => formatSliderDisplay(values, formatValue)}
-            </SliderPrimitive.Value>
+            <SliderValuePrimitive className="font-mono text-xs text-fg-secondary tabular-nums">
+              {state => formatSliderDisplay(normalizeThumbs(state.value), formatValue)}
+            </SliderValuePrimitive>
           )}
         </div>
       )}
-      <SliderPrimitive.Control
-        data-slot="slider-control"
-        className="relative flex min-h-6 w-full touch-pan-y items-center py-1 data-[orientation=vertical]:touch-pan-x data-disabled:cursor-not-allowed">
-        <SliderPrimitive.Track
-          data-slot="slider-track"
-          className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-layer-03">
-          <SliderPrimitive.Indicator
-            data-slot="slider-indicator"
-            className="h-full rounded-full bg-primary motion-safe:transition-[width,left] motion-safe:duration-75"
-          />
-        </SliderPrimitive.Track>
-        {thumbs.map((_, index) => (
-          <SliderPrimitive.Thumb
-            key={index}
-            index={index}
-            data-slot="slider-thumb"
-            getAriaLabel={getAriaLabel}
-            getAriaValueText={getAriaValueText}
-            className="block size-4 shrink-0 cursor-grab rounded-full border-2 border-primary bg-page shadow-xs transition-[box-shadow] after:absolute after:-inset-1 pointer-coarse:after:-inset-3.5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring active:cursor-grabbing motion-safe:transition-[scale,box-shadow] motion-safe:active:scale-105 data-disabled:pointer-events-none"
-          />
-        ))}
-      </SliderPrimitive.Control>
-    </SliderPrimitive.Root>
+      <SliderControl className="relative flex min-h-6 w-full touch-pan-y items-center py-1 data-[orientation=vertical]:touch-pan-x data-disabled:cursor-not-allowed">
+        {/* ui-sdk places the indicator and the thumbs inside the track, so the track lets the thumbs overhang it. */}
+        <SliderTrack className="relative h-1.5 w-full grow rounded-full bg-layer-03">
+          <SliderIndicator className="h-full rounded-full bg-primary motion-safe:transition-[width,left] motion-safe:duration-75" />
+          {thumbs.map((_, index) => (
+            <SliderThumb
+              key={index}
+              index={index}
+              aria-label={getAriaLabel?.(index)}
+              className="block size-4 shrink-0 cursor-grab rounded-full border-2 border-primary bg-page shadow-xs transition-[box-shadow] after:absolute after:-inset-1 pointer-coarse:after:-inset-3.5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring active:cursor-grabbing motion-safe:transition-[scale,box-shadow] motion-safe:active:scale-105 data-disabled:pointer-events-none"
+            />
+          ))}
+        </SliderTrack>
+      </SliderControl>
+    </SliderPrimitive>
   )
 }
 

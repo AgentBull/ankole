@@ -395,7 +395,7 @@ export function EnvVarsEditor({
             </span>
             <ChevronDownRegular
               aria-hidden
-              className="size-4 text-fg-secondary transition-transform group-data-[panel-open]:rotate-180"
+              className="size-4 text-fg-secondary transition-transform group-data-open:rotate-180"
             />
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-2">

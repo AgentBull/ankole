@@ -164,7 +164,7 @@ export function BrainObjectDrawer() {
   const page = detail.data?.object
   const requestClose = () => void navigate({ to: '/brain/objects' })
   return (
-    <Drawer open onOpenChange={open => !open && requestClose()} swipeDirection="right">
+    <Drawer open onOpenChange={open => !open && requestClose()} side="right">
       <DrawerContent className="data-[swipe-axis=x]:[--drawer-content-width:100%] data-[swipe-axis=x]:sm:[--drawer-content-width:32rem]">
         <DrawerHeader className="relative gap-3 border-b border-border-subtle p-5 pr-16">
           <Button

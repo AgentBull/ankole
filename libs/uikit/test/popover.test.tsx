@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
+import { PopoverContent as PopoverContentPrimitive } from '@ui-sdk/react/popover'
 import { isValidElement, type ReactElement } from 'react'
 import { PopoverContent } from '../src/components/popover'
 
@@ -16,9 +16,9 @@ function* elements(node: unknown): Generator<Element> {
 
 describe('PopoverContent', () => {
   test('places a popover that opens without a trigger beside the anchor that the caller names', () => {
-    const anchor = { current: null }
+    const anchor = { x: 10, y: 20 }
     const tree = PopoverContent({ anchor, children: 'Current title' })
-    const positioner = [...elements(tree)].find(element => element.type === PopoverPrimitive.Positioner)
-    expect(positioner?.props.anchor).toBe(anchor)
+    const content = [...elements(tree)].find(element => element.type === PopoverContentPrimitive)
+    expect(content?.props.anchor).toBe(anchor)
   })
 })

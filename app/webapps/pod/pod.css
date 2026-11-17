@@ -354,7 +354,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   }
 }
 
-.pod-nav-section-heading:is(:hover, :focus-within, :has([data-popup-open])) .pod-nav-actions {
+.pod-nav-section-heading:is(:hover, :focus-within, :has([data-open])) .pod-nav-actions {
   opacity: 1;
 }
 
@@ -367,7 +367,7 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
     }
   }
 
-  .pod-nav-section-heading:is(:focus-within, :has([data-popup-open])) .pod-nav-actions {
+  .pod-nav-section-heading:is(:focus-within, :has([data-open])) .pod-nav-actions {
     transition-duration: 0ms;
 
     @media (prefers-reduced-motion: reduce) {
