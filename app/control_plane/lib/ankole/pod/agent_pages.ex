@@ -195,11 +195,7 @@ defmodule Ankole.Pod.AgentPages do
                      },
                      context: context
                    ) do
-              {:ok, page,
-               fn ->
-                 Pages.committed_tree(page)
-                 emit_page_created_telemetry(actor, page)
-               end}
+              created_page(actor, page)
             end
           else
             {:error, :invalid_page_domain}
@@ -215,14 +211,18 @@ defmodule Ankole.Pod.AgentPages do
                  Pages.create_in_tx(actor, Map.put(doc_attrs, "xml", parsed.xml),
                    context: context
                  ) do
-            {:ok, page,
-             fn ->
-               Pages.committed_tree(page)
-               emit_page_created_telemetry(actor, page)
-             end}
+            created_page(actor, page)
           end
       end
     end
+  end
+
+  defp created_page(actor, page) do
+    {:ok, page,
+     fn ->
+       Pages.committed_tree(page)
+       emit_page_created_telemetry(actor, page)
+     end}
   end
 
   @doc false

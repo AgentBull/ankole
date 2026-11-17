@@ -36,6 +36,8 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole/site_console/aggregates/actions.ex:run" => 1,
     "across_tenants:lib/ankole/connectors/jobs/reconcile_triggers.ex:run" => 1,
     "across_tenants:lib/ankole/connectors/jobs/refresh_accounts.ex:run" => 1,
+    # A receipt protects an executing action card only when its tenant and authority scope both match.
+    "sql_fragment:lib/ankole/connectors/write_receipts.ex:prune_expired_in_tx" => 1,
     "raw_sql:lib/ankole/schedule/store.ex:reserve_event_id" => 1,
     "raw_sql:lib/ankole/pod/bases/physical.ex:unique_index!" => 2,
     "raw_sql:lib/ankole/pod/bases/physical.ex:append_changes" => 1,

@@ -17,6 +17,10 @@ test('an operator uploads, renames, downloads, and deletes a Drive file', async 
       const request = route.request()
       const url = new URL(request.url())
       const path = url.pathname
+      if (path === '/api/v2/site/tenants') {
+        expect(request.headers()['x-ankole-tenant']).toBeUndefined()
+        return route.fulfill({ json: { data: [{ id: tenantID, type: 'tenant', attributes: { slug: 'harbor' } }] } })
+      }
       expect(request.headers()['x-ankole-tenant']).toBe(tenantID)
       if (path === `${base}/uploads` && request.method() === 'POST') {
         const form = await new Response(new Uint8Array(request.postDataBuffer()!).buffer, {

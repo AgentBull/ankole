@@ -107,6 +107,7 @@ function menuPopupProps({
 }: DropdownMenuContentProps & { slot: string }) {
   return {
     ...props,
+    'aria-labelledby': props['aria-labelledby'] ?? (props['aria-label'] ? '' : undefined),
     finalFocus: menuFinalFocus(finalFocus),
     render: slotted(slot, render, 'div'),
     className: (state: MenuContentState) =>

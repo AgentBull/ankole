@@ -128,6 +128,7 @@ async function pod(page: Page) {
       })
     }
     if (path.endsWith('/attention')) return route.fulfill({ json: [] })
+    if (path.endsWith('/runner-devices')) return route.fulfill({ json: { colleagues: [], devices: [] } })
     if (path.endsWith('/conversations')) {
       return route.fulfill({
         json: {
@@ -163,7 +164,7 @@ async function pod(page: Page) {
 
 async function openChat(page: Page, path = '/') {
   await page.goto(path)
-  // The Chat tab opens with its assistant group open, so the group's recent tasks are in view.
+  await page.getByRole('tab', { name: 'Chat', exact: true }).click()
   await expect(
     page.getByRole('tabpanel', { name: 'Chat' }).getByRole('button', { name: 'Personal assistant', exact: true })
   ).toHaveAttribute('aria-expanded', 'true')
@@ -483,12 +484,9 @@ test('current activity survives reconnect snapshots, clears at completion, and n
   page.on('request', request => {
     if (request.method() === 'GET' && new URL(request.url()).pathname === `${base}/conversations/${oldID}`) reads++
   })
-  // Opening a room marks it read and refreshes the loaded message window.
-  const initialRefresh = page.waitForResponse(
-    response => isDetailRead(response) && new URL(response.url()).searchParams.has('loadedFirstSeq')
-  )
+  const initialRead = page.waitForResponse(isDetailRead)
   await openChat(page, conversationRoute(oldID))
-  await (await initialRefresh).finished()
+  await (await initialRead).finished()
   await expect(page.getByText('Existing history', { exact: true })).toBeVisible()
   const emit = (snapshot: Record<string, unknown>) =>
     page.evaluate(value => {

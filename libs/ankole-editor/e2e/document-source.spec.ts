@@ -60,7 +60,8 @@ test('invalid XML and duplicate Markdown attributes keep the draft and last vali
   const md = page.getByRole('textbox', { name: 'Markdown 源码' })
   await md.fill('<p source="a" source="b">text</p>')
   await page.getByRole('button', { name: '应用修改', exact: true }).click()
-  await expect(page.locator('.notice')).toContainText('重复属性')
+  await expect(page.locator('.notice')).toContainText('[duplicate_attribute]')
+  await expect(md).toHaveValue('<p source="a" source="b">text</p>')
   await expect(page.locator('.editor-content')).toHaveText('Keep this')
 })
 

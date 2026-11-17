@@ -748,6 +748,7 @@ test('mobile PageChat Sheet supports double-Escape timeline backtrack, ArrowUp n
     if (path === `/api/v2/pod/pages/${APPLET_PAGE_ID}/files`) {
       return route.fulfill({ json: { revision: 1, files: [] } })
     }
+    if (path.endsWith('/runner-devices')) return route.fulfill({ json: { colleagues: [], devices: [] } })
     if (path === `/api/v2/pod/pages/${APPLET_PAGE_ID}/conversations`) {
       return route.fulfill({ json: { conversations: [detail.conversation] } })
     }

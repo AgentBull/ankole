@@ -21,6 +21,7 @@ import { loadLocale } from '../common/i18n'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { configureConsoleAPIClient } from '../console/api/client'
 import { createConsoleMutationCache } from '../console/query-client'
+import { createTenantNavigationHandler } from '../console/tenant-context'
 import { ProviderEditorPage, ProvidersListPage } from '../console/pages/providers'
 import { HomePage } from '../console/pages/home'
 import { BrainObjectDrawer, BrainObjectsPage } from '../console/pages/brain/objects'
@@ -59,7 +60,7 @@ Object.assign(window, {
 function buildConsoleTestApp() {
   applyDataTenantNavigation()
   configureConsoleAPIClient()
-  const rootRoute = createRootRoute()
+  const rootRoute = createRootRoute({ beforeLoad: createTenantNavigationHandler(client) })
   const regressionNavRoute = createRoute({
     getParentRoute: () => rootRoute,
     id: 'regression-nav',

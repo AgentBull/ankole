@@ -203,6 +203,7 @@ test('Pod chat timeline isolates a single malformed message without unmounting h
       })
     }
     if (path.endsWith('/attention')) return route.fulfill({ json: [] })
+    if (path.endsWith('/runner-devices')) return route.fulfill({ json: { colleagues: [], devices: [] } })
     if (path.endsWith('/conversations')) {
       return route.fulfill({
         json: {

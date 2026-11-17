@@ -125,6 +125,7 @@ test('selecting either Agent in a group enables sending and retains the selectio
       })
     }
     if (path.endsWith('/attention')) return route.fulfill({ json: [] })
+    if (path.endsWith('/runner-devices')) return route.fulfill({ json: { colleagues: [], devices: [] } })
     if (path.endsWith('/conversations')) return route.fulfill({ json: { conversations: [detail.conversation] } })
     if (path.endsWith('/events')) return route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' })
     return route.fulfill({ json: detail })

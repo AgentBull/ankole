@@ -50,14 +50,8 @@ jobs:
               - '!**/CHANGELOG*.md'
               - '!LICENSE'
             frontend_browser:
-              - 'libs/ankole-editor/**'
-              - 'libs/uikit/**'
-              - 'libs/applet-sdk/**'
-              - 'app/locales/**'
-              - 'app/webapps/**'
-              - 'app/kernel/spreadsheet*/**'
-              - 'app/kernel/word*/**'
-              - 'app/kernel/presentation*/**'
+              # The code filter needs "every" for its exclusions. Match these alternatives in one glob.
+              - '{libs/{ankole-editor,uikit,applet-sdk},app/{locales,webapps,kernel/{spreadsheet*,word*,presentation*}}}/**'
 
   bun-static:
     needs: changes

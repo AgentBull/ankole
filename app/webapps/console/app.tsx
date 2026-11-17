@@ -10,7 +10,7 @@ import {
   RouterProvider
 } from '@tanstack/react-router'
 import { configureConsoleAPIClient } from './api/client'
-import { applyDataTenantNavigation, dataTenantID, setDataTenantSoft } from '../common/browser-session'
+import { applyDataTenantNavigation, dataTenantID } from '../common/browser-session'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { PageSkeleton } from './console-page'
 import { createConsoleRouteLoaders } from './console-route-loaders'
@@ -18,7 +18,7 @@ import { ConsoleLayout } from './console-shell-chrome'
 import { HomePage, NotFoundPage, RouteErrorPage } from './pages/home'
 import { SlotBoundary, SlotGate } from '../common/slots'
 import { ConsoleSlotsContext, normalizeConsoleSlotPath, resolveConsoleSlots, type ConsoleAppSlots } from './slots'
-import { createHistoryTenantTracker, evictTenantScopedQueries } from './tenant-context'
+import { createTenantNavigationHandler } from './tenant-context'
 
 const AgentEditorPage = lazyRouteComponent(() => import('./pages/agents'), 'AgentEditorPage')
 const AgentsListPage = lazyRouteComponent(() => import('./pages/agents'), 'AgentsListPage')
@@ -111,7 +111,6 @@ configureConsoleAPIClient()
 export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppSlots = {}) {
   const resolvedSlots = resolveConsoleSlots(slots, editionModules)
   applyDataTenantNavigation()
-  const historyTenants = createHistoryTenantTracker(dataTenantID())
   const basename = document.querySelector<HTMLMetaElement>('meta[name="ankole-site-admin-console-path"]')?.content
   if (!basename) throw new Error('The authenticated console shell did not provide its mount path')
   const loaders = createConsoleRouteLoaders(queryClient)
@@ -119,14 +118,7 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
   // Without this the router shows its own built-in screen when the shell
   // throws: a stack trace with no navigation and no way back in.
   const rootRoute = createRootRoute({
-    beforeLoad: ({ location, preload }) => {
-      if (preload) return
-      const nextTenant = historyTenants.resolve(location)
-      if (nextTenant !== dataTenantID()) {
-        setDataTenantSoft(nextTenant)
-        evictTenantScopedQueries(queryClient)
-      }
-    },
+    beforeLoad: createTenantNavigationHandler(queryClient),
     component: ConsoleLayout,
     errorComponent: RouteErrorPage
   })

@@ -320,14 +320,15 @@ export function KeyboardBlockMenu({ insertMenu }: { insertMenu?: InsertExtras })
     if (block && parent) setTop(block.getBoundingClientRect().top - parent.getBoundingClientRect().top)
     if (handled.current === request.request) return
     handled.current = request.request
-    setOpen(true)
-  }, [editor, request, setOpen])
+    if (!open) anchor.current?.click()
+  }, [editor, request, open])
   return (
     <DropdownMenu
       modal={false}
       open={open}
       onOpenChange={(next, details) => {
-        if (!next) change(false, null, details.reason)
+        if (next) setOpen(true)
+        else change(false, null, details.reason)
       }}>
       <DropdownMenuTrigger
         render={
@@ -345,15 +346,14 @@ export function KeyboardBlockMenu({ insertMenu }: { insertMenu?: InsertExtras })
 }
 
 /**
- * Handle buttons open their menu on click, so that a press that moves starts a drag of the block
- * instead. Calling `preventDefault()` skips the menu's own handler for that event: its opening on
- * press and its toggle on click.
+ * The grip uses the browser's native drag gesture. Handle the menu on click and keep the
+ * menu primitive's pointer-down handler from opening it before the user can drag.
  */
 function handleTriggerEvents(toggle: (event: { altKey?: boolean }) => void) {
   return {
-    onPointerDown: (event: { preventDefault(): void }) => event.preventDefault(),
-    onClick: (event: { altKey?: boolean; preventDefault(): void }) => {
-      event.preventDefault()
+    onPointerDownCapture: (event: { stopPropagation(): void }) => event.stopPropagation(),
+    onClickCapture: (event: { altKey?: boolean; stopPropagation(): void }) => {
+      event.stopPropagation()
       toggle(event)
     }
   }

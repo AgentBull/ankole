@@ -53,17 +53,16 @@ export function TableMenu({
       }}>
       <DropdownMenuTrigger
         render={trigger}
-        // With `select`, the click selects first and then toggles the menu, so the press must not open it.
-        // `preventDefault()` skips the menu's own handler for that event.
-        onPointerDown={event => {
-          if (select) event.preventDefault()
+        // A handle owns its click and preserves the native drag on pointer-down.
+        onPointerDownCapture={event => {
+          if (select) event.stopPropagation()
         }}
         onMouseDown={event => {
           if (!select) event.preventDefault()
         }}
-        onClick={event => {
+        onClickCapture={event => {
           if (!select) return
-          event.preventDefault()
+          event.stopPropagation()
           select(event.shiftKey)
           setOpen(!open)
         }}

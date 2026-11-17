@@ -864,8 +864,8 @@ for (const scenario of [
       !!process.env.E2E_CONSUMER_ROOT || process.env.E2E_PREVIEW === '1',
       'This component loads production source modules.'
     )
-    await page.goto('/playground/embedded.html')
-    await expect(page.getByRole('textbox', { name: 'Second document', exact: true })).toBeVisible()
+    // Mount this standalone editor in the static fixture so it owns the DOM throughout reconnection.
+    await page.goto('/resource-preview.html')
     await page.evaluate(async source => {
       const core = '/src/core/editor/index.ts'
       const extension = '/src/editor/extension.ts'

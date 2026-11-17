@@ -1,7 +1,6 @@
 'use client'
 
-import { mergeProps } from '@base-ui/react/merge-props'
-import { useRender } from '@base-ui/react/use-render'
+import { mergeProps, renderElement, type RenderProp } from '@ui-sdk/react/primitive'
 import { useCallback, useEffect, useRef, type ComponentProps, type Ref } from 'react'
 
 import { cn } from '../lib/utils'
@@ -126,12 +125,12 @@ export function useScrollFadeRef<T extends HTMLElement = HTMLDivElement>(
   )
 }
 
-type ScrollFadeProps = useRender.ComponentProps<'div'> &
-  ComponentProps<'div'> & {
-    axis?: ScrollFadeAxis
-    /** Reserves cross-axis padding negated by negative margin so hover shadows and focus rings never clip. */
-    bleed?: boolean
-  }
+type ScrollFadeProps = ComponentProps<'div'> & {
+  render?: RenderProp<{ slot: string; axis: ScrollFadeAxis }>
+  axis?: ScrollFadeAxis
+  /** Reserves cross-axis padding negated by negative margin so hover shadows and focus rings never clip. */
+  bleed?: boolean
+}
 
 /**
  * Scrollable container whose edges fade out only while more content lies beyond that edge, with
@@ -139,11 +138,13 @@ type ScrollFadeProps = useRender.ComponentProps<'div'> &
  */
 function ScrollFade({ axis = 'x', bleed = axis === 'x', className, render, ref, ...props }: ScrollFadeProps) {
   const mergedRef = useScrollFadeRef<HTMLDivElement>(axis, ref)
-  return useRender({
-    defaultTagName: 'div',
-    ref: mergedRef,
-    props: mergeProps<'div'>(
+  return renderElement(
+    'div',
+    mergeProps(
       {
+        ref: mergedRef,
+        'data-slot': 'scroll-fade',
+        'data-axis': axis,
         className: cn(
           axis === 'x' ? 'overflow-x-auto scroll-fade-x' : 'overflow-y-auto scroll-fade-y',
           bleed && (axis === 'x' ? 'scroll-bleed-y' : 'scroll-bleed-x'),
@@ -153,11 +154,8 @@ function ScrollFade({ axis = 'x', bleed = axis === 'x', className, render, ref, 
       props
     ),
     render,
-    state: {
-      slot: 'scroll-fade',
-      axis
-    }
-  })
+    { slot: 'scroll-fade', axis }
+  )
 }
 
 export { ScrollFade, type ScrollFadeProps }

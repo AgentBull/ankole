@@ -127,6 +127,18 @@ export function createHistoryTenantTracker(initialTenant: string | null = dataTe
   return tracker
 }
 
+export function createTenantNavigationHandler(client: QueryClient) {
+  const tracker = createHistoryTenantTracker()
+  return ({ location, preload }: { location: Parameters<HistoryTenantTracker['resolve']>[0]; preload: boolean }) => {
+    if (preload) return
+    const nextTenant = tracker.resolve(location)
+    if (nextTenant !== dataTenantID()) {
+      setDataTenantSoft(nextTenant)
+      evictTenantScopedQueries(client)
+    }
+  }
+}
+
 /** Evicts cached single-tenant queries whose headers rely on the implicit sessionStorage data tenant. */
 export function evictTenantScopedQueries(queryClient: QueryClient): void {
   const predicate = ({ queryKey }: { queryKey: readonly unknown[] }) => {

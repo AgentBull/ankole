@@ -242,7 +242,9 @@ async function fixture(
     options.initialURL ?? `/model-profiles?defaults_scope=tenant&system_principal=ankole_brain&data_tenant=${TENANT_ID}`
   await page.goto(initialURL)
   if (initialURL.includes('system_principal=ankole_brain')) {
-    await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(15)
+    await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(
+      slots.length
+    )
   }
   return {
     writes,
@@ -379,7 +381,9 @@ test('Pod defaults tab keeps scope tabs mounted when no tenant is selected in mu
 
   await expect(page).toHaveURL(/defaults_scope=tenant/)
   await expect(page.getByRole('tab', { name: 'Pod defaults', exact: true })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(15)
+  await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(
+    slots.length
+  )
   expect(server.defaultRequests).toContainEqual({ scope: 'tenant', tenant: TENANT_ID })
 })
 
@@ -387,15 +391,17 @@ test('Pod defaults tab auto-binds the sole tenant in single-tenant deployments',
   const server = await fixture(page, { initialURL: '/model-profiles' })
   await page.getByRole('tab', { name: 'Pod defaults', exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Tenant', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(15)
+  await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(
+    slots.length
+  )
   expect(server.defaultRequests).toContainEqual({ scope: 'tenant', tenant: TENANT_ID })
 })
 
-test('system editors expose all fifteen slots, save independently, and restore inheritance', async ({ page }) => {
+test('system editors expose every configured slot, save independently, and restore inheritance', async ({ page }) => {
   const server = await fixture(page)
   const brain = page.getByRole('region', { name: 'ankole_brain', exact: true })
   const applet = page.getByRole('region', { name: 'system', exact: true })
-  await expect(applet.locator('form')).toHaveCount(15)
+  await expect(applet.locator('form')).toHaveCount(slots.length)
   await expect(brain.getByRole('switch')).toHaveCount(0)
   await expect(applet.getByRole('switch')).toHaveCount(0)
   const light = brain.locator('form').filter({ has: page.getByRole('button', { name: /^Lightweight model/ }) })
@@ -432,14 +438,16 @@ test('changing Pod defaults refreshes untouched system slots and preserves pendi
   await fixture(page)
   const brain = page.getByRole('region', { name: 'ankole_brain', exact: true })
   const applet = page.getByRole('region', { name: 'system', exact: true })
-  const brainHeavy = brain.locator('form').filter({ has: page.getByRole('button', { name: /^Complex work model/ }) })
-  await brainHeavy.getByRole('button', { name: /^Complex work model/ }).click()
+  const brainHeavy = brain
+    .locator('form')
+    .filter({ has: page.getByRole('button', { name: /^Complex work and Background Agent Job model/ }) })
+  await brainHeavy.getByRole('button', { name: /^Complex work and Background Agent Job model/ }).click()
   await brainHeavy.getByRole('combobox', { name: 'Model', exact: true }).fill('brain-heavy-draft')
   await page.getByRole('option', { name: /Use.*brain-heavy-draft/ }).click()
 
   for (const [label, model] of [
     [/^Lightweight model/, 'pod-light-v2'],
-    [/^Complex work model/, 'pod-heavy-v2']
+    [/^Complex work and Background Agent Job model/, 'pod-heavy-v2']
   ] as const) {
     const podSlot = page
       .locator('form')

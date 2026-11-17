@@ -270,13 +270,13 @@ export function useRecords(tableID: string, options: RecordQuery & { pageSize?: 
     filters: { mutationKey: [...runtime.base.key(tableID), 'write'], status: 'pending' },
     select: mutation => mutation.state.variables as RecordWrite
   })
-  const listed = records.data?.records
-  const previewed = listed ? previewRecordList(listed, pending) : undefined
-  return {
-    ...records,
-    data: records.data && previewed && previewed !== listed ? { ...records.data, records: previewed } : records.data,
-    ...write
-  }
+  const confirmed = records.data
+  const data = useMemo(() => {
+    if (!confirmed) return confirmed
+    const previewed = previewRecordList(confirmed.records, pending)
+    return previewed === confirmed.records ? confirmed : { ...confirmed, records: previewed }
+  }, [confirmed, pending])
+  return { ...records, data, ...write }
 }
 
 export function useAggregate(
