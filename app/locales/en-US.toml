@@ -4797,6 +4797,23 @@ manage_in_browser = "Manage in browser"
 manage_in_browser_login_description = "Adding or removing sign-in methods requires browser verification."
 manage_in_browser_exit_description = "Leaving this space requires confirming your sign-in in the system browser."
 
+[pod.notifications]
+title = "Notifications"
+description = "Get a notification on this device when an Agent replies, a task finishes, someone sends you a message, or a decision waits for you. Mute a conversation to silence its ordinary messages; decisions still reach you."
+enable = "Notify me on this device"
+blocked = "This browser blocks notifications for this space. Allow them in the browser's site settings, then reload the page."
+push_failed = "This browser could not sign up for background notifications, so you get notifications only while Ankole is open."
+unsupported = "This browser cannot show notifications."
+ios_home_screen = "On iPhone and iPad, add this space to your Home Screen, open it from there, and turn notifications on."
+test = "Send a test notification"
+test_title = "Notifications are on"
+test_body = "Ankole notifies you here when an Agent replies or needs you."
+prompt = "Get notified when Agents reply or need your input."
+prompt_enable = "Turn on"
+prompt_dismiss = "Not now"
+untitled = "Conversation"
+new_comments = "New comments"
+
 [pod.settings]
 description = "Manage your space's identity, members, access, and integrations."
 navigation = "Space settings sections"

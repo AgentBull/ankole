@@ -75,6 +75,9 @@ import type {
   GetPodInteractionData,
   GetPodInteractionErrors,
   GetPodInteractionResponses,
+  GetPodWebPushData,
+  GetPodWebPushErrors,
+  GetPodWebPushResponses,
   GrantConversationPageAccessData,
   GrantConversationPageAccessErrors,
   GrantConversationPageAccessResponses,
@@ -630,6 +633,9 @@ import type {
   StopPodPeerExchangeData,
   StopPodPeerExchangeErrors,
   StopPodPeerExchangeResponses,
+  SubscribePodWebPushData,
+  SubscribePodWebPushErrors,
+  SubscribePodWebPushResponses,
   SyncPodDirectoryData,
   SyncPodDirectoryErrors,
   SyncPodDirectoryResponses,
@@ -639,6 +645,9 @@ import type {
   UnbindPodMemberCredentialData,
   UnbindPodMemberCredentialErrors,
   UnbindPodMemberCredentialResponses,
+  UnsubscribePodWebPushData,
+  UnsubscribePodWebPushErrors,
+  UnsubscribePodWebPushResponses,
   UpdateConversationData,
   UpdateConversationErrors,
   UpdateConversationParticipantsData,
@@ -1806,6 +1815,19 @@ export const podBaseCopy = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * get_pod_web_push operation on pod_web_push_operation resource
+ */
+export const getPodWebPush = <ThrowOnError extends boolean = true>(
+  options?: Options<GetPodWebPushData, ThrowOnError>
+): RequestResult<GetPodWebPushResponses, GetPodWebPushErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<GetPodWebPushResponses, GetPodWebPushErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/web-push',
+    ...options
+  })
+
+/**
  * restorePodMember operation on pod_admin_operation resource
  */
 export const restorePodMember = <ThrowOnError extends boolean = true>(
@@ -2726,6 +2748,23 @@ export const savePodIdentityProvider = <ThrowOnError extends boolean = true>(
       }
     }
   )
+
+/**
+ * unsubscribe_pod_web_push operation on pod_web_push_operation resource
+ */
+export const unsubscribePodWebPush = <ThrowOnError extends boolean = true>(
+  options: Options<UnsubscribePodWebPushData, ThrowOnError>
+): RequestResult<UnsubscribePodWebPushResponses, UnsubscribePodWebPushErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<UnsubscribePodWebPushResponses, UnsubscribePodWebPushErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/web-push/unsubscribe',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
 
 /**
  * podJobSchedulesRuns operation on applet_job_operation resource
@@ -4029,6 +4068,23 @@ export const podSpaceWrite = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/space',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * subscribe_pod_web_push operation on pod_web_push_operation resource
+ */
+export const subscribePodWebPush = <ThrowOnError extends boolean = true>(
+  options: Options<SubscribePodWebPushData, ThrowOnError>
+): RequestResult<SubscribePodWebPushResponses, SubscribePodWebPushErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<SubscribePodWebPushResponses, SubscribePodWebPushErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/web-push/subscriptions',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

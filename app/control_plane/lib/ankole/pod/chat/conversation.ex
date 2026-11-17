@@ -32,6 +32,7 @@ defmodule Ankole.Pod.Chat.Conversation do
           ]
         ],
         lastMessageSeq: [type: :integer, allow_nil?: false],
+        lastNotifiableSeq: [type: :integer, allow_nil?: false],
         rowStatus: [type: :string, allow_nil?: false],
         viewer: [
           type: :map,

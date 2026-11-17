@@ -13,6 +13,7 @@ import {
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import {
+  AlertRegular,
   ArrowRightRegular,
   DesktopRegular,
   LinkMultipleRegular,
@@ -55,9 +56,10 @@ import { ProfileAvatarUpload } from './profile-avatar-upload'
 import { refreshMemberProfileQueries } from './query-cache'
 import { SettingsLayout, SettingsPanel, SettingsSection } from './settings-layout'
 import { RunnerDevicesSettings } from './runner-devices'
+import { NotificationSettings } from './browser-notifications'
 import { AccountSettingsModel } from './state/account-settings'
 
-const VALID_ACCOUNT_SECTIONS = new Set(['profile', 'login', 'connections', 'devices', 'exit'])
+const VALID_ACCOUNT_SECTIONS = new Set(['profile', 'login', 'notifications', 'connections', 'devices', 'exit'])
 
 export function AccountSettings() {
   useSignals()
@@ -157,6 +159,7 @@ export function AccountSettings() {
   const navigation = [
     { value: 'profile', label: t('pod.account.profile'), icon: <PersonRegular aria-hidden /> },
     { value: 'login', label: t('pod.account.login_methods'), icon: <ShieldKeyholeRegular aria-hidden /> },
+    { value: 'notifications', label: t('pod.notifications.title'), icon: <AlertRegular aria-hidden /> },
     { value: 'connections', label: t('pod.connectors.title'), icon: <LinkMultipleRegular aria-hidden /> },
     { value: 'devices', label: t('pod.runner.title'), icon: <DesktopRegular aria-hidden /> },
     { value: 'exit', label: t('pod.account.exit'), icon: <SignOutRegular aria-hidden /> }
@@ -397,6 +400,9 @@ export function AccountSettings() {
             )}
           </div>
         </SettingsSection>
+      </SettingsPanel>
+      <SettingsPanel value="notifications">
+        <NotificationSettings />
       </SettingsPanel>
       <SettingsPanel value="connections">
         <SettingsSection title={t('pod.connectors.title')} description={t('pod.account.connectors_description')}>

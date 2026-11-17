@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 2.0.0-alpha.163 (2026-11-17)
+
+- Notify people in the browser when an Agent replies, a task finishes, someone
+  sends them a message, a decision waits for them, or a Page they follow gets
+  new comments. An open Pod tab shows the notification and puts the attention
+  count in the tab title. Web Push also delivers room notifications when no Pod
+  tab is open, once the room has been quiet for about five seconds, and skips
+  anyone who has already read the message. A muted room notifies only when it
+  asks for a decision.
+  People turn notifications on for each device under Personal settings ›
+  Notifications or from the offer above the chat composer. On iPhone and iPad,
+  people add the Pod to the Home Screen first, as Safari requires.
+
 ## Version 2.0.0-alpha.162 (2026-11-17)
 
 - Teach Agents a shorter form of the interactive Pod Chat `ui` block. A table

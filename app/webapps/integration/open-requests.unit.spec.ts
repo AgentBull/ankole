@@ -53,6 +53,7 @@ function roomDetail(lastReadSeq: number): ConversationDetail {
       titleCustomized: true,
       createdBy: 'person',
       lastMessageSeq: 2,
+      lastNotifiableSeq: 2,
       lastActivityAt: '2026-11-13T00:00:00Z',
       rowStatus: lastReadSeq < 2 ? 'unread' : 'idle',
       viewer: { uid: 'person', pinned: false, muted: false, lastReadSeq },

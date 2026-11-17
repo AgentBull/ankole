@@ -43,6 +43,7 @@ import { signInMethodLabel } from '../common/sign-in-method'
 import { requestErrorMessage } from '../common/request-errors'
 import { avatarInitials } from './avatar-initials'
 import { currentProfileAvatarContext, profileAvatarURL, type ProfileAvatarContext } from './native-transfers'
+import { browserNotifications } from './state/notifications'
 
 const initial = avatarInitials
 
@@ -127,6 +128,8 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
         await runtime.onSignOutWorkspace?.(runtime.workspaceKey)
         return
       }
+      // A signed-out browser must stop showing this Human's messages.
+      await browserNotifications.removePush().catch(() => {})
       await endAccountSession()
     },
     onSettled: () => {
@@ -140,6 +143,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
         await runtime.onSignOutAllWorkspaces?.()
         return
       }
+      await browserNotifications.removePush().catch(() => {})
       await endBrowserSession()
     },
     onSuccess: () => {

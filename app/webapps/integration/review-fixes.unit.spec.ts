@@ -603,6 +603,7 @@ test('mobile PageChat Sheet supports double-Escape timeline backtrack, ArrowUp n
       conversationKind: 'assistant_task',
       createdBy: 'alice',
       lastMessageSeq: 4,
+      lastNotifiableSeq: 4,
       lastActivityAt: '2026-11-08T00:00:04Z',
       rowStatus: 'idle',
       pageID: APPLET_PAGE_ID,

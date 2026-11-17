@@ -17,7 +17,9 @@ export default defineConfig(async env => {
           server.middlewares.use(async (request, response, next) => {
             if (
               !request.headers.accept?.includes('text/html') ||
-              (!/^\/(\?|$|meta(\/|\?|$)|jobs(\/|\?|$)|pages\/|conversations\/|content\/)/.test(request.url ?? '') &&
+              (!/^\/(\?|$|meta(\/|\?|$)|jobs(\/|\?|$)|me(\/|\?|$)|pages\/|conversations\/|content\/)/.test(
+                request.url ?? ''
+              ) &&
                 !request.url?.startsWith('/providers') &&
                 !request.url?.startsWith('/brain') &&
                 !/^\/(model-profiles|settings|tenants|webhooks|drive|schedules|library|agent-library|worker-env|worker-providers|identity|access|oidc-clients)(\/|\?|$)/.test(

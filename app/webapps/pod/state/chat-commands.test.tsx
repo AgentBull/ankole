@@ -156,6 +156,7 @@ function detail(agentUIDs: string[]): ConversationDetail {
       canDelete: true,
       canManage: true,
       lastMessageSeq: 3,
+      lastNotifiableSeq: 3,
       lastActivityAt: '2026-10-25T00:00:00Z',
       rowStatus: 'streaming',
       viewer: { uid: 'person', pinned: false, muted: false, lastReadSeq: 3 },

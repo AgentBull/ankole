@@ -45,6 +45,7 @@ import { AccountMenu } from './account-menu'
 import { ContentNavigation, SidebarLink } from './page-navigation'
 import type { PodSidebarNavigationState } from './state/navigation'
 import { POD_SIDEBAR_MAX_WIDTH, POD_SIDEBAR_MIN_WIDTH, SidebarLayoutModel } from './state/sidebar-layout'
+import { chatAttentionCount } from './state/notifications'
 
 import { agentsQuery, conversationAttentionQuery } from './api'
 
@@ -76,12 +77,7 @@ export function PodSidebar({
   const drafts = useChatDrafts()
   const agents = useQuery(agentsQuery)
   const rooms = useQuery(conversationAttentionQuery)
-  const chatAttention =
-    rooms.data?.filter(
-      room =>
-        room.rowStatus === 'waiting_choice' ||
-        (room.conversationKind !== 'assistant_task' && room.rowStatus === 'unread')
-    ).length ?? 0
+  const chatAttention = chatAttentionCount(rooms.data)
   const commentAttention = useQuery(commentAttentionQuery)
   const homeAttention = commentAttention.data?.length ?? 0
   const navigate = useNavigate()

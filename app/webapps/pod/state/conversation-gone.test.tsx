@@ -38,6 +38,7 @@ function conversationFixture(): ConversationDetail {
       titleCustomized: false,
       createdBy: 'person',
       lastMessageSeq: 1,
+      lastNotifiableSeq: 1,
       rowStatus: 'idle',
       viewer: { uid: 'person', pinned: false, muted: false, lastReadSeq: 1 },
       agents: [{ uid: 'agent', displayName: 'Agent', active: true, type: 'agent', mayIntervene: true }],

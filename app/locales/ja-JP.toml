@@ -4779,6 +4779,23 @@ manage_in_browser = "ブラウザで管理"
 manage_in_browser_login_description = "ログイン方法の追加や解除には、システムブラウザでの本人確認が必要です。"
 manage_in_browser_exit_description = "このスペースを退出するには、システムブラウザでサインインを確認してください。"
 
+[pod.notifications]
+title = "通知"
+description = "Agent が返信したとき、タスクが完了したとき、メッセージが届いたとき、判断を待っている事項があるときに、このデバイスでお知らせします。会話をミュートすると通常のメッセージは通知されませんが、判断が必要な事項は引き続き通知されます。"
+enable = "このデバイスで通知を受け取る"
+blocked = "このブラウザーでは、このスペースからの通知がブロックされています。ブラウザーのサイト設定で通知を許可してから、ページを再読み込みしてください。"
+push_failed = "このブラウザーはバックグラウンド通知を登録できなかったため、Ankole を開いている間だけ通知が届きます。"
+unsupported = "このブラウザーは通知を表示できません。"
+ios_home_screen = "iPhone と iPad では、このスペースをホーム画面に追加し、ホーム画面から開いてから通知をオンにしてください。"
+test = "テスト通知を送信"
+test_title = "通知がオンになりました"
+test_body = "Agent が返信したときや対応が必要なときに、Ankole がここでお知らせします。"
+prompt = "Agent の返信や対応が必要なときに通知を受け取れます。"
+prompt_enable = "オンにする"
+prompt_dismiss = "後で"
+untitled = "会話"
+new_comments = "新しいコメント"
+
 [pod.settings]
 description = "スペースの基本情報、メンバー、アクセス、連携を管理します。"
 navigation = "スペース設定のセクション"

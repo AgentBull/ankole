@@ -54,6 +54,9 @@ defmodule Ankole.Conversations.Participant do
       constraints: [min: 0],
       public?: true
     )
+
+    # The notifiable sequence that Ankole last pushed to this Human's browsers.
+    attribute(:notified_seq, :integer, default: 0, allow_nil?: false, constraints: [min: 0])
   end
 
   actions do
@@ -66,6 +69,15 @@ defmodule Ankole.Conversations.Participant do
 
     update :update_preferences do
       accept([:pinned_at, :muted, :last_read_seq, :last_visited_at])
+    end
+
+    # Concurrent claims for one message notify each Human once.
+    update :claim_notification do
+      require_atomic?(true)
+      accept([])
+      argument(:seq, :integer, allow_nil?: false)
+      change(filter(expr(notified_seq < ^arg(:seq))))
+      change(atomic_update(:notified_seq, expr(^arg(:seq))))
     end
 
     update :set_may_intervene do

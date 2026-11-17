@@ -4778,6 +4778,23 @@ manage_in_browser = "브라우저에서 관리"
 manage_in_browser_login_description = "로그인 방법을 추가하거나 연결 해제하려면 시스템 브라우저에서 본인 확인이 필요합니다."
 manage_in_browser_exit_description = "이 스페이스를 나가려면 시스템 브라우저에서 로그인을 확인해야 합니다."
 
+[pod.notifications]
+title = "알림"
+description = "Agent가 답장하거나, 작업이 끝나거나, 누군가 메시지를 보내거나, 결정할 일이 기다리고 있으면 이 기기로 알려 드립니다. 대화를 음소거하면 일반 메시지는 알리지 않지만 결정이 필요한 일은 계속 알려 드립니다."
+enable = "이 기기에서 알림 받기"
+blocked = "이 브라우저에서 이 공간의 알림이 차단되어 있습니다. 브라우저의 사이트 설정에서 알림을 허용한 뒤 페이지를 새로 고치세요."
+push_failed = "이 브라우저에서 백그라운드 알림을 등록하지 못해 Ankole이 열려 있을 때만 알림을 받습니다."
+unsupported = "이 브라우저에서는 알림을 표시할 수 없습니다."
+ios_home_screen = "iPhone과 iPad에서는 이 공간을 홈 화면에 추가하고, 홈 화면에서 연 다음 알림을 켜세요."
+test = "테스트 알림 보내기"
+test_title = "알림이 켜졌습니다"
+test_body = "Agent가 답장하거나 확인이 필요할 때 Ankole이 여기로 알려 드립니다."
+prompt = "Agent가 답장하거나 확인이 필요할 때 알림을 받으세요."
+prompt_enable = "켜기"
+prompt_dismiss = "나중에"
+untitled = "대화"
+new_comments = "새 댓글"
+
 [pod.settings]
 description = "스페이스의 정보, 멤버, 접근 권한, 통합을 관리합니다."
 navigation = "스페이스 설정 섹션"

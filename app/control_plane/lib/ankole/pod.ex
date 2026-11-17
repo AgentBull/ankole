@@ -128,6 +128,8 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.OfficeFiles.Browser)
     resource(Ankole.Pod.Chat.Browser)
     resource(Ankole.Pod.RunnerBrowser)
+    resource(Ankole.Pod.WebPushBrowser)
+    resource(Ankole.Pod.WebPushSubscription)
 
     resource Ankole.Pod.Page do
       define(:list_page_records, action: :read)
@@ -166,6 +168,20 @@ defmodule Ankole.Pod do
         name: "create_pod_runner_job",
         wrap_in_result?: false
       )
+
+      base_route "/web-push", Ankole.Pod.WebPushBrowser do
+        route(:get, "/", :config, name: "get_pod_web_push", wrap_in_result?: false)
+
+        route(:post, "/subscriptions", :subscribe,
+          name: "subscribe_pod_web_push",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/unsubscribe", :unsubscribe,
+          name: "unsubscribe_pod_web_push",
+          wrap_in_result?: false
+        )
+      end
 
       base_route "/runner-devices", Ankole.Pod.RunnerBrowser do
         route(:get, "/", :list, name: "list_pod_runner_devices", wrap_in_result?: false)

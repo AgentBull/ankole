@@ -15,7 +15,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
     base_records base_views base_fields base_tables
     pod_files pod_applet_envs pod_applet_approvals message_attachments delivery_attachments
     drive_vfs_exports
-    page_user_states page_changes page_comments page_snapshots page_daily_activity page_search_documents page_contents
+    web_push_subscriptions page_user_states page_changes page_comments page_snapshots page_daily_activity page_search_documents page_contents
     pod_search_queries pod_office_ops pod_office_checkpoints pod_file_caches permission_grants
     conversation_action_cards external_message_refs conversation_messages conversation_participants
     next_step_suggestions

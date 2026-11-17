@@ -264,6 +264,13 @@ defmodule AnkoleWeb.OIDCDesktopPodTest do
     assert pod_html =~
              ~s(<link rel="manifest" href="/pod/manifest.webmanifest" crossorigin="use-credentials">)
 
+    assert pod_html =~ ~s(<link rel="apple-touch-icon" href="/images/pwa-192.png">)
+
+    worker_conn = authed_pod |> recycle() |> pod_conn(tenant) |> get("/pod/service-worker.js")
+    assert response(worker_conn, 200) =~ "showNotification"
+    assert get_resp_header(worker_conn, "service-worker-allowed") == ["/"]
+    assert get_resp_header(worker_conn, "content-type") |> hd() =~ "text/javascript"
+
     manifest_conn =
       authed_pod |> recycle() |> pod_conn(tenant) |> get("/pod/manifest.webmanifest")
 
