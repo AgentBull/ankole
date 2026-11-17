@@ -292,7 +292,7 @@ function ComboboxChips({
   return (
     <ComboboxChipsPrimitive
       className={cn(
-        'flex min-h-8 flex-wrap items-center gap-1 rounded-control border border-field-edge border-b-field-border bg-field bg-clip-padding px-3 py-[3px] text-sm leading-5 transition-[background-color] duration-(--duration-feedback) hover:bg-field-hover focus-within:border-control-edge focus-within:border-b-ring focus-within:bg-page focus-within:shadow-[inset_0_-1px_0_var(--color-ring)] has-aria-invalid:border-b-destructive has-aria-invalid:shadow-[inset_0_-1px_0_var(--color-destructive)] has-data-[slot=combobox-chip]:pl-[3px]',
+        'flex min-h-8 flex-wrap items-center gap-1 rounded-control border border-field-border bg-field bg-clip-padding px-3 py-[3px] text-sm leading-5 transition-[background-color] duration-(--duration-feedback) hover:bg-field-hover focus-within:border-control-edge focus-within:border-b-ring focus-within:bg-page focus-within:shadow-[inset_0_-1px_0_var(--color-ring)] has-aria-invalid:bg-(--field-invalid) has-data-[slot=combobox-chip]:pl-[3px]',
         className
       )}
       {...props}
@@ -316,7 +316,7 @@ function ComboboxChip<Value = string>({
   return (
     <ComboboxChipPrimitive<Value>
       className={cn(
-        'flex h-6 w-fit items-center justify-center gap-1 rounded-mini border border-control-edge border-b-control-base bg-control px-2 text-xs font-medium whitespace-nowrap text-fg-primary has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:border-border-subtle has-disabled:bg-field has-disabled:text-fg-disabled has-data-[slot=combobox-chip-remove]:pr-0',
+        'flex h-6 w-fit items-center justify-center gap-1 rounded-mini border border-control-edge bg-control px-2 text-xs font-medium whitespace-nowrap text-fg-primary has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:border-border-subtle has-disabled:bg-field has-disabled:text-fg-disabled has-data-[slot=combobox-chip-remove]:pr-0',
         className
       )}
       {...props}>

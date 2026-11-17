@@ -152,9 +152,8 @@ html[data-ankole-desktop][data-theme='dark'] .pod-desktop-onboarding-card {
 html[data-ankole-desktop] .pod-desktop-launcher {
   background: linear-gradient(145deg, rgb(255 255 255 / 0.42), transparent 68%), rgb(var(--ceramic-body) / 0.74);
   box-shadow:
-    inset 1px 1px 0 var(--ceramic-inner),
-    inset 0 0 0 0.5px var(--ceramic-stroke),
-    inset 0 1px 0 var(--ceramic-edge);
+    inset 0.5px 0.5px 0 var(--ceramic-rim),
+    inset 0 0 0 0.5px var(--ceramic-hairline);
 }
 
 html[data-ankole-desktop][data-theme='dark'] .pod-desktop-launcher {

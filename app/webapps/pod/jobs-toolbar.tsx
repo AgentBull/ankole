@@ -85,7 +85,7 @@ export function JobsBoardHeader({
           {workingAgents.length > 0 && (
             <BoardPresence
               avatars={workingAgents.slice(0, 4).map(agent => (
-                <ChatAvatar key={agent.uid} name={agent.name} src={agent.avatarURL} agent round size="xs" />
+                <ChatAvatar key={agent.uid} name={agent.name} src={agent.avatarURL} agent size="xs" />
               ))}>
               {workingAgents.length === 1
                 ? t('pod.jobs.working_single', { name: workingAgents[0]!.name })

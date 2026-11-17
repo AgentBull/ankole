@@ -613,9 +613,9 @@ IM rooms and colleagues are the UI kit's 48 px two-line rows, with a 32 px
 avatar 8 px before the name and time, above the latest message as plain text or
 the colleague's role. Every list names an Agent by its display name followed by
 its `@uid`, marks a DM with the colleague's avatar and a group with the group's
-avatar, and marks a task with a conversation mark. An Agent's avatar and a
-group's avatar are one rounded square with the same fill and hairline edge; the
-group's shows the group mark. Home interleaves Pages and
+avatar, and marks a task with a conversation mark. People, Agents, and groups
+share one round avatar with the same fill and hairline edge; a group's shows the
+group mark. Home interleaves Pages and
 conversations, retaining at most three attention items ahead of ordinary
 recents: pending decisions first, relevant unread comments second, and running
 work third. The Home and Chat tab badges use the same count: Chat counts unread IM and

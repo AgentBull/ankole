@@ -27,12 +27,12 @@ Every role has exactly one name. Names read as role, then tier, then state, and 
 | Text and icons | `--fg-primary`, `--fg-secondary`, `--fg-tertiary`, `--fg-quaternary`, `--fg-placeholder`, `--fg-disabled`, `--fg-on-color`, `--icon-disabled` | `text-fg-primary`, … |
 | Surfaces | `--ground` (the app frame), `--page`, `--layer-01`, `--layer-02`, `--layer-03`, `--layer-card`, `--overlay`, `--overlay-secondary`, `--overlay-tertiary`, `--overlay-inverse`, `--scrim`, `--scrim-secondary` | `bg-ground`, `bg-page`, `bg-layer-01`, … |
 | Interaction | `--layer-hover`, `--layer-pressed`, `--layer-drag`, `--layer-current`, `--layer-current-edge`, `--layer-tertiary-hover`, `--layer-tertiary-pressed`, `--selection`, `--ring`, `--skeleton`, `--skeleton-base` | `bg-layer-hover`, `ring-ring`, … |
-| Controls | `--field`, `--field-hover`, `--field-edge`, `--field-border`, `--field-border-hover` for a slot that holds input; `--control`, `--control-hover`, `--control-edge`, `--control-base` for a raised object | `bg-field`, `border-field-border`, `bg-control`, … |
+| Controls | `--field`, `--field-hover`, `--field-border`, `--field-border-hover`, `--field-invalid` for a slot that holds input; `--control`, `--control-hover`, `--control-edge` for a raised object | `bg-field`, `border-field-border`, `bg-control`, … |
 | Borders and dividers | `--border-subtle`, `--border-strong`, `--border-overlay-strong`, `--border-quaternary`, `--divider`, `--divider-strong`, `--divider-brand`, `--divider-overlay`, `--divider-overlay-brand`, `--divider-overlay-strong` | `border-border-subtle`, `divide-divider`, … |
-| Actions | `--primary`, `--primary-hover`, `--primary-active`, `--primary-edge`, `--primary-fg`, `--primary-disabled`, `--primary-disabled-fg`, `--inverse`, `--destructive-solid`, `--destructive-solid-hover` | `bg-primary`, `text-primary-fg`, `bg-inverse`, … |
-| Status | `--{destructive,warning,success,info}` for the mark, `-fg` for text on paper, `-subtle` for the background behind a badge or callout | `text-destructive-fg`, `bg-warning-subtle`, … |
+| Actions | `--primary`, `--primary-hover`, `--primary-active`, `--primary-fg`, `--primary-disabled`, `--primary-disabled-fg`, `--inverse`, `--destructive-solid`, `--destructive-solid-hover`, `--destructive-solid-active` | `bg-primary`, `text-primary-fg`, `bg-inverse`, … |
+| Status | `--{destructive,warning,success,info}` for the mark, `-fg` for text on paper, `-subtle` for the background behind a badge or callout, laid at `--status-fill-alpha` | `text-destructive-fg`, `bg-warning-subtle`, … |
 
-L2 tokens carry the prefix of the component that owns them: `sidebar-*`, `badge-*`, `ceramic-*`, `menu-*`, `slash-icon-*`, `composer-*`, `chart-*`, `fog-*`, `switch-*`, `table-*`, `board-*`, `search-mark-*`, `doc-*` (the caret and selection of the Word, spreadsheet, and presentation editors), and `syntax-*` (JSON and code tokens). The sidebar keeps `--sidebar` and `--sidebar-border` because the Pod desktop shell turns the sidebar fill transparent without touching the page. A component token exists only where the component departs from the semantic layer or needs its own dark value; a component that matches the semantic layer reads the L1 role directly.
+L2 tokens carry the prefix of the component that owns them: `sidebar-*`, `badge-*`, `alert-*`, `choice-*` (the edge and checked fill of a checkbox or radio), `tab-*`, `ceramic-*`, `menu-*`, `slash-icon-*`, `composer-*`, `chart-*`, `fog-*`, `switch-*`, `table-*`, `board-*`, `search-mark-*`, `doc-*` (the caret and selection of the Word, spreadsheet, and presentation editors), and `syntax-*` (JSON and code tokens). The sidebar keeps `--sidebar` and `--sidebar-border` because the Pod desktop shell turns the sidebar fill transparent without touching the page. A component token exists only where the component departs from the semantic layer or needs its own dark value; a component that matches the semantic layer reads the L1 role directly.
 
 ## Rules
 
@@ -43,6 +43,14 @@ L2 tokens carry the prefix of the component that owns them: `sidebar-*`, `badge-
 - **Icons are Fluent System Icons.** Every icon comes from `@ankole/uikit/icons`, which re-exports `@fluentui/react-icons`; product code draws no icon of its own.
 
 `libs/uikit/test/design-layers.test.ts` enforces the palette, legacy-name, colour-literal, and arbitrary-size rules across `libs/uikit/src/components` and `app/webapps`, and checks that the dark theme overrides only names that the light theme declares.
+
+## Ceramic
+
+Ceramic is the kit's one translucent material, and paper is its opaque counterpart: pages, records, and the cards inside them stay on paper. Every overlay is ceramic: menus, popovers, tooltips, dialogs, sheets, drawers, toasts, and the lists that open from the composer. A display surface that floats over the ground or over content, such as a sign-in card, a pill, or a stats card over a graph, may take it too.
+
+The `ceramic` utility in `libs/uikit/src/styles.css` draws the material. It blurs what lies beneath the surface by `--ceramic-blur` and draws three marks: a `--ceramic-rim` of light inside the top-left edge, a `--ceramic-hairline` around the edge, and a short `--ceramic-shadow` below and to the right with a 12px spread under it. Its body comes in three tiers: the default (secondary) body for dialogs, sheets, drawers, and toasts, the more translucent `ceramic-primary` body for menus and floating display surfaces, and the gray `ceramic-tertiary` body. `ceramic-attention` tints the body amber for a decision that waits for a person.
+
+Components reach the material through `Ceramic` and `ceramicVariants` in `libs/uikit/src/components/ceramic.tsx`. `Ceramic` renders a `div`, or puts the material on another component through `render`, such as `<Ceramic tier="primary" render={<Card />} />`; the rendered component keeps its behaviour and layout and gives up its own fill, ring, shadow, and radius, because `cn` treats `ceramic` as overriding those classes. `radius` picks the surface radius, the control radius for a list whose rows run edge to edge, the tooltip radius, or a pill, and `size="lg"` doubles the rim and shadow offset for a dialog-sized surface. Product code that needs the material uses `Ceramic` or `ceramicVariants` and adds no border or shadow of its own.
 
 ## Applet CSS contract
 

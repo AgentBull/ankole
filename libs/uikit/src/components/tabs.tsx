@@ -69,7 +69,7 @@ function TabsList({
       {variant === 'object' || variant === 'chip' ? (
         <SegmentIndicator />
       ) : (
-        <TabsIndicator aria-hidden className="pointer-events-none absolute bg-fg-primary" />
+        <TabsIndicator aria-hidden className="pointer-events-none absolute bg-(--tab-indicator)" />
       )}
     </TabsListPrimitive>
   )
@@ -184,9 +184,9 @@ function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsTab>) {
   return (
     <TabsTab
       className={cn(
-        "group/tabs-trigger relative inline-flex h-full flex-1 cursor-pointer items-center justify-center gap-2 border border-transparent px-3 py-0 text-65 font-normal whitespace-nowrap text-fg-secondary transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-1.5 hover:text-fg-primary focus-visible:-outline-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-fg-disabled has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:text-fg-disabled dark:text-fg-secondary dark:hover:text-fg-primary [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        'data-selected:text-fg-primary',
-        'group-data-[variant=object]/tabs-list:flex-none group-data-[variant=object]/tabs-list:gap-1.5 group-data-[variant=object]/tabs-list:rounded-control group-data-[variant=object]/tabs-list:px-2 group-data-[variant=object]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=object]/tabs-list:border-0 group-data-[variant=object]/tabs-list:fine-hover:hover:bg-layer-hover group-data-[variant=object]/tabs-list:hover:text-fg-primary group-data-[variant=object]/tabs-list:data-selected:text-fg-primary group-data-[variant=object]/tabs-list:data-selected:fine-hover:hover:bg-transparent',
+        "group/tabs-trigger relative inline-flex h-full flex-1 cursor-pointer items-center justify-center gap-2 border border-transparent px-3 py-0 text-65 font-normal whitespace-nowrap text-(--tab-idle) transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-1.5 hover:text-fg-primary focus-visible:-outline-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-fg-disabled has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:text-fg-disabled [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        'data-selected:text-(--tab-current)',
+        'group-data-[variant=object]/tabs-list:flex-none group-data-[variant=object]/tabs-list:gap-1.5 group-data-[variant=object]/tabs-list:rounded-control group-data-[variant=object]/tabs-list:px-2 group-data-[variant=object]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=object]/tabs-list:border-0 group-data-[variant=object]/tabs-list:fine-hover:hover:bg-layer-hover group-data-[variant=object]/tabs-list:hover:text-fg-primary group-data-[variant=object]/tabs-list:data-selected:text-(--tab-current) group-data-[variant=object]/tabs-list:data-selected:fine-hover:hover:bg-transparent',
         // A chip keeps 2px and 4px of padding around a 24px icon and 15px text, so the bare icon of a closed tab holds
         // still when the tab opens. A closed tab draws in the secondary colour; the open tab draws its icon and its
         // Medium label in the primary colour.

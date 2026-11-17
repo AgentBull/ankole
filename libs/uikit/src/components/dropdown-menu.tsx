@@ -119,7 +119,7 @@ function menuPopupProps({
 
 /**
  * The popup of a menu. It is ceramic, like every menu. A menu that opens from the composer's toolbar takes the
- * `composer` surface instead, so the menu and the composer read as one object.
+ * `composer` surface: the same ceramic with rows that run from edge to edge.
  */
 function DropdownMenuContent({
   align = 'start',

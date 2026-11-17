@@ -8,7 +8,7 @@ function buttonClasses(node: React.ReactNode) {
 }
 
 describe('Button toolbar sizes', () => {
-  test('holds a 20px icon in a 36px icon button whose ghost hover tints only the icon box', () => {
+  test('holds a 20px icon 6px inside a 32px toolbar icon button whose ghost hover tints only the icon box', () => {
     const classes = buttonClasses(
       <Button variant="ghost" size="icon-lg" aria-label="Search">
         <svg aria-hidden />
@@ -16,11 +16,11 @@ describe('Button toolbar sizes', () => {
     )
     expect(classes).toEqual(
       expect.arrayContaining([
-        'size-9',
-        'p-1.75',
+        'size-8',
+        'p-1.25',
         "[&_svg:not([class*='size-'])]:size-5",
         'bg-clip-content',
-        'rounded-[calc(var(--radius-micro)+var(--spacing)*2)]',
+        'rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)]',
         'hover:bg-layer-hover',
         'active:bg-layer-pressed'
       ])
@@ -54,7 +54,7 @@ describe('Button toolbar sizes', () => {
         <svg aria-hidden />
       </Button>
     )
-    expect(classes).toEqual(expect.arrayContaining(['size-9', 'bg-clip-padding', 'rounded-control']))
+    expect(classes).toEqual(expect.arrayContaining(['size-8', 'bg-clip-padding', 'rounded-control']))
     expect(classes).not.toContain('bg-clip-content')
   })
 
@@ -64,7 +64,7 @@ describe('Button toolbar sizes', () => {
         Members
       </Button>
     )
-    expect(classes).toEqual(expect.arrayContaining(['h-9', 'text-50', 'font-normal', 'bg-clip-content']))
+    expect(classes).toEqual(expect.arrayContaining(['h-8', 'text-50', 'font-normal', 'bg-clip-content']))
     expect(classes).not.toContain('text-[13px]')
     expect(classes).not.toContain('font-medium')
   })
@@ -88,7 +88,7 @@ describe('buttonVariants', () => {
     expect(raw).toEqual(
       expect.arrayContaining([
         'bg-clip-content',
-        'rounded-[calc(var(--radius-micro)+var(--spacing)*2)]',
+        'rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)]',
         'max-md:hidden'
       ])
     )
@@ -107,7 +107,7 @@ describe('buttonVariants', () => {
 
   test('drops the base label size, weight, gap, and leading under the toolbar size', () => {
     const raw = classes({ variant: 'ghost', size: 'toolbar' })
-    expect(raw).toEqual(expect.arrayContaining(['h-9', 'gap-1', 'text-50', 'font-normal', 'bg-clip-content']))
+    expect(raw).toEqual(expect.arrayContaining(['h-8', 'gap-1', 'text-50', 'font-normal', 'bg-clip-content']))
     for (const replaced of [
       'text-[13px]',
       'font-medium',
