@@ -28,9 +28,11 @@ jobs:
     outputs:
       code: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
         if: ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' }}
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
         id: filter
         if: ${{ github.event_name != 'workflow_dispatch' }}
         with:
@@ -53,12 +55,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ github.repository != job.workflow_repository && (job.workflow_sha || github.sha) || '' }}
           persist-credentials: ${{ github.repository == job.workflow_repository }}
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
@@ -73,15 +75,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ github.repository != job.workflow_repository && (job.workflow_sha || github.sha) || '' }}
           persist-credentials: ${{ github.repository == job.workflow_repository }}
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      - uses: erlef/setup-beam@v1
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
           otp-version: '29'
           elixir-version: '1.20.4'
@@ -89,7 +91,7 @@ jobs:
       - run: rustup default 1.99.1
       # Pull requests restore the cache that `main` saves and do not save their
       # own copy, which would crowd the repository's 10 GB cache quota.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: app/kernel -> target/clippy
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -110,20 +112,20 @@ jobs:
       ANKOLE_EDITION: foss
       ANKOLE_KERNEL_SKIP_NIF: '1'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ github.repository != job.workflow_repository && (job.workflow_sha || github.sha) || '' }}
           persist-credentials: ${{ github.repository == job.workflow_repository }}
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      - uses: actions/setup-node@v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: ${{ runner.environment == 'self-hosted' }}
         with:
           node-version: '24.22.2'
           package-manager-cache: false
-      - uses: erlef/setup-beam@v1
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         id: beam
         with:
           otp-version: '29'
@@ -136,7 +138,7 @@ jobs:
           echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
           echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
-      - uses: actions/cache/restore@v6
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: mix-cache
         with:
           path: |
@@ -154,7 +156,7 @@ jobs:
         working-directory: app/control_plane
         env:
           MIX_ENV: prod
-      - uses: actions/cache/save@v6
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ github.ref == 'refs/heads/main' && steps.mix-cache.outputs.cache-hit != 'true' }}
         with:
           path: |
@@ -185,15 +187,15 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ github.repository != job.workflow_repository && (job.workflow_sha || github.sha) || '' }}
           persist-credentials: ${{ github.repository == job.workflow_repository }}
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      - uses: erlef/setup-beam@v1
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
           otp-version: '29'
           elixir-version: '1.20.4'
@@ -204,7 +206,7 @@ jobs:
           unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
           echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
       - run: bun install --frozen-lockfile
-      - uses: actions/cache/restore@v6
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: nif-cache
         with:
           path: app/kernel/priv/native
@@ -214,13 +216,13 @@ jobs:
         run: echo "ANKOLE_KERNEL_SKIP_NIF=1" >> "$GITHUB_ENV"
       - if: ${{ steps.nif-cache.outputs.cache-hit != 'true' }}
         run: rustup toolchain install 1.99.1 --profile minimal && rustup default 1.99.1
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: ${{ steps.nif-cache.outputs.cache-hit != 'true' }}
         with:
           workspaces: app/kernel -> target/nif-test
           shared-key: control-plane-nif
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: actions/cache/restore@v6
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: mix-cache
         with:
           path: |
@@ -247,12 +249,12 @@ jobs:
           bun run --filter @ankole/webapps openapi:generate
           git diff --exit-code -- app/webapps/openapi app/webapps/common/api/generated app/webapps/pod/api/generated app/webapps/console/api/v2/generated app/webapps/console/api/v2-site/generated
           test -z "$(git ls-files --others --exclude-standard -- app/webapps/common/api/generated app/webapps/pod/api/generated app/webapps/console/api/v2/generated app/webapps/console/api/v2-site/generated)"
-      - uses: actions/cache/save@v6
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ github.ref == 'refs/heads/main' && steps.nif-cache.outputs.cache-hit != 'true' }}
         with:
           path: app/kernel/priv/native
           key: ${{ steps.nif-cache.outputs.cache-primary-key }}
-      - uses: actions/cache/save@v6
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ github.ref == 'refs/heads/main' && steps.mix-cache.outputs.cache-hit != 'true' }}
         with:
           path: |
