@@ -61,6 +61,48 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const escapePointerSegment = (segment: string) => segment.replaceAll('~', '~0').replaceAll('/', '~1')
 
+/**
+ * Why Pod shows a settled `ui` block as code. `code` names the kind of failure, `path` is the JSON Pointer of the
+ * part of the block that caused it, and `detail` carries what an author needs to correct it. For a prop that
+ * reads state, `path` continues into the value that the state holds, such as `/elements/table/props/rows/0/team`.
+ */
+export type UIBlockFailure = {
+  code:
+    | 'invalid_line'
+    | 'unsafe_patch'
+    | 'invalid_patch'
+    | 'missing_root'
+    | 'missing_element'
+    | 'cycle'
+    | 'over_budget'
+    | 'invalid_element'
+    | 'unknown_component'
+    | 'unsupported_field'
+    | 'invalid_repeat'
+    | 'invalid_visible'
+    | 'invalid_expression'
+    | 'invalid_action'
+    | 'invalid_props'
+  path: string
+  detail?: string
+}
+
+type Invalid = { status: 'invalid'; failure: UIBlockFailure }
+
+const invalid = (code: UIBlockFailure['code'], path: string, detail?: string): Invalid => ({
+  status: 'invalid',
+  failure: detail === undefined ? { code, path } : { code, path, detail }
+})
+
+const elementPath = (key: string) => `/elements/${escapePointerSegment(key)}`
+
+/** Points an `invalid_props` failure at the first value that the schema rejects. */
+function invalidProps(path: string, error: z.ZodError): Invalid {
+  const issue = error.issues[0]
+  const at = (issue?.path ?? []).map(segment => `/${escapePointerSegment(String(segment))}`).join('')
+  return invalid('invalid_props', `${path}${at}`, issue?.message)
+}
+
 function isSafePointer(pointer: unknown): pointer is string {
   if (typeof pointer !== 'string' || !pointer.startsWith('/')) return false
   for (const raw of pointer.slice(1).split('/')) {
@@ -526,10 +568,7 @@ function collectRepeatPaths(
   return paths
 }
 
-type CheckedElement =
-  | { status: 'ok'; element: UIElement; repeat?: RepeatSpec }
-  | { status: 'pending' }
-  | { status: 'invalid' }
+type CheckedElement = { status: 'ok'; element: UIElement; repeat?: RepeatSpec } | { status: 'pending' } | Invalid
 
 /** Validates one element in its current state and repeat scope. */
 function checkElement(
@@ -540,43 +579,45 @@ function checkElement(
   scope: WalkScope | undefined,
   streaming: boolean
 ): CheckedElement {
+  const at = elementPath(key)
   if (!isRecord(source) || typeof source.type !== 'string') {
-    return { status: 'invalid' }
+    return invalid('invalid_element', at)
   }
   const component = COMPONENTS[source.type]
-  if (!component) return { status: 'invalid' }
+  if (!component) return invalid('unknown_component', `${at}/type`, source.type)
   if (source.watch != null || source.slots != null) {
-    return { status: 'invalid' }
+    return invalid('unsupported_field', `${at}/${source.watch != null ? 'watch' : 'slots'}`)
   }
 
   let repeat: RepeatSpec | undefined
   if (source.repeat !== undefined) {
-    if (!component.slots?.length) return { status: 'invalid' }
+    if (!component.slots?.length) return invalid('invalid_repeat', `${at}/repeat`)
     const parsedRepeat = REPEAT_SCHEMA.safeParse(source.repeat)
-    if (!parsedRepeat.success) return { status: 'invalid' }
+    if (!parsedRepeat.success) return invalid('invalid_repeat', `${at}/repeat`)
     const { statePath } = parsedRepeat.data
     const pathValid =
       typeof statePath === 'string' ? isSafePointer(statePath) : Boolean(scope) && isSafeItemPath(statePath.$item)
-    if (!pathValid) return { status: 'invalid' }
+    if (!pathValid) return invalid('invalid_repeat', `${at}/repeat/statePath`)
     repeat = parsedRepeat.data
   }
 
   const rawProps = source.props ?? {}
   const children = source.children ?? []
-  if (!isRecord(rawProps) || !Array.isArray(children) || !children.every(child => typeof child === 'string')) {
-    return { status: 'invalid' }
+  if (!isRecord(rawProps)) return invalid('invalid_element', `${at}/props`)
+  if (!Array.isArray(children) || !children.every(child => typeof child === 'string')) {
+    return invalid('invalid_element', `${at}/children`)
   }
 
   const inRepeat = Boolean(scope)
   if (source.visible !== undefined) {
     const parsedVisible = VisibilityConditionStrictSchema.safeParse(source.visible)
     if (!parsedVisible.success || (!inRepeat && !repeat && conditionUsesItemScope(parsedVisible.data))) {
-      return { status: 'invalid' }
+      return invalid('invalid_visible', `${at}/visible`)
     }
   }
 
   const expr = checkExpressions(rawProps, inRepeat, true)
-  if (!expr.valid) return { status: 'invalid' }
+  if (!expr.valid) return invalid('invalid_expression', `${at}/props`)
 
   const ctx: PropResolutionContext = scope
     ? {
@@ -589,14 +630,15 @@ function checkElement(
 
   const checkedEvents = events(source.on, ctx, state, repeatPaths, scope, streaming)
   if (checkedEvents.status !== 'ok') {
-    return checkedEvents.status === 'pending' ? { status: 'pending' } : { status: 'invalid' }
+    return checkedEvents.status === 'pending' ? { status: 'pending' } : invalid('invalid_action', `${at}/on`)
   }
 
   let props = rawProps
   if (!scope?.emptyRepeat || !expr.usesItem) {
     const resolved = resolveElementProps(rawProps, ctx)
-    if (!component.props.safeParse(resolved).success) {
-      return streaming ? { status: 'pending' } : { status: 'invalid' }
+    const parsedProps = component.props.safeParse(resolved)
+    if (!parsedProps.success) {
+      return streaming ? { status: 'pending' } : invalidProps(`${at}/props`, parsedProps.error)
     }
     if (!streaming && expr.hasCond) {
       const branchesOk = validateCondBranches(
@@ -605,7 +647,7 @@ function checkElement(
         branchExpr => resolvePropValue(branchExpr, ctx),
         candidate => isRecord(candidate) && component.props.safeParse(candidate).success
       )
-      if (!branchesOk) return { status: 'invalid' }
+      if (!branchesOk) return invalid('invalid_props', `${at}/props`, 'a `$cond` branch gives an invalid value')
     }
     // Standalone uncontrolled switchers (Tabs) bind into the block's store so the open tab survives scrolling and room switches.
     if (component.autoBindUncontrolled && component.switcherOptionsProp && !scope && rawProps.value == null) {
@@ -623,16 +665,19 @@ function checkElement(
   } else if (component.props instanceof z.ZodObject) {
     const shape = component.props.shape as Record<string, z.ZodType>
     for (const [propKey, propSchema] of Object.entries(shape)) {
+      const propPath = `${at}/props/${escapePointerSegment(propKey)}`
       if (!Object.hasOwn(rawProps, propKey)) {
-        if (!propSchema.safeParse(undefined).success) return { status: 'invalid' }
+        const absent = propSchema.safeParse(undefined)
+        if (!absent.success) return invalidProps(propPath, absent.error)
         continue
       }
       const propVal = rawProps[propKey]
       const propExpr = checkExpressions(propVal, true, true)
       if (!propExpr.usesItem) {
         const resolvedProp = resolveElementProps({ [propKey]: propVal }, ctx)[propKey]
-        if (!propSchema.safeParse(resolvedProp).success) {
-          return streaming ? { status: 'pending' } : { status: 'invalid' }
+        const parsedProp = propSchema.safeParse(resolvedProp)
+        if (!parsedProp.success) {
+          return streaming ? { status: 'pending' } : invalidProps(propPath, parsedProp.error)
         }
         if (!streaming && propExpr.hasCond) {
           const branchesOk = validateCondBranches(
@@ -641,7 +686,7 @@ function checkElement(
             branchExpr => resolvePropValue(branchExpr, ctx),
             candidate => propSchema.safeParse(candidate).success
           )
-          if (!branchesOk) return { status: 'invalid' }
+          if (!branchesOk) return invalid('invalid_props', propPath, 'a `$cond` branch gives an invalid value')
         }
       }
     }
@@ -669,9 +714,9 @@ type NodeInspection =
       commitChildren?: (readyChildren: string[]) => void
     }
   | { status: 'pending' }
-  | { status: 'invalid' }
+  | Invalid
 
-type WalkOutcome = { status: 'ok' } | { status: 'pending' } | { status: 'invalid' }
+type WalkOutcome = { status: 'ok' } | { status: 'pending' } | Invalid
 
 /**
  * Single tree traversal shared by compilation and remembered-state validation so `repeat` scopes, element budgets,
@@ -688,7 +733,8 @@ function walkBlockTree(
   let budget = ELEMENT_BUDGET
 
   const walk = (key: string, scope?: WalkScope): WalkOutcome => {
-    if (ancestors.has(key) || --budget < 0) return { status: 'invalid' }
+    if (ancestors.has(key)) return invalid('cycle', elementPath(key))
+    if (--budget < 0) return invalid('over_budget', elementPath(key))
 
     const inspected = inspectNode(key, scope)
     if (inspected.status === 'invalid') return inspected
@@ -698,19 +744,20 @@ function walkBlockTree(
     let childScopes: Array<WalkScope | undefined>
 
     if (inspected.repeat) {
+      const repeatPath = `${elementPath(key)}/repeat/statePath`
       const resolvedPath = resolveRepeatStatePath(inspected.repeat.statePath, scope?.repeatBasePath)
       if (!resolvedPath || !isSafePointer(resolvedPath)) {
         ancestors.delete(key)
-        return { status: 'invalid' }
+        return invalid('invalid_repeat', repeatPath)
       }
       const items = scope?.emptyRepeat ? [] : getByPath(state, resolvedPath)
       if (items === undefined) {
         ancestors.delete(key)
-        return streaming ? { status: 'pending' } : { status: 'invalid' }
+        return streaming ? { status: 'pending' } : invalid('invalid_repeat', repeatPath, `no state at ${resolvedPath}`)
       }
       if (!Array.isArray(items)) {
         ancestors.delete(key)
-        return { status: 'invalid' }
+        return invalid('invalid_repeat', repeatPath, `${resolvedPath} is not an array`)
       }
       childScopes =
         items.length === 0
@@ -783,10 +830,11 @@ export function validateUIBlockState(spec: Spec, state: StateModel, streaming = 
 
   const repeatPaths = collectRepeatPaths(spec.root, key => spec.elements[key], state)
   const rootResult = walkBlockTree(spec.root, state, streaming, false, (key, scope) => {
+    const at = elementPath(key)
     const element = spec.elements[key]
-    if (!element) return streaming ? { status: 'pending' } : { status: 'invalid' }
+    if (!element) return streaming ? { status: 'pending' } : invalid('missing_element', at)
     const component = COMPONENTS[element.type]
-    if (!component) return { status: 'invalid' }
+    if (!component) return invalid('unknown_component', `${at}/type`, element.type)
 
     const ctx: PropResolutionContext = scope
       ? {
@@ -799,8 +847,9 @@ export function validateUIBlockState(spec: Spec, state: StateModel, streaming = 
 
     if (!scope?.emptyRepeat) {
       const resolved = resolveElementProps((element.props ?? {}) as Record<string, unknown>, ctx)
-      if (!component.props.safeParse(resolved).success) {
-        return streaming ? { status: 'pending' } : { status: 'invalid' }
+      const parsedProps = component.props.safeParse(resolved)
+      if (!parsedProps.success) {
+        return streaming ? { status: 'pending' } : invalidProps(`${at}/props`, parsedProps.error)
       }
       if (element.on) {
         for (const value of Object.values(element.on)) {
@@ -814,7 +863,7 @@ export function validateUIBlockState(spec: Spec, state: StateModel, streaming = 
               !withinDepth(resolvedParams, MAX_JSON_DEPTH) ||
               !validateActionParams(binding.action, rawParams, resolvedParams, state, repeatPaths, scope)
             ) {
-              return streaming ? { status: 'pending' } : { status: 'invalid' }
+              return streaming ? { status: 'pending' } : invalid('invalid_action', `${at}/on`)
             }
           }
         }
@@ -831,39 +880,37 @@ export function validateUIBlockState(spec: Spec, state: StateModel, streaming = 
   return rootResult.status === 'ok'
 }
 
-/**
- * Builds the spec of a `ui` block from its JSON Patch lines, or returns undefined when the block is not usable.
- * A line that is not a complete patch is left out, so a streaming block shows what has arrived.
- *
- * The spec holds only what the catalog covers: every element reachable from the root has a catalog component and
- * valid props, the tree is acyclic and within the element budget, and events bind catalog actions only.
- */
-export function compileUIBlock(code: string, streaming = false): Spec | undefined {
+/** A usable spec, the reason a block has none, or neither while a streaming block still waits on later lines. */
+type Compiled = { spec: Spec; failure?: undefined } | { spec?: undefined; failure?: UIBlockFailure }
+
+function compile(code: string, streaming: boolean): Compiled {
   const source: Partial<Spec> = {}
-  for (const line of code.split('\n')) {
+  for (const [index, line] of code.split('\n').entries()) {
     if (!line.trim()) continue
+    const lineNumber = `line ${index + 1}`
     const patch = parseSpecStreamLine(line)
     if (!patch) {
       if (streaming) continue
-      return undefined
+      return invalid('invalid_line', '', lineNumber)
     }
+    const patchPath = typeof patch.path === 'string' ? patch.path : ''
     if (
       !isSafePointer(patch.path) ||
       (patch.from !== undefined && !isSafePointer(patch.from)) ||
       !withinDepth(patch.value, MAX_JSON_DEPTH)
     ) {
-      return undefined
+      return invalid('unsafe_patch', patchPath, lineNumber)
     }
     try {
       applySpecStreamPatch(source as Record<string, unknown>, patch)
     } catch {
-      return undefined
+      return invalid('invalid_patch', patchPath, lineNumber)
     }
   }
 
   const { root } = source
   const sources: Record<string, unknown> = isRecord(source.elements) ? source.elements : {}
-  if (typeof root !== 'string' || sources[root] === undefined) return undefined
+  if (typeof root !== 'string' || sources[root] === undefined) return invalid('missing_root', '/root')
 
   const state: Record<string, unknown> = isRecord(source.state) ? source.state : {}
   seedBoundSwitchers(sources, state)
@@ -872,7 +919,7 @@ export function compileUIBlock(code: string, streaming = false): Spec | undefine
   const elements: Spec['elements'] = {}
   const rootResult = walkBlockTree(root, state, streaming, streaming, (key, scope) => {
     if (sources[key] === undefined) {
-      return streaming ? { status: 'pending' } : { status: 'invalid' }
+      return streaming ? { status: 'pending' } : invalid('missing_element', elementPath(key))
     }
     const checked = checkElement(key, sources[key], state, repeatPaths, scope, streaming)
     if (checked.status !== 'ok') return checked
@@ -900,7 +947,23 @@ export function compileUIBlock(code: string, streaming = false): Spec | undefine
     }
   })
 
-  if (rootResult.status !== 'ok') return undefined
+  if (rootResult.status !== 'ok') return rootResult.status === 'invalid' ? rootResult : {}
   if (streaming) pruneUnreachableElements(root, elements)
-  return { root, elements, state }
+  return { spec: { root, elements, state } }
+}
+
+/**
+ * Builds the spec of a `ui` block from its JSON Patch lines, or returns undefined when the block is not usable.
+ * A line that is not a complete patch is left out, so a streaming block shows what has arrived.
+ *
+ * The spec holds only what the catalog covers: every element reachable from the root has a catalog component and
+ * valid props, the tree is acyclic and within the element budget, and events bind catalog actions only.
+ */
+export function compileUIBlock(code: string, streaming = false): Spec | undefined {
+  return compile(code, streaming).spec
+}
+
+/** Says why Pod shows a settled block as code, or returns undefined for a block that compiles. */
+export function explainUIBlockFailure(code: string): UIBlockFailure | undefined {
+  return compile(code, false).failure
 }
