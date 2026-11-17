@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 2.0.0-alpha.166 (2026-11-18)
+
+- Fix Worker and Function Runtime DNS on clusters that enforce NetworkPolicy
+  with AWS VPC CNI. The Helm chart allowed port 53 without naming a
+  destination, and VPC CNI applies such a rule as `0.0.0.0/0`, so the longer
+  private prefixes in `networkPolicy.workerDeniedCIDRs` and
+  `functionRuntime.deniedCIDRs` blocked the kube-dns Service and Pods. Both
+  policies now also allow TCP/UDP 53 to `kube-system` Pods labeled
+  `k8s-app: kube-dns`.
+
 ## Version 2.0.0-alpha.165 (2026-11-18)
 
 - Bring the kit in line with the design team's latest Paper review. The
