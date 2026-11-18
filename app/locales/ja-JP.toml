@@ -4842,6 +4842,14 @@ prompt_dismiss = "後で"
 untitled = "会話"
 new_comments = "新しいコメント"
 
+[pod.agent_ui]
+browser_assistant = "ブラウザーのアシスタント"
+confirm_title = "{$agent} にこの操作を許可しますか？"
+confirm_description = "要求された操作：「{$control}」で {$action} を実行します。このコントロールの操作には、常にあなたの承認が必要です。"
+confirm_press = "要求された操作：「{$control}」を押します。このコントロールの操作には、常にあなたの承認が必要です。"
+allow = "許可"
+deny = "許可しない"
+
 [pod.settings]
 description = "スペースの基本情報、メンバー、アクセス、連携を管理します。"
 navigation = "スペース設定のセクション"

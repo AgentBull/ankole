@@ -2191,6 +2191,46 @@ Embedded child deletion uses the same Page trash lifecycle as deletion from
 the directory. Ankole retires the child's Brain facts and removes its search
 chunks in the deletion transaction.
 
+### Agent operations on the open Pod page
+
+`@ankole/uikit` builds its controls on ui-sdk, and every ui-sdk control reports
+its label, state, and the actions it accepts to ui-sdk's agent bridge. Each Pod
+tab creates one bridge and joins the `agent_ui` channel on its `/pod/socket`
+for the tab's whole lifetime. An Agent operates the Pod page that the Human it
+works for has open through three tools: `pod_ui_snapshot` lists the page's
+controls, `pod_ui_query` finds controls and list items, and `pod_ui_act` runs
+ordered steps such as `setValue` or `press`. `Sessions.Tools.PodUI` offers the
+tools only to a Main turn whose current input carries Human work authorization,
+and that Human is the one whose tab runs the operation. A sidebar row is a
+ui-sdk button even when it renders a link, so the Agent moves between
+conversations and pages by pressing the row. The bridge reports only ui-sdk
+controls, so a plain link inside a page's content is outside the Agent's reach.
+
+A call commits one `pod_agent_ui_requests` row under the call's receipt and,
+after the commit, publishes it to the Human's open tabs. A recovered turn
+therefore waits for the same request instead of sending it again. The tab that
+the Human is looking at claims the request at once, while a hidden tab waits two
+seconds before it claims. The claim is a compare-and-set from `pending` to
+`claimed`, so exactly one tab runs the request. That tab runs it on its page
+and writes the answer or the page's error back over the channel. A tab that
+joins later receives the requests that still wait for a tab. The call waits
+through a `ui` Session wait: when no tab claims a request within 20 seconds,
+the Agent learns that the Human has no Pod tab open, and when a claimed request
+outlives its wait, the Agent learns that the outcome is unknown. Every channel
+read and write names the signed-in Human, so a tab sees and answers only its
+own requests.
+
+The bridge runs ordinary actions without asking. A control marked
+`data-agent-confirm` waits until the Human allows it in a Pod dialog that
+names the Agent as chat names it, the control, and the action. Every
+`destructive` Button carries that mark. When the Human refuses, the dialog or
+menu that the Agent opened for the step stays open, and `pod_ui_act` tells the
+Agent to close it before it stops. ui-sdk shows password, card, and one-time-code values to
+the Agent only as `"[redacted]"`, and the confirm dialog itself is marked
+`data-agent-hidden`, so no Agent can approve its own request. When the browser
+exposes WebMCP, the tab also registers the same tools with the browser, so a
+browser assistant operates the page under the same confirmation rule.
+
 ## Base
 
 Navigating to a Base Page kicks off the table-list and initial table-schema

@@ -1,3 +1,4 @@
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button'
 import { CollapsiblePanel, Collapsible as CollapsiblePrimitive } from '@ui-sdk/react/collapsible'
 import { mergeProps, renderElement, type RenderProp } from '@ui-sdk/react/primitive'
 import { cva, type VariantProps } from 'class-variance-authority'
@@ -701,25 +702,32 @@ function SidebarMenuButton({
   tooltip,
   className,
   ...props
-}: React.ComponentProps<'button'> & {
+}: Omit<React.ComponentProps<typeof ButtonPrimitive>, 'render' | 'className' | 'children'> & {
+  children?: React.ReactNode
+  className?: string
   render?: RenderProp
   isActive?: boolean
   tooltip?: string | React.ComponentProps<typeof TooltipContent>
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
   const { isMobile, state } = useSidebar()
-  const comp = renderElement(
-    'button',
-    mergeProps(
-      {
-        'data-slot': 'sidebar-menu-button',
-        'data-sidebar': 'menu-button',
-        'data-size': size,
-        'data-active': isActive ? '' : undefined,
-        className: cn(sidebarMenuButtonVariants({ size }), className)
-      },
-      props
-    ),
-    !tooltip ? render : <TooltipTrigger render={render} />
+  const comp = (
+    <ButtonPrimitive
+      data-sidebar="menu-button"
+      data-size={size}
+      data-active={isActive ? '' : undefined}
+      className={cn(sidebarMenuButtonVariants({ size }), className)}
+      {...props}
+      // The row is a ui-sdk button, so an Agent can press it even when it renders a link. ui-sdk names every button
+      // `data-slot="button"`, and the row's element takes its own slot back. `type` belongs to a native button only.
+      render={(part, state) =>
+        renderElement(
+          'button',
+          { ...part, type: render ? undefined : part.type, 'data-slot': 'sidebar-menu-button' },
+          !tooltip ? render : <TooltipTrigger render={render} />,
+          state
+        )
+      }
+    />
   )
 
   if (!tooltip) {

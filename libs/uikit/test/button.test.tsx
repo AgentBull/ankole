@@ -129,4 +129,25 @@ describe('Button', () => {
     expect(html).not.toContain('disabled=""')
     expect(html).not.toContain('aria-disabled')
   })
+
+  test('makes an Agent wait for the person before it presses a destructive button', () => {
+    expect(renderToStaticMarkup(<Button variant="destructive">Delete</Button>)).toContain(
+      'data-agent-confirm="Makes a change that cannot be undone."'
+    )
+    expect(
+      renderToStaticMarkup(
+        <Button variant="destructive" data-agent-confirm="Deletes the page">
+          Delete
+        </Button>
+      )
+    ).toContain('data-agent-confirm="Deletes the page"')
+    for (const node of [
+      <Button key="plain">Save</Button>,
+      <Button key="opted-out" variant="destructive" data-agent-confirm={false}>
+        Remove filter
+      </Button>
+    ]) {
+      expect(renderToStaticMarkup(node)).not.toContain('data-agent-confirm')
+    }
+  })
 })

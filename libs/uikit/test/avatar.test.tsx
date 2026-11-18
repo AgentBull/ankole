@@ -37,6 +37,8 @@ test('keeps one shape: the picture, the initials fill, and the hairline edge tak
   expect(avatar).toContain('rounded-[7px]')
   expect(avatar).not.toContain('rounded-full')
   expect(avatar).toEqual(expect.arrayContaining(['after:border', 'after:rounded-[inherit]']))
+  // The edge blends with the picture only, never with the page behind the avatar.
+  expect(avatar).toEqual(expect.arrayContaining(['isolate', 'after:mix-blend-darken']))
   expect(avatar).not.toContain('after:rounded-full')
   expect(classesOf(tagWith(html, 'data-slot="avatar-fallback"'))).toContain('rounded-[inherit]')
   // Without a radius of its own the avatar is round.

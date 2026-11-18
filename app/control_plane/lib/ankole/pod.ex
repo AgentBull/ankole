@@ -132,6 +132,7 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.RunnerBrowser)
     resource(Ankole.Pod.WebPushBrowser)
     resource(Ankole.Pod.WebPushSubscription)
+    resource(Ankole.Pod.AgentUIRequest)
 
     resource Ankole.Pod.Page do
       define(:get_page_record, action: :read, get_by: [:id], not_found_error?: false)

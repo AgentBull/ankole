@@ -4770,6 +4770,14 @@ prompt_dismiss = "暂不"
 untitled = "会话"
 new_comments = "有新评论"
 
+[pod.agent_ui]
+browser_assistant = "浏览器助手"
+confirm_title = "允许 {$agent} 执行这项操作吗？"
+confirm_description = "请求的操作：在「{$control}」上执行 {$action}。这个控件的操作始终需要你确认。"
+confirm_press = "请求的操作：按下「{$control}」。这个控件的操作始终需要你确认。"
+allow = "允许"
+deny = "不允许"
+
 [pod.settings]
 description = "管理空间形象、成员、访问权限和集成。"
 navigation = "空间设置分区"

@@ -76,6 +76,9 @@ function isIcon(child: ReactNode, loading: boolean) {
   return loading || hidden === true || hidden === 'true' || child.props['data-icon'] !== undefined
 }
 
+// What ui-sdk's agent bridge tells a person about a destructive button, so the step waits for their approval.
+const destructiveAgentConfirm = 'Makes a change that cannot be undone.'
+
 function ignoreClick(event: MouseEvent) {
   event.preventDefault()
 }
@@ -87,6 +90,9 @@ function ignoreClick(event: MouseEvent) {
  * so keyboard focus does not jump while the work finishes. A busy button keeps its width: a leading icon turns
  * into the spinner, a text label shimmers, and nothing is added beside them. Setting `aria-busy` alone gives the
  * same look and leaves click handling to the caller.
+ *
+ * A destructive button carries `data-agent-confirm`, so an Agent's press waits for the person. A caller can pass its
+ * own sentence, or `false` to let Agents press it without asking.
  */
 function Button({
   className,
@@ -97,12 +103,14 @@ function Button({
   incomplete = false,
   variant = 'default',
   size = 'default',
+  'data-agent-confirm': agentConfirm = variant === 'destructive' && destructiveAgentConfirm,
   onClick,
   render,
   ...props
 }: Omit<ComponentProps<typeof ButtonPrimitive>, 'children'> &
   VariantProps<typeof buttonVariants> & {
     children?: ReactNode
+    'data-agent-confirm'?: string | false
     'data-slot'?: string
     incomplete?: boolean
     loading?: boolean
@@ -116,6 +124,7 @@ function Button({
   return (
     <ButtonPrimitive
       aria-busy={loading ? true : busy}
+      data-agent-confirm={agentConfirm === false ? undefined : agentConfirm}
       data-incomplete={incomplete || undefined}
       data-loading={loading || undefined}
       onClick={loading ? ignoreClick : onClick}
@@ -163,4 +172,4 @@ function Button({
   )
 }
 
-export { Button, buttonVariants }
+export { Button, buttonVariants, destructiveAgentConfirm }
