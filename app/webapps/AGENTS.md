@@ -37,3 +37,5 @@ Generated OpenAPI specs and clients are never edited by hand. To change an API c
 ## Dynamic SaaS modules and slots
 
 A dynamic SaaS module contributes Console and Pod slots through its module declaration, which the build discovers and merges with any explicit root slots. A Console extension page uses the same routing, tenant context, list, editor, and form primitives and `@ankole/uikit` components as a built-in Console route, so that site-scoped and tenant-scoped pages behave alike, and it declares which scope each route belongs to.
+
+Shared declarative containers in the host expose only small, orthogonal UI blocks and typed step transitions with no domain knowledge. Keep protocol flows, external input parsing, credential redaction, and dynamic step logic in control-plane actions rather than adding feature-specific modes to the host.

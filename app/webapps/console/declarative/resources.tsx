@@ -36,11 +36,12 @@ import {
   useDeclarativeVisibility,
   type DeclarativeRecord
 } from './transport'
-import type {
-  DeclarativeConsoleManifest,
-  DeclarativeRouteSpec,
-  DeclarativeRowActionDescriptor,
-  DeclarativeSurfaceDescriptor
+import {
+  isSensitiveField,
+  type DeclarativeConsoleManifest,
+  type DeclarativeRouteSpec,
+  type DeclarativeRowActionDescriptor,
+  type DeclarativeSurfaceDescriptor
 } from './types'
 import { DeclarativeWizardTrigger } from './wizard'
 
@@ -70,7 +71,7 @@ function buildRowPrefillPayload(
 
   if (actionSurface.operationKind === 'update' || actionSurface.method === 'PATCH' || actionSurface.method === 'PUT') {
     for (const field of actionSurface.fields) {
-      if (!field.readOnly && field.type !== 'secret' && field.name in row) {
+      if (!field.readOnly && !isSensitiveField(field) && field.name in row) {
         prefill[field.name] = row[field.name]
       }
     }
@@ -726,7 +727,7 @@ function DeclarativeResourceEditorView({
   const editableFields = surface.fields.filter(field => mode !== 'edit' || field.name !== 'id')
   const initialValues = Object.fromEntries(
     editableFields
-      .filter(field => field.type !== 'secret' && record && field.name in record)
+      .filter(field => !isSensitiveField(field) && record && field.name in record)
       .map(field => [field.name, record?.[field.name]])
   )
   const mergedDraft = withFieldDefaults(surface.fields, { ...initialValues, ...draft })

@@ -21,6 +21,7 @@ export type DeclarativeEnvelope = 'jsonapi' | 'data' | 'flat'
 
 export type DeclarativeFieldType =
   | 'string'
+  | 'textarea'
   | 'integer'
   | 'number'
   | 'boolean'
@@ -39,6 +40,7 @@ export interface DeclarativeFieldDescriptor {
   readonly labelKey: string
   readonly required: boolean
   readonly readOnly: boolean
+  readonly sensitive?: boolean
   readonly enumValues?: readonly string[]
   readonly defaultValue?: unknown
   readonly descriptionKey?: string
@@ -50,8 +52,11 @@ export interface DeclarativeFieldDescriptor {
   readonly valueLabelKey?: string
   readonly valueType?: 'string' | 'number'
   readonly inputUnit?: 'date' | 'datetime'
-  readonly multiline?: boolean
   readonly expiryPresets?: readonly number[]
+}
+
+export function isSensitiveField(field: Pick<DeclarativeFieldDescriptor, 'type' | 'sensitive'>): boolean {
+  return Boolean(field.sensitive) || field.type === 'secret'
 }
 
 export interface DeclarativeFilterSchema {
@@ -81,43 +86,55 @@ export interface DeclarativeRuleSection {
   readonly treeConfig?: DeclarativeRuleTreeConfig
 }
 
-export interface DeclarativeOAuthPkceConfig {
-  readonly authorizeEndpoint: string
-  readonly clientId: string
-  readonly scope: string
-  readonly verifierField: string
-  readonly callbackField: string
-  readonly redirectUriField: string
-  readonly attrsField?: string
+export interface WizardRowSelectionConfig {
+  readonly field: string
+  readonly rowKeyField: string
+  readonly selectableField?: string
 }
 
-export interface DeclarativeBatchLinesConfig {
-  readonly listField: string
-  readonly textField: string
+export interface WizardRowFilterConfig {
+  readonly field: string
+  readonly rowKeyField: string
+}
+
+export interface WizardFieldsBlock {
+  readonly kind: 'fields'
+  readonly fields: readonly DeclarativeFieldDescriptor[]
+}
+
+export interface WizardExternalLinkBlock {
+  readonly kind: 'external_link'
   readonly urlField: string
-  readonly nameField: string
-  readonly schemeField: string
-  readonly schemes: readonly string[]
+  readonly openLabelKey: string
 }
 
-export interface DeclarativeActionPreviewConfig {
-  readonly itemsField?: string
-  readonly selection?: {
-    readonly field: string
-    readonly rowKeyField: string
-    readonly selectableField?: string
-  }
+export interface WizardDataTableBlock {
+  readonly kind: 'data_table'
+  readonly rowsField: string
+  readonly columns: readonly string[]
+  readonly selection?: WizardRowSelectionConfig
+  readonly filterBySelection?: WizardRowFilterConfig
+}
+
+export interface WizardSummaryBlock {
+  readonly kind: 'summary'
+  readonly fields: readonly string[]
+}
+
+export type WizardBlock = WizardFieldsBlock | WizardExternalLinkBlock | WizardDataTableBlock | WizardSummaryBlock
+
+export interface WizardStepTransition {
+  readonly actionSurfaceId: string
+  readonly inputFields: readonly string[]
+  readonly outputMap: Readonly<Record<string, string>>
+  readonly resetFields?: readonly string[]
 }
 
 export interface DeclarativeStepSchema {
   readonly id: string
   readonly labelKey: string
-  readonly kind?: 'form' | 'oauth_pkce' | 'batch_lines' | 'preview_items' | 'confirm'
-  readonly fields: readonly DeclarativeFieldDescriptor[]
-  readonly oauthConfig?: DeclarativeOAuthPkceConfig
-  readonly batchLinesConfig?: DeclarativeBatchLinesConfig
-  readonly actionSurfaceId?: string
-  readonly actionPreview?: DeclarativeActionPreviewConfig
+  readonly blocks: readonly WizardBlock[]
+  readonly transition?: WizardStepTransition
 }
 
 export type DeclarativeRowActionDescriptor =

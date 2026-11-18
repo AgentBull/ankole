@@ -6,13 +6,12 @@ import { normalizeSeriesPoints } from './charts'
 import { buildKeyValueRecord, DeclarativeFields, formatKeyValueEntry } from './fields'
 import { resolveRouteTabSelection } from './resources'
 import {
-  applyWizardPreview,
-  executeWizardStep,
-  parseBatchLine,
-  redactBatchLine,
+  canBlockAdvance,
+  executeStepTransition,
   redactUrlCredentials,
-  toggleWizardPreviewRow,
-  WizardActionTable
+  selectedRowIds,
+  toggleTableSelectionRow,
+  WizardBlockRenderer
 } from './wizard'
 import {
   executeDeclarativeAction,
@@ -21,11 +20,14 @@ import {
   serializeDeclarativeFields,
   serializeNullablePatchPayload
 } from './transport'
-import type {
-  DeclarativeConsoleManifest,
-  DeclarativeFieldDescriptor,
-  DeclarativeRuleSection,
-  DeclarativeSurfaceDescriptor
+import {
+  isSensitiveField,
+  type DeclarativeConsoleManifest,
+  type DeclarativeFieldDescriptor,
+  type DeclarativeRuleSection,
+  type DeclarativeSurfaceDescriptor,
+  type WizardDataTableBlock,
+  type WizardStepTransition
 } from './types'
 import { createDeclarativeConsoleModule } from './index'
 
@@ -447,231 +449,265 @@ const PREVIEW_ACTION: DeclarativeSurfaceDescriptor = {
   kind: 'action',
   operationKind: 'action',
   method: 'POST',
+  payloadEnvelope: 'data',
   responseEnvelope: 'flat',
   columns: ['widget_name', 'details', 'access_key'],
   fields: [
-    { name: 'source', type: 'string', labelKey: 'source', required: true, readOnly: false },
+    { name: 'source', type: 'textarea', sensitive: true, labelKey: 'source', required: true, readOnly: false },
     { name: 'access_key', type: 'secret', labelKey: 'access_key', required: false, readOnly: true }
   ]
 }
 
-test('wizard step executes the visible action and renders the preview table shared by confirmation', async () => {
+test('DeclarativeFields renders sensitive textarea controls without echoing secrets', async () => {
+  expect(isSensitiveField({ type: 'textarea', sensitive: true })).toBe(true)
+  expect(isSensitiveField({ type: 'textarea' })).toBe(false)
+  expect(isSensitiveField({ type: 'secret' })).toBe(true)
+
   const i18n = i18next.createInstance()
-  await i18n.init({ lng: 'en', resources: { en: { translation: { 'widgets.field.widget_name': 'Widget' } } } })
-  const preview = await executeWizardStep(
-    {
-      surfaceById: new Map([[PREVIEW_ACTION.id, PREVIEW_ACTION]]),
-      visibleIds: new Set([PREVIEW_ACTION.surface]),
-      onExecute: async (action, payload) => {
-        expect(action).toBe(PREVIEW_ACTION)
-        expect(payload).toEqual({ source: 'widget input' })
-        return [
-          {
-            id: 'internal-id',
-            widget_name: 'Blue widget',
-            details: 'https://demo:synthetic@example.test/',
-            access_key: 'private key',
-            private_value: 'private'
-          }
-        ]
-      }
-    },
-    PREVIEW_ACTION.id,
-    { source: 'widget input', unrelated: 'draft only' }
-  )
-  expect(preview.columns).toEqual(['widget_name', 'details'])
-  expect(preview.rows.map(row => row.cells)).toEqual([
-    { widget_name: 'Blue widget', details: 'https://***@example.test/' }
-  ])
+  await i18n.init({ lng: 'en', resources: { en: { translation: {} } } })
   const html = renderToStaticMarkup(
     <I18nextProvider i18n={i18n}>
-      <WizardActionTable i18nPrefix="widgets" preview={preview} />
+      <DeclarativeFields draft={{ source: 'line-one\nline-two' }} fields={PREVIEW_ACTION.fields} onChange={() => {}} />
     </I18nextProvider>
   )
-  expect(html).toContain('>Widget</th>')
-  expect(html).toContain('>Details</th>')
-  expect(html).toContain('>Blue widget</td>')
-  expect(html).toContain('>https://***@example.test/</td>')
-  expect(html).not.toContain('private')
+  expect(html).toContain('<textarea')
+  expect(html).toContain('autoComplete="off"')
+  expect(html).not.toContain('spellCheck="true"')
+  expect(html).toContain('line-one')
 })
 
-test('wizard step rejects unknown and hidden actions before execution and reports request failures', async () => {
+test('executeStepTransition maps explicit outputs, resets declared keys, and rejects missing or hidden actions', async () => {
   let calls = 0
   const scope = {
     surfaceById: new Map([[PREVIEW_ACTION.id, PREVIEW_ACTION]]),
     visibleIds: new Set<string>(),
-    onExecute: async () => {
+    onExecute: async (action: DeclarativeSurfaceDescriptor, payload: Record<string, unknown>) => {
       calls++
-      throw new Error('Preview unavailable')
+      expect(action).toBe(PREVIEW_ACTION)
+      expect(payload).toEqual({ source: 'widget input' })
+      return [
+        {
+          items: [
+            {
+              id: 'first',
+              widget_name: 'Blue widget',
+              details: 'https://demo:synthetic@example.test/',
+              selectable: true
+            }
+          ],
+          source_digest: 'digest-1'
+        }
+      ]
     }
   }
-  await expect(executeWizardStep(scope, 'missing', {})).rejects.toThrow('Unknown wizard action')
-  await expect(executeWizardStep(scope, PREVIEW_ACTION.id, {})).rejects.toThrow('Unauthorized')
+  const transition: WizardStepTransition = {
+    actionSurfaceId: PREVIEW_ACTION.id,
+    inputFields: ['source'],
+    resetFields: ['selected_widget_ids'],
+    outputMap: {
+      preview_rows: 'items',
+      source_digest: 'source_digest'
+    }
+  }
+
+  await expect(executeStepTransition(scope, { ...transition, actionSurfaceId: 'missing' }, {})).rejects.toThrow(
+    'Unknown wizard action'
+  )
+  await expect(executeStepTransition(scope, transition, { source: 'widget input' })).rejects.toThrow(
+    'Unauthorized wizard action'
+  )
   expect(calls).toBe(0)
 
   scope.visibleIds.add(PREVIEW_ACTION.surface)
-  await expect(executeWizardStep(scope, PREVIEW_ACTION.id, {})).rejects.toThrow('Preview unavailable')
+  const nextState = await executeStepTransition(scope, transition, {
+    source: 'widget input',
+    unrelated: 'draft only',
+    selected_widget_ids: ['stale']
+  })
   expect(calls).toBe(1)
-})
-
-test('wizard preview unwraps flat result envelopes while preserving regular action rows', async () => {
-  const entries = [{ widget_name: 'Blue widget' }, { widget_name: 'Red widget' }]
-  const preview = (result: unknown, itemsField?: string, action = PREVIEW_ACTION) =>
-    executeWizardStep(
+  expect(nextState).toEqual({
+    source: 'widget input',
+    unrelated: 'draft only',
+    source_digest: 'digest-1',
+    preview_rows: [
       {
-        surfaceById: new Map([[action.id, action]]),
-        visibleIds: new Set([action.surface]),
-        onExecute: async () => normalizeDeclarativeResponse(result, action.responseEnvelope)
-      },
-      action.id,
-      { source: 'widgets' },
-      { config: itemsField ? { itemsField } : undefined }
-    )
-  for (const result of [entries, { items: entries }]) {
-    expect((await preview(result)).rows.map(row => row.cells.widget_name)).toEqual(['Blue widget', 'Red widget'])
-  }
-  expect((await preview(entries[0])).rows[0]?.cells.widget_name).toBe('Blue widget')
-  expect((await preview({ items: [] })).rows).toEqual([])
-  expect((await preview({ entries }, 'entries')).rows).toHaveLength(2)
-  const resource = { data: { id: 'batch-1', attributes: { widget_name: 'Widget batch', items: entries } } }
-  const jsonapi = { ...PREVIEW_ACTION, responseEnvelope: 'jsonapi' } satisfies DeclarativeSurfaceDescriptor
-  expect((await preview(resource, undefined, jsonapi)).rows.map(row => row.cells.widget_name)).toEqual(['Widget batch'])
+        id: 'first',
+        widget_name: 'Blue widget',
+        details: 'https://demo:synthetic@example.test/',
+        selectable: true
+      }
+    ]
+  })
 })
 
-test('wizard form preview carries declared metadata and commits only checked widget rows', async () => {
-  const fields: DeclarativeFieldDescriptor[] = [
-    { name: 'source', type: 'secret', labelKey: 'source', required: true, readOnly: false, multiline: true },
+test('executeStepTransition normalizes jsonapi resource records alongside items', async () => {
+  const resource = { data: { id: 'batch-1', attributes: { widget_name: 'Widget batch', count: 2 } } }
+  const jsonapiAction: DeclarativeSurfaceDescriptor = {
+    ...PREVIEW_ACTION,
+    payloadEnvelope: 'jsonapi',
+    responseEnvelope: 'jsonapi'
+  }
+  const nextState = await executeStepTransition(
+    {
+      surfaceById: new Map([[jsonapiAction.id, jsonapiAction]]),
+      visibleIds: new Set([jsonapiAction.surface]),
+      onExecute: async () => normalizeDeclarativeResponse(resource, jsonapiAction.responseEnvelope)
+    },
+    {
+      actionSurfaceId: jsonapiAction.id,
+      inputFields: ['source'],
+      outputMap: { widget_name: 'widget_name', rows: '$records' }
+    },
+    { source: 'widgets' }
+  )
+  expect(nextState.widget_name).toBe('Widget batch')
+  expect(Array.isArray(nextState.rows)).toBe(true)
+})
+
+test('WizardBlockRenderer renders external_link, selectable/filtered data_table, and redacted summary blocks', async () => {
+  const wizardFields: DeclarativeFieldDescriptor[] = [
+    { name: 'source', type: 'textarea', sensitive: true, labelKey: 'source', required: true, readOnly: false },
     { name: 'revision', type: 'string', labelKey: 'revision', required: true, readOnly: false },
-    { name: 'count', type: 'integer', labelKey: 'count', required: true, readOnly: false },
-    { name: 'verified', type: 'boolean', labelKey: 'verified', required: true, readOnly: false },
-    { name: 'operator', type: 'string', labelKey: 'operator', required: false, readOnly: true },
-    { name: 'chosen_widgets', type: 'string_array', labelKey: 'chosen_widgets', required: true, readOnly: false }
+    {
+      name: 'selected_widget_ids',
+      type: 'string_array',
+      labelKey: 'selected_widget_ids',
+      required: true,
+      readOnly: false
+    },
+    { name: 'endpoint', type: 'string', labelKey: 'endpoint', required: false, readOnly: false }
   ]
-  const action = { ...PREVIEW_ACTION, fields: fields.slice(0, 1) }
+  const tableBlock: WizardDataTableBlock = {
+    kind: 'data_table',
+    rowsField: 'preview_rows',
+    columns: ['widget_name', 'details', 'source'],
+    selection: { field: 'selected_widget_ids', rowKeyField: 'id', selectableField: 'selectable' }
+  }
+  const filteredBlock: WizardDataTableBlock = {
+    kind: 'data_table',
+    rowsField: 'preview_rows',
+    columns: ['widget_name', 'details'],
+    filterBySelection: { field: 'selected_widget_ids', rowKeyField: 'id' }
+  }
+
+  let draft: Record<string, unknown> = {
+    source: 'hidden yaml payload',
+    revision: 'rev-a',
+    endpoint: 'https://demo:synthetic@example.test/',
+    authorize_url: 'https://auth.example.test/authorize?state=abc',
+    preview_rows: [
+      {
+        id: 'first',
+        widget_name: 'Same Name',
+        details: 'https://demo:synthetic@example.test/one',
+        source: 'never show',
+        selectable: true
+      },
+      {
+        id: 'second',
+        widget_name: 'Same Name',
+        details: 'https://demo:synthetic@example.test/two',
+        source: 'never show',
+        selectable: true
+      },
+      {
+        id: 'invalid',
+        widget_name: 'Invalid widget',
+        details: 'invalid',
+        source: 'never show',
+        selectable: false
+      }
+    ],
+    selected_widget_ids: []
+  }
+
+  expect(canBlockAdvance(tableBlock, draft)).toBe(false)
+  draft = toggleTableSelectionRow(draft, tableBlock, 'first', true)
+  draft = toggleTableSelectionRow(draft, tableBlock, 'second', true)
+  draft = toggleTableSelectionRow(draft, tableBlock, 'first', false)
+  draft = toggleTableSelectionRow(draft, tableBlock, 'invalid', true)
+  expect(selectedRowIds(draft, 'selected_widget_ids')).toEqual(['second'])
+  expect(canBlockAdvance(tableBlock, draft)).toBe(true)
+
+  const i18n = i18next.createInstance()
+  await i18n.init({ lng: 'en', resources: { en: { translation: { 'widgets.field.widget_name': 'Widget' } } } })
+
+  const tableHtml = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <WizardBlockRenderer
+        block={tableBlock}
+        i18nPrefix="widgets"
+        state={draft}
+        surfaceFields={wizardFields}
+        onStateChange={() => {}}
+      />
+    </I18nextProvider>
+  )
+  expect(tableHtml.match(/role="checkbox"/g)).toHaveLength(3)
+  expect(tableHtml).toMatch(/<button(?=[^>]*aria-label="Select row 3")(?=[^>]*aria-disabled="true")/)
+  expect(tableHtml).toContain('>Widget</th>')
+  expect(tableHtml).toContain('https://***@example.test/one')
+  expect(tableHtml).not.toContain('synthetic')
+  expect(tableHtml).not.toContain('never show')
+
+  const filteredHtml = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <>
+        <WizardBlockRenderer
+          block={filteredBlock}
+          i18nPrefix="widgets"
+          state={draft}
+          surfaceFields={wizardFields}
+          onStateChange={() => {}}
+        />
+        <WizardBlockRenderer
+          block={{ kind: 'external_link', urlField: 'authorize_url', openLabelKey: 'widgets.open' }}
+          i18nPrefix="widgets"
+          state={draft}
+          surfaceFields={wizardFields}
+          onStateChange={() => {}}
+        />
+        <WizardBlockRenderer
+          block={{ kind: 'summary', fields: ['source', 'revision', 'endpoint'] }}
+          i18nPrefix="widgets"
+          state={draft}
+          surfaceFields={wizardFields}
+          onStateChange={() => {}}
+        />
+      </>
+    </I18nextProvider>
+  )
+  expect(filteredHtml.match(/>Same Name<\/td>/g)).toHaveLength(1)
+  expect(filteredHtml).not.toContain('Invalid widget')
+  expect(filteredHtml).toContain('https://auth.example.test/authorize?state=abc')
+  expect(filteredHtml).toContain('rev-a')
+  expect(filteredHtml).toContain('https://***@example.test/')
+  expect(filteredHtml).not.toContain('hidden yaml payload')
+  expect(filteredHtml).not.toContain('synthetic')
+
   const wizard: DeclarativeSurfaceDescriptor = {
-    ...action,
+    ...PREVIEW_ACTION,
     id: 'import-widgets',
     kind: 'wizard',
     endpoint: '/api/v2/fixture-site/widgets/import',
-    payloadEnvelope: 'data',
-    fields,
-    stepSchemas: [
-      {
-        id: 'enter_widgets',
-        labelKey: 'enter_widgets',
-        kind: 'form',
-        fields: action.fields,
-        actionSurfaceId: action.id,
-        actionPreview: { selection: { field: 'chosen_widgets', rowKeyField: 'id' } }
-      },
-      { id: 'choose_widgets', labelKey: 'choose_widgets', kind: 'preview_items', fields: [] },
-      { id: 'confirm_widgets', labelKey: 'confirm_widgets', kind: 'confirm', fields: [] }
-    ]
+    fields: wizardFields
   }
-  const step = wizard.stepSchemas[0]
-  if (step?.kind !== 'form' || !step.actionSurfaceId) throw new Error('Missing form preview action')
-  const source = 'widget: first\nwidget: second\n'
-  const result = {
-    items: [
-      { id: 'first', widget_name: 'Same Name', selectable: true },
-      { id: 'second', widget_name: 'Same Name', selectable: true },
-      { id: 'invalid', widget_name: 'Invalid widget', selectable: false }
-    ],
-    revision: 'rev-a',
-    count: 0,
-    verified: false,
-    source: 'secret response',
-    operator: 'read only',
-    unknown: 'undeclared'
-  }
-  const preview = await executeWizardStep(
-    {
-      surfaceById: new Map([[action.id, action]]),
-      visibleIds: new Set([action.surface]),
-      onExecute: async (target, payload) => {
-        expect(target).toBe(action)
-        expect(payload).toEqual({ source })
-        return normalizeDeclarativeResponse(result, 'flat')
-      }
-    },
-    step.actionSurfaceId,
-    { source },
-    { config: step.actionPreview, fields: wizard.fields }
-  )
-  expect(preview.carryForward).toEqual({ revision: 'rev-a', count: 0, verified: false })
-  expect(preview.rows.map(({ id, selectable }) => [id, selectable])).toEqual([
-    ['first', true],
-    ['second', true],
-    ['invalid', false]
-  ])
-  let draft = applyWizardPreview({ source }, preview)
-  draft = toggleWizardPreviewRow(draft, preview, 'first', true)
-  draft = toggleWizardPreviewRow(draft, preview, 'second', true)
-  draft = toggleWizardPreviewRow(draft, preview, 'first', false)
-  draft = toggleWizardPreviewRow(draft, preview, 'invalid', true)
-  expect(draft.chosen_widgets).toEqual(['second'])
-
-  const i18n = i18next.createInstance()
-  await i18n.init({ lng: 'en', resources: { en: { translation: {} } } })
-  const render = (selecting: boolean) =>
-    renderToStaticMarkup(
-      <I18nextProvider i18n={i18n}>
-        <WizardActionTable
-          i18nPrefix="widgets"
-          preview={preview}
-          selectedIds={['second']}
-          onToggle={selecting ? () => {} : undefined}
-        />
-      </I18nextProvider>
-    )
-  const previewHtml = render(true)
-  expect(previewHtml.match(/role="checkbox"/g)).toHaveLength(3)
-  expect(previewHtml).toMatch(/<button(?=[^>]*aria-label="Select row 3")(?=[^>]*aria-disabled="true")/)
-  expect(render(false).match(/>Same Name<\/td>/g)).toHaveLength(1)
-  expect(render(false)).not.toContain('Invalid widget')
-
   const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ imported: 1 }))
   try {
     await executeDeclarativeAction(wizard, serializeDeclarativeFields(wizard, draft))
     const [endpoint, options] = fetchSpy.mock.calls[0] ?? []
     expect(endpoint).toBe(wizard.endpoint)
     expect(JSON.parse(String(options?.body))).toEqual({
-      data: { source, revision: 'rev-a', count: 0, verified: false, chosen_widgets: ['second'] }
+      data: {
+        source: 'hidden yaml payload',
+        revision: 'rev-a',
+        selected_widget_ids: ['second'],
+        endpoint: 'https://demo:synthetic@example.test/'
+      }
     })
   } finally {
     fetchSpy.mockRestore()
   }
-  expect(
-    applyWizardPreview(
-      { ...draft, source: 'new widget input' },
-      {
-        ...preview,
-        carryForward: { revision: 'rev-b' }
-      }
-    )
-  ).toMatchObject({ source: 'new widget input', revision: 'rev-b', chosen_widgets: [] })
-})
-
-test('parseBatchLine keeps the name and scheme while sending the original endpoint', () => {
-  const cfg = { urlField: 'endpoint_url', nameField: 'name', schemeField: 'protocol', schemes: ['http', 'https'] }
-  const row = parseBatchLine('Widget|demo:synthetic@example.test:8080', 'https', cfg)
-  expect(row).toEqual({
-    name: 'Widget',
-    protocol: 'https',
-    endpoint_url: 'https://demo:synthetic@example.test:8080/'
-  })
-  expect(redactUrlCredentials(row.endpoint_url!)).toBe('https://***@example.test:8080/')
-})
-
-test('parseBatchLine redacts embedded credentials on invalid schemes and malformed URLs', () => {
-  const cfg = { urlField: 'endpoint_url', nameField: 'name', schemeField: 'protocol', schemes: ['http', 'https'] }
-  expect(() => parseBatchLine('ftp://alice:s3cr3t@proxy.internal:8080', 'http', cfg)).toThrow(
-    'Invalid entry: ftp://***@proxy.internal:8080'
-  )
-  expect(() => parseBatchLine('edge|http://alice:s3cr3t@[broken', 'http', cfg)).toThrow(
-    'Invalid entry: edge|http://***@[broken'
-  )
-  expect(redactBatchLine('edge|alice:s3cr3t@bad host')).toBe('edge|***@bad host')
 })
 
 test('tabbed routes surface secondary permitted tabs and fall back from unauthorized tab params', async () => {

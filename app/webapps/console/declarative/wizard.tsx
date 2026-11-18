@@ -1,292 +1,97 @@
-import {
-  Button,
-  Checkbox,
-  CopyButton,
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Input,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-  Textarea,
-  toast
-} from '@ankole/uikit'
-import { useMemo, useRef, useState } from 'react'
+import { Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@ankole/uikit'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { LabeledField } from '../console-form'
-import { DeclarativeFields, DeclarativeSelect } from './fields'
 import {
   actionResponseEnvelope,
-  asRecord,
   formatIdentifierLabel,
-  isRecord,
   serializeDeclarativeFields,
-  withFieldDefaults
+  withFieldDefaults,
+  type DeclarativeRecord
 } from './transport'
 import type {
-  DeclarativeActionPreviewConfig,
-  DeclarativeBatchLinesConfig,
   DeclarativeFieldDescriptor,
-  DeclarativeOAuthPkceConfig,
-  DeclarativeSurfaceDescriptor
+  DeclarativeStepSchema,
+  DeclarativeSurfaceDescriptor,
+  WizardStepTransition
 } from './types'
+import {
+  canBlockAdvance,
+  redactUrlCredentials,
+  selectedRowIds,
+  toggleTableSelectionRow,
+  WizardBlockRenderer
+} from './wizard-blocks'
 
-export type ParsedBatchItem = Readonly<Record<string, string>>
+export { canBlockAdvance, redactUrlCredentials, selectedRowIds, toggleTableSelectionRow, WizardBlockRenderer }
 
-export function redactBatchLine(raw: string): string {
-  const trimmed = raw.trim()
-  const pipeIdx = trimmed.indexOf('|')
-  const prefix = pipeIdx >= 0 ? trimmed.slice(0, pipeIdx + 1) : ''
-  const target = (pipeIdx >= 0 ? trimmed.slice(pipeIdx + 1) : trimmed).trim()
-  const sanitizedTarget = redactUrlCredentials(target).replace(/((?:^|\/\/))[^/\s:@]+:[^/\s@]+@/g, '$1***@')
-  return prefix ? `${prefix}${sanitizedTarget}` : sanitizedTarget
-}
-
-export function parseBatchLine(
-  line: string,
-  defaultScheme: string,
-  config: Pick<DeclarativeBatchLinesConfig, 'urlField' | 'nameField' | 'schemeField' | 'schemes'>
-): ParsedBatchItem {
-  const trimmed = line.trim()
-  const [left, right] = trimmed.includes('|') ? trimmed.split('|', 2) : [undefined, trimmed]
-  const rawTarget = (right ?? trimmed).trim()
-  const url = rawTarget.includes('://') ? rawTarget : `${defaultScheme}://${rawTarget}`
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    throw new Error(`Invalid entry: ${redactBatchLine(trimmed)}`)
-  }
-  const scheme = parsed.protocol.replace(/:$/, '')
-  if (!config.schemes.includes(scheme) || !parsed.hostname) {
-    throw new Error(`Invalid entry: ${redactBatchLine(trimmed)}`)
-  }
-  return {
-    [config.urlField]: parsed.href,
-    [config.nameField]: left?.trim() || `${parsed.hostname}:${parsed.port || (scheme === 'https' ? 443 : 80)}`,
-    [config.schemeField]: scheme
-  }
-}
-
-function base64Url(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
-}
-
-async function createPkceChallenge(verifier: string): Promise<string> {
-  if (typeof crypto === 'undefined' || !crypto.subtle) return verifier
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
-  return base64Url(new Uint8Array(digest))
-}
-
-function generateRandomToken(byteCount: number): string {
-  if (typeof crypto === 'undefined') return 'local-token'
-  const bytes = new Uint8Array(byteCount)
-  crypto.getRandomValues(bytes)
-  return base64Url(bytes)
-}
-
-interface PkceSession {
-  readonly verifier: string
-  readonly state: string
-  readonly authorizeUrl: string
-}
-
-export function redactUrlCredentials(rawUrl: string): string {
-  try {
-    const parsed = new URL(rawUrl)
-    if (!parsed.username && !parsed.password) return parsed.href
-    return `${parsed.protocol}//***@${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`
-  } catch {
-    return rawUrl.replace(/\/\/[^/@\s]+@/, '//***@')
-  }
-}
-
-function sanitizeConfirmValue(value: unknown): string {
-  if (typeof value === 'string') return /^https?:\/\/|^socks5?:\/\//i.test(value) ? redactUrlCredentials(value) : value
-  return (
-    JSON.stringify(value, (_key, nested) => (typeof nested === 'string' ? sanitizeConfirmValue(nested) : nested)) ?? ''
-  )
-}
-
-interface WizardPreviewRow {
-  readonly cells: Readonly<Record<string, string>>
-  readonly id?: string
-  readonly selectable: boolean
-}
-
-interface WizardActionPreview {
-  readonly columns: readonly string[]
-  readonly rows: readonly WizardPreviewRow[]
-  readonly carryForward: Readonly<Record<string, string | number | boolean>>
-  readonly selectionField?: string
-}
-
-interface WizardTriggerProps {
-  surface: DeclarativeSurfaceDescriptor
-  surfaceById: ReadonlyMap<string, DeclarativeSurfaceDescriptor>
-  visibleIds: ReadonlySet<string>
-  i18nPrefix?: string
-  onComplete?: () => void
-  onExecute: (
+export interface WizardExecutionScope {
+  readonly surfaceById: ReadonlyMap<string, DeclarativeSurfaceDescriptor>
+  readonly visibleIds: ReadonlySet<string>
+  readonly onExecute: (
     targetSurface: DeclarativeSurfaceDescriptor,
     payload: Record<string, unknown>
-  ) => Promise<readonly Record<string, unknown>[]>
+  ) => Promise<readonly DeclarativeRecord[]>
 }
 
-function selectedRowIds(draft: Readonly<Record<string, unknown>>, field: string | undefined): readonly string[] {
-  const value = field === undefined ? undefined : draft[field]
-  return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
+interface WizardTriggerProps extends WizardExecutionScope {
+  readonly surface: DeclarativeSurfaceDescriptor
+  readonly i18nPrefix?: string
+  readonly onComplete?: () => void
 }
 
-export function applyWizardPreview(draft: Readonly<Record<string, unknown>>, preview: WizardActionPreview) {
-  return {
-    ...draft,
-    ...preview.carryForward,
-    ...(preview.selectionField === undefined ? {} : { [preview.selectionField]: [] })
-  }
-}
-
-export function toggleWizardPreviewRow(
-  draft: Record<string, unknown>,
-  preview: WizardActionPreview,
-  id: string,
-  checked: boolean
-): Record<string, unknown> {
-  const field = preview.selectionField
-  if (field === undefined || !preview.rows.some(row => row.id === id && row.selectable)) return draft
-  const ids = new Set(selectedRowIds(draft, field))
-  if (checked) ids.add(id)
-  else ids.delete(id)
-  return { ...draft, [field]: [...ids] }
-}
-
-export async function executeWizardStep(
-  { surfaceById, visibleIds, onExecute }: Pick<WizardTriggerProps, 'surfaceById' | 'visibleIds' | 'onExecute'>,
-  actionSurfaceId: string,
-  draft: Readonly<Record<string, unknown>>,
-  {
-    config,
-    fields = []
-  }: { config?: DeclarativeActionPreviewConfig; fields?: readonly DeclarativeFieldDescriptor[] } = {}
-): Promise<WizardActionPreview> {
-  const action = surfaceById.get(actionSurfaceId)
-  if (action?.kind !== 'action') throw new Error(`Unknown wizard action: ${actionSurfaceId}`)
-  if (!visibleIds.has(action.surface)) throw new Error('Unauthorized')
-  const secretFields = new Set(
-    [...action.fields, ...fields].filter(field => field.type === 'secret').map(field => field.name)
-  )
-  const readOnlyFields = new Set(fields.filter(field => field.readOnly).map(field => field.name))
-  const writableFields = fields.filter(field => !secretFields.has(field.name) && !readOnlyFields.has(field.name))
-  const selection = config?.selection
-  const selectionField =
-    selection && writableFields.some(field => field.name === selection.field && field.type === 'string_array')
-      ? selection.field
-      : undefined
-  const rowKeyField = selectionField ? selection?.rowKeyField : undefined
-  const selectableField = selectionField ? (selection?.selectableField ?? 'selectable') : undefined
-  const columns = action.columns.filter(
-    column => !secretFields.has(column) && column !== rowKeyField && column !== selectableField
-  )
-  const result = await onExecute(action, serializeDeclarativeFields(action, draft))
-  const envelope =
-    result.length === 1 && (config?.itemsField || actionResponseEnvelope(action) === 'flat') ? result[0] : undefined
-  const items = envelope?.[config?.itemsField ?? 'items']
-  const carryForward: Record<string, string | number | boolean> = {}
-  if (envelope && Array.isArray(items)) {
-    for (const { name } of writableFields) {
-      if (!Object.hasOwn(envelope, name)) continue
-      const value = envelope[name]
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-        carryForward[name] = value
+function collectBlockFields(steps: readonly DeclarativeStepSchema[]): DeclarativeFieldDescriptor[] {
+  const collected: DeclarativeFieldDescriptor[] = []
+  for (const step of steps) {
+    for (const block of step.blocks) {
+      if (block.kind === 'fields') {
+        collected.push(...block.fields)
       }
     }
   }
-  const rows = Array.isArray(items) ? items.filter(isRecord) : result
-  return {
-    columns,
-    carryForward,
-    selectionField,
-    rows: rows.map(row => {
-      const key = rowKeyField === undefined ? undefined : row[rowKeyField]
-      const id = typeof key === 'string' && key !== '' ? key : undefined
-      return {
-        id,
-        selectable: id !== undefined && (selectableField === undefined || row[selectableField] !== false),
-        cells: Object.fromEntries(columns.map(column => [column, sanitizeConfirmValue(row[column])]))
-      }
-    })
-  }
+  return collected
 }
 
-export function WizardActionTable({
-  preview,
-  i18nPrefix,
-  selectedIds = [],
-  onToggle
-}: {
-  preview: WizardActionPreview
-  i18nPrefix: string
-  selectedIds?: readonly string[]
-  onToggle?: (id: string, checked: boolean) => void
-}) {
-  const { t } = useTranslation()
-  const showSelection = preview.selectionField !== undefined && onToggle !== undefined
-  const rows =
-    preview.selectionField && !showSelection
-      ? preview.rows.filter(row => row.selectable && row.id !== undefined && selectedIds.includes(row.id))
-      : preview.rows
-  if (preview.columns.length === 0 && !showSelection) return null
-  return (
-    <div className="overflow-x-auto border border-border-subtle">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            {showSelection ? (
-              <TableHead>{t(`${i18nPrefix}.ui.select_row`, { defaultValue: 'Select' })}</TableHead>
-            ) : null}
-            {preview.columns.map(column => (
-              <TableHead key={column}>
-                {t(`${i18nPrefix}.field.${column}`, { defaultValue: formatIdentifierLabel(column) })}
-              </TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row, index) => (
-            <TableRow key={row.id ?? index}>
-              {showSelection ? (
-                <TableCell>
-                  <Checkbox
-                    aria-label={t(`${i18nPrefix}.ui.select_row_number`, {
-                      defaultValue: 'Select row {{number}}',
-                      number: index + 1
-                    })}
-                    checked={row.id !== undefined && selectedIds.includes(row.id)}
-                    disabled={!row.selectable}
-                    onCheckedChange={checked => {
-                      if (row.selectable && row.id !== undefined) onToggle?.(row.id, checked === true)
-                    }}
-                  />
-                </TableCell>
-              ) : null}
-              {preview.columns.map(column => (
-                <TableCell key={column}>{row.cells[column]}</TableCell>
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  )
+export async function executeStepTransition(
+  { surfaceById, visibleIds, onExecute }: WizardExecutionScope,
+  transition: WizardStepTransition,
+  state: Readonly<Record<string, unknown>>
+): Promise<Record<string, unknown>> {
+  const action = surfaceById.get(transition.actionSurfaceId)
+  if (action?.kind !== 'action') {
+    throw new Error(`Unknown wizard action: ${transition.actionSurfaceId}`)
+  }
+  if (!visibleIds.has(action.surface)) {
+    throw new Error(`Unauthorized wizard action: ${action.id}`)
+  }
+
+  const inputDraft: Record<string, unknown> = {}
+  for (const fieldName of transition.inputFields) {
+    if (fieldName in state) {
+      inputDraft[fieldName] = state[fieldName]
+    }
+  }
+
+  const records = await onExecute(action, serializeDeclarativeFields(action, inputDraft))
+  const envelope = actionResponseEnvelope(action)
+  let responseObj: Readonly<Record<string, unknown>>
+  if (envelope === 'flat') {
+    responseObj = records.length === 1 && records[0] ? records[0] : { items: records }
+  } else {
+    responseObj = { items: records, ...(records.length === 1 ? records[0] : {}) }
+  }
+
+  const nextState: Record<string, unknown> = { ...state }
+  for (const fieldName of transition.resetFields ?? []) {
+    delete nextState[fieldName]
+  }
+  for (const [targetKey, sourceKey] of Object.entries(transition.outputMap)) {
+    if (sourceKey === '$records') {
+      nextState[targetKey] = records
+    } else if (sourceKey in responseObj) {
+      nextState[targetKey] = responseObj[sourceKey]
+    }
+  }
+  return nextState
 }
 
 export function DeclarativeWizardModal({
@@ -301,163 +106,42 @@ export function DeclarativeWizardModal({
 }: WizardTriggerProps & { open: boolean; onClose: () => void }) {
   const { t } = useTranslation()
   const steps = surface.stepSchemas
-  const secretFieldNames = new Set(
-    [...surface.fields, ...steps.flatMap(item => item.fields)]
-      .filter(field => field.type === 'secret')
-      .map(field => field.name)
-  )
-  const [stepIndex, setStepIndex] = useState(0)
-  const [draft, setDraft] = useState<Record<string, unknown>>(() =>
-    withFieldDefaults([...surface.fields, ...steps.flatMap(item => item.fields)])
-  )
+  const allWizardFields = [...surface.fields, ...collectBlockFields(steps)]
+  const [history, setHistory] = useState<readonly Record<string, unknown>[]>(() => [withFieldDefaults(allWizardFields)])
   const formRef = useRef<HTMLFormElement>(null)
-  const [defaultScheme, setDefaultScheme] = useState('http')
-  const [pkce, setPkce] = useState<PkceSession | null>(null)
-  const [previewItems, setPreviewItems] = useState<readonly ParsedBatchItem[]>([])
-  const [actionPreviews, setActionPreviews] = useState<readonly (WizardActionPreview | undefined)[]>([])
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const actionPreview = actionPreviews.findLast(item => item !== undefined)
-  const step = steps[stepIndex]
+  const stepIndex = steps.length === 0 ? 0 : Math.min(history.length - 1, steps.length - 1)
+  const currentStep = steps[stepIndex]
+  const currentState = history[stepIndex] ?? {}
   const isFinal = stepIndex >= steps.length - 1
-  const selectionField = actionPreview?.selectionField
-  const selectedIds = selectedRowIds(draft, selectionField)
-  const needsSelection = selectionField !== undefined && (step?.kind === 'preview_items' || isFinal)
-  const selectionMissing = needsSelection && selectedIds.length === 0
-  const oauthStep = steps.find(item => item.kind === 'oauth_pkce' && item.oauthConfig)?.oauthConfig
-  const batchStep = steps.find(item => item.kind === 'batch_lines' && item.batchLinesConfig)?.batchLinesConfig
+  const canAdvanceCurrentStep = currentStep
+    ? currentStep.blocks.every(block => canBlockAdvance(block, currentState))
+    : true
 
-  const batchParseResult = useMemo(() => {
-    if (!batchStep) return { items: [] as ParsedBatchItem[], error: null as string | null }
-    const text = String(draft[batchStep.textField] ?? '')
-    const items: ParsedBatchItem[] = []
-    for (const rawLine of text.split(/\r?\n/)) {
-      const trimmed = rawLine.trim()
-      if (!trimmed) continue
-      try {
-        items.push(parseBatchLine(trimmed, defaultScheme, batchStep))
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        return {
-          items,
-          error: message.replace(/((?:^|\/\/|\|\s*|\s))[^/\s:@|]+:[^/\s@|]+@/g, '$1***@')
-        }
-      }
-    }
-    return { items, error: null as string | null }
-  }, [batchStep, defaultScheme, draft])
-  const batchPreview = batchParseResult.items
-
-  const generateAuthorizeUrl = async (config: DeclarativeOAuthPkceConfig) => {
-    const rawRedirect = String(draft[config.redirectUriField] ?? '').trim()
-    if (!rawRedirect) throw new Error('Redirect URI is required before starting OAuth authorization')
-    const redirectUri = new URL(rawRedirect)
-    const verifier = generateRandomToken(32)
-    const challenge = await createPkceChallenge(verifier)
-    const state = generateRandomToken(16)
-    const params = new URLSearchParams({
-      response_type: 'code',
-      client_id: config.clientId,
-      redirect_uri: redirectUri.href,
-      scope: config.scope,
-      code_challenge: challenge,
-      code_challenge_method: 'S256',
-      state
+  const updateCurrentState = (updater: (previous: Record<string, unknown>) => Record<string, unknown>) => {
+    setHistory(previous => {
+      const current = previous[stepIndex] ?? {}
+      const next = previous.slice()
+      next[stepIndex] = updater(current)
+      return next
     })
-    setPkce({
-      verifier,
-      state,
-      authorizeUrl: `${config.authorizeEndpoint}?${params}`
-    })
-  }
-
-  const validatedOAuthPayload = () => {
-    if (!oauthStep || !pkce) throw new Error('Start OAuth authorization before submitting its callback')
-    const callbackUrl = new URL(String(draft[oauthStep.callbackField] ?? '').trim())
-    const redirectUrl = new URL(String(draft[oauthStep.redirectUriField] ?? '').trim())
-    const code = callbackUrl.searchParams.get('code')
-    if (
-      !code ||
-      callbackUrl.origin !== redirectUrl.origin ||
-      callbackUrl.pathname !== redirectUrl.pathname ||
-      callbackUrl.searchParams.get('state') !== pkce.state
-    ) {
-      throw new Error('OAuth callback URL did not match the active authorization request')
-    }
-    return {
-      ...draft,
-      [oauthStep.callbackField]: code,
-      [oauthStep.redirectUriField]: redirectUrl.href,
-      [oauthStep.verifierField]: pkce.verifier
-    }
   }
 
   const handleAdvance = async () => {
-    if (pending || !step || selectionMissing || !formRef.current?.reportValidity()) return
+    if (pending || !canAdvanceCurrentStep || !formRef.current?.reportValidity()) return
     setPending(true)
     setError(null)
     try {
-      if (step.kind === 'batch_lines' && batchStep) {
-        if (batchParseResult.error) {
-          throw new Error(batchParseResult.error)
-        }
-        if (batchPreview.length === 0) {
-          throw new Error(t(`${i18nPrefix}.ui.no_entries`, { defaultValue: 'Enter at least one entry' }))
-        }
-        setPreviewItems(batchPreview)
-      }
-
       if (!isFinal) {
-        const input = step.kind === 'oauth_pkce' && oauthStep ? validatedOAuthPayload() : draft
-        if (step.actionSurfaceId !== undefined) {
-          const preview = await executeWizardStep({ surfaceById, visibleIds, onExecute }, step.actionSurfaceId, input, {
-            config: step.actionPreview,
-            fields: [...surface.fields, ...steps.slice(stepIndex + 1).flatMap(item => item.fields)]
-          })
-          setDraft(previous => applyWizardPreview(previous, preview))
-          setActionPreviews(previous => {
-            const next = previous.slice(0, stepIndex)
-            next[stepIndex] = preview
-            return next
-          })
-        }
-        setStepIndex(prev => prev + 1)
+        const nextState = currentStep?.transition
+          ? await executeStepTransition({ surfaceById, visibleIds, onExecute }, currentStep.transition, currentState)
+          : { ...currentState }
+        setHistory(previous => [...previous.slice(0, stepIndex + 1), nextState])
         return
       }
-
-      if (oauthStep) {
-        await onExecute(surface, serializeDeclarativeFields(surface, validatedOAuthPayload()))
-        onComplete?.()
-        onClose()
-        return
-      }
-
-      if (batchStep) {
-        const items = previewItems.length > 0 ? previewItems : batchPreview
-        const result = await onExecute(surface, { [batchStep.listField]: items })
-        const errors = result[0]?.errors
-        if (Array.isArray(errors) && errors.length > 0) {
-          if (errors.length === items.length) {
-            throw new Error(
-              t(`${i18nPrefix}.ui.import_failed`, { count: errors.length, defaultValue: 'Import failed' })
-            )
-          }
-          toast.error(
-            t(`${i18nPrefix}.ui.import_partial`, {
-              count: errors.length,
-              defaultValue: `${errors.length} entries failed to import`
-            })
-          )
-          onClose()
-          return
-        }
-        onComplete?.()
-        onClose()
-        return
-      }
-
-      await onExecute(surface, serializeDeclarativeFields(surface, draft))
+      await onExecute(surface, serializeDeclarativeFields(surface, currentState))
       onComplete?.()
       onClose()
     } catch (failure) {
@@ -503,132 +187,19 @@ export function DeclarativeWizardModal({
             void handleAdvance()
           }}
           className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1">
-          {(() => {
-            if (!step) return null
-            if (step.kind === 'oauth_pkce' && step.oauthConfig) {
-              return (
-                <div className="grid gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                      onClick={() => void generateAuthorizeUrl(step.oauthConfig!).catch(err => setError(String(err)))}>
-                      {t(`${i18nPrefix}.ui.generate_auth_url`, { defaultValue: 'Generate authorization URL' })}
-                    </Button>
-                    {pkce ? (
-                      <>
-                        <CopyButton
-                          copiedLabel={t('common.copied', { defaultValue: 'Copied' })}
-                          label={t('common.copy', { defaultValue: 'Copy URL' })}
-                          value={pkce.authorizeUrl}
-                        />
-                        <a
-                          className="text-sm underline"
-                          href={pkce.authorizeUrl}
-                          rel="noopener noreferrer"
-                          target="_blank">
-                          {t(`${i18nPrefix}.ui.open_auth_page`, { defaultValue: 'Open authorization page' })}
-                        </a>
-                      </>
-                    ) : null}
-                  </div>
-                  {pkce ? <Input aria-label="Authorization URL" readOnly value={pkce.authorizeUrl} /> : null}
-                  <DeclarativeFields draft={draft} fields={step.fields} i18nPrefix={i18nPrefix} onChange={setDraft} />
-                </div>
-              )
-            }
-            if (step.kind === 'batch_lines' && step.batchLinesConfig) {
-              return (
-                <div className="grid gap-3">
-                  <LabeledField label={t(`${i18nPrefix}.ui.default_scheme`, { defaultValue: 'Default scheme' })}>
-                    <DeclarativeSelect
-                      label={t(`${i18nPrefix}.ui.default_scheme`, { defaultValue: 'Default scheme' })}
-                      options={step.batchLinesConfig.schemes.map(scheme => [scheme, scheme.toUpperCase()])}
-                      value={defaultScheme}
-                      onChange={setDefaultScheme}
-                    />
-                  </LabeledField>
-                  <LabeledField
-                    label={t(step.labelKey, { defaultValue: formatIdentifierLabel(step.id) })}
-                    description={t(`${i18nPrefix}.ui.batch_lines_hint`, {
-                      defaultValue: 'One entry per line (URL or name|URL).'
-                    })}>
-                    <Textarea
-                      rows={6}
-                      spellCheck={false}
-                      value={String(draft[step.batchLinesConfig.textField] ?? '')}
-                      onChange={event => setDraft({ ...draft, [step.batchLinesConfig!.textField]: event.target.value })}
-                    />
-                  </LabeledField>
-                </div>
-              )
-            }
-            if (actionPreview && (step.kind === 'preview_items' || step.kind === 'confirm')) {
-              return (
-                <>
-                  <WizardActionTable
-                    i18nPrefix={i18nPrefix}
-                    preview={actionPreview}
-                    selectedIds={selectedIds}
-                    onToggle={
-                      step.kind === 'preview_items' && selectionField !== undefined
-                        ? (id, checked) =>
-                            setDraft(previous => toggleWizardPreviewRow(previous, actionPreview, id, checked))
-                        : undefined
-                    }
-                  />
-                  <DeclarativeFields draft={draft} fields={step.fields} i18nPrefix={i18nPrefix} onChange={setDraft} />
-                </>
-              )
-            }
-            if ((step.kind === 'preview_items' || step.kind === 'confirm') && batchStep) {
-              return (
-                <div className="overflow-x-auto border border-border-subtle">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Protocol</TableHead>
-                        <TableHead>Endpoint</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(previewItems.length > 0 ? previewItems : batchPreview).map((item, idx) => (
-                        <TableRow key={`${item[batchStep.nameField]}-${idx}`}>
-                          <TableCell>{item[batchStep.nameField]}</TableCell>
-                          <TableCell>{item[batchStep.schemeField]}</TableCell>
-                          <TableCell className="font-mono text-xs">
-                            {redactUrlCredentials(item[batchStep.urlField]!)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )
-            }
-            if (step.kind === 'confirm') {
-              return (
-                <dl className="grid gap-x-4 gap-y-2 border border-border-subtle p-3 text-sm sm:grid-cols-[10rem_1fr]">
-                  {Object.entries(asRecord(draft))
-                    .filter(([key]) => {
-                      if (oauthStep && (key === oauthStep.callbackField || key === oauthStep.verifierField)) {
-                        return false
-                      }
-                      return !secretFieldNames.has(key)
-                    })
-                    .map(([key, val]) => (
-                      <div key={key} className="contents">
-                        <dt className="text-fg-secondary">{formatIdentifierLabel(key)}</dt>
-                        <dd className="break-all font-mono text-xs">{sanitizeConfirmValue(val)}</dd>
-                      </div>
-                    ))}
-                </dl>
-              )
-            }
-            return <DeclarativeFields draft={draft} fields={step.fields} i18nPrefix={i18nPrefix} onChange={setDraft} />
-          })()}
+          {currentStep
+            ? currentStep.blocks.map((block, blockIndex) => (
+                <WizardBlockRenderer
+                  key={`${currentStep.id}-${block.kind}-${blockIndex}`}
+                  block={block}
+                  disabled={pending}
+                  i18nPrefix={i18nPrefix}
+                  state={currentState}
+                  surfaceFields={allWizardFields}
+                  onStateChange={updateCurrentState}
+                />
+              ))
+            : null}
 
           {error ? (
             <p className="text-sm text-destructive" role="alert">
@@ -645,18 +216,8 @@ export function DeclarativeWizardModal({
               type="button"
               variant="outline"
               onClick={() => {
-                const discarded = actionPreviews[stepIndex - 1]
-                if (discarded) {
-                  setDraft(previous => {
-                    const next = { ...previous }
-                    for (const name of Object.keys(discarded.carryForward)) delete next[name]
-                    if (discarded.selectionField !== undefined) delete next[discarded.selectionField]
-                    return next
-                  })
-                }
-                setActionPreviews(previous => previous.slice(0, stepIndex - 1))
-                setStepIndex(stepIndex - 1)
                 setError(null)
+                setHistory(previous => (previous.length > 1 ? previous.slice(0, -1) : previous))
               }}>
               {t('common.back', { defaultValue: 'Back' })}
             </Button>
@@ -664,7 +225,11 @@ export function DeclarativeWizardModal({
           <Button disabled={pending} size="sm" type="button" variant="outline" onClick={onClose}>
             {t('common.cancel', { defaultValue: 'Cancel' })}
           </Button>
-          <Button disabled={pending || selectionMissing} size="sm" type="button" onClick={() => void handleAdvance()}>
+          <Button
+            disabled={pending || !canAdvanceCurrentStep}
+            size="sm"
+            type="button"
+            onClick={() => void handleAdvance()}>
             {pending
               ? t(`${i18nPrefix}.ui.submitting`, { defaultValue: 'Submitting...' })
               : isFinal
