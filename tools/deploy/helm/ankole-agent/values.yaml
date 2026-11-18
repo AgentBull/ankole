@@ -198,7 +198,7 @@ postgresql:
   image:
     repository: ghcr.io/agentbull/ankole-postgres-for-ankole
     tag: main-latest
-    digest: sha256:56457f8111e55e26fa15f750a32682560cbc8afc7a5bb03b706402b4ae7f9971
+    digest: sha256:1772c33690ecc4bd1e202c7059afa884288c9f80e70263ede28946e036b0d4ed
     pullPolicy: Always
   auth:
     username: ankole

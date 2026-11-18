@@ -90,18 +90,38 @@ export function createDeclarativeConsoleModule(manifest: DeclarativeConsoleManif
   })
 }
 
-export type {
-  DeclarativeConsoleManifest,
-  DeclarativeDashboardSchema,
-  DeclarativeFieldDescriptor,
-  DeclarativeFilterSchema,
-  DeclarativeIconName,
-  DeclarativeNavItemSpec,
-  DeclarativeNavSectionSpec,
-  DeclarativeResultSchema,
-  DeclarativeRouteSpec,
-  DeclarativeRowActionDescriptor,
-  DeclarativeRuleSection,
-  DeclarativeStepSchema,
-  DeclarativeSurfaceDescriptor
+export {
+  canBlockAdvance,
+  executeStepTransition,
+  redactUrlCredentials,
+  selectedRowIds,
+  toggleTableSelectionRow,
+  WizardBlockRenderer,
+  type WizardExecutionScope
+} from './wizard'
+
+export {
+  isSensitiveField,
+  type DeclarativeConsoleManifest,
+  type DeclarativeDashboardSchema,
+  type DeclarativeFieldDescriptor,
+  type DeclarativeFieldType,
+  type DeclarativeFilterSchema,
+  type DeclarativeIconName,
+  type DeclarativeNavItemSpec,
+  type DeclarativeNavSectionSpec,
+  type DeclarativeResultSchema,
+  type DeclarativeRouteSpec,
+  type DeclarativeRowActionDescriptor,
+  type DeclarativeRuleSection,
+  type DeclarativeStepSchema,
+  type DeclarativeSurfaceDescriptor,
+  type WizardBlock,
+  type WizardDataTableBlock,
+  type WizardExternalLinkBlock,
+  type WizardFieldsBlock,
+  type WizardRowFilterConfig,
+  type WizardRowSelectionConfig,
+  type WizardStepTransition,
+  type WizardSummaryBlock
 } from './types'
