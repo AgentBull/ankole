@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.177 (2026-11-18)
+
+- Stop an editor composition test from failing at random in CI. It clicked
+  page whitespace just left of the text, where the block handle appears on
+  hover, so a click that arrived after the handle moved landed on the handle.
+  The test now clicks the whitespace right of the text.
+
 ## Version 2.0.0-alpha.176 (2026-11-18)
 
 - Let every runner reuse the cached Chromium system packages. Runners in AWS

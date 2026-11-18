@@ -715,8 +715,9 @@ test('moving a composing caret through page whitespace preserves an untouched so
     await expect.poll(async () => (await caretState()).composing).toBe(true)
     const bounds = (await editor.boundingBox())!
     const empty = (await sourceParagraph.boundingBox())!
-    // The page's whitespace gesture moves the caret and lets the core end composition.
-    await page.mouse.click(bounds.x - 8, empty.y + empty.height / 2)
+    // The page's whitespace gesture moves the caret and lets the core end composition. The click lands right of the
+    // text because hovering left of it shows the block handle there, and a click on the handle never reaches the page.
+    await page.mouse.click(bounds.x + bounds.width + 8, empty.y + empty.height / 2)
     await expect(sourceParagraph).toHaveCount(1)
     await expect(sourceParagraph).toHaveText('')
     await expect.poll(caretState).toEqual({ composing: false, inSourceParagraph: true })
