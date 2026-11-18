@@ -347,8 +347,25 @@ jobs:
           key: ${{ steps.wasm-cache.outputs.cache-primary-key }}
       - if: ${{ matrix.suite == 'webapps' }}
         run: bun run --filter @ankole/webapps test
+      # Downloading Chromium from Playwright's CDN has taken up to seven minutes.
+      # The install below still adds the system packages and skips browsers
+      # that the cache restored.
+      - name: Read the Playwright version
+        id: playwright
+        working-directory: app/webapps
+        run: echo "version=$(bunx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
       - run: bunx playwright install --with-deps chromium
         working-directory: app/webapps
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ matrix.suite == 'webapps' && github.ref == 'refs/heads/main' && steps.playwright-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
       - if: ${{ matrix.suite == 'editor' }}
         run: bunx playwright test --project=chromium --shard="$SHARD"
         working-directory: libs/ankole-editor

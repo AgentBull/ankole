@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.172 (2026-11-18)
+
+- Cache Playwright's Chromium for the frontend browser check, so a slow
+  download from Playwright's CDN no longer adds minutes to a pull request.
+  Pull requests restore the copy that `main` saves for the current Playwright
+  version.
+
 ## Version 2.0.0-alpha.171 (2026-11-18)
 
 - Stop the frontend browser check from failing about half the time on pull
