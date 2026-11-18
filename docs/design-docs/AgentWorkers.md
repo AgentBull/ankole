@@ -1122,7 +1122,10 @@ container shim, `/etc/profile.d/ankole-agent-computer.sh` records
 shapes output only when `/proc/$$/fd/1` still points to that harness stream
 (or, without an outer shell, when `stdout` is a direct `codex` child pipe/socket
 rather than a regular file), automatically bypassing downstream pipes and file
-redirections. To pass a command through, the shim removes every
+redirections. Debian's `/etc/profile` resets `PATH` in login shells such as the
+`bash -lc` that runs each Session command, so the image adds
+`/etc/profile.d/ankole-cli-shims.sh`, which only `/etc/profile` reads, to put
+the shim directory back in front. To pass a command through, the shim removes every
 `/usr/local/libexec/ankole-cli-shims` entry from `PATH`, wherever the caller
 placed it, before it executes the real command; Codex, for example, prepends
 its own directories. On foreground `command` calls, Agent Computer writes

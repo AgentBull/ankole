@@ -18,17 +18,22 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
   defp workspace_reply?({:unavailable, _reason}), do: true
   defp workspace_reply?(_), do: false
 
-  defp opening_with_worker?({:opening, _since, row}) when is_map(row), do: true
+  defp opening_with_worker?({:opening, _origin, _since, row}) when is_map(row), do: true
   defp opening_with_worker?(_), do: false
 
-  defp in_flight_state?({:opening, since, _row}) when is_integer(since), do: true
+  # A `:preparing` origin restarts the deadline once preparation ends, so the
+  # deadline law covers the other origins.
+  defp in_flight_state?({:opening, origin, since, _row}) when is_integer(since),
+    do: origin !== :preparing
+
   defp in_flight_state?({:waiting, _phase, since}) when is_integer(since), do: true
   defp in_flight_state?(_), do: false
 
-  defp in_flight_since({:opening, since, _row}), do: since
+  defp in_flight_since({:opening, _origin, since, _row}), do: since
   defp in_flight_since({:waiting, _phase, since}), do: since
 
-  defp preserves_deadline?(since, {{:opening, next_since, _}, _effects}), do: next_since === since
+  defp preserves_deadline?(since, {{:opening, _origin, next_since, _row}, _effects}),
+    do: next_since === since
 
   defp preserves_deadline?(since, {{:waiting, _phase, next_since}, _effects}),
     do: next_since === since
@@ -38,11 +43,11 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
   defp preserves_deadline?(_since, {{:unavailable, _reason}, _effects}), do: true
   defp preserves_deadline?(_since, _result), do: false
 
-  defp expected_round_committed({:opening, _since, _row}), do: {{:idle, :requested}, []}
+  defp expected_round_committed({:opening, _origin, _since, _row}), do: {{:idle, :requested}, []}
   defp expected_round_committed({:waiting, _phase, _since}), do: {{:idle, :requested}, []}
   defp expected_round_committed(state), do: {state, []}
 
-  defp monotonic_in_flight?({:opening, since, _row}, now)
+  defp monotonic_in_flight?({:opening, _origin, since, _row}, now)
        when is_integer(since) and is_integer(now),
        do: now >= since
 
@@ -55,7 +60,7 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
   defp valid_in_flight_timers?(state, now, [{:acquire, acquire_ms}, {:check, check_ms}]) do
     {expired_state, _} = WorkerAcquisition.next(state, :expired, now)
 
-    is_integer(acquire_ms) and acquire_ms >= 0 and acquire_ms <= 60_000 and
+    is_integer(acquire_ms) and acquire_ms >= 0 and acquire_ms <= 150_000 and
       acquire_ms == 0 == (expired_state != state) and
       check_ms in [5_000, 60_000]
   end
@@ -123,8 +128,8 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
       by_cases h : y ≤ x <;> simp [Erlang.erlang.«max/2», Int.isGE_compare, h]
 
     theorem clamped_remaining (s t : Int) :
-        Erlang.erlang.«max/2» (.integer (60000 - (t - s))) (.integer 0) =
-          .ok (.integer (if 60000 ≤ t - s then 0 else 60000 - (t - s))) := by
+        Erlang.erlang.«max/2» (.integer (150000 - (t - s))) (.integer 0) =
+          .ok (.integer (if 150000 ≤ t - s then 0 else 150000 - (t - s))) := by
       rw [max_integers]
       congr 2
       split <;> split <;> omega
@@ -147,6 +152,17 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
           [.atom "idle", .tuple #[.atom "idle", .atom "requested"]] = Term.false := by
       have h1 : Term.exactCompare (.tuple ⟨[a, b, c]⟩) (.atom "idle") ≠ .eq := by simp
       have h2 : Term.exactCompare (.tuple ⟨[a, b, c]⟩)
+          (.tuple ⟨[.atom "idle", .atom "requested"]⟩) ≠ .eq := by simp
+      simp [Term.isMember,
+        show #[Term.atom "idle", Term.atom "requested"] =
+            ⟨[Term.atom "idle", Term.atom "requested"]⟩ from rfl,
+        h1, h2]
+
+    @[simp] theorem isMember_idle_4tuple (a b c d : Term) :
+        Term.isMember (.tuple ⟨[a, b, c, d]⟩)
+          [.atom "idle", .tuple #[.atom "idle", .atom "requested"]] = Term.false := by
+      have h1 : Term.exactCompare (.tuple ⟨[a, b, c, d]⟩) (.atom "idle") ≠ .eq := by simp
+      have h2 : Term.exactCompare (.tuple ⟨[a, b, c, d]⟩)
           (.tuple ⟨[.atom "idle", .atom "requested"]⟩) ≠ .eq := by simp
       simp [Term.isMember,
         show #[Term.atom "idle", Term.atom "requested"] =
@@ -275,8 +291,9 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
               · exact Or.inr (Or.inr ⟨r, by subst hu; rfl⟩)
               · simp [«workspace_reply?/1», hw, hu] at requires
         | _ => simp [«workspace_reply?/1»] at requires
-      have hnot_open : ∀ since entries, state ≠ .tuple #[.atom "opening", since, .map entries] := by
-        intro since entries hst
+      have hnot_open : ∀ origin since entries,
+          state ≠ .tuple #[.atom "opening", origin, since, .map entries] := by
+        intro origin since entries hst
         subst hst
         rcases hreply with rfl | ⟨r, rfl⟩ | ⟨r, rfl⟩ <;>
           simp [«workspace_reply?/1», «opening_with_worker?/1», Erlang.erlang.«not/1»] at requires
@@ -291,7 +308,7 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
           · exfalso; rcases hreply with h | ⟨_, h⟩ | ⟨_, h⟩ <;> simp at h
           · split <;> solve
               | rfl
-              | (exfalso; exact hnot_open _ _ rfl)
+              | (exfalso; exact hnot_open _ _ _ rfl)
               | (exfalso; rcases hreply with h | ⟨_, h⟩ | ⟨_, h⟩ <;> simp at h)
       simp [hstep, Erlang.erlang.«==/2», Std.ReflCmp.compare_self]
       """
@@ -319,7 +336,7 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
           · exfalso; simp at *
           · split <;> solve
               | simp [Erlang.erlang.«==/2», Std.ReflCmp.compare_self]
-              | (exfalso; exact h_not_open _ _ rfl)
+              | (exfalso; exact h_not_open _ _ _ rfl)
               | (exfalso; exact h_not_wait _ _ rfl)
               | (exfalso; simp at *)
       """
@@ -336,37 +353,47 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
       rw [«deadline_preserved_across_retries:requires/3»] at requires
       rw [«deadline_preserved_across_retries:ensures/3»]
       have hstate :
-          (∃ s t : Int, ∃ row : Lynx.Term,
-            state = .tuple ⟨[.atom "opening", .integer s, row]⟩ ∧ now = .integer t) ∨
+          (∃ origin : Lynx.Term, ∃ s t : Int, ∃ row : Lynx.Term,
+            state = .tuple ⟨[.atom "opening", origin, .integer s, row]⟩ ∧ now = .integer t ∧
+              origin ≠ .atom "preparing") ∨
           (∃ phase : Lynx.Term, ∃ s t : Int,
             state = .tuple ⟨[.atom "waiting", phase, .integer s]⟩ ∧ now = .integer t) := by
         cases state with
         | tuple elems =>
           rcases elems with ⟨l⟩
           match l with
-          | [] | [_] | [_, _] | _ :: _ :: _ :: _ :: _ =>
+          | [] | [_] | [_, _] | _ :: _ :: _ :: _ :: _ :: _ =>
             simp [«in_flight_state?/1»] at requires
-          | [a, b, c] =>
+          | [a, o, b, c] =>
             by_cases ho : a = .atom "opening"
             · subst ho
               cases b with
               | integer s =>
                 cases now with
-                | integer t => exact Or.inl ⟨s, t, c, rfl, rfl⟩
+                | integer t =>
+                  by_cases hp : o = .atom "preparing"
+                  · subst hp
+                    simp [«in_flight_state?/1», Erlang.erlang.«is_integer/1»,
+                      Erlang.erlang.«=/=/2», Lynx.Except.guard] at requires
+                  · exact Or.inl ⟨o, s, t, c, rfl, rfl, hp⟩
+                | _ =>
+                  by_cases hp : o = .atom "preparing" <;>
+                    simp_all [«in_flight_state?/1», Erlang.erlang.«is_integer/1», Erlang.erlang.«=/=/2»]
+              | _ => simp [«in_flight_state?/1»] at requires
+            · simp [«in_flight_state?/1», ho] at requires
+          | [a, b, c] =>
+            by_cases hw : a = .atom "waiting"
+            · subst hw
+              cases c with
+              | integer s =>
+                cases now with
+                | integer t => exact Or.inr ⟨b, s, t, rfl, rfl⟩
                 | _ => simp [«in_flight_state?/1», Erlang.erlang.«is_integer/1»] at requires
               | _ => simp [«in_flight_state?/1»] at requires
-            · by_cases hw : a = .atom "waiting"
-              · subst hw
-                cases c with
-                | integer s =>
-                  cases now with
-                  | integer t => exact Or.inr ⟨b, s, t, rfl, rfl⟩
-                  | _ => simp [«in_flight_state?/1», Erlang.erlang.«is_integer/1»] at requires
-                | _ => simp [«in_flight_state?/1»] at requires
-              · simp [«in_flight_state?/1», ho, hw] at requires
+            · simp [«in_flight_state?/1», hw] at requires
         | _ => simp [«in_flight_state?/1»] at requires
       clear requires
-      rcases hstate with ⟨s, t, row, rfl, rfl⟩ | ⟨phase, s, t, rfl, rfl⟩
+      rcases hstate with ⟨origin, s, t, row, rfl, rfl, horigin⟩ | ⟨phase, s, t, rfl, rfl⟩
       all_goals
         simp only [«in_flight_since/1», Lynx.Except.ok_bind]
         rw [Elixir.Ankole.Sessions.WorkerAcquisition.«next/3».eq_def]
@@ -375,11 +402,18 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
         · exfalso; simp at *
         · dsimp only []
           split
-          · simp only [WorkerAcquisitionProof.isMember_idle_3tuple, Lynx.Except.guard]
+          · simp only [WorkerAcquisitionProof.isMember_idle_3tuple,
+              WorkerAcquisitionProof.isMember_idle_4tuple, Lynx.Except.guard]
             simp [«preserves_deadline?/2»]
+            all_goals
+              by_cases hp : phase = .atom "preparing"
+              · simp [hp]
+              · simp [WorkerAcquisitionProof.eq_atom_of_ne hp]
           · split <;> solve
               | (injections; (try injections); done)
               | ((try injections); (try injections); (try subst_vars); simp [«preserves_deadline?/2»])
+              | ((try injections); (try injections); (try subst_vars)
+                 simp [WorkerAcquisitionProof.eq_atom_of_ne horigin, «preserves_deadline?/2»])
               | ((try injections); (try injections); (try subst_vars); exfalso; simp at *)
               | ((try injections); (try injections); (try subst_vars)
                  simp [Erlang.erlang.«==/2»]
@@ -401,6 +435,11 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
                   | (injections; (try injections); done)
                   | ((try injections); (try injections); exfalso; simp at *)
                   | simp [«preserves_deadline?/2»])
+              | ((try injections); (try injections); (try subst_vars)
+                 rw [Elixir.Ankole.Sessions.WorkerAcquisition.«next/3».eq_def]
+                 simp [«preserves_deadline?/2», WorkerAcquisitionProof.isMember_idle_3tuple,
+                   Lynx.Except.guard, Erlang.erlang.«==/2»]
+                 split <;> simp <;> (split at * <;> simp_all))
       """
     )
 
@@ -411,17 +450,17 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
       rw [«timers_consistent_with_expiry:requires/2»] at requires
       rw [«timers_consistent_with_expiry:ensures/2»]
       have hstate :
-          (∃ s t : Int, ∃ row : Lynx.Term,
-            state = .tuple #[.atom "opening", .integer s, row] ∧ now = .integer t ∧ s ≤ t) ∨
+          (∃ origin : Lynx.Term, ∃ s t : Int, ∃ row : Lynx.Term,
+            state = .tuple #[.atom "opening", origin, .integer s, row] ∧ now = .integer t ∧ s ≤ t) ∨
           (∃ phase : Lynx.Term, ∃ s t : Int,
             state = .tuple #[.atom "waiting", phase, .integer s] ∧ now = .integer t ∧ s ≤ t) := by
         cases state with
         | tuple elems =>
           rcases elems with ⟨l⟩
           match l with
-          | [] | [_] | [_, _] | _ :: _ :: _ :: _ :: _ =>
+          | [] | [_] | [_, _] | _ :: _ :: _ :: _ :: _ :: _ =>
             simp [«monotonic_in_flight?/2», Lynx.Except.guard] at requires
-          | [a, b, c] =>
+          | [a, o, b, c] =>
             by_cases ho : a = .atom "opening"
             · subst ho
               cases b with
@@ -430,45 +469,47 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
                 | integer t =>
                   simp [«monotonic_in_flight?/2», Erlang.erlang.«is_integer/1»,
                     Erlang.erlang.«>=/2_integers», Lynx.Except.guard, Lynx.Except.andAlso_eq] at requires
-                  exact Or.inl ⟨s, t, c, rfl, rfl, requires⟩
+                  exact Or.inl ⟨o, s, t, c, rfl, rfl, requires⟩
                 | _ =>
                   simp [«monotonic_in_flight?/2», Erlang.erlang.«is_integer/1»,
                     Lynx.Except.guard, Lynx.Except.andAlso_eq] at requires
               | _ =>
                 simp [«monotonic_in_flight?/2», Erlang.erlang.«is_integer/1»,
                   Lynx.Except.guard, Lynx.Except.andAlso_eq] at requires
-            · by_cases hw : a = .atom "waiting"
-              · subst hw
-                cases c with
-                | integer s =>
-                  cases now with
-                  | integer t =>
-                    simp [«monotonic_in_flight?/2», Erlang.erlang.«is_integer/1»,
-                      Erlang.erlang.«>=/2_integers», Lynx.Except.guard, Lynx.Except.andAlso_eq] at requires
-                    exact Or.inr ⟨b, s, t, rfl, rfl, requires⟩
-                  | _ =>
-                    simp [«monotonic_in_flight?/2», Erlang.erlang.«is_integer/1»,
-                      Lynx.Except.guard, Lynx.Except.andAlso_eq] at requires
+            · simp [«monotonic_in_flight?/2», ho, Lynx.Except.guard] at requires
+          | [a, b, c] =>
+            by_cases hw : a = .atom "waiting"
+            · subst hw
+              cases c with
+              | integer s =>
+                cases now with
+                | integer t =>
+                  simp [«monotonic_in_flight?/2», Erlang.erlang.«is_integer/1»,
+                    Erlang.erlang.«>=/2_integers», Lynx.Except.guard, Lynx.Except.andAlso_eq] at requires
+                  exact Or.inr ⟨b, s, t, rfl, rfl, requires⟩
                 | _ =>
                   simp [«monotonic_in_flight?/2», Erlang.erlang.«is_integer/1»,
                     Lynx.Except.guard, Lynx.Except.andAlso_eq] at requires
-              · simp [«monotonic_in_flight?/2», ho, hw, Lynx.Except.guard] at requires
+              | _ =>
+                simp [«monotonic_in_flight?/2», Erlang.erlang.«is_integer/1»,
+                  Lynx.Except.guard, Lynx.Except.andAlso_eq] at requires
+            · simp [«monotonic_in_flight?/2», hw, Lynx.Except.guard] at requires
         | _ =>
           simp [«monotonic_in_flight?/2», Lynx.Except.guard] at requires
-      rcases hstate with ⟨s, t, row, rfl, rfl, hle⟩ | ⟨phase, s, t, rfl, rfl, hle⟩
+      rcases hstate with ⟨origin, s, t, row, rfl, rfl, hle⟩ | ⟨phase, s, t, rfl, rfl, hle⟩
       · simp only [Elixir.Ankole.Sessions.WorkerAcquisition.«timers/2»,
           Erlang.erlang.«-/2_integers», WorkerAcquisitionProof.clamped_remaining,
           Lynx.Except.ok_bind, «valid_in_flight_timers?/3»]
         rw [Elixir.Ankole.Sessions.WorkerAcquisition.«next/3».eq_def]
         simp only [Erlang.erlang.«-/2_integers», Erlang.erlang.«>=/2_integers»,
           Elixir.Ankole.Sessions.WorkerAcquisition.«unavailable/1», Lynx.Except.ok_bind]
-        by_cases hexp : 60000 ≤ t - s
+        by_cases hexp : 150000 ≤ t - s
         · simp [hexp, Erlang.erlang.«is_integer/1», Erlang.erlang.«>=/2_integers»,
             Erlang.erlang.«=</2_integers», Erlang.erlang.«/=/2», Erlang.erlang.«==/2»,
             Lynx.Term.isMember]
-        · have hts : t - s ≤ 60000 := by omega
-          have hle60 : 60000 - (t - s) ≤ 60000 := by omega
-          have hnz : 60000 - (t - s) ≠ 0 := by omega
+        · have hts : t - s ≤ 150000 := by omega
+          have hle60 : 150000 - (t - s) ≤ 150000 := by omega
+          have hnz : 150000 - (t - s) ≠ 0 := by omega
           simp [hexp, hts, hle60, hnz, Erlang.erlang.«is_integer/1»,
             Erlang.erlang.«>=/2_integers», Erlang.erlang.«=</2_integers»,
             Erlang.erlang.«/=/2», Erlang.erlang.«==/2», Std.ReflCmp.compare_self,
@@ -482,13 +523,13 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
           rw [Elixir.Ankole.Sessions.WorkerAcquisition.«next/3».eq_def]
           simp only [Erlang.erlang.«-/2_integers», Erlang.erlang.«>=/2_integers»,
             Elixir.Ankole.Sessions.WorkerAcquisition.«unavailable/1», Lynx.Except.ok_bind]
-          by_cases hexp : 60000 ≤ t - s
+          by_cases hexp : 150000 ≤ t - s
           · simp [hexp, Erlang.erlang.«is_integer/1», Erlang.erlang.«>=/2_integers»,
               Erlang.erlang.«=</2_integers», Erlang.erlang.«/=/2», Erlang.erlang.«==/2»,
               Lynx.Term.isMember]
-          · have hts : t - s ≤ 60000 := by omega
-            have hle60 : 60000 - (t - s) ≤ 60000 := by omega
-            have hnz : 60000 - (t - s) ≠ 0 := by omega
+          · have hts : t - s ≤ 150000 := by omega
+            have hle60 : 150000 - (t - s) ≤ 150000 := by omega
+            have hnz : 150000 - (t - s) ≠ 0 := by omega
             simp [hexp, hts, hle60, hnz, Erlang.erlang.«is_integer/1»,
               Erlang.erlang.«>=/2_integers», Erlang.erlang.«=</2_integers»,
               Erlang.erlang.«/=/2», Erlang.erlang.«==/2», Std.ReflCmp.compare_self,
@@ -500,13 +541,13 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
           rw [Elixir.Ankole.Sessions.WorkerAcquisition.«next/3».eq_def]
           simp only [Erlang.erlang.«-/2_integers», Erlang.erlang.«>=/2_integers»,
             Elixir.Ankole.Sessions.WorkerAcquisition.«unavailable/1», Lynx.Except.ok_bind]
-          by_cases hexp : 60000 ≤ t - s
+          by_cases hexp : 150000 ≤ t - s
           · simp [hexp, Erlang.erlang.«is_integer/1», Erlang.erlang.«>=/2_integers»,
               Erlang.erlang.«=</2_integers», Erlang.erlang.«/=/2», Erlang.erlang.«==/2»,
               Lynx.Term.isMember]
-          · have hts : t - s ≤ 60000 := by omega
-            have hle60 : 60000 - (t - s) ≤ 60000 := by omega
-            have hnz : 60000 - (t - s) ≠ 0 := by omega
+          · have hts : t - s ≤ 150000 := by omega
+            have hle60 : 150000 - (t - s) ≤ 150000 := by omega
+            have hnz : 150000 - (t - s) ≠ 0 := by omega
             simp [hexp, hts, hle60, hnz, Erlang.erlang.«is_integer/1»,
               Erlang.erlang.«>=/2_integers», Erlang.erlang.«=</2_integers»,
               Erlang.erlang.«/=/2», Erlang.erlang.«==/2», Std.ReflCmp.compare_self,
@@ -548,13 +589,14 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
   end
 
   describe "WorkerAcquisition executable sanity checks" do
-    test "workspace replies are ignored outside {:opening, since, worker_map}" do
+    test "workspace replies are ignored outside {:opening, origin, since, worker_map}" do
       worker = %{agent_uid: "agt_1", generation: "g1"}
 
       for state <- [
             :idle,
             {:idle, :requested},
-            {:opening, 100, nil},
+            {:opening, :starting, 100, nil},
+            {:opening, :preparing, 100, nil},
             {:waiting, :capacity, 100},
             {:ready, worker},
             {:unavailable, :agent_not_active}
@@ -564,16 +606,31 @@ defmodule Ankole.Formal.Sessions.WorkerAcquisitionLawsTest do
       end
     end
 
+    test "a :preparing origin restarts the deadline once preparation ends" do
+      worker = %{agent_uid: "agt_1", generation: "g1"}
+      preparing = {:opening, :preparing, 1_000, nil}
+
+      assert {{:opening, :starting, 90_000, ^worker}, _effects} =
+               WorkerAcquisition.next(preparing, {:resolved, {:ok, worker, :open}}, 90_000)
+
+      assert {{:waiting, :capacity, 90_000}, _effects} =
+               WorkerAcquisition.next(preparing, {:resolved, {:wait, :capacity}}, 90_000)
+
+      assert {{:waiting, :preparing, 1_000}, _effects} =
+               WorkerAcquisition.next(preparing, {:resolved, {:wait, :preparing}}, 90_000)
+    end
+
     test "deadline anchor and timer consistency hold across in-flight states" do
       worker = %{agent_uid: "agt_1", generation: "g1"}
 
       for state <- [
-            {:opening, 1_000, nil},
-            {:opening, 1_000, worker},
+            {:opening, :starting, 1_000, nil},
+            {:opening, :starting, 1_000, worker},
             {:waiting, :starting, 1_000},
+            {:waiting, :preparing, 1_000},
             {:waiting, :retrying, 1_000}
           ],
-          now <- [1_000, 35_000, 61_000, 120_000] do
+          now <- [1_000, 35_000, 61_000, 120_000, 151_000, 200_000] do
         assert timers_consistent_with_expiry(state, now)
 
         for event <- [

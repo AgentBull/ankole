@@ -1,5 +1,20 @@
 # Changelog
 
+## Version 2.0.0-alpha.178 (2026-11-18)
+
+- Apply the CLI output shims inside Session commands. Debian's login profile
+  reset `PATH` in every `bash -lc` shell, so the Worker image's
+  perceptual-shaping shims for `curl`, `git`, test runners, and package
+  managers never ran there. The image now puts the shim directory back after
+  that reset.
+- Apply the slash-menu choice when Enter arrives before the menu redraws. A
+  hover over a row of the previous, longer list left an index past the end of
+  the filtered list, so Enter split the paragraph instead of applying the
+  chosen block type.
+- Insert the mention the typed query names when Enter arrives before the
+  mention menu redraws. Enter used to take the first result of an earlier,
+  shorter query, which could insert the wrong page or person.
+
 ## Version 2.0.0-alpha.177 (2026-11-18)
 
 - Stop an editor composition test from failing at random in CI. It clicked

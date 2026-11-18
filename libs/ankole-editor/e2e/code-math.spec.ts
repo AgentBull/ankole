@@ -80,7 +80,8 @@ test('the slash menu inserts an empty formula block and opens its editor', async
   await caret(page.locator('.editor-content > p'))
   await page.keyboard.press('Enter')
   await page.keyboard.type('/latex')
-  await page.getByRole('option', { name: /公式/ }).click()
+  // The menu filters a frame after the typing, so a partial query such as `/la` can still list `行内公式`.
+  await page.getByRole('option', { name: '公式', exact: true }).click()
   const editor = page.locator('.math-editor')
   await expect(editor).toBeVisible()
   await expect(page.locator('.math-block')).toHaveAttribute('data-math', '')
@@ -325,9 +326,7 @@ test('block and inline formulas ignore outer $xxxx$ and \\(xxxx\\) delimiters an
   await expectMarkdown(page, 'Inline $$a + b$$\n\n$$\nE = mc^2\n$$')
 })
 
-test('typing shortcuts, slash menu, selection toolbar, and Mod+Shift+E create inline and block formulas', async ({
-  page
-}) => {
+test('typing $$…$$ creates an inline formula that one undo turns back into the typed text', async ({ page }) => {
   await openDocument(page, 'Energy')
   await caret(page.locator('.editor-content > p'), 'end')
   await page.keyboard.type(' $$mc^2$$')
@@ -338,8 +337,9 @@ test('typing shortcuts, slash menu, selection toolbar, and Mod+Shift+E create in
   await page.keyboard.press('ControlOrMeta+z')
   await expect(page.locator('.math-inline')).toHaveCount(0)
   await expectMarkdown(page, 'Energy \\$\\$mc^2\\$\\$')
+})
 
-  // `$$` + Enter on an empty paragraph opens a display formula block.
+test('$$ and Enter on an empty paragraph open a display formula block', async ({ page }) => {
   await openDocument(page, 'Lead')
   await caret(page.locator('.editor-content > p'), 'end')
   await page.keyboard.press('Enter')
@@ -349,8 +349,9 @@ test('typing shortcuts, slash menu, selection toolbar, and Mod+Shift+E create in
   await page.locator('.math-editor input').fill('a = b')
   await page.keyboard.press('Escape')
   await expectMarkdown(page, 'Lead\n\n$$\na = b\n$$\n\n<p />')
+})
 
-  // Slash menu `/行内公式` inserts an empty inline formula chip and opens its editor.
+test('the slash menu inserts an empty inline formula and opens its editor', async ({ page }) => {
   await openDocument(page, 'Value:')
   await caret(page.locator('.editor-content > p'), 'end')
   await page.keyboard.type(' /inline')
@@ -361,8 +362,11 @@ test('typing shortcuts, slash menu, selection toolbar, and Mod+Shift+E create in
   await page.keyboard.press('Enter')
   await page.keyboard.type(' items')
   await expectMarkdown(page, 'Value: $$k + 1$$ items')
+})
 
-  // Selection toolbar button and Mod+Shift+E convert selected text (unwrapping `$…$`) into inline math.
+test('the selection toolbar and Mod+Shift+E turn selected text into inline formulas, unwrapping $…$', async ({
+  page
+}) => {
   await openDocument(page, 'Wrap $x + y$ and z')
   await selectText(page, 'Wrap $x + y$ and z', 5, 'Wrap $x + y$ and z', 12)
   await page.getByRole('toolbar', { name: '选区格式' }).getByRole('button', { name: '行内公式' }).click()
@@ -375,8 +379,11 @@ test('typing shortcuts, slash menu, selection toolbar, and Mod+Shift+E create in
   await expect(page.locator('.math-editor input')).toHaveValue('z')
   await page.keyboard.press('Enter')
   await expectMarkdown(page, 'Wrap $$x + y$$ and $$z$$')
+})
 
-  // Pasting rendered KaTeX HTML (such as from Ankole Pod Chat) preserves inline and display formulas cleanly.
+test('pasting rendered KaTeX HTML, such as from Ankole Pod Chat, keeps inline and display formulas', async ({
+  page
+}) => {
   await openDocument(page, '')
   await clipboard(page.locator('.editor-content'), 'paste', {
     'text/html':

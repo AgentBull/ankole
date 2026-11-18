@@ -129,7 +129,10 @@ test('source drafts lock editing, can be discarded, and applied source can be un
   await expect(editor).toHaveAttribute('contenteditable', 'false')
   expect(await editor.ariaSnapshot()).toContain('Original')
   await editor.locator('strong').dblclick()
-  await expect.poll(() => page.evaluate(() => window.getSelection()!.toString())).toBe('Original')
+  // Firefox's Selection.toString() returns nothing for this read-only selection although its range holds the word.
+  await expect
+    .poll(() => page.evaluate(() => (s => (s.rangeCount ? s.getRangeAt(0).toString() : ''))(window.getSelection()!)))
+    .toBe('Original')
   await page.keyboard.press('Delete')
   await expect(editor.locator('strong')).toHaveText('Original')
   await expect(source).toHaveValue('## Replacement')

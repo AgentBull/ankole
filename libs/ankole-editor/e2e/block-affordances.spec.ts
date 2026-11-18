@@ -78,6 +78,8 @@ test('a marquee keeps its document origin while scrolling to further blocks', as
   await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(100)
   await expect(page.locator('.editor-selected-block').filter({ hasText: /^Block 12$/ })).toHaveCount(1)
   await page.mouse.move(first.x + 60, bounds.y + bounds.height / 2)
+  // The editor draws the smaller selection in an animation frame; counting earlier reads the edge selection.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   const selected = await page.locator('.editor-selected-block').count()
   const scrollTop = await scroller.evaluate(element => element.scrollTop)
   await page.mouse.wheel(0, 160)

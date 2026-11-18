@@ -38,6 +38,7 @@ defmodule Mix.Tasks.Compile.AnkoleTargets do
   @proof_exports %{
     AnkoleWeb.WorkerChannel => [advance_acked: 2],
     Ankole.Pod.Bases.Records => [field_cas: 3],
+    Ankole.Files.Path => [valid_path?: 1],
     Ankole.AIGateway.ToolResultJournal => [
       reconcile_tool_result_items: 2
     ]

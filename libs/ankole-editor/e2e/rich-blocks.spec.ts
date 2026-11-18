@@ -142,6 +142,11 @@ test('rich-text URL paste auto-links at caret, selection toolbar switches link v
   baseURL
 }) => {
   const previewUrl = `${baseURL}/resource-preview.html`
+  // The card for the new URL shows that site's favicon. The stub keeps the test off the network, where
+  // example.com answers 404 and WebKit reports the failed image as a console error.
+  await page.route('https://example.com/favicon.ico', route =>
+    route.fulfill({ path: new URL('../public/resource-image.png', import.meta.url).pathname })
+  )
   await openDocument(page, '')
   const editor = page.getByRole('textbox', { name: '文档编辑器', exact: true })
   await editor.click()

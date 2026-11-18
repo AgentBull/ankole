@@ -1,26 +1,18 @@
 import type { Page } from '@playwright/test'
 import { expect, test } from './helpers'
 
-// This upstream test expects a fixed character offset when the target x is a glyph midpoint.
-// WebKit selects the other side of the midpoint with its default proportional font.
-const knownFailures: Record<string, string[]> = {
-  webkit: ['moveVertically > can move between paragraphs']
-}
-
 // The core's browser tests (test/core/browser) run in the page and publish their results.
-test('core browser tests pass', async ({ page, browserName }) => {
+test('core browser tests pass', async ({ page }) => {
   test.skip(
     !!process.env.E2E_CONSUMER_ROOT || process.env.E2E_PREVIEW === '1',
     'Only the development server serves the test page'
   )
   await page.goto('/test/core/browser/index.html')
   const results = (await (await page.waitForFunction(() => window.coreTestResults)).jsonValue()) ?? []
-  const failed = results.filter(result => result.error)
-  const unexpected = failed
-    .filter(({ scope, name }) => !knownFailures[browserName]?.includes([...scope, name].join(' > ')))
+  const failed = results
+    .filter(result => result.error)
     .map(({ scope, name, error }) => `${[...scope, name].join(' > ')}\n${error}`)
-  expect(unexpected).toEqual([])
-  expect(failed.map(({ scope, name }) => [...scope, name].join(' > '))).toEqual(knownFailures[browserName] ?? [])
+  expect(failed).toEqual([])
   expect(results.length).toBeGreaterThan(100)
 })
 

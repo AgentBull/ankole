@@ -14,25 +14,25 @@ defmodule Ankole.Files.Path do
   def max_segment_bytes, do: @max_segment_bytes
 
   @doc """
-  Validates a drive path for a new write or rename and returns it unchanged.
+  Validates a drive path for a new write or rename and returns its NFC form.
 
-  A path is relative, at most #{@max_path_bytes} bytes, and every segment is
-  1 to #{@max_segment_bytes} bytes, not `.` or `..`, and free of control,
+  The NFC path is relative, at most #{@max_path_bytes} bytes, and every segment
+  is 1 to #{@max_segment_bytes} bytes, not `.` or `..`, and free of control,
   line/paragraph separator, and Unicode bidirectional control codepoints.
   """
   @spec normalize(term()) :: {:ok, String.t()} | {:error, {:invalid_path, term()}}
   def normalize(path) when is_binary(path) do
     normalized = if String.valid?(path), do: nfc(path), else: path
-    segments = String.split(normalized, "/")
 
-    valid? =
-      String.valid?(normalized) and byte_size(normalized) in 1..@max_path_bytes and
-        Enum.all?(segments, &valid_segment?/1)
-
-    if valid?, do: {:ok, normalized}, else: {:error, {:invalid_path, path}}
+    if valid_path?(normalized), do: {:ok, normalized}, else: {:error, {:invalid_path, path}}
   end
 
   def normalize(path), do: {:error, {:invalid_path, path}}
+
+  defp valid_path?(path) do
+    String.valid?(path) and byte_size(path) in 1..@max_path_bytes and
+      Enum.all?(String.split(path, "/"), &valid_segment?/1)
+  end
 
   @doc "Returns true when `segment` is a valid new Drive node or path segment name."
   @spec valid_segment?(term()) :: boolean()

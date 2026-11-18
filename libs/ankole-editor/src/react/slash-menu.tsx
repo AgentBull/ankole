@@ -96,7 +96,8 @@ const slashField = GardState.Field.define<Slash | null>({
   update(value, tr) {
     for (const effect of tr.effects) {
       if (effect.is(dismiss)) return null
-      if (effect.is(highlight) && value) return { ...value, index: effect.value }
+      // A hover can report a row of a list that React has not yet redrawn for the latest query.
+      if (effect.is(highlight) && value && effect.value < value.options.length) return { ...value, index: effect.value }
       if (effect.is(openPinned)) {
         if (tr.state.readOnly || tr.state.field(mentionField, false)) return null
         const options = filterBlockOptions(tr.state, '')

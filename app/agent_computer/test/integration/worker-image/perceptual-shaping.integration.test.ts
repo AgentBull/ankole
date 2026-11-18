@@ -10,6 +10,13 @@ if (process.platform !== 'linux' || !existsSync('/etc/ankole-agent-computer-cont
   )
 }
 
+// The test server shares this process's event loop, so its curl clients must not block it with spawnSync.
+async function runCommand(argv: string[], env: Record<string, string>) {
+  const proc = Bun.spawn(argv, { env, stdout: 'pipe', stderr: 'inherit' })
+  const stdout = await new Response(proc.stdout).text()
+  return { exitCode: await proc.exited, stdout }
+}
+
 describe('Worker image CLI perceptual shims', () => {
   it('shapes direct shell commands and automatically passes through pipelines via ANKOLE_HARNESS_STDOUT_ID', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'ankole-image-shim-'))
@@ -33,16 +40,16 @@ describe('Worker image CLI perceptual shims', () => {
       const url = `http://127.0.0.1:${server.port}/items`
 
       // 1. Bare curl in login bash (like CodexRunner shell execution) is shaped into unified schema.
-      const bare = Bun.spawnSync(['bash', '-lc', `curl -fsSL ${url}`], { env })
+      const bare = await runCommand(['bash', '-lc', `curl -fsSL ${url}`], env)
       expect(bare.exitCode).toBe(0)
-      const bareText = bare.stdout.toString('utf8')
+      const bareText = bare.stdout
       expect(bareText).toContain('JSON Object unified schema:')
       expect(bareText).toContain('"optional_flag"?: boolean')
 
       // 2. Piped curl (`curl ... | jq -r .items[77].id`) bypasses the shim via /proc/self/fd/1 mismatch!
-      const piped = Bun.spawnSync(['bash', '-lc', `curl -fsSL ${url} | jq -r '.items[77].id'`], { env })
+      const piped = await runCommand(['bash', '-lc', `curl -fsSL ${url} | jq -r '.items[77].id'`], env)
       expect(piped.exitCode).toBe(0)
-      expect(piped.stdout.toString('utf8').trim()).toBe('item_77')
+      expect(piped.stdout.trim()).toBe('item_77')
 
       // 3. Python subprocess capturing `curl` output also bypasses the shim automatically!
       const pyScript = join(dir, 'fetch_via_subproc.py')
@@ -51,9 +58,9 @@ describe('Worker image CLI perceptual shims', () => {
         `import json, subprocess\nout = subprocess.check_output(["curl", "-fsSL", "${url}"], text=True)\nprint(json.loads(out)["items"][5]["id"])\n`
       )
       chmodSync(pyScript, 0o755)
-      const subproc = Bun.spawnSync(['bash', '-lc', `python3 ${pyScript}`], { env })
+      const subproc = await runCommand(['bash', '-lc', `python3 ${pyScript}`], env)
       expect(subproc.exitCode).toBe(0)
-      expect(subproc.stdout.toString('utf8').trim()).toBe('item_5')
+      expect(subproc.stdout.trim()).toBe('item_5')
     } finally {
       server.stop(true)
       rmSync(dir, { recursive: true, force: true })

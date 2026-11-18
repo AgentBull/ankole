@@ -141,7 +141,9 @@ function s(pos: number, b?: number) {
 
 describe('moveVertically', () => {
   it('can move between paragraphs', () => {
-    const wg = tempEditor(doc(p('one'), p('two')))
+    // A monospace font puts each goal column on a character boundary in both paragraphs, so the result does not
+    // depend on which side of a glyph midpoint the platform's proportional font resolves to.
+    const wg = tempEditor(doc(p('one'), p('two')), Wordgard.theme({ '&': { fontFamily: 'monospace' } }))
     ist(wg.moveVertically(s(1), true)?.head, 6)
     ist(wg.moveVertically(s(2), true)?.head, 7)
     ist(wg.moveVertically(s(4), true)?.head, 9)

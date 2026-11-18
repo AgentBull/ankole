@@ -281,6 +281,11 @@ RUN set -eux; \
     'fi' \
     > /etc/profile.d/ankole-agent-computer.sh; \
   chmod 0644 /etc/profile.d/ankole-agent-computer.sh; \
+  # Debian's /etc/profile resets PATH in login shells such as `bash -lc`; only /etc/profile reads this file.
+  printf '%s\n' \
+    'case ":${PATH}:" in *:/usr/local/libexec/ankole-cli-shims:*) ;; *) PATH="/usr/local/libexec/ankole-cli-shims:${PATH}" ;; esac' \
+    > /etc/profile.d/ankole-cli-shims.sh; \
+  chmod 0644 /etc/profile.d/ankole-cli-shims.sh; \
   mkdir -p /usr/local/libexec/ankole-cli-shims; \
   for shim_tool in pytest vitest jest mix cargo tsc oxlint eslint npm pnpm yarn bun pip pip3 uv curl git; do \
     ln -s ../ankole-cli-shim "/usr/local/libexec/ankole-cli-shims/${shim_tool}"; \

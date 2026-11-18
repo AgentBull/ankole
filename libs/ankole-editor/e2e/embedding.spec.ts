@@ -334,6 +334,9 @@ test('an open inline link form follows a host insertion and preserves input when
 })
 
 test('the file entry hands chosen files to the host and leaves the document unchanged', async ({ page }) => {
+  // Playwright intercepts file choosers only while a listener exists, and switches that without waiting. A listener
+  // for the whole test keeps the second choice from reaching Firefox before interception is back on.
+  page.on('filechooser', () => {})
   const editor = page.getByRole('textbox', { name: 'Second document', exact: true })
   await caret(editor.locator('p').last())
   await editor.press('End')

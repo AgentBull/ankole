@@ -76,8 +76,11 @@ test('each view sizes the block to its visible content between the minimum and t
   // Long source stops at the cap and scrolls inside the block.
   await expect.poll(height).toBeLessThanOrEqual(558)
   expect(await pre.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+})
 
-  // Diagram-only view expands the block height to fit a tall diagram without clipping.
+test('the diagram view grows past the cap to show a tall diagram without clipping', async ({ page }) => {
+  const block = page.locator('.mermaid-block')
+  const height = async () => (await block.boundingBox())!.height
   const tallDiagram = [
     'flowchart TD',
     ...Array.from({ length: 14 }, (_, index) => `  N${index}[Step ${index}] --> N${index + 1}[Step ${index + 1}]`)
@@ -86,8 +89,10 @@ test('each view sizes the block to its visible content between the minimum and t
   await expect(block.locator('.mermaid-preview svg')).toBeVisible({ timeout: 10_000 })
   await expect.poll(height).toBeGreaterThan(558)
   expect(await block.locator('.mermaid-preview').evaluate(el => el.scrollHeight <= el.clientHeight)).toBe(true)
+})
 
-  // Wide sequence diagrams scale to fit without wrapping labels into narrow vertical columns.
+test('a wide sequence diagram scales to fit without wrapping labels into narrow columns', async ({ page }) => {
+  const block = page.locator('.mermaid-block')
   const wideSequence = [
     'sequenceDiagram',
     '  autonumber',

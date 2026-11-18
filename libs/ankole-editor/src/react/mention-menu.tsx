@@ -61,6 +61,17 @@ function renderHighlightedTitle(title: string, query: string): ReactNode {
   )
 }
 
+type Results = { category: MentionCategory; query: string; items: readonly MentionItem[]; loading: boolean }
+
+/** The results for `query`: exact results, or earlier results for a shorter query narrowed by title. */
+function visibleItems(results: Results, category: MentionCategory, query: string): readonly MentionItem[] {
+  if (results.category !== category) return []
+  if (results.query === query) return results.items
+  if (!query.toLowerCase().startsWith(results.query.toLowerCase())) return []
+  const needle = query.trim().toLowerCase()
+  return needle ? results.items.filter(item => item.title.toLowerCase().includes(needle)) : results.items
+}
+
 function optionKey(item: MentionItem): string {
   return 'page' in item.target ? `page:${item.target.page}` : `principal:${item.target.principal}`
 }
@@ -73,12 +84,7 @@ export function MentionMenu() {
   const enabled = Boolean(session && host?.queryMentions)
   const panelRef = useRef<HTMLDivElement>(null)
 
-  const [state, setState] = useState<{
-    category: MentionCategory
-    query: string
-    items: readonly MentionItem[]
-    loading: boolean
-  }>({
+  const [state, setState] = useState<Results>({
     category: 'all',
     query: '',
     items: [],
@@ -160,15 +166,10 @@ export function MentionMenu() {
     return () => controller.abort()
   }, [enabled, queryMentions, activeQuery, activeCategory, editor])
 
-  const displayedItems = useMemo(() => {
-    if (!enabled) return []
-    if (state.category === activeCategory && state.query === activeQuery) return state.items
-    if (state.category === activeCategory && activeQuery.toLowerCase().startsWith(state.query.toLowerCase())) {
-      const needle = activeQuery.trim().toLowerCase()
-      return needle ? state.items.filter(item => item.title.toLowerCase().includes(needle)) : state.items
-    }
-    return []
-  }, [enabled, state, activeCategory, activeQuery])
+  const displayedItems = useMemo(
+    () => (enabled ? visibleItems(state, activeCategory, activeQuery) : []),
+    [enabled, state, activeCategory, activeQuery]
+  )
 
   const loading = enabled && (state.loading || state.category !== activeCategory || state.query !== activeQuery)
   const clampedIndex = displayedItems.length > 0 ? Math.min(index, displayedItems.length - 1) : 0
@@ -176,6 +177,9 @@ export function MentionMenu() {
   const optionId = (i: number) => `${editor.contentDOM.id}-mention-${i}`
 
   const latest = useRef({
+    state,
+    query: activeQuery,
+    category: activeCategory,
     displayedItems,
     clampedIndex,
     loading,
@@ -183,6 +187,9 @@ export function MentionMenu() {
     hasQuery: Boolean(queryMentions)
   })
   latest.current = {
+    state,
+    query: activeQuery,
+    category: activeCategory,
     displayedItems,
     clampedIndex,
     loading,
@@ -238,13 +245,17 @@ export function MentionMenu() {
         }
 
         if (event.key === 'Enter' && !event.shiftKey) {
-          const chosen = cur.displayedItems[cur.clampedIndex]
+          // Typing can run ahead of React, so Enter chooses from the results for the query in the editor state.
+          const drawn = liveSession.query === cur.query && liveSession.category === cur.category
+          const chosen = drawn
+            ? cur.displayedItems[cur.clampedIndex]
+            : visibleItems(cur.state, liveSession.category, liveSession.query)[0]
           if (chosen) {
             event.preventDefault()
             commitMention(editor, chosen.target)
             return true
           }
-          if (cur.loading) {
+          if (cur.loading || !drawn) {
             event.preventDefault()
             return true
           }
