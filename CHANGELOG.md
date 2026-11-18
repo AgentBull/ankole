@@ -13,6 +13,10 @@
   the first row, and a failed card in any column has the red tint and states
   the failure in red. Warning and failed cards now draw their tinted gradient,
   which never appeared before. The view switch is a segmented control.
+- Replace text in a document from the find bar. The bar now has Find and
+  Replace tabs: Replace changes the current match and moves to the next, and
+  Replace all changes every match and reports how many. One undo restores
+  each replacement. Previous and Next are labelled buttons.
 - Stop the Pod space settings from showing a default as the saved value. Until
   the server answers, each field shows a placeholder, so a closed guest policy
   never appears checked. Profile, sign-in, and leave panels wait the same way.

@@ -3722,6 +3722,17 @@ find_in_page = "Find in page"
 find_previous = "Previous match"
 find_next = "Next match"
 find_close = "Close find"
+find_label = "Find"
+replace_label = "Replace"
+replace_with = "Replace with"
+replace_with_placeholder = "Replacement text"
+replace_all = "Replace all"
+replaced_count = """
+.input {$count :number}
+.match $count
+one {{Replaced {$count} match}}
+*   {{Replaced {$count} matches}}"""
+replace_unavailable = "This match cannot be replaced"
 find_truncated_download = "Match is beyond the preview limit. Download the original file to view all matches."
 purging = "Purging"
 days_until_permanent_deletion = """

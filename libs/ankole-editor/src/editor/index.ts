@@ -24,7 +24,7 @@ export { commitMention, insertMention, mentionField, type MentionCategory, type 
 export type { MentionTarget } from './schema'
 export { PageCollaboration, type PageChanges } from './page-collaboration'
 export { pageDocument, replaceTree } from './convert'
-export { toggleFormat, undo, insertImage } from './commands'
+export { toggleFormat, undo, insertImage, replaceText } from './commands'
 export type { Wordgard as Editor } from '../core/editor'
 export { GardSelection as EditorSelection } from '../core/state'
 

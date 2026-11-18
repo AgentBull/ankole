@@ -622,7 +622,11 @@ Base schema hits, `?find=<query>&seq=<seq>` on Chat message hits, and clean
 canonical paths on title-only jumps), automatically unfolding collapsed headings
 or jumping to the matched file line, CSV row, workbook sheet, presentation
 slide, or PDF page and highlighting matches through `TreeWalker` and
-`CSS.highlights` until Escape clears the find bar. Search hits, quick-navigation
+`CSS.highlights` until Escape clears the find bar. The find bar has a Find tab
+and, on a document the member can edit, a Replace tab. Replace changes the
+current match and Replace all changes every match, each as one edit that a
+single undo restores; a match in the title or inside an embed stays as it is,
+because the document editor does not own that text. Search hits, quick-navigation
 items, and Page references in Chat render visible ancestor breadcrumbs so users
 can tell identically named Pages apart; search hits in the full page and the
 command menu also mark each Private Page with the same `Private` badge, alongside consistent per-type Page icons

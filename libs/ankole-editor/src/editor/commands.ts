@@ -3,6 +3,7 @@ import type { Wordgard } from '../core/editor'
 import { redo as redoCommand, undo as undoCommand } from '../core/history'
 import { formats, ImageTitle } from './schema'
 import { GardSelection } from '../core/state'
+import { Leaf } from '../core/doc'
 import { Image, ImageAlt } from '../core/types'
 import { dispatchStep } from './block-insert'
 import { isKnowledge } from './knowledge'
@@ -46,6 +47,28 @@ export function insertImage(editor: Wordgard, image: { src: string; alt?: string
     },
     selection: (context, changes) => GardSelection.near(context, changes.mapPos(to, 1), -1),
     userEvent: 'image.insert'
+  })
+  return editor.state.doc !== before
+}
+
+/**
+ * Replace each range with `text` as one undoable edit. A replacement keeps the marks of the text it replaces.
+ * Ranges are positions in the current document and must not overlap. Returns whether the document changed.
+ */
+export function replaceText(editor: Wordgard, ranges: readonly { from: number; to: number }[], text: string): boolean {
+  if (editor.state.readOnly || editor.composing || !ranges.length) return false
+  const before = editor.state.doc
+  dispatchStep(editor, {
+    changes: {
+      correct: ranges.map(({ from, to }) => ({
+        from,
+        to,
+        insert: text ? [Leaf.text(text, before.resolve(from).marks(before.resolve(to)))] : [],
+        fit: true
+      })),
+      local: true
+    },
+    userEvent: 'input.replace'
   })
   return editor.state.doc !== before
 }
