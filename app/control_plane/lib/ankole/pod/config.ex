@@ -83,6 +83,15 @@ defmodule Ankole.Pod.Config do
         description: "Number of recent document change batches retained for OT replay."
       ),
       Definition.new!(
+        key: "pod.embed_origins",
+        scope: :tenant,
+        encrypted: false,
+        schema: Schema.new(&embed_origins/1),
+        default_value: [],
+        description:
+          "Origins, such as https://portal.example.com, whose pages may show a Base Page in an iframe through /embed/pages/:id. The host page must share the Pod's registrable domain so the browser sends the Pod sign-in cookie."
+      ),
+      Definition.new!(
         key: "pod.ocr_existing_scans",
         scope: :tenant,
         encrypted: false,
@@ -140,6 +149,12 @@ defmodule Ankole.Pod.Config do
          do: {:ok, [timeout_ms: limits["timeout_ms"], heap_mb: limits["heap_mb"], lane: :action]}
   end
 
+  @doc "Returns the origins that may frame a Base Page through the embed route."
+  def embed_origins do
+    {:ok, origins} = AppConfigure.get_by_key("pod.embed_origins")
+    origins
+  end
+
   def action_runtime_url do
     {:ok, url} = AppConfigure.get_by_key("pod.applet.action_runtime_url")
     url
@@ -159,6 +174,32 @@ defmodule Ankole.Pod.Config do
   end
 
   defp action_runtime_url(_), do: {:error, :invalid_runtime_url}
+
+  defp embed_origins(origins) when is_list(origins) do
+    Enum.reduce_while(origins, {:ok, []}, fn origin, {:ok, acc} ->
+      case embed_origin(origin) do
+        {:ok, normalized} -> {:cont, {:ok, acc ++ [normalized]}}
+        :error -> {:halt, {:error, :invalid_embed_origin}}
+      end
+    end)
+  end
+
+  defp embed_origins(_), do: {:error, :invalid_embed_origin}
+
+  # Browsers compare an origin as scheme, host, and port, so the operator writes
+  # only those parts. Ankole drops a trailing slash to match the browser form.
+  defp embed_origin(origin) when is_binary(origin) do
+    case URI.parse(String.trim_trailing(origin, "/")) do
+      %URI{scheme: scheme, host: host, path: nil, userinfo: nil, query: nil, fragment: nil} = uri
+      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
+        {:ok, URI.to_string(uri)}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp embed_origin(_), do: :error
 
   defp validate_applet_limits(limits) when is_map(limits) do
     if Enum.sort(Map.keys(limits)) == Enum.sort(Map.keys(@applet_defaults)) and

@@ -24,7 +24,8 @@ defmodule AnkoleWeb.SpaController do
     console: %{entry: "console", title: "Ankole Console"},
     sessions: %{entry: "auth", title: "Ankole Sign In"},
     setup: %{entry: "setup", title: "Ankole Setup"},
-    pod: %{entry: "pod", title: "Ankole"}
+    pod: %{entry: "pod", title: "Ankole"},
+    base_embed: %{entry: "base-embed", title: "Ankole"}
   }
 
   def home(conn, _params) do
@@ -232,6 +233,46 @@ defmodule AnkoleWeb.SpaController do
     end
   end
 
+  @doc """
+  Serves one Base Page without the Pod navigation, for a host page to frame.
+
+  The response allows framing only by the Pod's own origin and the origins in
+  `pod.embed_origins`. A request without a Pod session renders the same shell
+  with status 401 instead of redirecting to sign-in: an identity provider
+  usually refuses to load in a frame, so the embedded app reports the missing
+  session to the host page, and the host page opens sign-in at the top level.
+  The Base Page APIs then apply the same Page permissions as the Pod.
+  """
+  def base_embed(conn, _params) do
+    with true <- setup_completed?(),
+         {:ok, tenant_id} <- entry_tenant(conn),
+         :ok <- Ankole.Repo.put_tenant_id(tenant_id) do
+      conn = allow_embedding(conn, Ankole.Pod.Config.embed_origins())
+
+      case WebSession.pod_session(conn) do
+        nil ->
+          conn |> put_status(401) |> render_spa(:base_embed)
+
+        %{"principal_uid" => uid} = authentication ->
+          :ok = WebSession.renew_authentication(authentication)
+          conn |> assign(:current_principal_uid, uid) |> render_spa(:base_embed)
+      end
+    else
+      _ -> send_resp(conn, 404, "Pod not found")
+    end
+  end
+
+  # The browser pipeline already answers `frame-ancestors 'self'`; the embed
+  # route replaces that policy with one that also names the allowed origins.
+  defp allow_embedding(conn, origins) do
+    conn
+    |> put_resp_header(
+      "content-security-policy",
+      Enum.join(["base-uri 'self'; frame-ancestors 'self'" | origins], " ") <> ";"
+    )
+    |> assign(:embed_origins, origins)
+  end
+
   def pod_manifest(conn, _params) do
     with true <- setup_completed?(),
          {:ok, tenant_id} <- entry_tenant(conn),
@@ -437,6 +478,7 @@ defmodule AnkoleWeb.SpaController do
       auth_error_meta(conn),
       authentication_meta(conn, entry),
       console_path_meta(entry),
+      embed_origins_meta(conn),
       dev_mailbox_meta(),
       "<meta name=\"ankole-active-plugins\" content=\"",
       Ankole.Plugins.list_active() |> Enum.map(& &1.id) |> Ankole.JSON.encode!() |> html_escape(),
@@ -529,6 +571,17 @@ defmodule AnkoleWeb.SpaController do
 
   defp console_path_meta(_entry), do: []
 
+  # The embedded app posts its state only to a host page in this list.
+  defp embed_origins_meta(%{assigns: %{embed_origins: origins}}) do
+    [
+      "    <meta name=\"ankole-embed-origins\" content=\"",
+      origins |> Ankole.JSON.encode!() |> html_escape(),
+      "\">\n"
+    ]
+  end
+
+  defp embed_origins_meta(_conn), do: []
+
   defp pod_manifest_link(entry) when entry == "pod" do
     [
       "    <link rel=\"manifest\" href=\"",
@@ -577,7 +630,7 @@ defmodule AnkoleWeb.SpaController do
 
   # Pod workspaces render in their bound Pod's locale; Setup and the site Console
   # bind and render in the privileged Pod's locale.
-  defp app_locale(_conn, entry) when entry in ["pod", "setup", "console"],
+  defp app_locale(_conn, entry) when entry in ["pod", "base-embed", "setup", "console"],
     do: pod_locale()
 
   defp app_locale(conn, "auth") do

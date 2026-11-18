@@ -295,6 +295,8 @@ defmodule AnkoleWeb.Router do
     get "/pod", SpaController, :pod
     get "/pod/*path", SpaController, :pod
     get "/pages/:id", SpaController, :pod
+    # A Base Page alone, for an allowed host page to show in an iframe.
+    get "/embed/pages/:id", SpaController, :base_embed
     get "/conversations/:id", SpaController, :pod
     get "/dm/:colleague_uid", SpaController, :pod
     get "/content/:scope", SpaController, :pod

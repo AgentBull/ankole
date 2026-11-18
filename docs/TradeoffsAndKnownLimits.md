@@ -77,6 +77,10 @@ Ankole accepts this because neither case executes author-controlled script with 
 - Every Pod file response sets `Content-Security-Policy: sandbox; default-src 'none'` and `X-Content-Type-Options: nosniff`, serving HTML and non-allowlisted MIME types as `attachment` downloads, and browsers never execute `javascript:` URIs on `<img>` elements.
 - Inline text styles in both the editor and the Rust kernel retain only `color`, `background-color`, and `text-transform` so arbitrary CSS (such as `position: fixed` overlays) cannot spoof or cover the surrounding page. Because a pasted embed can still display an unprompted external page (such as a phishing form), readers should treat embeds with the same caution as external links.
 
+## Framed Base Pages Trust the Listed Host Origins
+
+An operator who lists an origin in `pod.embed_origins` lets pages from that origin frame `/embed/pages/:id` for every person signed in to the Pod in that browser. The framed Base Page acts with the signed-in person's own Page grants, so a listed host can show and offer edits to whatever that person may already open in the Pod; Ankole does not add a second consent step inside the frame. The setting accepts only exact origins, and Ankole posts embed state messages only to a listed origin. Because the Pod sign-in cookie uses `SameSite=Lax`, framing works only when the host application and the Pod share a registrable domain; a host on another site sees the `unauthenticated` state and opens sign-in at the top level, which does not establish a session the frame can use. See [Framing a Base Page on another site](design-docs/PodContentModel.md#framing-a-base-page-on-another-site).
+
 ## Concurrent Cross-Column Deletions Can Leave an Empty Column
 
 When a range edit starts in one column and ends in another, the editor joins the text at both ends while closing the first column and reopening the second so the remaining blocks in each column stay in place. Operational transformation preserves that inserted column boundary even if a concurrent collaborator deletes the surrounding text at the same time.

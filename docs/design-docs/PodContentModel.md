@@ -2626,6 +2626,50 @@ both record and aggregate queries across `inline` and `physical` modes (on a
 shard connection, physical queries apply the lesser of the tenant timeout and
 the remaining request deadline).
 
+### Framing a Base Page on another site
+
+An operator can show one Base Page inside another web application, such as an
+internal portal, through `GET /embed/pages/:id`. The route serves the
+`base-embed` webapp entry, which renders the Base Page's tables, saved views,
+filters, grouping, and record editing without the Pod sidebar, top bar, or
+command menu. Ankole reads the Page and its records through the same Pod APIs
+as the full Pod, so the person signed in to the browser sees and edits exactly
+what their Page grants allow.
+
+The tenant setting `pod.embed_origins` lists the origins that may frame the
+route, each written as scheme, host, and optional port. Ankole answers the
+embed route with `Content-Security-Policy: base-uri 'self'; frame-ancestors
+'self'` followed by those origins. Every other Pod route answers with
+`frame-ancestors 'self'` alone, so the setting widens framing for the Base
+embed only.
+
+The browser sends the Pod sign-in cookie to a framed Pod only when the host
+page and the Pod share a registrable domain, because the cookie uses
+`SameSite=Lax`. The operator therefore places the host application on the same
+parent domain as the Pod, for example `portal.example.com` and
+`pod.example.com`.
+
+A request without a Pod session receives the embed shell with status `401`
+rather than a redirect to sign-in, since identity providers usually refuse to
+render inside a frame. The host page then opens Pod sign-in at the top level
+and reloads the frame afterwards.
+
+The embedded app reports its state to the framing page with `postMessage`.
+Each message is an object with `source: "ankole-embed"` and one of these
+`type` values:
+
+| `type` | Extra fields | Meaning |
+| --- | --- | --- |
+| `loaded` | `pageID` | The Base Page has rendered. |
+| `height` | `height` | The content height in CSS pixels changed. |
+| `unauthenticated` | — | The browser has no Pod session, or the session ended while the table was open. |
+| `forbidden` | `pageID` when known | The Page does not exist, is not a Base Page, or the signed-in person may not read it. |
+
+The app posts only to the framing origin, which it reads from
+`location.ancestorOrigins` or, in browsers without that property, from the
+referrer. When that origin is missing from `pod.embed_origins`, the app sends
+no messages at all.
+
 ### Drive filesystem projections
 
 A mounted Base exposes tables under `._abase/`. Dot-directory paths compose

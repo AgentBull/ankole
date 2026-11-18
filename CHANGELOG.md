@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 2.0.0-alpha.181 (2026-11-19)
+
+- Show a Base Page inside another web application: `/embed/pages/:id` renders
+  only the Base's tables, views, and filters, with the same Page permissions as
+  the Pod. Operators list the host origins in the new tenant setting
+  `pod.embed_origins`; every other Pod page still refuses cross-origin framing.
+  The embedded table reports `loaded`, `height`, `unauthenticated`, and
+  `forbidden` to the host page through `postMessage`, and a signed-out browser
+  gets that report instead of a sign-in redirect inside the frame.
+
 ## Version 2.0.0-alpha.180 (2026-11-18)
 
 - Internal changes only.

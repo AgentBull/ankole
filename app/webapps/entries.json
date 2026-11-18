@@ -3,5 +3,6 @@
   "console": "entrypoints/console.tsx",
   "setup": "entrypoints/setup.tsx",
   "pod": "entrypoints/pod.tsx",
-  "applet-diagnostic": "entrypoints/applet-diagnostic.ts"
+  "applet-diagnostic": "entrypoints/applet-diagnostic.ts",
+  "base-embed": "entrypoints/base-embed.tsx"
 }
