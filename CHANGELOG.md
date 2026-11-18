@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.174 (2026-11-18)
+## Version 2.0.0-alpha.175 (2026-11-18)
 
 - Follow the designers' latest component edits everywhere the kit is used. A
   text field that holds focus draws a blue edge on all four sides instead of a
@@ -56,6 +56,12 @@
   shows its selection when closed, the Agent detail page has section links,
   untitled Brain objects show their path, and a Drive conversation folder shows
   a copyable ID.
+
+## Version 2.0.0-alpha.174 (2026-11-18)
+
+- Cache the system packages that Playwright's Chromium needs alongside the
+  browser, so the frontend browser check no longer waits minutes on the slow
+  Ubuntu mirror that runners in AWS use.
 
 ## Version 2.0.0-alpha.173 (2026-11-18)
 
