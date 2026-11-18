@@ -617,6 +617,7 @@ defmodule Ankole.Files.VfsTest do
           "apparmor=unconfined",
           "--entrypoint",
           "bash",
+          host_gateway_args(),
           fuse_binary_args(),
           "-v",
           directory <> ":/test-config:ro",
@@ -877,6 +878,7 @@ defmodule Ankole.Files.VfsTest do
           "apparmor=unconfined",
           "--entrypoint",
           "bun",
+          host_gateway_args(),
           fuse_binary_args(),
           if(System.get_env("ANKOLE_VFS_STRESS"), do: ["-e", "ANKOLE_VFS_STRESS=1"], else: []),
           "-v",
@@ -1218,6 +1220,9 @@ defmodule Ankole.Files.VfsTest do
 
     {:ok, _} = Skills.set_binding(actor, skill.slug, ctx.agent.uid, true)
   end
+
+  # Docker Desktop defines host.docker.internal; Docker Engine on Linux needs it mapped.
+  defp host_gateway_args, do: ["--add-host", "host.docker.internal:host-gateway"]
 
   defp fuse_binary_args do
     case System.get_env("ANKOLE_VFS_FUSE_BINARY") do

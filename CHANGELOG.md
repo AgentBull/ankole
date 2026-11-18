@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.0-alpha.180 (2026-11-18)
+
+- Internal changes only.
+
 ## Version 2.0.0-alpha.179 (2026-11-18)
 
 - Let the nightly control-plane run finish within its time limit. It now runs
