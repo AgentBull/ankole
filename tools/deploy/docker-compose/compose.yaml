@@ -38,7 +38,7 @@ x-logging: &default-logging
 
 services:
   postgresql:
-    image: ${ANKOLE_POSTGRESQL_IMAGE:-ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:56457f8111e55e26fa15f750a32682560cbc8afc7a5bb03b706402b4ae7f9971}
+    image: ${ANKOLE_POSTGRESQL_IMAGE:-ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:1772c33690ecc4bd1e202c7059afa884288c9f80e70263ede28946e036b0d4ed}
     shm_size: 1gb
     pull_policy: always
     restart: unless-stopped

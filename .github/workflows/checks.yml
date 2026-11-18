@@ -200,7 +200,7 @@ jobs:
       DATABASE_URL: ecto://postgres:repository-checks-only@localhost:5432/postgres
     services:
       postgres:
-        image: ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:56457f8111e55e26fa15f750a32682560cbc8afc7a5bb03b706402b4ae7f9971
+        image: ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:1772c33690ecc4bd1e202c7059afa884288c9f80e70263ede28946e036b0d4ed
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: repository-checks-only
@@ -296,11 +296,23 @@ jobs:
             app/control_plane/_build
           key: ${{ steps.mix-cache.outputs.cache-primary-key }}
 
+  # The editor's Playwright suite runs in two shards beside the webapps suites,
+  # so the slowest leg, not the sum of the suites, sets the PR wait. Only the
+  # webapps leg loads the kernel WASM.
   frontend-browser-fast:
     needs: changes
     if: ${{ needs.changes.outputs.frontend_browser == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: editor
+            shard: 1/2
+          - suite: editor
+            shard: 2/2
+          - suite: webapps
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -312,32 +324,38 @@ jobs:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ matrix.suite == 'webapps' }}
         id: wasm-cache
         with:
           path: app/kernel/dist
           key: frontend-browser-wasm-${{ runner.os }}-rust-1.99.1-${{ hashFiles('rust-toolchain.toml', 'app/kernel/Cargo.toml', 'app/kernel/Cargo.lock', 'app/kernel/spreadsheet*/**', 'app/kernel/word*/**', 'app/kernel/presentation*/**', 'app/kernel/vendor/**') }}
-      - if: ${{ steps.wasm-cache.outputs.cache-hit != 'true' }}
+      - if: ${{ matrix.suite == 'webapps' && steps.wasm-cache.outputs.cache-hit != 'true' }}
         run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown && rustup default 1.99.1
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        if: ${{ steps.wasm-cache.outputs.cache-hit != 'true' }}
+        if: ${{ matrix.suite == 'webapps' && steps.wasm-cache.outputs.cache-hit != 'true' }}
         with:
           workspaces: app/kernel -> target/wasm-build
           cache-directories: app/kernel/target/wasm-tools
           shared-key: frontend-browser-wasm
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - if: ${{ steps.wasm-cache.outputs.cache-hit != 'true' }}
+      - if: ${{ matrix.suite == 'webapps' && steps.wasm-cache.outputs.cache-hit != 'true' }}
         run: bun run --filter @ankole/kernel build:wasm
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: ${{ github.ref == 'refs/heads/main' && steps.wasm-cache.outputs.cache-hit != 'true' }}
+        if: ${{ matrix.suite == 'webapps' && github.ref == 'refs/heads/main' && steps.wasm-cache.outputs.cache-hit != 'true' }}
         with:
           path: app/kernel/dist
           key: ${{ steps.wasm-cache.outputs.cache-primary-key }}
-      - run: bun run --filter @ankole/webapps test
+      - if: ${{ matrix.suite == 'webapps' }}
+        run: bun run --filter @ankole/webapps test
       - run: bunx playwright install --with-deps chromium
         working-directory: app/webapps
-      - run: bunx playwright test --project=chromium
+      - if: ${{ matrix.suite == 'editor' }}
+        run: bunx playwright test --project=chromium --shard="$SHARD"
         working-directory: libs/ankole-editor
-      - run: bun run --filter @ankole/webapps test:browser
+        env:
+          SHARD: ${{ matrix.shard }}
+      - if: ${{ matrix.suite == 'webapps' }}
+        run: bun run --filter @ankole/webapps test:browser
 
   # Require this job, not the individual checks, in branch protection. It
   # reports success when every check passed or a documentation-only change

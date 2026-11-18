@@ -595,11 +595,12 @@ Use `kit --help` to discover database, service, generation, worker-test, and ana
 
 Start with the targeted checks that cover the area you changed—failures are much faster to diagnose when isolated from unrelated worktree activity.
 
-On pull requests, the `Repository checks` GitHub Actions workflow runs four static-verification jobs against the FOSS edition in parallel:
+On pull requests, the `Repository checks` GitHub Actions workflow runs four static-verification jobs against the FOSS edition in parallel, plus a browser job for frontend changes:
 - **`bun-static`** — `oxlint`, `oxfmt`, workspace dependency/unused-export analysis, and TypeScript checks
 - **`kernel-lint`** — `rustfmt`, `clippy` across every Cargo feature combination, and Elixir formatting
 - **`control-plane-static`** — Elixir formatting, `mix compile --warnings-as-errors`, Credo, compile-connected cycle checks, and Plugin dependency boundaries. It sets `ANKOLE_KERNEL_SKIP_NIF=1`, which compiles `Ankole.Kernel` without building its crate, so the job needs no Rust toolchain; `kernel-lint` covers the NIF code.
 - **`control-plane-contracts`** — OpenAPI, connector toolkit, and generated SDK drift checks. Mix configuration loads the kernel NIF, so this job restores the library from a cache keyed on every `app/kernel` input and builds it only when the kernel changed.
+- **`frontend-browser-fast`** — runs only when a pull request touches the editor, UI kit, Applet SDK, webapps, locales, or the office WASM crates. The editor's Chromium Playwright suite runs in two shards, and a third job runs the webapps unit and browser suites, so the slowest of the three sets the wait rather than their sum.
 
 A pull request that changes only documentation (root Markdown files, `docs/`, and `README`, `SPEC`, `AGENTS`, `CLAUDE`, or `CHANGELOG` Markdown files) skips these jobs. The `Repository checks passed` job always runs and fails when any check failed, so branch protection should require that job rather than the individual checks. A new push to a pull request cancels its running checks. Pull requests restore the caches that `main` saves and do not save their own.
 

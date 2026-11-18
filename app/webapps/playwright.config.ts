@@ -6,6 +6,9 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   timeout: 30_000,
+  // CI runners take about three times as long as a developer machine to render
+  // these pages, so first renders regularly overran the default 5 seconds.
+  expect: { timeout: 15_000 },
   outputDir: 'output/playwright/results',
   use: { baseURL: 'http://127.0.0.1:3198', trace: 'retain-on-failure' },
   webServer: {

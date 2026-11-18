@@ -592,7 +592,8 @@ test('Spreadsheet, Base, and Knowledge Pages handle Mod+S in editable states wit
   // --- A. Spreadsheet Page (.xlsx) ---
   await page.goto(pageRoute(sheetID))
   const cellEditor = page.locator('[data-spreadsheet-cell-editor]')
-  await expect(cellEditor).toBeAttached()
+  // The first visit compiles the lazy spreadsheet modules in the Vite server.
+  await expect(cellEditor).toBeAttached({ timeout: 20_000 })
   await expect.poll(() => officeSyncCount).toBeGreaterThanOrEqual(1)
   await cellEditor.focus()
 

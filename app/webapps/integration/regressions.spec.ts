@@ -877,7 +877,8 @@ test('Base and Spreadsheet Page titles move focus into the workspace on Enter an
 
   await page.goto(pageRoute(sheetID))
   const cellEditor = page.locator('[data-spreadsheet-cell-editor]')
-  await expect(cellEditor).toBeAttached()
+  // The first visit compiles the lazy spreadsheet modules in the Vite server.
+  await expect(cellEditor).toBeAttached({ timeout: 20_000 })
   await title.click()
   await title.fill('Q4 Forecast.xlsx')
   await title.press('Enter')

@@ -5,14 +5,30 @@ import { I18nextProvider } from 'react-i18next'
 import { normalizeSeriesPoints } from './charts'
 import { buildKeyValueRecord, DeclarativeFields, formatKeyValueEntry } from './fields'
 import { resolveRouteTabSelection } from './resources'
-import { parseBatchLine, redactBatchLine, redactUrlCredentials } from './wizard'
+import {
+  canBlockAdvance,
+  executeStepTransition,
+  redactUrlCredentials,
+  selectedRowIds,
+  toggleTableSelectionRow,
+  WizardBlockRenderer
+} from './wizard'
 import {
   executeDeclarativeAction,
+  normalizeDeclarativeResponse,
   useDeclarativeVisibility,
   serializeDeclarativeFields,
   serializeNullablePatchPayload
 } from './transport'
-import type { DeclarativeConsoleManifest, DeclarativeFieldDescriptor, DeclarativeRuleSection } from './types'
+import {
+  isSensitiveField,
+  type DeclarativeConsoleManifest,
+  type DeclarativeFieldDescriptor,
+  type DeclarativeRuleSection,
+  type DeclarativeSurfaceDescriptor,
+  type WizardDataTableBlock,
+  type WizardStepTransition
+} from './types'
 import { createDeclarativeConsoleModule } from './index'
 
 async function loadVisibility(endpoint: string, ids: readonly string[]) {
@@ -426,15 +442,272 @@ test('serializeDeclarativeFields coerces nested ruleSchema paths beyond 2 segmen
   expect(serialized).toEqual({ policy: { limits: { window: { max_rps: 42 } } } })
 })
 
-test('parseBatchLine redacts embedded credentials on invalid schemes and malformed URLs', () => {
-  const cfg = { urlField: 'endpoint_url', nameField: 'name', schemeField: 'protocol', schemes: ['http', 'https'] }
-  expect(() => parseBatchLine('ftp://alice:s3cr3t@proxy.internal:8080', 'http', cfg)).toThrow(
-    'Invalid entry: ftp://***@proxy.internal:8080'
+const PREVIEW_ACTION: DeclarativeSurfaceDescriptor = {
+  ...FIXTURE_MANIFEST.surfaces[1]!,
+  id: 'preview-widgets',
+  surface: 'console:action:preview-widgets',
+  kind: 'action',
+  operationKind: 'action',
+  method: 'POST',
+  payloadEnvelope: 'data',
+  responseEnvelope: 'flat',
+  columns: ['widget_name', 'details', 'access_key'],
+  fields: [
+    { name: 'source', type: 'textarea', sensitive: true, labelKey: 'source', required: true, readOnly: false },
+    { name: 'access_key', type: 'secret', labelKey: 'access_key', required: false, readOnly: true }
+  ]
+}
+
+test('DeclarativeFields renders sensitive textarea controls without echoing secrets', async () => {
+  expect(isSensitiveField({ type: 'textarea', sensitive: true })).toBe(true)
+  expect(isSensitiveField({ type: 'textarea' })).toBe(false)
+  expect(isSensitiveField({ type: 'secret' })).toBe(true)
+
+  const i18n = i18next.createInstance()
+  await i18n.init({ lng: 'en', resources: { en: { translation: {} } } })
+  const html = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <DeclarativeFields draft={{ source: 'line-one\nline-two' }} fields={PREVIEW_ACTION.fields} onChange={() => {}} />
+    </I18nextProvider>
   )
-  expect(() => parseBatchLine('edge|http://alice:s3cr3t@[broken', 'http', cfg)).toThrow(
-    'Invalid entry: edge|http://***@[broken'
+  expect(html).toContain('<textarea')
+  expect(html).toContain('autoComplete="off"')
+  expect(html).not.toContain('spellCheck="true"')
+  expect(html).toContain('line-one')
+})
+
+test('executeStepTransition maps explicit outputs, resets declared keys, and rejects missing or hidden actions', async () => {
+  let calls = 0
+  const scope = {
+    surfaceById: new Map([[PREVIEW_ACTION.id, PREVIEW_ACTION]]),
+    visibleIds: new Set<string>(),
+    onExecute: async (action: DeclarativeSurfaceDescriptor, payload: Record<string, unknown>) => {
+      calls++
+      expect(action).toBe(PREVIEW_ACTION)
+      expect(payload).toEqual({ source: 'widget input' })
+      return [
+        {
+          items: [
+            {
+              id: 'first',
+              widget_name: 'Blue widget',
+              details: 'https://demo:synthetic@example.test/',
+              selectable: true
+            }
+          ],
+          source_digest: 'digest-1'
+        }
+      ]
+    }
+  }
+  const transition: WizardStepTransition = {
+    actionSurfaceId: PREVIEW_ACTION.id,
+    inputFields: ['source'],
+    resetFields: ['selected_widget_ids'],
+    outputMap: {
+      preview_rows: 'items',
+      source_digest: 'source_digest'
+    }
+  }
+
+  await expect(executeStepTransition(scope, { ...transition, actionSurfaceId: 'missing' }, {})).rejects.toThrow(
+    'Unknown wizard action'
   )
-  expect(redactBatchLine('edge|alice:s3cr3t@bad host')).toBe('edge|***@bad host')
+  await expect(executeStepTransition(scope, transition, { source: 'widget input' })).rejects.toThrow(
+    'Unauthorized wizard action'
+  )
+  expect(calls).toBe(0)
+
+  scope.visibleIds.add(PREVIEW_ACTION.surface)
+  const nextState = await executeStepTransition(scope, transition, {
+    source: 'widget input',
+    unrelated: 'draft only',
+    selected_widget_ids: ['stale']
+  })
+  expect(calls).toBe(1)
+  expect(nextState).toEqual({
+    source: 'widget input',
+    unrelated: 'draft only',
+    source_digest: 'digest-1',
+    preview_rows: [
+      {
+        id: 'first',
+        widget_name: 'Blue widget',
+        details: 'https://demo:synthetic@example.test/',
+        selectable: true
+      }
+    ]
+  })
+})
+
+test('executeStepTransition normalizes jsonapi resource records alongside items', async () => {
+  const resource = { data: { id: 'batch-1', attributes: { widget_name: 'Widget batch', count: 2 } } }
+  const jsonapiAction: DeclarativeSurfaceDescriptor = {
+    ...PREVIEW_ACTION,
+    payloadEnvelope: 'jsonapi',
+    responseEnvelope: 'jsonapi'
+  }
+  const nextState = await executeStepTransition(
+    {
+      surfaceById: new Map([[jsonapiAction.id, jsonapiAction]]),
+      visibleIds: new Set([jsonapiAction.surface]),
+      onExecute: async () => normalizeDeclarativeResponse(resource, jsonapiAction.responseEnvelope)
+    },
+    {
+      actionSurfaceId: jsonapiAction.id,
+      inputFields: ['source'],
+      outputMap: { widget_name: 'widget_name', rows: '$records' }
+    },
+    { source: 'widgets' }
+  )
+  expect(nextState.widget_name).toBe('Widget batch')
+  expect(Array.isArray(nextState.rows)).toBe(true)
+})
+
+test('WizardBlockRenderer renders external_link, selectable/filtered data_table, and redacted summary blocks', async () => {
+  const wizardFields: DeclarativeFieldDescriptor[] = [
+    { name: 'source', type: 'textarea', sensitive: true, labelKey: 'source', required: true, readOnly: false },
+    { name: 'revision', type: 'string', labelKey: 'revision', required: true, readOnly: false },
+    {
+      name: 'selected_widget_ids',
+      type: 'string_array',
+      labelKey: 'selected_widget_ids',
+      required: true,
+      readOnly: false
+    },
+    { name: 'endpoint', type: 'string', labelKey: 'endpoint', required: false, readOnly: false }
+  ]
+  const tableBlock: WizardDataTableBlock = {
+    kind: 'data_table',
+    rowsField: 'preview_rows',
+    columns: ['widget_name', 'details', 'source'],
+    selection: { field: 'selected_widget_ids', rowKeyField: 'id', selectableField: 'selectable' }
+  }
+  const filteredBlock: WizardDataTableBlock = {
+    kind: 'data_table',
+    rowsField: 'preview_rows',
+    columns: ['widget_name', 'details'],
+    filterBySelection: { field: 'selected_widget_ids', rowKeyField: 'id' }
+  }
+
+  let draft: Record<string, unknown> = {
+    source: 'hidden yaml payload',
+    revision: 'rev-a',
+    endpoint: 'https://demo:synthetic@example.test/',
+    authorize_url: 'https://auth.example.test/authorize?state=abc',
+    preview_rows: [
+      {
+        id: 'first',
+        widget_name: 'Same Name',
+        details: 'https://demo:synthetic@example.test/one',
+        source: 'never show',
+        selectable: true
+      },
+      {
+        id: 'second',
+        widget_name: 'Same Name',
+        details: 'https://demo:synthetic@example.test/two',
+        source: 'never show',
+        selectable: true
+      },
+      {
+        id: 'invalid',
+        widget_name: 'Invalid widget',
+        details: 'invalid',
+        source: 'never show',
+        selectable: false
+      }
+    ],
+    selected_widget_ids: []
+  }
+
+  expect(canBlockAdvance(tableBlock, draft)).toBe(false)
+  draft = toggleTableSelectionRow(draft, tableBlock, 'first', true)
+  draft = toggleTableSelectionRow(draft, tableBlock, 'second', true)
+  draft = toggleTableSelectionRow(draft, tableBlock, 'first', false)
+  draft = toggleTableSelectionRow(draft, tableBlock, 'invalid', true)
+  expect(selectedRowIds(draft, 'selected_widget_ids')).toEqual(['second'])
+  expect(canBlockAdvance(tableBlock, draft)).toBe(true)
+
+  const i18n = i18next.createInstance()
+  await i18n.init({ lng: 'en', resources: { en: { translation: { 'widgets.field.widget_name': 'Widget' } } } })
+
+  const tableHtml = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <WizardBlockRenderer
+        block={tableBlock}
+        i18nPrefix="widgets"
+        state={draft}
+        surfaceFields={wizardFields}
+        onStateChange={() => {}}
+      />
+    </I18nextProvider>
+  )
+  expect(tableHtml.match(/role="checkbox"/g)).toHaveLength(3)
+  expect(tableHtml).toMatch(/<button(?=[^>]*aria-label="Select row 3")(?=[^>]*aria-disabled="true")/)
+  expect(tableHtml).toContain('>Widget</th>')
+  expect(tableHtml).toContain('https://***@example.test/one')
+  expect(tableHtml).not.toContain('synthetic')
+  expect(tableHtml).not.toContain('never show')
+
+  const filteredHtml = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <>
+        <WizardBlockRenderer
+          block={filteredBlock}
+          i18nPrefix="widgets"
+          state={draft}
+          surfaceFields={wizardFields}
+          onStateChange={() => {}}
+        />
+        <WizardBlockRenderer
+          block={{ kind: 'external_link', urlField: 'authorize_url', openLabelKey: 'widgets.open' }}
+          i18nPrefix="widgets"
+          state={draft}
+          surfaceFields={wizardFields}
+          onStateChange={() => {}}
+        />
+        <WizardBlockRenderer
+          block={{ kind: 'summary', fields: ['source', 'revision', 'endpoint'] }}
+          i18nPrefix="widgets"
+          state={draft}
+          surfaceFields={wizardFields}
+          onStateChange={() => {}}
+        />
+      </>
+    </I18nextProvider>
+  )
+  expect(filteredHtml.match(/>Same Name<\/td>/g)).toHaveLength(1)
+  expect(filteredHtml).not.toContain('Invalid widget')
+  expect(filteredHtml).toContain('https://auth.example.test/authorize?state=abc')
+  expect(filteredHtml).toContain('rev-a')
+  expect(filteredHtml).toContain('https://***@example.test/')
+  expect(filteredHtml).not.toContain('hidden yaml payload')
+  expect(filteredHtml).not.toContain('synthetic')
+
+  const wizard: DeclarativeSurfaceDescriptor = {
+    ...PREVIEW_ACTION,
+    id: 'import-widgets',
+    kind: 'wizard',
+    endpoint: '/api/v2/fixture-site/widgets/import',
+    fields: wizardFields
+  }
+  const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ imported: 1 }))
+  try {
+    await executeDeclarativeAction(wizard, serializeDeclarativeFields(wizard, draft))
+    const [endpoint, options] = fetchSpy.mock.calls[0] ?? []
+    expect(endpoint).toBe(wizard.endpoint)
+    expect(JSON.parse(String(options?.body))).toEqual({
+      data: {
+        source: 'hidden yaml payload',
+        revision: 'rev-a',
+        selected_widget_ids: ['second'],
+        endpoint: 'https://demo:synthetic@example.test/'
+      }
+    })
+  } finally {
+    fetchSpy.mockRestore()
+  }
 })
 
 test('tabbed routes surface secondary permitted tabs and fall back from unauthorized tab params', async () => {

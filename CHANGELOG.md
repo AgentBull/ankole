@@ -51,6 +51,24 @@
   untitled Brain objects show their path, and a Drive conversation folder shows
   a copyable ID.
 
+## Version 2.0.0-alpha.171 (2026-11-18)
+
+- Stop the frontend browser check from failing about half the time on pull
+  requests. CI runners render these pages about three times slower than a
+  developer machine, so the webapps browser suite now waits up to 15 seconds
+  for each expectation instead of 5, and up to 20 seconds for the first visit
+  to a Spreadsheet Page while the Vite server compiles its modules.
+
+## Version 2.0.0-alpha.170 (2026-11-18)
+
+- Cut the frontend browser check on pull requests roughly in half. The
+  editor's Playwright suite now runs in two shards next to the webapps suites
+  instead of after them.
+- Fix the nightly Lean proof job, which could not pass: it now compiles the
+  Control Plane test build that the proofs read, and it installs a pinned elan
+  release checked against its digest instead of piping elan's installer
+  script from its master branch into the shell.
+
 ## Version 2.0.0-alpha.169 (2026-11-18)
 
 - Let an Agent operate the Pod page that the person it works for has open.
