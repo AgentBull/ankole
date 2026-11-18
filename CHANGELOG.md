@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.172 (2026-11-18)
+## Version 2.0.0-alpha.173 (2026-11-18)
 
 - Follow the designers' latest component edits everywhere the kit is used. A
   text field that holds focus draws a blue edge on all four sides instead of a
@@ -54,6 +54,13 @@
   shows its selection when closed, the Agent detail page has section links,
   untitled Brain objects show their path, and a Drive conversation folder shows
   a copyable ID.
+
+## Version 2.0.0-alpha.172 (2026-11-18)
+
+- Cache Playwright's Chromium for the frontend browser check, so a slow
+  download from Playwright's CDN no longer adds minutes to a pull request.
+  Pull requests restore the copy that `main` saves for the current Playwright
+  version.
 
 ## Version 2.0.0-alpha.171 (2026-11-18)
 
