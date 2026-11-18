@@ -7,8 +7,8 @@
   ring under it. Tabs over a hairline are 14px labels in a taller row, and the
   open tab is Medium. A toolbar icon button tints a 24px box around its icon.
   The unread count on a Pod sidebar tab floats on the tab's corner as a bubble.
-  The account row at the foot of the sidebar sits 6px above the edge and sets
-  the name in 13px, 8px after the avatar.
+  The account row at the foot of the sidebar sits 6px above the edge, sets the
+  name in 13px, 8px after the avatar, and shows the Pod's name under it.
 - Draw the Jobs board as designed. A card names its kind in text without an
   icon, and a finished card keeps to its kind, title, outcome, and Agent. A
   running card's bar is neutral, a waiting card shows its badge at the end of

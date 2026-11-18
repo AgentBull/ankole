@@ -93,9 +93,9 @@ export function sessionAvatarContext(data: BrowserSessionResponse | undefined): 
 }
 
 /**
- * The sidebar's account row: the signed-in person's avatar beside their name. Its menu holds the organizations that
- * this browser has proved, the person's settings, the Pod's settings and its Trash, the theme, and the way out.
- * `extra` adds build-specific items, such as a SaaS account center.
+ * The sidebar's account row: the signed-in person's avatar beside their name, with the Pod's name on a second line.
+ * Its menu holds the organizations that this browser has proved, the person's settings, the Pod's settings and its
+ * Trash, the theme, and the way out. `extra` adds build-specific items, such as a SaaS account center.
  */
 export function AccountMenu({ extra }: { extra?: ReactNode }) {
   const { t, i18n } = useTranslation()
@@ -186,6 +186,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
             />
             <SidebarFooterLabel className="pod-account-text">
               <span>{name}</span>
+              {tenantName && <small>{tenantName}</small>}
             </SidebarFooterLabel>
           </>
         )}
