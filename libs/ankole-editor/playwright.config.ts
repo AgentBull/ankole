@@ -12,6 +12,9 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   timeout: 30_000,
+  // CI runners take several times as long as a developer machine, so waits that
+  // usually finish in a second regularly overran the default 5 seconds there.
+  expect: { timeout: 15_000 },
   outputDir: `${output}/results`,
   reporter: [['list'], ['html', { outputFolder: `${output}/report`, open: 'never' }]],
   use: {

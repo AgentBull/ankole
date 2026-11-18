@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.173 (2026-11-18)
+
+- Stop the editor's browser tests from failing on slow CI runners. They now
+  wait up to 15 seconds for each expectation, and the 500-row table typing
+  check allows three seconds per keystroke, which still catches the old
+  26-second slowdown it guards against.
+
 ## Version 2.0.0-alpha.172 (2026-11-18)
 
 - Cache Playwright's Chromium for the frontend browser check, so a slow

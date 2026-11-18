@@ -1,16 +1,17 @@
 import { test, expect, openDocument, caret, replaceDocument } from './helpers'
 
-test('a keystroke in a 500-row table takes far less than a second', async ({ page }) => {
+test('a keystroke in a 500-row table takes well under three seconds', async ({ page }) => {
   const rows = Array.from({ length: 500 }, (_, i) => `| r${i} | x | y | z | w |`)
   await openDocument(page, ['| a | b | c | d | e |', '| --- | --- | --- | --- | --- |', ...rows].join('\n'))
   const editor = page.locator('.editor-content')
   await caret(editor.getByText('r3', { exact: true }))
   await expect(page.getByRole('button', { name: '行 1', exact: true })).toBeVisible()
-  // Quadratic table menu checks took about 26 s for each key. The bound allows for a slow machine.
+  // Quadratic table menu checks took about 26 s for each key. A developer machine takes well under a second, and a
+  // busy CI runner has taken 1.2 s, so the bound still catches that regression without failing on a slow runner.
   const start = Date.now()
   await page.keyboard.type('q')
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-  expect(Date.now() - start).toBeLessThan(1000)
+  expect(Date.now() - start).toBeLessThan(3000)
   await expect(editor.getByText('r3q', { exact: true })).toBeVisible()
 })
 
