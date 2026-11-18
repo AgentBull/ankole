@@ -2,7 +2,7 @@ name: ankole-dev
 
 services:
   postgres:
-    image: ghcr.io/agentbull/ankole-postgres-for-ankole:main-latest
+    image: ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:1772c33690ecc4bd1e202c7059afa884288c9f80e70263ede28946e036b0d4ed
     shm_size: 1gb
     # log_lock_waits records any lock wait longer than deadlock_timeout (1 s), so the
     # server log explains a test that stalls on another connection's lock.

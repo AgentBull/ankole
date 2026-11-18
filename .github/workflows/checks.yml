@@ -200,7 +200,7 @@ jobs:
       DATABASE_URL: ecto://postgres:repository-checks-only@localhost:5432/postgres
     services:
       postgres:
-        image: ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:56457f8111e55e26fa15f750a32682560cbc8afc7a5bb03b706402b4ae7f9971
+        image: ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:1772c33690ecc4bd1e202c7059afa884288c9f80e70263ede28946e036b0d4ed
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: repository-checks-only
