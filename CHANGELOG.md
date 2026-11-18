@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 2.0.0-alpha.170 (2026-11-18)
+
+- Cut the frontend browser check on pull requests roughly in half. The
+  editor's Playwright suite now runs in two shards next to the webapps suites
+  instead of after them.
+- Fix the nightly Lean proof job, which could not pass: it now compiles the
+  Control Plane test build that the proofs read, and it installs a pinned elan
+  release checked against its digest instead of piping elan's installer
+  script from its master branch into the shell.
+
 ## Version 2.0.0-alpha.169 (2026-11-18)
 
 - Let an Agent operate the Pod page that the person it works for has open.

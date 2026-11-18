@@ -257,22 +257,47 @@ jobs:
   formal-lean:
     name: Formal Lean 4 proofs & model conformance
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      MIX_ENV: test
+      ANKOLE_EDITION: foss
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
           otp-version: '29'
           elixir-version: '1.20.4'
-      - name: Install elan (Lean 4)
+      # The elan release archive is pinned by digest, so a change on elan's
+      # master branch cannot alter what this job runs.
+      - name: Install protoc & elan (Lean 4)
         run: |
-          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
+          echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/elan.tar.gz" https://github.com/leanprover/elan/releases/download/v4.2.1/elan-x86_64-unknown-linux-gnu.tar.gz
+          echo "4e717523217af592fa2d7b9c479410a31816c065d66ccbf0c2149337cfec0f5c  $RUNNER_TEMP/elan.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/elan.tar.gz" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/elan-init" -y --no-modify-path --default-toolchain leanprover/lean4:v4.35.0
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      # The target compiler reads structs and macro imports from the Control
+      # Plane test build. The proofs need no kernel NIF.
+      - name: Compile the Control Plane test build
+        working-directory: app/control_plane
+        env:
+          ANKOLE_KERNEL_SKIP_NIF: '1'
+        run: |
+          mix local.hex --force && mix local.rebar --force && mix deps.get
+          mix compile
+      # The protocol suite typechecks the models in `lean/`, so no separate
+      # Lake build runs here.
       - name: Verify Lean proofs & conformance tests
         working-directory: tools/formal
         run: |
-          cd lean && lake build && cd ..
-          mix local.hex --force && mix local.rebar --force && mix deps.get
+          mix deps.get
           mix test
