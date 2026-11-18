@@ -409,7 +409,7 @@ test('Jobs kanban supports whole-card opening, independent Stop action, search/v
   await page.keyboard.press('Escape')
   await expect.poll(() => new URL(page.url()).searchParams.get('item')).toBeNull()
 
-  await page.getByRole('tab', { name: 'By Agent' }).click()
+  await page.getByRole('button', { name: 'By Agent' }).click()
   await expect.poll(() => new URL(page.url()).searchParams.get('view')).toBe('agent')
   await expect(page.getByRole('heading', { name: 'Page automations' })).toBeVisible()
 
@@ -418,7 +418,7 @@ test('Jobs kanban supports whole-card opening, independent Stop action, search/v
   await page.keyboard.press('Escape')
 
   // Switch back to status view and verify inline search filtering.
-  await page.getByRole('tab', { name: 'By status' }).click()
+  await page.getByRole('button', { name: 'By status' }).click()
   await page.getByRole('searchbox', { name: 'Search jobs…' }).fill('cohort')
   await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('cohort')
   await expect(page.getByText('Synthesize Q4 enterprise cohort retention')).toBeVisible()
