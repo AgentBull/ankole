@@ -95,3 +95,19 @@ export function signInReturnTo(value: string | null, origin: string): string {
   const path = localReturnPath(value, origin)
   return path && !path.startsWith('/sessions/logged-out') ? path : '/sessions/new'
 }
+
+/**
+ * Picks the sign-in subtitle that names only the methods the space offers.
+ * Until the provider list loads, the page shows the general subtitle.
+ */
+export function loginDescriptionKey(offer: {
+  siteLogin: boolean
+  loaded: boolean
+  hasEmail: boolean
+  hasSSO: boolean
+}): string {
+  if (offer.siteLogin) return 'auth.register_description'
+  if (offer.loaded && offer.hasEmail && !offer.hasSSO) return 'auth.description_email'
+  if (offer.loaded && offer.hasSSO && !offer.hasEmail) return 'auth.description_sso'
+  return 'auth.description'
+}

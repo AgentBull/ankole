@@ -12,7 +12,7 @@ import { signInMethodLabel } from '../common/sign-in-method'
 import { ThemeToggle } from '../common/theme-toggle'
 import { EmailOtpForm } from './email-otp-form'
 import { InvitationJoin } from './invitation-join'
-import { readLoginSearch } from './login-params'
+import { loginDescriptionKey, readLoginSearch } from './login-params'
 import { SessionScreen } from './session-screen'
 import { AuthSlotsContext, type AuthAppSlots } from './slots'
 export type { AuthAppSlots } from './slots'
@@ -77,6 +77,12 @@ function LoginApp({ presentation = {} }: { presentation?: AuthLoginPresentation 
   const sso = list.filter(provider => provider.kind === 'oidc')
   const verifying = Boolean(presentation.verificationTitle && emailStep === 'code')
   const hasIdentities = !verifying && identities.length > 0
+  const description = loginDescriptionKey({
+    siteLogin,
+    loaded: providers.isSuccess,
+    hasEmail,
+    hasSSO: sso.length > 0
+  })
   return (
     <main className="ak-auth-page relative">
       <ThemeToggle className="absolute top-4 right-4 border border-border-subtle bg-page/80 backdrop-blur" />
@@ -91,7 +97,7 @@ function LoginApp({ presentation = {} }: { presentation?: AuthLoginPresentation 
                 ? presentation.verificationTitle
                 : (presentation.title ?? t(siteLogin ? 'auth.register_title' : 'auth.title'))}
             </h1>
-            {!verifying && <p>{t(siteLogin ? 'auth.register_description' : 'auth.description')}</p>}
+            {!verifying && <p>{t(description)}</p>}
           </div>
         </CardHeader>
         <CardContent className="grid gap-5">

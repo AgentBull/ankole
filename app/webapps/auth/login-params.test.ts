@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { loginContextKey, readLoginSearch, signInReturnTo } from './login-params'
+import { loginContextKey, loginDescriptionKey, readLoginSearch, signInReturnTo } from './login-params'
 import { resolveSessionScreenView } from './session-screen'
 
 test('readLoginSearch returns empty query, context, and authorizationParams on plain /sessions/new', () => {
@@ -107,4 +107,14 @@ test('resolveSessionScreenView distinguishes non-expired auth errors from expire
     actionLabelKey: 'auth.back_to_sign_in',
     actionHref: '/sessions/new'
   })
+})
+
+test('loginDescriptionKey names only the sign-in methods the space offers', () => {
+  const offer = { siteLogin: false, loaded: true, hasEmail: true, hasSSO: true }
+  expect(loginDescriptionKey(offer)).toBe('auth.description')
+  expect(loginDescriptionKey({ ...offer, hasSSO: false })).toBe('auth.description_email')
+  expect(loginDescriptionKey({ ...offer, hasEmail: false })).toBe('auth.description_sso')
+  expect(loginDescriptionKey({ ...offer, hasEmail: false, hasSSO: false })).toBe('auth.description')
+  expect(loginDescriptionKey({ ...offer, loaded: false, hasSSO: false })).toBe('auth.description')
+  expect(loginDescriptionKey({ ...offer, siteLogin: true })).toBe('auth.register_description')
 })

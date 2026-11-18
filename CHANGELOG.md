@@ -14,6 +14,10 @@
 - Fix the Jobs board going blank below the first avatar after the pointer
   moves over a card in Chrome. An avatar's edge blends only with its own
   picture.
+- Describe only the sign-in methods a space offers. A space with only email
+  sign-in now says "Verify your email to sign in.", and a space with only
+  enterprise sign-in says "Use your organization's sign-in." Spaces that offer
+  both keep the combined subtitle.
 
 ## Version 2.0.0-alpha.168 (2026-11-18)
 
