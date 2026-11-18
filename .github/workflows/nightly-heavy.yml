@@ -13,16 +13,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Three of four control-plane test modules are `async: false`, so inside one
+  # partition they run one at a time and only more partitions shorten the suite.
+  # Each leg runs one `MIX_TEST_PARTITION` directly, so ExUnit output streams
+  # live instead of waiting in `mix ankole.test`'s buffer. The `integration`
+  # leg runs the plugin and integration suites on the same setup.
   control-plane-full:
-    name: Full control-plane & database connector matrix
+    name: Control-plane tests (${{ matrix.partition }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: ['1', '2', '3', '4', '5', '6', '7', '8', integration]
     env:
       MIX_ENV: test
       ANKOLE_EDITION: foss
       DATABASE_URL: ecto://postgres:nightly-checks@localhost:5432/postgres
       ANKOLE_TEST_MYSQL_URL: mysql://root:nightly-checks@127.0.0.1:3306/ankole_test
       ANKOLE_TEST_CLICKHOUSE_URL: http://default:nightly-checks@127.0.0.1:8123/default
+      # Function Runtime capacity tests start a private replica from this image
+      # with `docker run --pull=never`; the Function Runtime step pulls it.
+      ANKOLE_FUNCTION_RUNTIME_TEST_IMAGE: ghcr.io/agentbull/ankole-function-runtime:canary
     services:
       postgres:
         image: ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:1772c33690ecc4bd1e202c7059afa884288c9f80e70263ede28946e036b0d4ed
@@ -46,6 +58,8 @@ jobs:
         image: clickhouse/clickhouse-server:24.8
         env:
           CLICKHOUSE_PASSWORD: nightly-checks
+          # The suite's setup creates a throwaway ClickHouse account.
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
         ports: ['8123:8123']
         options: >-
           --health-cmd "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping"
@@ -61,26 +75,81 @@ jobs:
         with:
           otp-version: '29'
           elixir-version: '1.20.4'
-      - name: Install protoc & Rust
+      - name: Install protoc
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/protoc.zip" https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
           echo "3a4c1e5f2516c639d3079b1586e703fc7bcfa2136d58bda24d1d54f949c315e8  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
           echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
-          rustup toolchain install 1.99.1 --profile minimal && rustup default 1.99.1
       - run: bun install --frozen-lockfile
+      # The same keys as `control-plane-contracts` in checks.yml, whose pushes to
+      # `main` save them; the cold kernel NIF build alone took 18 minutes.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: nif-cache
+        with:
+          path: app/kernel/priv/native
+          key: control-plane-nif-${{ runner.os }}-rust-1.99.1-${{ hashFiles('app/kernel/**', '!app/kernel/target/**', '!app/kernel/priv/**', '!app/kernel/dist/**', '!app/kernel/node_modules/**', '!app/kernel/_build/**', '!app/kernel/deps/**') }}
+      - name: Use the cached kernel NIF
+        if: ${{ steps.nif-cache.outputs.cache-hit == 'true' }}
+        run: echo "ANKOLE_KERNEL_SKIP_NIF=1" >> "$GITHUB_ENV"
+      - if: ${{ steps.nif-cache.outputs.cache-hit != 'true' }}
+        run: rustup toolchain install 1.99.1 --profile minimal && rustup default 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: ${{ steps.nif-cache.outputs.cache-hit != 'true' }}
+        with:
+          workspaces: app/kernel -> target/nif-test
+          shared-key: control-plane-nif
+          save-if: false
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            app/control_plane/deps
+            app/control_plane/_build
+          key: control-plane-contracts-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/config/**') }}-${{ hashFiles('app/control_plane/mix.exs', 'app/control_plane/mix.lock', 'app/control_plane/patches/**', 'app/kernel/mix.exs', 'libs/*/mix.exs') }}
+          restore-keys: |
+            control-plane-contracts-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/config/**') }}-
+      - run: mix local.hex --force && mix local.rebar --force && mix deps.get
+        working-directory: app/control_plane
+      # A restored build can hold a kernel module compiled without its crate.
+      # Removing it makes Mix build the NIF when the cache above has no library.
+      - if: ${{ steps.nif-cache.outputs.cache-hit != 'true' }}
+        run: rm -rf "app/control_plane/_build/${ANKOLE_EDITION}/test/lib/ankole_kernel"
       - uses: ./.github/actions/postgres-client
       - name: Start Function Runtime container
         run: |
           docker run -d --name ankole-fn-nightly -p 5435:9000 \
             -e ANKOLE_FUNCTION_RUNTIME_TOKEN=dev-function-runtime-token \
             ghcr.io/agentbull/ankole-function-runtime:canary
-      - run: mix local.hex --force && mix local.rebar --force && mix deps.get
+      - run: mix compile
         working-directory: app/control_plane
-      - run: bun run control-plane:test
-      - run: bun run control-plane:test:plugins
-      - run: mix test integration --exclude cloud --exclude cluster --exclude external
+      - name: Run partition ${{ matrix.partition }} of 8
+        if: ${{ matrix.partition != 'integration' }}
         working-directory: app/control_plane
+        env:
+          MIX_TEST_PARTITION: ${{ matrix.partition }}
+        run: mix test --partitions 8
+      - name: Install Helm
+        if: ${{ matrix.partition == 'integration' }}
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/helm.tar.gz" https://get.helm.sh/helm-v3.17.3-linux-amd64.tar.gz
+          echo "ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f2cd  $RUNNER_TEMP/helm.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/helm"
+          tar -xzf "$RUNNER_TEMP/helm.tar.gz" -C "$RUNNER_TEMP/helm"
+          echo "$RUNNER_TEMP/helm/linux-amd64" >> "$GITHUB_PATH"
+      - if: ${{ matrix.partition == 'integration' }}
+        run: bun run control-plane:test:plugins
+      # The authorization plan benchmark needs its own `pod_authz_plan`
+      # partition and 500k pages. The edition build test builds both prod
+      # releases with a release-mode kernel under its own 30-minute timeout,
+      # which a 4-core runner with a cold Cargo cache cannot meet beside the
+      # rest of the suite.
+      - name: Run integration tests
+        if: ${{ matrix.partition == 'integration' }}
+        working-directory: app/control_plane
+        run: >-
+          mix test integration --exclude cloud --exclude cluster --exclude external
+          --exclude module:Ankole.Pod.AuthorizationPlanTest
+          --exclude module:Ankole.EditionBuildTest
 
   # `checks.yml` runs the editor suite on Chromium for every editor change, so
   # the nightly run covers the other engines. Each engine runs in two shards,

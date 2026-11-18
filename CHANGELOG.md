@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 2.0.0-alpha.179 (2026-11-18)
+
+- Let the nightly control-plane run finish within its time limit. It now runs
+  the suite in eight parallel partitions plus an integration leg, reuses the
+  kernel and Mix build caches that `main` saves, and streams test output as it
+  runs. The ClickHouse service allows the account the connector tests create,
+  and the Function Runtime capacity tests use the canary image.
+
 ## Version 2.0.0-alpha.178 (2026-11-18)
 
 - Apply the CLI output shims inside Session commands. Debian's login profile
