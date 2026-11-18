@@ -10,6 +10,9 @@ import {
   InputGroupText,
   InputGroupTextarea
 } from '../src/components/input-group'
+import { Input } from '../src/components/input'
+import { NumberInput } from '../src/components/number-input'
+import { Textarea } from '../src/components/textarea'
 import { attributeOf, classesOf, tagWith } from './markup'
 
 function composer(ready: boolean) {
@@ -105,7 +108,7 @@ describe('InputGroup composer', () => {
       ])
     )
     const attach = classesOf(tagWith(html, 'aria-label="Attach"'))
-    expect(attach).toEqual(expect.arrayContaining(['size-control-md', 'p-1.25', 'bg-clip-content']))
+    expect(attach).toEqual(expect.arrayContaining(['size-control-md', 'p-0.75', 'bg-clip-content']))
     expect(attach).not.toContain('rounded-mini')
     const selector = classesOf(tagWith(html, 'data-size="toolbar"'))
     expect(selector).toEqual(expect.arrayContaining(['h-control-md', 'text-50', 'font-normal']))
@@ -217,5 +220,30 @@ describe('InputGroup composer', () => {
         'group-data-[variant=composer]/input-group:text-fg-secondary'
       ])
     )
+  })
+})
+
+describe('Field focus', () => {
+  test('turns the whole edge of every slot to the active border and draws no ring baseline', () => {
+    const html = renderToStaticMarkup(
+      <>
+        <Input aria-label="Name" />
+        <Textarea aria-label="Notes" />
+        <InputGroup data-group>
+          <InputGroupText>@</InputGroupText>
+        </InputGroup>
+        <NumberInput aria-label="Count" value={1} onValueChange={() => {}} />
+      </>
+    )
+    const edges = [
+      [tagWith(html, 'data-slot="input"'), 'focus-visible:border-border-active'],
+      [tagWith(html, 'data-slot="textarea"'), 'focus-visible:border-border-active'],
+      [tagWith(html, 'data-group'), 'has-[:is(input,textarea):focus-visible]:border-border-active'],
+      [tagWith(html, 'data-slot="number-input"'), 'focus-within:border-border-active']
+    ] as const
+    for (const [tag, focus] of edges) {
+      expect(classesOf(tag)).toContain(focus)
+      expect(tag).not.toMatch(/border-b-ring|var\(--color-ring\)/)
+    }
   })
 })

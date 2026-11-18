@@ -57,6 +57,34 @@ test('sharing approval shows each recipient, permission, scope and condition', (
   expect(html).toContain(i18n.t('pod.content.sharing_scope_container'))
 })
 
+test('the approved summary is an isolated sentence that wraps instead of truncating', () => {
+  const html = render({
+    card_id: 'sharing-summary',
+    action_kind: 'pod.page.set_sharing',
+    summary: `Grant 研究同事 view access to «Q4 计划» for the review${String.fromCodePoint(0x202e)}`
+  })
+  expect(html).toContain(
+    '<p class="pod-chat-choice-question"><bdi>Grant 研究同事 view access to «Q4 计划» for the review</bdi></p>'
+  )
+})
+
+test('a decided approval states its outcome and who decided in the header, without a repeated receipt', () => {
+  const html = render({
+    card_id: 'executed-card',
+    action_kind: 'pod.page.set_sharing',
+    summary: 'Share the report',
+    status: 'executed',
+    resolved_by_name: 'Alice Smith'
+  })
+  const header = /<div class="pod-chat-choice-header">(.*?)<\/div>/.exec(html)?.[1] ?? ''
+  expect(header).toContain('<span class="pod-chat-choice-decided">Alice Smith</span>')
+  expect(header).toContain(i18n.t('pod.chat_action_card.status_executed'))
+  expect(html).not.toContain('pod-chat-choice-outcome')
+
+  const pending = render({ card_id: 'prepared-card', action_kind: 'pod.page.set_sharing', summary: 'Share the report' })
+  expect(pending).not.toContain('pod-chat-choice-decided')
+})
+
 test('participant approval shows names with stable UIDs and unnamed participants', () => {
   const html = render({
     card_id: 'members-card',

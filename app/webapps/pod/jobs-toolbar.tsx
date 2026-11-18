@@ -14,9 +14,8 @@ import {
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput,
-  Tabs,
-  TabsList,
-  TabsTrigger
+  ToggleGroup,
+  ToggleGroupItem
 } from '@ankole/uikit'
 import { AddRegular, DismissRegular, FilterRegular, SearchRegular, WarningRegular } from '@ankole/uikit/icons'
 import type { RefObject } from 'react'
@@ -111,12 +110,15 @@ export function JobsBoardHeader({
       {showToolbar && (
         <div className="flex flex-wrap items-center justify-between gap-2.5">
           <div className="flex flex-wrap items-center gap-2">
-            <Tabs value={viewMode} onValueChange={value => onViewModeChange(value === 'agent' ? 'agent' : 'status')}>
-              <TabsList variant="object" aria-label={t('pod.jobs.view_label')}>
-                <TabsTrigger value="status">{t('pod.jobs.view_status')}</TabsTrigger>
-                <TabsTrigger value="agent">{t('pod.jobs.view_agent')}</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <ToggleGroup
+              spacing={0}
+              size="sm"
+              aria-label={t('pod.jobs.view_label')}
+              value={[viewMode]}
+              onValueChange={value => value[0] && onViewModeChange(value[0] === 'agent' ? 'agent' : 'status')}>
+              <ToggleGroupItem value="status">{t('pod.jobs.view_status')}</ToggleGroupItem>
+              <ToggleGroupItem value="agent">{t('pod.jobs.view_agent')}</ToggleGroupItem>
+            </ToggleGroup>
 
             {agentFilter && filteredAgentName && (
               <Badge variant="secondary" className="h-7 gap-1 rounded-control px-2 text-xs font-normal">

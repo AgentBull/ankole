@@ -1,6 +1,18 @@
-import { Button, Input } from '@ankole/uikit'
-import { ChevronDownRegular, ChevronUpRegular, DismissRegular } from '@ankole/uikit/icons'
-import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import {
+  Button,
+  Input,
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  Label,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  toast
+} from '@ankole/uikit'
+import { DismissRegular } from '@ankole/uikit/icons'
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   collectRawMatchSpans,
@@ -486,7 +498,9 @@ export function useDomFindController({
     index,
     count,
     inputRef,
-    search
+    search,
+    /** The ranges of the last search and which one is current. */
+    matches: () => ({ ranges: rangesRef.current, index: indexRef.current })
   }
 }
 
@@ -520,6 +534,7 @@ export function PageFindBar({
   targetHeading,
   autoFocus = false,
   onBeforeSearch,
+  replace,
   onClose
 }: {
   root: RefObject<HTMLElement | null>
@@ -529,9 +544,16 @@ export function PageFindBar({
   targetHeading?: string
   autoFocus?: boolean
   onBeforeSearch?: () => boolean | void
+  /** Replaces the given matches where the page's text can be edited and returns how many it replaced. */
+  replace?: (ranges: Range[], text: string) => number
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const [mode, setMode] = useState<'find' | 'replace'>('find')
+  const [replacement, setReplacement] = useState('')
+  const moveAfterReplace = useRef(false)
+  const findID = useId()
+  const replaceID = useId()
   const pendingHeading = useRef(targetHeading)
   const textIndexRef = useRef<SearchableTextIndex | null>(null)
 
@@ -539,7 +561,7 @@ export function PageFindBar({
     pendingHeading.current = targetHeading
   }, [targetHeading])
 
-  const { query, setQuery, index, count, inputRef, search } = useDomFindController({
+  const { query, setQuery, index, count, inputRef, search, matches } = useDomFindController({
     root,
     initialQuery,
     seededQuery,
@@ -572,11 +594,31 @@ export function PageFindBar({
     scrollToRange: scrollRangeIntoView
   })
 
-  return (
-    <div className="pod-page-find" role="search" data-page-find-bar="">
-      <Input
+  const searchRef = useRef(search)
+  searchRef.current = search
+
+  // A replaced match leaves the list, so the same index names the next match: bring that one into view.
+  useEffect(() => {
+    if (!moveAfterReplace.current) return
+    moveAfterReplace.current = false
+    if (count) searchRef.current(0)
+  }, [count])
+
+  const replaceMatches = (all: boolean) => {
+    if (!replace) return
+    const found = matches()
+    const replaced = replace(all ? found.ranges : found.ranges.slice(found.index, found.index + 1), replacement)
+    if (!replaced) toast.info(t('pod.content.replace_unavailable'))
+    else if (all) toast.success(t('pod.content.replaced_count', { count: replaced }))
+    else moveAfterReplace.current = true
+  }
+
+  const activeMode = replace ? mode : 'find'
+  const findField = (
+    <InputGroup variant="overlay">
+      <InputGroupInput
+        id={findID}
         ref={inputRef}
-        variant="overlay"
         autoFocus={autoFocus}
         value={query}
         autoCorrect="off"
@@ -597,28 +639,97 @@ export function PageFindBar({
           }
         }}
       />
-      <span aria-live="polite">
-        {count ? index + 1 : 0}/{count}
-      </span>
-      <Button
-        size="icon-xs"
-        variant="ghost"
-        disabled={!count}
-        aria-label={t('pod.content.find_previous')}
-        onClick={() => search(-1)}>
-        <ChevronUpRegular aria-hidden />
+      <InputGroupAddon align="inline-end">
+        <span aria-live="polite" className="text-50 text-fg-tertiary tabular-nums">
+          {count ? index + 1 : 0} / {count}
+        </span>
+      </InputGroupAddon>
+    </InputGroup>
+  )
+  const stepButtons = (
+    <>
+      <Button size="sm" variant="outline" disabled={!count} onClick={() => search(-1)}>
+        {t('pod.content.find_previous')}
       </Button>
-      <Button
-        size="icon-xs"
-        variant="ghost"
-        disabled={!count}
-        aria-label={t('pod.content.find_next')}
-        onClick={() => search(1)}>
-        <ChevronDownRegular aria-hidden />
+      <Button size="sm" variant="outline" disabled={!count} onClick={() => search(1)}>
+        {t('pod.content.find_next')}
       </Button>
-      <Button size="icon-xs" variant="ghost" aria-label={t('pod.content.find_close')} onClick={onClose}>
-        <DismissRegular aria-hidden />
-      </Button>
+    </>
+  )
+
+  return (
+    <div className="pod-page-find" role="search" data-page-find-bar="">
+      <Tabs
+        value={activeMode}
+        activation="automatic"
+        className="gap-3"
+        onValueChange={value => setMode(value === 'replace' ? 'replace' : 'find')}>
+        <div className="relative">
+          <TabsList className="w-full justify-start">
+            <TabsTrigger value="find" className="flex-none">
+              {t('pod.content.find_label')}
+            </TabsTrigger>
+            {replace && (
+              <TabsTrigger value="replace" className="flex-none">
+                {t('pod.content.replace_label')}
+              </TabsTrigger>
+            )}
+          </TabsList>
+          <Button
+            className="absolute end-0 top-1"
+            size="icon-sm"
+            variant="ghost"
+            aria-label={t('pod.content.find_close')}
+            onClick={onClose}>
+            <DismissRegular aria-hidden />
+          </Button>
+        </div>
+        <TabsContent value="find" className="grid gap-3">
+          {findField}
+          <div className="flex justify-end gap-2">{stepButtons}</div>
+        </TabsContent>
+        {replace && (
+          <TabsContent value="replace" className="grid gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor={findID}>{t('pod.content.find_label')}</Label>
+              {findField}
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor={replaceID}>{t('pod.content.replace_with')}</Label>
+              <Input
+                id={replaceID}
+                variant="overlay"
+                value={replacement}
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                placeholder={t('pod.content.replace_with_placeholder')}
+                onChange={event => setReplacement(event.target.value)}
+                onKeyDown={event => {
+                  if (isImeComposingKey(event)) return
+                  if (event.key === 'Escape') {
+                    event.stopPropagation()
+                    onClose()
+                  }
+                  if (event.key === 'Enter' && count) {
+                    event.preventDefault()
+                    replaceMatches(false)
+                  }
+                }}
+              />
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button size="sm" disabled={!count} onClick={() => replaceMatches(true)}>
+                {t('pod.content.replace_all')}
+              </Button>
+              <Button size="sm" variant="outline" disabled={!count} onClick={() => replaceMatches(false)}>
+                {t('pod.content.replace_label')}
+              </Button>
+              {stepButtons}
+            </div>
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
   )
 }

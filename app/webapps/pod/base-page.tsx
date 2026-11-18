@@ -4,9 +4,17 @@ import { createAppletRuns } from './applet-runs'
 import { pageCreated } from './state/navigation-cache'
 import { t } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import { AppletRuntimeProvider, useAggregate, useRecordWrites } from '@ankole/applet-sdk'
+import { AppletRuntimeProvider, useAggregate, useRecords, useRecordWrites } from '@ankole/applet-sdk'
 import { useInfiniteBaseRecords, type InfiniteRecordQuery } from './use-infinite-base-records'
-import type { AppletRuntime, BaseField, BaseTable, BaseView, Filter, ViewType } from '@ankole/applet-sdk/types'
+import type {
+  AppletRuntime,
+  BaseField,
+  BaseRecord,
+  BaseTable,
+  BaseView,
+  Filter,
+  ViewType
+} from '@ankole/applet-sdk/types'
 import {
   Button,
   Checkbox,
@@ -51,7 +59,11 @@ import { useContent, usePageHost } from './content-context'
 import { usePageHref } from './use-page-metadata'
 import { ContentError, ContentSkeleton } from './content-primitives'
 import { baseHTTP, baseTablesQuery, baseSchemaQuery } from './base-api'
-import { BaseViewContent, RecordForm, type ViewProps } from './base-views'
+import { BaseViewContent, RecordDetailsDialog, RecordForm, type ViewProps } from './base-views'
+import type { RecordLocation } from './base-card-views'
+import { ReferenceLabelsProvider } from './base-field-value'
+import { useSearchParams } from '../common/router'
+import { encodeSearchTarget, parseSearchTarget } from './search-targets'
 import { BaseFlushScope, useRegisterBaseFlush } from './base-field-input'
 import { QueryControls } from './base-query-controls'
 import { FieldEditorButton, resolveVisibleFields } from './base-fields'
@@ -166,14 +178,59 @@ export function BasePage({
   const isEmbed = embedded || Boolean(configureInline || inlineConfig || bindSavedView)
   return (
     <AppletRuntimeProvider runtime={runtime}>
-      <BaseWorkspace
-        detail={detail}
-        initialTable={tableID}
-        initialView={viewID}
-        embed={isEmbed ? { inlineConfig, configureInline, bindSavedView } : undefined}
-      />
+      {isEmbed ? (
+        <BaseWorkspace
+          detail={detail}
+          initialTable={tableID}
+          initialView={viewID}
+          embed={{ inlineConfig, configureInline, bindSavedView }}
+        />
+      ) : (
+        <RoutedBaseWorkspace detail={detail} />
+      )}
     </AppletRuntimeProvider>
   )
+}
+
+/** What a Base page shows, named by the search deep link's `at` and `view` parameters plus `record`. */
+export type BaseLocation = { table?: string; view?: string; record?: string }
+
+type BaseRoute = BaseLocation & { go(next: BaseLocation, push?: boolean): void }
+
+export function readBaseLocation(search: URLSearchParams): BaseLocation {
+  const target = parseSearchTarget(search.get('at'), search.get('view'))
+  const record = search.get('record')?.trim()
+  return {
+    ...(target?.kind === 'table' ? { table: target.tableID, ...(target.viewID ? { view: target.viewID } : {}) } : {}),
+    ...(record ? { record } : {})
+  }
+}
+
+export function writeBaseLocation(search: URLSearchParams, next: BaseLocation): URLSearchParams {
+  const params = new URLSearchParams(search)
+  const target = encodeSearchTarget(
+    next.table ? { kind: 'base_table', table_id: next.table, view_id: next.view } : null
+  )
+  for (const [key, value] of [
+    ['at', target.at],
+    ['view', target.view],
+    ['record', next.record]
+  ] as const) {
+    if (value) params.set(key, value)
+    else params.delete(key)
+  }
+  return params
+}
+
+// A Base page keeps its table, view and open record in the URL, so refresh, Back and a copied link return to them.
+function RoutedBaseWorkspace({ detail }: { detail: PageDetail }) {
+  const [search, setSearch] = useSearchParams()
+  const route: BaseRoute = {
+    ...readBaseLocation(search),
+    go: (next, push = false) =>
+      setSearch(current => writeBaseLocation(current, next), { replace: !push, preventScrollReset: true })
+  }
+  return <BaseWorkspace detail={detail} route={route} />
 }
 
 function nextTableName(tables: BaseTable[]): string {
@@ -217,17 +274,21 @@ function BaseWorkspace({
   detail,
   initialTable,
   initialView,
-  embed
+  embed,
+  route
 }: {
   detail: PageDetail
   initialTable?: string
   initialView?: string
   embed?: EmbedBridge
+  route?: BaseRoute
 }) {
   const { t } = useTranslation()
   const pageHost = usePageHost()
   const tables = useQuery(baseTablesQuery(detail.page.id))
-  const [selected, setSelected] = useState(initialTable ?? '')
+  const [embedTable, setEmbedTable] = useState(initialTable ?? '')
+  const selected = route ? (route.table ?? '') : embedTable
+  const setSelected = (id: string) => (route ? route.go({ table: id || undefined }) : setEmbedTable(id))
   const [renaming, setRenaming] = useState<string>()
   const [describing, setDescribing] = useState<string>()
   const [deleting, setDeleting] = useState(false)
@@ -425,6 +486,7 @@ function BaseWorkspace({
             tables={tables.data!.tables}
             initialView={initialView}
             embed={embed}
+            route={route}
             onSwitchEmbedTable={nextTableId => {
               setSelected(nextTableId)
               if (embed?.inlineConfig && embed.configureInline) {
@@ -525,6 +587,7 @@ function TableWorkspace({
   tables,
   initialView,
   embed,
+  route,
   onSwitchEmbedTable
 }: {
   tableID: string
@@ -532,6 +595,7 @@ function TableWorkspace({
   tables: BaseTable[]
   initialView?: string
   embed?: EmbedBridge
+  route?: BaseRoute
   onSwitchEmbedTable?(tableID: string): void
 }) {
   const { t } = useTranslation()
@@ -540,11 +604,31 @@ function TableWorkspace({
   const schema = useQuery(baseSchemaQuery(tableID))
   useSignals()
   const model = useModel(TableWorkspaceModel)
-  model.load(initialView)
-  const viewID = model.viewID.value,
-    draft = model.draft.value,
+  const routeView = route ? (route.view ?? '') : undefined
+  model.load(routeView ?? initialView)
+  const modelViewID = model.viewID.value,
+    modelDraft = model.draft.value,
     newRecord = model.newRecord.value,
     chartAutoSaveError = model.autoSaveError.value
+  const viewID = routeView ?? modelViewID
+  // The model drafts the view it selected last, so Back or a link to another view never shows that draft there.
+  const draft = modelViewID === viewID ? modelDraft : undefined
+  useEffect(() => {
+    if (routeView === undefined || routeView === model.viewID.value) return
+    void model.flushChartAutoSave()
+    model.select(routeView)
+  }, [model, routeView])
+  const selectView = (id: string) => {
+    model.select(id)
+    route?.go({ table: tableID, view: id || undefined })
+  }
+  const [openedRecord, setOpenedRecord] = useState<BaseRecord>()
+  const recordLocation: RecordLocation | undefined = route && {
+    open(record) {
+      setOpenedRecord(record)
+      route.go({ table: tableID, view: route.view, record: record.id }, true)
+    }
+  }
   const setNewRecord = (value: boolean) => {
     model.newRecord.value = value
   }
@@ -610,7 +694,7 @@ function TableWorkspace({
   const removeView = useMutation({
     mutationFn: (view: BaseView) => baseHTTP.removeView(view.id, view.version),
     onSuccess: async () => {
-      model.select('')
+      selectView('')
       setDeletingView(undefined)
       await client.invalidateQueries({ queryKey: base.key(tableID) })
     }
@@ -624,7 +708,7 @@ function TableWorkspace({
       }),
     onSuccess: async ({ view: created }) => {
       await client.invalidateQueries({ queryKey: base.key(tableID) })
-      model.select(created.id)
+      selectView(created.id)
       embed?.bindSavedView?.(created.id, tableID)
     },
     onError: error => toast.error(requestErrorMessage(contentError(error)))
@@ -698,7 +782,7 @@ function TableWorkspace({
     onSuccess: async ({ view: created }) => {
       await client.invalidateQueries({ queryKey: base.key(tableID) })
       model.draft.value = undefined
-      model.select(created.id)
+      selectView(created.id)
       embed?.bindSavedView?.(created.id, tableID)
     },
     onError: error => toast.error(requestErrorMessage(contentError(error)))
@@ -751,7 +835,7 @@ function TableWorkspace({
             size="sm"
             onClick={() => {
               if (missingView) {
-                model.select('')
+                selectView('')
                 embed?.bindSavedView?.('', tableID)
               } else if (canEditDocInline) {
                 embed!.configureInline!({ type: effective.type === 'chart' ? 'chart' : 'grid' }, tableID)
@@ -778,7 +862,8 @@ function TableWorkspace({
     chartControlsId,
     configure,
     configuring: updateView.isPending,
-    onFieldCreated: handleFieldCreated
+    onFieldCreated: handleFieldCreated,
+    recordLocation
   }
   const copiedLocation = copiedPageID ? pageHref(copiedPageID) : undefined
   const isGridView = effective.type === 'grid'
@@ -863,7 +948,7 @@ function TableWorkspace({
                         onDoubleClick={() => schemaEditable && setRenamingView(item.id)}
                         onClick={() => {
                           void model.flushChartAutoSave()
-                          model.select(item.id)
+                          selectView(item.id)
                           if (embed?.bindSavedView) {
                             embed.bindSavedView(item.id, tableID)
                           } else if (isInlineConfigEmbed && canEditDocInline) {
@@ -915,7 +1000,7 @@ function TableWorkspace({
                   views={schema.data.views}
                   onCreated={id => {
                     void model.flushChartAutoSave()
-                    model.select(id)
+                    selectView(id)
                     embed?.bindSavedView?.(id, tableID)
                   }}
                 />
@@ -1238,7 +1323,73 @@ function TableWorkspace({
           </ErrorBoundary>
         </DialogContent>
       </Dialog>
+      {route?.record && (
+        <RoutedRecordDialog
+          key={route.record}
+          tableID={tableID}
+          recordID={route.record}
+          opened={openedRecord}
+          fields={schema.data.fields}
+          pageID={page.page.id}
+          editable={editable}
+          writes={writes}
+          close={() => route.go({ table: tableID, view: route.view })}
+        />
+      )}
     </div>
+  )
+}
+
+/** The details dialog of the record that the URL names, read by ID because it may sit outside the loaded rows. */
+function RoutedRecordDialog({
+  tableID,
+  recordID,
+  opened,
+  fields,
+  pageID,
+  editable,
+  writes,
+  close
+}: {
+  tableID: string
+  recordID: string
+  opened?: BaseRecord
+  fields: BaseField[]
+  pageID: string
+  editable: boolean
+  writes: ReturnType<typeof useRecordWrites>
+  close(): void
+}) {
+  const { t } = useTranslation()
+  const lookup = useRecords(tableID, { ids: [recordID] })
+  const found = lookup.data?.records.find(record => record.id === recordID)
+  // The clicked row, then the last version read, keeps the dialog open while a write refetches the record.
+  const [retained, setRetained] = useState(opened?.id === recordID ? opened : undefined)
+  useEffect(() => {
+    if (found && found !== retained) setRetained(found)
+  }, [found, retained])
+  const record = found ?? retained
+  const missing = !record && !lookup.isPending
+  useEffect(() => {
+    if (!missing) return
+    toast.info(t('pod.content.record_unavailable'))
+    close()
+  }, [missing])
+  if (!record) return null
+  return (
+    <ReferenceLabelsProvider fields={fields} records={[record]}>
+      <RecordDetailsDialog
+        open
+        onOpenChange={next => !next && close()}
+        record={record}
+        fields={fields}
+        pageID={pageID}
+        editable={editable}
+        pending={writes.write.isPending}
+        update={writes.update}
+        remove={writes.remove}
+      />
+    </ReferenceLabelsProvider>
   )
 }
 

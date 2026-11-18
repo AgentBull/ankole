@@ -26,6 +26,8 @@ test('draws chip tabs as a 24px icon with a label that opens only on the current
   const trigger = classesOf(tagWith(html, 'aria-label="Home"'))
   expect(trigger).toContain('group/tabs-trigger')
   expect(trigger).toContain('group-data-[variant=chip]/tabs-list:px-1')
+  // A count badge floats on the chip's top end corner instead of widening the chip.
+  expect(trigger).toContain('group-data-[variant=chip]/tabs-list:[&>[data-slot=badge]]:absolute')
   expect(trigger).toContain('group-data-[variant=chip]/tabs-list:py-0.5')
   expect(trigger).toContain('group-data-[variant=chip]/tabs-list:text-85')
   expect(trigger).toContain("group-data-[variant=chip]/tabs-list:[&_svg:not([class*='size-'])]:size-6")

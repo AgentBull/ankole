@@ -1,10 +1,26 @@
 import { expect, test } from 'bun:test'
-import { documentChanges, documentComparisonSource, versionTime } from './document-history'
+import { documentChanges, documentComparisonSource, versionsShowingSeconds, versionTime } from './document-history'
 
 test('a delayed checkpoint is labelled with the time its content was edited', () => {
   const version = { created_at: '2026-10-29T02:00:00Z', document_updated_at: '2026-10-28T01:01:00Z' }
   expect(versionTime({ ...version, reason: 'checkpoint' })).toBe(version.document_updated_at)
   expect(versionTime({ ...version, reason: 'restored' })).toBe(version.created_at)
+})
+
+test('only adjacent versions saved in the same minute show their seconds', () => {
+  const checkpoint = (id: string, at: string) => ({
+    id,
+    reason: 'checkpoint',
+    created_at: at,
+    document_updated_at: at
+  })
+  const shown = versionsShowingSeconds([
+    checkpoint('a', '2026-11-18T10:31:52Z'),
+    checkpoint('b', '2026-11-18T10:31:07Z'),
+    checkpoint('c', '2026-11-18T10:29:59Z'),
+    checkpoint('d', '2026-11-18T10:28:30Z')
+  ])
+  expect([...shown].sort()).toEqual(['a', 'b'])
 })
 
 test('comparison preserves the selected and current document, including independent changes', () => {

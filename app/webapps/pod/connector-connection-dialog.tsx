@@ -217,7 +217,7 @@ export function ConnectionEditorDialog({
                     <SelectContent>
                       {connector!.auth_schemes!.map(value => (
                         <SelectItem key={value} value={value}>
-                          {humanizeTechnicalLabel(value)}
+                          {t(`pod.connectors.auth_scheme_${value}`, { defaultValue: humanizeTechnicalLabel(value) })}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -368,7 +368,7 @@ export function ConnectionEditorDialog({
   )
 }
 
-function localizedMap(value: unknown, fallback?: string): Record<string, string> | undefined {
+export function localizedMap(value: unknown, fallback?: string): Record<string, string> | undefined {
   if (isRecord(value)) return value as Record<string, string>
   const text = typeof value === 'string' && value ? value : fallback
   return text ? { default: text } : undefined

@@ -41,8 +41,18 @@ Every projected card lands in one of three columns:
   - Agent routine (`cron:<id>`) whose delegated child job is `waiting_on_user` or whose latest execution or pre-Signal Cron fire failed (excluding unstarted queued Signals revoked during routine pause).
   - `AutomationJob` carrying a non-nil `unavailable_reason` or whose latest run failed.
   - `ScheduledEvent` (`check_back_later`) in `failed`.
-  Active healthy runs (`BackgroundAgentJob` in `running`, `Workflow.Run` in `running`, Agent routines with an active `routine:<id>` session or pending manual run, and `AutomationJob` with queued or running runs) follow directly below the pinned attention cards.
+  Active healthy runs (`BackgroundAgentJob` in `running`, `Workflow.Run` in `running`, Agent routines with an active `routine:<id>` session or pending manual run, and `AutomationJob` with queued or running runs) follow directly below the pinned attention cards. Because the column holds both sets, its header counts them apart: the count beside "Running" covers only the active healthy runs, and a warning badge ("Needs attention m") appears beside it whenever the column holds attention cards.
 - **`completed`**: Terminal one-off `BackgroundAgentJob` chains (`succeeded`, `stopped`, or `failed` older than 48 hours) and terminal `Workflow.Run`s, bounded to the 120 most recent items.
+
+Pod names each attention item by what it asks of the member. An item that a person's answer or instruction unblocks (`waiting_on_user`, or a standalone job that ended `incomplete`) carries a warning badge with the same status label that the execution inspector shows. A failed run carries "Failed", and an unavailable `AutomationJob` carries "Unavailable".
+
+The Pod home reads the same `GET /api/v2/pod/jobs` query as the board, so both share one cache entry. It lists attention items that wait on the member under "Needs your input", alongside rooms that need a decision and unread comments, and it lists failed or unavailable items under their own "Failed, needs attention" heading. Each heading's count equals the items it stands for. Each section shows at most three job rows, newest first, and each row links to `/jobs?item=<card id>`, which opens that card's inspector; when a section holds more, a "View all" link leads to `/jobs`.
+
+## Card and Inspector Presentation
+
+A card shows its `summary` as plain text: Pod removes Markdown markers and keeps only the visible text of links. When a settled one-off card's summary links a Pod Page (`[title](ankole:page/<id>)`, the form in which Agents deliver saved results), the card offers the first such Page as an "Open ‹title›" action. The execution inspector offers the same action directly under its title, taking the first Page linked in `outcomeText` and otherwise the first entry of `deliverables`, so a long run's result is reachable without scrolling through its execution history.
+
+When an execution failed, the inspector leads with one plain sentence that names the next step: ask the Agent in the conversation to retry, and, when the run has a delivered result, open that result above. The raw `errorText` stays available under a closed "Technical details" disclosure, as selectable text. The execution APIs return no error kind, so Pod does not classify failures from their free text. Routine run history follows the same rule and keeps each failed run's raw error under the same disclosure.
 
 ## Visibility and Authorization
 
@@ -89,4 +99,5 @@ All Pod Jobs endpoints mount under `/api/v2/pod/jobs`:
 ## Verification
 
 - `app/control_plane/test/ankole/pod/jobs_board_test.exs` verifies standalone one-off jobs without chat rooms, internal reflection filtering, `waiting_on_user` attention pinning and summary counts, steering and respawn chain folding, room-linked jobs, Cron Living Routine lifecycle and child-job rollup, workflow failure aging, check-back cancellation, Page `AutomationJob` visibility, and cross-member isolation.
-- `app/webapps/pod/jobs-page.test.tsx` and `app/webapps/integration/pod-browser/jobs.spec.ts` verify the sidebar entry, three-column and per-Agent board layouts, `New Job` creation flow, Routine and Execution side-panel inspectors, and live run stopping.
+- `app/webapps/pod/jobs-page.test.tsx` and `app/webapps/integration/pod-browser/jobs.spec.ts` verify the sidebar entry, three-column and per-Agent board layouts, the Running header counts, plain card summaries and result actions, failed-execution wording, `New Job` creation flow, Routine and Execution side-panel inspectors, and live run stopping.
+- `app/webapps/pod/chat/chat-home-view.test.tsx` verifies that the Pod home separates attention jobs that wait on the member from failed ones and links each row to its own card.

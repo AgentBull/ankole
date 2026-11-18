@@ -103,7 +103,8 @@ Fired, cancelled and expired endpoints reject edits, pause and resume with
 
 The **Applet settings** button in an Applet Page's header opens a dialog whose
 Automation, Webhooks, and Run logs tabs share one Job selector below each tab's
-heading. There, a member can select a published Action and create a personal
+heading. Each of the three tab panels names that heading as its description, so
+assistive technology reads the explanation with the panel. There, a member can select a published Action and create a personal
 Job, or create a team Job when they can edit the Page. When the Applet publishes
 no Action, the dialog offers no Job creation and explains the next step instead:
 a Page editor can ask the Agent to add and publish an Action, while a

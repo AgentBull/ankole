@@ -216,7 +216,9 @@ function WorkerEnvValueCell({ item, scope }: { item?: WorkerEnvItem; scope: 'glo
           className="link shrink-0 text-xs"
           to={encodeURIComponent(item.name)}
           search={{ scope }}
-          aria-label={`${t(scope === 'tenant' ? 'common.view_details' : 'common.edit')} ${item.name}`}>
+          aria-label={
+            scope === 'tenant' ? t('common.view_details_for', { name: item.name }) : `${t('common.edit')} ${item.name}`
+          }>
           {t(scope === 'tenant' ? 'common.view_details' : 'common.edit')}
         </Link>
       </div>

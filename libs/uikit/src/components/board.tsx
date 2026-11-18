@@ -11,7 +11,7 @@ export type BoardTone = 'gray' | 'blue' | 'amber' | 'purple' | 'green' | 'red'
 export type BoardCardTone = 'default' | 'warning' | 'danger'
 
 /** Semantic fill for a card's inline progress track. */
-export type BoardProgressTone = 'info' | 'success' | 'warning' | 'danger'
+export type BoardProgressTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
 
 const tones: Record<BoardTone, string> = {
   gray: 'var(--board-tone-gray)',
@@ -23,6 +23,7 @@ const tones: Record<BoardTone, string> = {
 }
 
 const progressToneClasses: Record<BoardProgressTone, string> = {
+  neutral: '[&_[data-slot=progress-indicator]]:bg-fg-secondary',
   info: '[&_[data-slot=progress-indicator]]:bg-info',
   success: '[&_[data-slot=progress-indicator]]:bg-success',
   warning: '[&_[data-slot=progress-indicator]]:bg-(--board-progress-warning)',
@@ -57,7 +58,7 @@ function BoardColumn({
       data-slot="board-column"
       data-drop-target={dropTarget || undefined}
       className={cn(
-        'flex min-h-40 min-w-0 flex-col gap-2 rounded-surface border border-border-subtle/60 bg-layer-01 p-2.5 dark:border-white/8 dark:bg-white/[0.025]',
+        'flex min-h-40 min-w-0 flex-col gap-2 rounded-surface border border-divider-overlay bg-layer-01 p-2.5 dark:border-white/8 dark:bg-white/[0.025]',
         'transition-[background-color,border-color,box-shadow] duration-(--duration-feedback)',
         'data-drop-target:border-primary/50 data-drop-target:bg-layer-hover data-drop-target:ring-2 data-drop-target:ring-primary/30',
         className
@@ -137,14 +138,15 @@ function BoardCard({
       data-selected={selected || undefined}
       data-tone={tone !== 'default' ? tone : undefined}
       className={cn(
-        'group/board-card relative flex min-w-0 flex-col gap-1.5 rounded-surface border border-border-subtle/80 bg-page p-3 text-65 leading-5 shadow-[0_1px_2px_rgb(0_0_0/0.03)] dark:border-white/10 dark:bg-control dark:shadow-none',
+        'group/board-card relative flex min-w-0 flex-col gap-1.5 rounded-surface border border-border-subtle bg-page p-3 text-65 leading-5 shadow-[0_1px_2px_rgb(0_0_0/0.03)] dark:border-white/10 dark:bg-control dark:shadow-none',
         'transition-[border-color,box-shadow,background-color] duration-(--duration-feedback)',
         '[&_:is(a,button,input,select,textarea):not([data-slot=board-card-title])]:relative [&_:is(a,button,input,select,textarea):not([data-slot=board-card-title])]:z-1',
         'has-[[data-slot=board-card-title]:is(button,a):hover]:border-control-edge has-[[data-slot=board-card-title]:is(button,a):hover]:shadow-sm',
         'has-[[data-slot=board-card-title]:is(button,a):active]:bg-control-hover',
         'has-[[data-slot=board-card-title]:focus-visible]:outline-2 has-[[data-slot=board-card-title]:focus-visible]:outline-offset-2 has-[[data-slot=board-card-title]:focus-visible]:outline-ring',
-        'data-[tone=warning]:border-(--board-warning-edge) data-[tone=warning]:bg-[linear-gradient(180deg,rgb(252_179_33/0.07),transparent_60%),var(--page)] dark:data-[tone=warning]:bg-[linear-gradient(180deg,rgb(252_179_33/0.09),transparent_65%),var(--control)]',
-        'data-[tone=danger]:border-(--board-danger-edge) data-[tone=danger]:bg-[linear-gradient(180deg,rgb(245_62_41/0.06),transparent_60%),var(--page)] dark:data-[tone=danger]:bg-[linear-gradient(180deg,rgb(245_62_41/0.09),transparent_65%),var(--control)]',
+        // The tone is a gradient image over the card's own fill; `bg-[image:…]` keeps Tailwind from reading it as a colour.
+        'data-[tone=warning]:border-(--board-warning-edge) data-[tone=warning]:bg-[image:linear-gradient(180deg,var(--ceramic-glaze-attention),transparent_60%)] dark:data-[tone=warning]:bg-[image:linear-gradient(180deg,rgb(252_179_33/0.09),transparent_65%)]',
+        'data-[tone=danger]:border-(--board-danger-edge) data-[tone=danger]:bg-[image:linear-gradient(180deg,rgb(245_62_41/0.06),transparent_60%)] dark:data-[tone=danger]:bg-[image:linear-gradient(180deg,rgb(245_62_41/0.09),transparent_65%)]',
         'data-selected:border-fg-primary/55 data-selected:shadow-sm data-selected:ring-2 data-selected:ring-fg-primary/10 dark:data-selected:border-white/55 dark:data-selected:ring-white/15',
         className
       )}
@@ -172,7 +174,7 @@ function BoardCardTitle({ className, render, ...props }: ComponentProps<'div'> &
       {
         'data-slot': 'board-card-title',
         className: cn(
-          'line-clamp-2 w-full rounded-mini text-start text-65 leading-4.75 font-medium break-words text-fg-primary',
+          'line-clamp-2 w-full rounded-mini text-start text-65 leading-5 font-medium break-words text-fg-primary',
           "[:is(button,a)&]:cursor-pointer [:is(button,a)&]:focus-visible:outline-none [:is(button,a)&]:after:absolute [:is(button,a)&]:after:inset-0 [:is(button,a)&]:after:rounded-surface [:is(button,a)&]:after:content-['']",
           className
         )
@@ -183,22 +185,28 @@ function BoardCardTitle({ className, render, ...props }: ComponentProps<'div'> &
   )
 }
 
-/** Supporting summary or outcome snippet beneath a card's title, clamped to two lines. */
+/**
+ * Supporting summary or outcome snippet beneath a card's title, clamped to two lines. On a danger card it states
+ * what went wrong, so it takes the destructive text colour.
+ */
 function BoardCardDescription({ className, ...props }: ComponentProps<'p'>) {
   return (
     <p
       data-slot="board-card-description"
-      className={cn('line-clamp-2 text-xs leading-4.25 break-words text-fg-secondary', className)}
+      className={cn(
+        'line-clamp-2 text-xs leading-4.5 break-words text-fg-secondary group-data-[tone=danger]/board-card:text-destructive-fg',
+        className
+      )}
       {...props}
     />
   )
 }
 
-/** Determinate progress row for multi-step work on a card. */
+/** Determinate progress row for multi-step work on a card. The bar is neutral unless the card's state needs a tone. */
 function BoardCardProgress({
   value,
   max,
-  tone = 'info',
+  tone = 'neutral',
   label,
   'aria-label': ariaLabel,
   className,
@@ -217,10 +225,22 @@ function BoardCardProgress({
         aria-label={ariaLabel ?? (typeof label === 'string' ? label : undefined)}
         className={cn('min-w-0 flex-1 items-center', progressToneClasses[tone])}
       />
-      {label !== undefined && (
-        <span className="shrink-0 font-mono text-50 leading-4 text-fg-tertiary tabular-nums">{label}</span>
-      )}
+      {label !== undefined && <span className="shrink-0 text-50 leading-4 text-fg-tertiary tabular-nums">{label}</span>}
     </div>
+  )
+}
+
+/** A short technical fact beside the card's kind, such as a trigger: mono text in a quiet 3px slot. */
+function BoardCardTag({ className, ...props }: ComponentProps<'span'>) {
+  return (
+    <span
+      data-slot="board-card-tag"
+      className={cn(
+        'max-w-36 truncate rounded-mini bg-layer-01 px-1.5 py-0.5 font-mono text-50 leading-4 text-fg-tertiary',
+        className
+      )}
+      {...props}
+    />
   )
 }
 
@@ -263,11 +283,13 @@ function BoardPresence({ avatars, className, children, ...props }: ComponentProp
     <span
       data-slot="board-presence"
       className={cn(
-        'inline-flex h-7 max-w-full min-w-0 shrink-0 items-center gap-2 rounded-full border border-(--board-chip-edge) bg-(--board-chip) ps-1 pe-3 text-xs leading-4 font-medium text-fg-primary',
+        'inline-flex h-7 max-w-full min-w-0 shrink-0 items-center gap-2 rounded-full border border-(--board-chip-edge) bg-(--board-chip) ps-1 pe-2.5 text-xs leading-4 text-fg-secondary',
         className
       )}
       {...props}>
-      {avatars && <span className="flex shrink-0 items-center gap-0.5">{avatars}</span>}
+      {avatars && (
+        <span className="flex shrink-0 items-center -space-x-1.25 [&>*]:ring-[1.5px] [&>*]:ring-page">{avatars}</span>
+      )}
       <span className="min-w-0 truncate">{children}</span>
     </span>
   )
@@ -296,6 +318,7 @@ export {
   BoardCardFooter,
   BoardCardHeader,
   BoardCardProgress,
+  BoardCardTag,
   BoardCardTitle,
   BoardColumn,
   BoardColumnEmpty,

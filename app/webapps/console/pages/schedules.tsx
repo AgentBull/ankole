@@ -77,6 +77,7 @@ import {
   ResourceListPage,
   ResourceSearch,
   RowActions,
+  RowViewAction,
   SubNav,
   useCreateActionVariant
 } from '../console-list-page'
@@ -229,7 +230,7 @@ export function SchedulesListPage() {
         const editTo = row.owner_job_id
           ? `/automation-jobs?job=${row.owner_job_id}`
           : `/schedules/${encodeURIComponent(row.agent_uid ?? '')}/${encodeURIComponent(row.id)}`
-        const toggleable = !row.owner_job_id && isMutableCronStatus(row.status)
+        const toggleable = isMutableCronStatus(row.status)
         return (
           <TableRow key={`${row.agent_uid}:${row.id}`}>
             <TableCell className="font-mono text-xs">
@@ -259,51 +260,52 @@ export function SchedulesListPage() {
             <TableCell>
               <StatusIndicator tone={statusTone(row.status)}>{scheduleStatusLabel(t, row.status)}</StatusIndicator>
             </TableCell>
-            <RowActions
-              editTo={editTo}
-              editLabel={t('common.edit')}
-              actions={[
-                ...(toggleable
-                  ? [
-                      {
-                        icon: <PlayCircleRegular />,
-                        label: t('console.schedules.run_now'),
-                        pending: runCron.isPending,
-                        onAction: () =>
-                          runCron.mutate({
-                            body: { data: { idempotency_key: uuidV4() } },
-                            path: { agent_uid: row.agent_uid!, id: row.id }
-                          })
-                      }
-                    ]
-                  : []),
-                ...(toggleable
-                  ? [
-                      {
-                        icon: row.status === 'paused' ? <PlayCircleRegular /> : <PauseCircleRegular />,
-                        label: row.status === 'paused' ? t('console.schedules.resume') : t('console.schedules.pause'),
-                        pending: pauseCron.isPending || resumeCron.isPending,
-                        onAction: () => {
-                          const path = { agent_uid: row.agent_uid!, id: row.id }
-                          if (row.status === 'paused') resumeCron.mutate({ path })
-                          else pauseCron.mutate({ path })
+            {/* An Applet owns its schedule, so the row opens the owning automation instead of a schedule editor. */}
+            {row.owner_job_id ? (
+              <RowViewAction to={editTo} label={t('console.schedules.open_owning_automation')} />
+            ) : (
+              <RowActions
+                editTo={editTo}
+                editLabel={t('console.schedules.edit')}
+                actions={[
+                  ...(toggleable
+                    ? [
+                        {
+                          icon: <PlayCircleRegular />,
+                          label: t('console.schedules.run_now'),
+                          pending: runCron.isPending,
+                          onAction: () =>
+                            runCron.mutate({
+                              body: { data: { idempotency_key: uuidV4() } },
+                              path: { agent_uid: row.agent_uid!, id: row.id }
+                            })
                         }
-                      }
-                    ]
-                  : [])
-              ]}
-              deletePending={removeCron.isPending}
-              deleteConfirm={{
-                title: t('console.schedules.delete_title'),
-                description: t('console.schedules.delete_description', { name: row.name || row.binding_name }),
-                confirmLabel: t('common.delete')
-              }}
-              onDelete={
-                row.owner_job_id
-                  ? undefined
-                  : () => removeCron.mutate({ path: { agent_uid: row.agent_uid!, id: row.id } })
-              }
-            />
+                      ]
+                    : []),
+                  ...(toggleable
+                    ? [
+                        {
+                          icon: row.status === 'paused' ? <PlayCircleRegular /> : <PauseCircleRegular />,
+                          label: row.status === 'paused' ? t('console.schedules.resume') : t('console.schedules.pause'),
+                          pending: pauseCron.isPending || resumeCron.isPending,
+                          onAction: () => {
+                            const path = { agent_uid: row.agent_uid!, id: row.id }
+                            if (row.status === 'paused') resumeCron.mutate({ path })
+                            else pauseCron.mutate({ path })
+                          }
+                        }
+                      ]
+                    : [])
+                ]}
+                deletePending={removeCron.isPending}
+                deleteConfirm={{
+                  title: t('console.schedules.delete_title'),
+                  description: t('console.schedules.delete_description', { name: row.name || row.binding_name }),
+                  confirmLabel: t('common.delete')
+                }}
+                onDelete={() => removeCron.mutate({ path: { agent_uid: row.agent_uid!, id: row.id } })}
+              />
+            )}
           </TableRow>
         )
       })}

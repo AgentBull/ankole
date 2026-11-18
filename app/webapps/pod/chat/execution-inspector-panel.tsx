@@ -1,6 +1,10 @@
 import { uuidV4 } from '@agentbull/active-support'
 import {
   Button,
+  buttonVariants,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   InputGroup,
   InputGroupActions,
   InputGroupAddon,
@@ -24,6 +28,7 @@ import {
   CircleRegular,
   DismissCircleRegular,
   DismissRegular,
+  OpenRegular,
   QuestionCircleRegular,
   RecordStopRegular,
   SendRegular,
@@ -33,6 +38,7 @@ import {
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import {
   useEffect,
   useRef,
@@ -57,7 +63,7 @@ import {
 import { ContentError } from '../content-primitives'
 import { fileURL } from '../content-api'
 import { PageReferenceCard } from '../message-artifacts'
-import { jobsError, jobsKeys } from '../jobs-api'
+import { jobsError, jobsKeys, resultPageLink } from '../jobs-api'
 import { PodPanelSurface, popupOpen, type PanelInputEvent } from '../panel-motion'
 import { refreshConversationQueries } from '../query-cache'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -67,6 +73,7 @@ import {
   ChatInspectorLayoutModel
 } from '../state/chat-inspector-layout'
 import { shouldSendOnEnter } from '../state/chat'
+import { usePageHref } from '../use-page-metadata'
 import { ChatMarkdown } from './chat-markdown'
 import {
   ExecutionStatusMark,
@@ -439,6 +446,7 @@ function ExecutionInspectorBody({
 }) {
   const { t } = useTranslation()
   const client = useQueryClient()
+  const pageHref = usePageHref()
   const reducedMotion = useReducedMotion()
   const [selectedThreadID, setSelectedThreadID] = useState<string | null>(null)
   const [taskExpanded, setTaskExpanded] = useState(false)
@@ -577,6 +585,10 @@ function ExecutionInspectorBody({
 
   const taskText = head?.task?.trim()
   const taskIsLong = Boolean(taskText && (taskText.length > 180 || taskText.split('\n').length > 3))
+  const firstDeliverable = head?.deliverables?.[0]
+  const resultLink =
+    resultPageLink(head?.outcomeText) ??
+    (firstDeliverable ? { id: firstDeliverable.nodeID, title: firstDeliverable.name } : undefined)
 
   const submitText = (raw: string, source: 'composer' | 'questions' = 'composer') => {
     const text = raw.trim()
@@ -653,6 +665,16 @@ function ExecutionInspectorBody({
             <span>{t('pod.chat_timeline.execution_steps_count', { count: stepCount })}</span>
           ) : null}
         </div>
+        {resultLink && (
+          <Link
+            to={pageHref(resultLink.id, resultLink.title)}
+            className={buttonVariants({ variant: 'outline', size: 'xs', className: 'self-start' })}>
+            <OpenRegular aria-hidden />
+            <span className="truncate">
+              {t('pod.chat_timeline.execution_open_result', { title: resultLink.title })}
+            </span>
+          </Link>
+        )}
         {(head?.continuedFromJobID || head?.successorJobID) && (
           <div className="pod-chat-inspector-chain">
             {head.continuedFromJobID && (
@@ -804,7 +826,16 @@ function ExecutionInspectorBody({
           {head?.errorText && (
             <div role="alert" className="pod-chat-inspector-error">
               <DismissCircleRegular aria-hidden />
-              <p>{head.errorText}</p>
+              <div className="grid min-w-0 flex-1 gap-1">
+                <p className="m-0">
+                  {t(
+                    resultLink
+                      ? 'pod.chat_timeline.execution_failed_hint_with_result'
+                      : 'pod.chat_timeline.execution_failed_hint'
+                  )}
+                </p>
+                <TechnicalDetails text={head.errorText} />
+              </div>
             </div>
           )}
 
@@ -870,6 +901,22 @@ function ExecutionInspectorBody({
         </footer>
       )}
     </div>
+  )
+}
+
+/** A raw diagnostic, closed by default under the plain sentence a member reads first, and selectable for operators. */
+export function TechnicalDetails({ text }: { text: string }) {
+  const { t } = useTranslation()
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="group inline-flex cursor-pointer items-center gap-1 text-xs underline-offset-2 hover:underline">
+        <CaretRightFilled aria-hidden className="size-3 transition-transform group-data-open:rotate-90" />
+        {t('pod.chat_timeline.execution_technical_details')}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <p className="m-0 pt-1 font-mono text-xs whitespace-pre-wrap select-text [overflow-wrap:anywhere]">{text}</p>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 

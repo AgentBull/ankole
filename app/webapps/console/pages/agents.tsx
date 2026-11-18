@@ -3,6 +3,7 @@ import { principalLabel } from '../state/principal-label'
 import { ActorLabel } from '../actor-label'
 import { match, recordValue } from '@agentbull/active-support'
 import {
+  buttonVariants,
   Input,
   Select,
   SelectContent,
@@ -370,9 +371,10 @@ function AgentEditor({ uid }: { uid?: string }) {
       submitDisabledReason={submitDisabledReason}
       submitLabel={mode === 'edit' ? t('console.agents.save_identity') : t('common.save')}
       contentWidth={mode === 'edit' ? 'wide' : 'form'}
+      secondary={mode === 'edit' && selectedAgent ? <AgentSectionNav /> : undefined}
       supplementary={
         mode === 'edit' && selectedAgent ? (
-          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border-subtle pt-8 [&>*]:min-w-0">
+          <div className={cn(SECTION_GROUP, 'border-t border-border-subtle pt-8')}>
             <div>
               <PrincipalRename
                 uid={selectedAgent.uid}
@@ -384,36 +386,47 @@ function AgentEditor({ uid }: { uid?: string }) {
                 }}
               />
             </div>
-            <AgentWorkerProvider agent={selectedAgent} providers={workerProviders.data ?? []} />
-            <AgentLibraryEditor agentUID={selectedAgent.uid} />
-            <ModelProfilesEditor
-              agent={selectedAgent}
-              error={modelProfiles.error}
-              loading={modelProfiles.isLoading}
-              model={modelProfilesModel}
-              configuration={modelProfiles.data}
-              providers={providers.data ?? []}
-              providerKinds={providerKinds.data?.provider_kinds ?? []}
-              modelCatalog={modelCatalog.data?.models ?? []}
-              modelCatalogPending={modelCatalog.isPending}
-            />
-            <CustomModelProfilesEditor
-              agentUID={selectedAgent.uid}
-              error={modelProfiles.error}
-              loading={modelProfiles.isLoading}
-              profiles={recordValue(modelProfiles.data?.overrides) ?? {}}
-              providers={providers.data ?? []}
-              providerKinds={providerKinds.data?.provider_kinds ?? []}
-              modelCatalog={modelCatalog.data?.models ?? []}
-              onDirtyChange={setCustomProfilesDirty}
-            />
-            <TokenQuotaEditor key={selectedAgent.uid} agentUID={selectedAgent.uid} model={quotaModel} />
+            <div id="agent-runtime" className={SECTION_GROUP}>
+              <AgentWorkerProvider agent={selectedAgent} providers={workerProviders.data ?? []} />
+              <AgentLibraryEditor agentUID={selectedAgent.uid} />
+              <ModelProfilesEditor
+                agent={selectedAgent}
+                error={modelProfiles.error}
+                loading={modelProfiles.isLoading}
+                model={modelProfilesModel}
+                configuration={modelProfiles.data}
+                providers={providers.data ?? []}
+                providerKinds={providerKinds.data?.provider_kinds ?? []}
+                modelCatalog={modelCatalog.data?.models ?? []}
+                modelCatalogPending={modelCatalog.isPending}
+              />
+              <CustomModelProfilesEditor
+                agentUID={selectedAgent.uid}
+                error={modelProfiles.error}
+                loading={modelProfiles.isLoading}
+                profiles={recordValue(modelProfiles.data?.overrides) ?? {}}
+                providers={providers.data ?? []}
+                providerKinds={providerKinds.data?.provider_kinds ?? []}
+                modelCatalog={modelCatalog.data?.models ?? []}
+                onDirtyChange={setCustomProfilesDirty}
+              />
+            </div>
+            <div id="agent-usage">
+              <TokenQuotaEditor key={selectedAgent.uid} agentUID={selectedAgent.uid} model={quotaModel} />
+            </div>
             <WorkerEnvAgentSection agentUID={selectedAgent.uid} onDirtyChange={setWorkerEnvDirty} />
-            <AgentFilesLink agentUID={selectedAgent.uid} />
+            <div id="agent-files">
+              <AgentFilesLink agentUID={selectedAgent.uid} />
+            </div>
           </div>
         ) : null
       }
       onSubmit={submit}>
+      {mode === 'edit' ? (
+        <h3 id="agent-identity" className="title-section">
+          {t('console.agents.section_identity')}
+        </h3>
+      ) : null}
       <div className={cn('grid gap-5', mode === 'edit' && 'md:grid-cols-2')}>
         {mode === 'new' ? (
           <LabeledField
@@ -538,6 +551,40 @@ function AgentEditor({ uid }: { uid?: string }) {
         </LabeledField>
       </div>
     </ResourceEditorPage>
+  )
+}
+
+/** A stack of detail sections that keeps each section inside the page width. */
+const SECTION_GROUP = 'grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 [&>*]:min-w-0'
+
+const AGENT_SECTIONS = ['identity', 'runtime', 'usage', 'files'] as const
+
+/**
+ * Links to the four parts of the long Agent page. Each link moves focus to the heading of its part, so a keyboard
+ * user continues from there.
+ */
+function AgentSectionNav() {
+  const { t } = useTranslation()
+  return (
+    <nav aria-label={t('console.agents.sections')} className="flex flex-wrap gap-1">
+      {AGENT_SECTIONS.map(section => (
+        <a
+          key={section}
+          href={`#agent-${section}`}
+          className={buttonVariants({ size: 'sm', variant: 'ghost' })}
+          onClick={event => {
+            event.preventDefault()
+            const target = document.getElementById(`agent-${section}`)
+            const heading = target?.querySelector<HTMLElement>('h3') ?? target
+            if (!heading) return
+            heading.tabIndex = -1
+            heading.scrollIntoView({ block: 'start' })
+            heading.focus({ preventScroll: true })
+          }}>
+          {t(`console.agents.section_${section}`)}
+        </a>
+      ))}
+    </nav>
   )
 }
 

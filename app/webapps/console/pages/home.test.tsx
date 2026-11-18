@@ -10,6 +10,7 @@ import {
 } from '../api/v2/generated/@tanstack/react-query.gen'
 import { backgroundAgentJobsOptions } from '../api/background-agent-jobs'
 import type { ConsoleReadinessResponse } from '../api/runtime-types'
+import type { ListBackgroundAgentJobsResponse } from '../api/v2/generated/types.gen'
 import { listAiGatewayProvidersQueryKey } from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { HomePage } from './home'
 
@@ -25,6 +26,38 @@ test('shows global job counts independently of the recent jobs page', async () =
   expect(jobMetric).toContain('>12<')
   expect(jobMetric).toContain('17 queued')
   client.clear()
+})
+
+test('opens the one failed Job, and narrows several failures to the window the alert counted', async () => {
+  const job = (id: number, status: 'failed' | 'succeeded', queuedAt: string) => ({
+    id: String(id),
+    type: 'background_agent_job',
+    attributes: { agent_uid: 'agent-a', attempts: 1, status, title: `Job ${id}`, queued_at: queuedAt }
+  })
+  const one = new QueryClient()
+  one.setQueryData(backgroundAgentJobsOptions({ limit: 20 }).queryKey, {
+    data: [job(1002, 'succeeded', '2026-11-18T10:00:00Z'), job(1001, 'failed', '2026-11-18T09:00:00Z')]
+  } as ListBackgroundAgentJobsResponse)
+  expect(await providerHTML(one)).toContain('href="/background-agent-jobs?job=1001">Open the failed job<')
+  one.clear()
+
+  // The page holds the newest Jobs and older ones exist, so the window starts at the oldest Job on the page.
+  const several = new QueryClient()
+  several.setQueryData(backgroundAgentJobsOptions({ limit: 20 }).queryKey, {
+    data: [
+      job(1003, 'failed', '2026-11-18T10:00:00Z'),
+      job(1002, 'succeeded', '2026-11-18T09:30:00Z'),
+      job(1001, 'failed', '2026-11-18T09:00:00Z')
+    ],
+    links: { next: '/api/v2/background-agent-jobs?page[after]=cursor' }
+    // The generated response type omits the JSON:API `links` that the server sends.
+  } as unknown as ListBackgroundAgentJobsResponse)
+  const html = await providerHTML(several)
+  expect(html).toContain('2 recent background Agent Jobs failed')
+  expect(html).toContain(
+    'href="/background-agent-jobs?status=failed&amp;since=2026-11-18T09%3A00%3A00Z">Review failed jobs<'
+  )
+  several.clear()
 })
 
 function providerClient(complete: boolean) {

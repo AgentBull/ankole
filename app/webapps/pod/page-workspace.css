@@ -426,23 +426,8 @@ textarea.pod-page-title:focus-visible {
   z-index: 30;
   top: 52px;
   right: 16px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px;
-}
-
-.pod-page-find input {
-  width: 196px;
-  height: 28px;
-}
-
-.pod-page-find > span {
-  min-width: 38px;
-  text-align: center;
-  font-size: var(--text-50);
-  font-variant-numeric: tabular-nums;
-  color: var(--fg-tertiary);
+  width: 22.5rem;
+  padding: 8px 16px 16px;
 }
 
 ::highlight(pod-page-find) {
@@ -471,13 +456,6 @@ textarea.pod-page-title:focus-visible {
   .pod-page-find {
     left: 12px;
     right: 12px;
-    max-width: calc(100% - 24px);
-    flex-wrap: wrap;
-  }
-
-  .pod-page-find input {
-    flex: 1;
-    min-width: 110px;
     width: auto;
   }
 }

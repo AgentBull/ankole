@@ -110,7 +110,16 @@ export function MetaSkills() {
       </search>
       {skills.isPending && <ContentSkeleton variant="list" rows={6} />}
       {skills.error && <ContentError error={skills.error} retry={() => void skills.refetch()} />}
-      {matches?.length === 0 && <p className="text-sm text-fg-secondary">{t('pod.meta.no_skills')}</p>}
+      {matches?.length === 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-fg-secondary">{t(search ? 'pod.meta.no_skills' : `pod.meta.empty_${filter}`)}</p>
+          {!search && filter === 'personal' && skills.data?.can_create && (
+            <Button type="button" variant="outline" size="sm" onClick={() => setCreating('new')}>
+              {t('pod.meta.new_skill')}
+            </Button>
+          )}
+        </div>
+      )}
       {matches?.map(skill => (
         <SkillRow key={skill.id} skill={skill} />
       ))}
@@ -285,7 +294,9 @@ function SkillRow({ skill }: { skill: MetaSkill }) {
                 {t('pod.meta.scope_personal_badge', { defaultValue: 'Personal' })}
               </span>
             ) : (
-              <span className="text-xs text-fg-tertiary">{t(`pod.meta.source_${skill.source_kind}`)}</span>
+              <span className="text-xs text-fg-tertiary">
+                {t('pod.meta.source_label', { source: t(`pod.meta.source_${skill.source_kind}`) })}
+              </span>
             )}
             {skill.has_upstream_update && (
               <span className="rounded-mini bg-warning-subtle px-1.5 py-0.5 text-xs font-medium text-warning-fg">

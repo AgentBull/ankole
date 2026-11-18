@@ -507,7 +507,9 @@ test('answered and superseded decisions remain locked when loaded from durable i
       </QueryClientProvider>
     )
     expect(html).toContain('data-state="answered"')
-    expect(html).toContain('Answered by Alice')
+    expect(html).toContain('<span>Answered · Draft page</span>')
+    expect(html).toContain('<span class="pod-chat-choice-decided">Alice</span>')
+    expect(html).not.toContain('Decision needed')
     expect(html).toContain('aria-pressed="true"')
     expect(html).toContain('disabled=""')
     expect(html).not.toContain('<input')
@@ -741,7 +743,8 @@ test('choice cards expose numeric shortcuts only for the first four active keybo
         />
       </QueryClientProvider>
     )
-    expect(answered).toContain('<span class="pod-chat-event-avatar" aria-hidden="true">🚀</span>')
+    expect(answered).toContain('<span class="pod-chat-choice-decided">🚀 Rocket</span>')
+    expect(answered).not.toContain('<kbd>')
   } finally {
     client.clear()
   }

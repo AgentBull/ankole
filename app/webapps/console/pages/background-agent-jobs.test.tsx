@@ -9,7 +9,8 @@ import {
   BackgroundAgentJobsPage,
   backgroundAgentJobListOptions,
   backgroundAgentJobSearchParams,
-  backgroundAgentJobScopeParams
+  backgroundAgentJobScopeParams,
+  backgroundAgentJobStatusFilterParams
 } from './background-agent-jobs'
 
 // Catalogs load on demand; these assertions render translated en-US copy.
@@ -43,6 +44,8 @@ describe('Background Agent Job scope changes', () => {
     expect(html).toContain('aria-label="Search by Job ID or name"')
     expect(html).toContain('maxLength="200"')
     expect(html).toContain('aria-label="Agent"')
+    // The closed Agent filter still names its scope.
+    expect(html).toMatch(/data-slot="select-value"[^>]*>All Agents</)
   })
 
   test('gives each server-side ID or name search its own query', () => {
@@ -91,6 +94,38 @@ describe('Background Agent Job scope changes', () => {
     observer.setOptions({ ...second, enabled: false })
     expect(observer.getCurrentResult().data).toBeUndefined()
     expect(observer.getCurrentResult().isPlaceholderData).toBe(false)
+  })
+
+  test('shows the failed Jobs of the alert window under one removable filter, in the Ended column', async () => {
+    const queryClient = new QueryClient()
+    const failed = (id: number, queuedAt: string) => ({
+      id: String(id),
+      type: 'background_agent_job',
+      attributes: { agent_uid: 'agent-a', attempts: 1, status: 'failed', title: `Job ${id}`, queued_at: queuedAt }
+    })
+    queryClient.setQueryData(backgroundAgentJobListOptions('', '', 'failed').queryKey, {
+      data: [
+        failed(1003, '2026-11-18T10:00:00Z'),
+        failed(1002, '2026-11-18T09:00:00Z'),
+        failed(1001, '2026-11-18T08:00:00Z')
+      ]
+    } as ListBackgroundAgentJobsResponse)
+
+    const html = await renderJobsPage(
+      queryClient,
+      '/background-agent-jobs?status=failed&since=2026-11-18T09%3A00%3A00Z'
+    )
+
+    expect(html).toContain('2 shown')
+    expect(html).toContain('Job 1003')
+    expect(html).not.toContain('Job 1001')
+    expect(html).toMatch(/aria-label="Remove filter: \W*Failed · since/)
+    expect(html).toContain('>Ended<')
+
+    const cleared = backgroundAgentJobStatusFilterParams(
+      new URLSearchParams('agent=agent-a&status=failed&since=2026-11-18T09%3A00%3A00Z')
+    )
+    expect(cleared.toString()).toBe('agent=agent-a')
   })
 
   test('closes the previous Agent detail when the scope changes', () => {

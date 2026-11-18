@@ -9,6 +9,7 @@ import {
   insertEmbed,
   insertMention,
   insertResource,
+  replaceText,
   EditorSelection,
   PageSession,
   PageCollaboration,
@@ -726,4 +727,22 @@ async function uploadDocumentAsset(pageID: string, file: File) {
   const uploaded = await uploadPageFile(pageID, file, 'asset')
   if (!uploaded.src) throw new Error(t('pod.editor.resource_upload_failed'))
   return { src: uploaded.src, title: file.name, mime: file.type, size: String(file.size) }
+}
+
+/**
+ * Replace the find matches that lie in the document's editable text as one undoable edit. A match in the title, in
+ * an embed, or in another island the editor does not edit stays as it is. Returns how many matches it replaced.
+ */
+export function replaceDocumentMatches(editor: Editor, ranges: readonly Range[], text: string): number {
+  const spans = ranges.flatMap(range => {
+    const ancestor = range.commonAncestorContainer
+    const element = ancestor instanceof Element ? ancestor : ancestor.parentElement
+    if (!element || !editor.contentDOM.contains(element)) return []
+    const island = element.closest('[contenteditable="false"]')
+    if (island && editor.contentDOM.contains(island)) return []
+    const from = editor.posAtDOM(range.startContainer, range.startOffset)
+    const to = editor.posAtDOM(range.endContainer, range.endOffset)
+    return from < to ? [{ from, to }] : []
+  })
+  return replaceText(editor, spans, text) ? spans.length : 0
 }

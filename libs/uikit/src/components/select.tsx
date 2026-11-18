@@ -181,7 +181,7 @@ const selectTriggerVariants = cva(
     variants: {
       variant: {
         field:
-          'border-field-border bg-field outline-none hover:bg-field-hover focus-visible:border-control-edge focus-visible:border-b-ring focus-visible:bg-page focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)] disabled:border-transparent disabled:bg-field aria-invalid:bg-(--field-invalid) data-invalid:bg-(--field-invalid)',
+          'border-field-border bg-field outline-none hover:bg-field-hover focus-visible:border-border-active focus-visible:bg-page disabled:border-transparent disabled:bg-field aria-invalid:bg-(--field-invalid) data-invalid:bg-(--field-invalid)',
         ghost:
           'border-transparent bg-transparent text-fg-secondary hover:bg-layer-hover hover:text-fg-primary focus-visible:outline-offset-1 data-open:bg-layer-hover data-open:text-fg-primary'
       }
@@ -396,13 +396,14 @@ function SelectSeparator({
 
 // shortcut: ui-sdk scrolls a long list natively and has no scroll arrows, so these two only draw the arrow band;
 // give them hover scrolling if a caller places one.
+// The scroll strips cover the list's rows, so they take the body of the menu tier the list is drawn on.
 function SelectScrollUpButton({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       aria-hidden
       data-slot="select-scroll-up-button"
       className={cn(
-        "top-0 z-10 flex w-full cursor-pointer items-center justify-center bg-[rgb(var(--ceramic-body))] py-1 [&_svg:not([class*='size-'])]:size-3.5",
+        "top-0 z-10 flex w-full cursor-pointer items-center justify-center bg-[rgb(var(--ceramic-primary-body))] py-1 [&_svg:not([class*='size-'])]:size-3.5",
         className
       )}
       {...props}>
@@ -417,7 +418,7 @@ function SelectScrollDownButton({ className, ...props }: React.ComponentProps<'d
       aria-hidden
       data-slot="select-scroll-down-button"
       className={cn(
-        "bottom-0 z-10 flex w-full cursor-pointer items-center justify-center bg-[rgb(var(--ceramic-body))] py-1 [&_svg:not([class*='size-'])]:size-3.5",
+        "bottom-0 z-10 flex w-full cursor-pointer items-center justify-center bg-[rgb(var(--ceramic-primary-body))] py-1 [&_svg:not([class*='size-'])]:size-3.5",
         className
       )}
       {...props}>

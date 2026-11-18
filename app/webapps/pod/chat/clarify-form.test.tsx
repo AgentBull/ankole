@@ -87,16 +87,27 @@ test('a pending form renders typed, labelled inputs and keeps the own-words esca
   expect(html).not.toContain('pod-chat-choice-custom')
 })
 
-test('an answered form shows who answered and the readable summary instead of inputs', () => {
+test('an answered form states its one conclusion in the header: the answer, who gave it and when', () => {
   const html = render({
     state: 'answered',
     answered_by_name: 'Dana',
+    answered_at: new Date(Date.now() - 5 * 60_000).toISOString(),
     answer_text: 'Quantity: 300 kg · Warehouses: US West'
   })
-  expect(html).toContain('Answered by Dana')
-  expect(html).toContain('Quantity: 300 kg · Warehouses: US West')
+  const header = /<div class="pod-chat-choice-header">(.*?)<\/div>/.exec(html)?.[1] ?? ''
+  expect(header).toContain('<span>Answered · Quantity: 300 kg · Warehouses: US West</span>')
+  expect(header).toContain('<span class="pod-chat-choice-decided">Dana · 5 minutes ago</span>')
+  expect(html).not.toContain(i18n.t('pod.chat_timeline.decision_needed'))
+  expect(html).not.toContain('pod-chat-choice-outcome')
   expect(html).not.toContain('pod-chat-choice-form')
   expect(html).not.toContain(i18n.t('pod.chat_timeline.compose_answer'))
+})
+
+test('a pending question says a decision is needed, and an unknown answerer is left out instead of named', () => {
+  expect(render(prompt)).toContain(`<span>${i18n.t('pod.chat_timeline.decision_needed')}</span>`)
+  const html = render({ state: 'answered', answer_text: 'Ship Friday' })
+  expect(html).toContain('<span>Answered · Ship Friday</span>')
+  expect(html).not.toContain('pod-chat-choice-decided')
 })
 
 test('every form error code a submission can return has a message', () => {

@@ -23,6 +23,16 @@ last row's keyset so the server rejects cursors from another query or an older
 format; the `list_background_jobs` model tool calls `list_for_agent` using the
 same cursor contract.
 
+The board also reads `?status=` and `?since=` from its URL. The server applies
+the status, and the board keeps only the Jobs queued at or after `since`, then
+shows both as one removable filter chip. The Console home counts failed Jobs on
+the newest page of Jobs that it reads. When older Jobs exist, its window starts
+at the oldest Job on that page. When exactly one Job failed, the alert opens
+that Job's detail. Otherwise it opens the board with `status=failed` and the
+same `since`, so the board shows the Jobs the alert counted. The board puts
+succeeded, failed, and stopped Jobs in one "Ended" column, and each card there
+names its own status.
+
 `GET /api/v2/background-agent-jobs/:id` returns the single Job detail record.
 The generic actions `console_cancel` and `console_complete`
 (`POST .../:id/cancel` and `POST .../:id/complete`) record the Console Principal

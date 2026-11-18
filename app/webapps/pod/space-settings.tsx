@@ -3,6 +3,8 @@ import { MoreHorizontalRegular } from '@ankole/uikit/icons'
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { podID, sessionIdentityKey } from '../common/browser-context'
+import { browserSession } from '../common/api/generated/sdk.gen'
 import { contentKeys, type PageRole } from './content-api'
 import { podSpace, podSpaceWrite, podSpaceAgentWrite, podSpaceAgentDelete, podSubjects } from './api/generated/sdk.gen'
 import type { PodSpaceResponse as Space } from './api/generated/types.gen'
@@ -40,12 +42,19 @@ export function SpaceSettingsButton({ canManage }: { canManage: boolean }) {
     mutate.mutate(change, { onSuccess })
   }
   const space = useQuery({ queryKey: [...contentKeys.all, 'space'], queryFn: () => podSpace(), enabled: open })
+  const session = useQuery({
+    queryKey: ['pod-session', sessionIdentityKey() ?? '', podID() ?? ''],
+    queryFn: ({ signal }) => browserSession({ signal }),
+    staleTime: 60_000,
+    enabled: open
+  })
+  const spaceName = session.data?.tenant?.displayName
   return canManage ? (
     <Dialog open={open} onOpenChange={next => !saving.current && setOpen(next)}>
       <Button
         size="icon-xs"
         variant="ghost"
-        aria-label={t('pod.content.space_settings')}
+        aria-label={t('pod.content.space_page_permissions')}
         onClick={() => {
           mutate.reset()
           setOpen(true)
@@ -57,7 +66,11 @@ export function SpaceSettingsButton({ canManage }: { canManage: boolean }) {
         closeLabel={t('common.close')}
         showCloseButton={!mutate.isPending}
         aria-busy={mutate.isPending}>
-        <DialogTitle>{t('pod.content.space_settings')}</DialogTitle>
+        <DialogTitle>
+          {spaceName
+            ? t('pod.content.space_page_permissions_of', { name: spaceName })
+            : t('pod.content.space_page_permissions')}
+        </DialogTitle>
         {open && space.isPending && <ContentSkeleton variant="list" rows={3} />}
         {open && space.error && <ContentError error={space.error} retry={() => void space.refetch()} />}
         {open && space.data && (

@@ -23,6 +23,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Skeleton,
   Spinner,
   TabsTrigger,
   toast
@@ -382,7 +383,7 @@ function SettingsTabPanel({ slot, model, visible }: { slot: PodSettingsTabSlot; 
   )
 }
 
-function GeneralSettings({ model }: { model: Model }) {
+export function GeneralSettings({ model }: { model: Model }) {
   useSignals()
   const { t, i18n } = useTranslation()
   const client = useQueryClient()
@@ -421,69 +422,96 @@ function GeneralSettings({ model }: { model: Model }) {
     )
     void refreshSpaceProfileQueries(client)
   }
+  const loaded = model.loaded.value
+  const displayName = model.displayName.value
+  const defaultLocale = model.defaultLocale.value
+  const guests = model.guests.value
+  const domains = model.domains.value
+  const policy = model.policy.value
+  const dirty = model.dirty.value
+  // Until the server answers, every field keeps its label and shows a skeleton where its value goes.
+  const fieldSkeleton = <Skeleton aria-hidden className="h-control-md w-full" />
+  const checkboxSkeleton = <Skeleton aria-hidden className="size-4 shrink-0" />
   return (
     <form
       className="grid gap-7"
+      aria-busy={!loaded}
       onSubmit={event => {
         event.preventDefault()
         if (!saving()) save.mutate()
       }}>
-      <ContentError error={settings.error ?? save.error} />
+      <ContentError
+        error={settings.error ?? save.error}
+        retry={settings.error ? () => void settings.refetch() : undefined}
+      />
       <SettingsSection
         title={t('pod.settings.space_profile')}
         description={t('pod.settings.space_profile_description')}>
         <div className="grid gap-6">
           <ProfileAvatarUpload
             kind="space"
-            name={model.displayName.value}
+            name={displayName}
             avatarURL={settings.data?.avatarURL}
+            loading={!loaded}
             onUploaded={avatarUploaded}
           />
           <div className="grid max-w-md gap-2 border-t border-border-subtle pt-6">
             <Label htmlFor="space-name">{t('auth.space_name')}</Label>
-            <Input
-              id="space-name"
-              name="displayName"
-              required
-              value={model.displayName.value}
-              onChange={event => {
-                clearSaveError()
-                model.displayName.value = event.target.value
-              }}
-            />
+            {loaded ? (
+              <Input
+                id="space-name"
+                name="displayName"
+                required
+                value={displayName}
+                onChange={event => {
+                  clearSaveError()
+                  model.displayName.value = event.target.value
+                }}
+              />
+            ) : (
+              fieldSkeleton
+            )}
           </div>
           <div className="grid max-w-md gap-2">
             <Label htmlFor="space-default-locale">{t('pod.settings.default_locale')}</Label>
-            <Select
-              value={model.defaultLocale.value}
-              onValueChange={locale => {
-                if (!locale) return
-                clearSaveError()
-                model.defaultLocale.value = locale
-              }}>
-              <SelectTrigger id="space-default-locale" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {availableLocaleIDs().map(locale => (
-                  <SelectItem key={locale} value={locale}>
-                    {nativeLocaleLabel(locale)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {loaded ? (
+              <Select
+                value={defaultLocale}
+                onValueChange={locale => {
+                  if (!locale) return
+                  clearSaveError()
+                  model.defaultLocale.value = locale
+                }}>
+                <SelectTrigger id="space-default-locale" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableLocaleIDs().map(locale => (
+                    <SelectItem key={locale} value={locale}>
+                      {nativeLocaleLabel(locale)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              fieldSkeleton
+            )}
             <p id="space-default-locale-hint" className="text-xs leading-5 text-fg-secondary">
               {t('pod.settings.default_locale_hint')}
             </p>
           </div>
           <label className="flex items-start gap-3 text-sm">
-            <Checkbox
-              checked={model.guests.value}
-              onCheckedChange={value => {
-                clearSaveError()
-                model.guests.value = value === true
-              }}
-            />
+            {loaded ? (
+              <Checkbox
+                checked={guests}
+                onCheckedChange={value => {
+                  clearSaveError()
+                  model.guests.value = value === true
+                }}
+              />
+            ) : (
+              checkboxSkeleton
+            )}
             <span className="grid gap-1">
               <span>{t('pod.settings.allow_guests')}</span>
               <span className="text-xs leading-5 text-pretty text-fg-secondary">
@@ -502,16 +530,20 @@ function GeneralSettings({ model }: { model: Model }) {
             <p id="domains-hint" className="text-xs leading-5 text-fg-secondary">
               {t('pod.settings.domains_hint')}
             </p>
-            <Input
-              id="domains"
-              name="allowedEmailDomains"
-              aria-describedby="domains-hint"
-              value={model.domains.value}
-              onChange={event => {
-                clearSaveError()
-                model.domains.value = event.target.value
-              }}
-            />
+            {loaded ? (
+              <Input
+                id="domains"
+                name="allowedEmailDomains"
+                aria-describedby="domains-hint"
+                value={domains}
+                onChange={event => {
+                  clearSaveError()
+                  model.domains.value = event.target.value
+                }}
+              />
+            ) : (
+              fieldSkeleton
+            )}
           </div>
           <div className="grid gap-3 border-t border-border-subtle pt-5">
             {(
@@ -523,17 +555,21 @@ function GeneralSettings({ model }: { model: Model }) {
               ] as const
             ).map(key => (
               <label key={key} className="flex min-h-8 items-center gap-3 text-sm">
-                <Checkbox
-                  checked={model.policy.value[key] === true}
-                  disabled={
-                    !settings.data?.emailAvailable &&
-                    ['allow_email_otp', 'allow_member_credential_change'].includes(key)
-                  }
-                  onCheckedChange={value => {
-                    clearSaveError()
-                    model.policy.value = { ...model.policy.value, [key]: value === true }
-                  }}
-                />
+                {loaded ? (
+                  <Checkbox
+                    checked={policy[key] === true}
+                    disabled={
+                      !settings.data?.emailAvailable &&
+                      ['allow_email_otp', 'allow_member_credential_change'].includes(key)
+                    }
+                    onCheckedChange={value => {
+                      clearSaveError()
+                      model.policy.value = { ...model.policy.value, [key]: value === true }
+                    }}
+                  />
+                ) : (
+                  checkboxSkeleton
+                )}
                 <span>{t(`pod.settings.${key}`)}</span>
               </label>
             ))}
@@ -543,12 +579,12 @@ function GeneralSettings({ model }: { model: Model }) {
           )}
         </div>
       </SettingsSection>
-      {(model.dirty.value || save.isPending) && (
+      {(dirty || save.isPending) && (
         <div className="sticky bottom-3 z-10 flex items-center justify-between gap-3 rounded-xl border border-border-subtle bg-page/95 px-4 py-3 shadow-sm backdrop-blur">
           <p className="text-sm text-fg-secondary">{t('pod.settings.unsaved_changes')}</p>
           <Button
             type="submit"
-            disabled={!model.displayName.value.trim() || save.isPending || !settings.data}
+            disabled={!displayName.trim() || save.isPending || !settings.data}
             aria-busy={save.isPending}>
             {save.isPending ? <Spinner aria-hidden data-icon="inline-start" /> : null}
             {t('pod.settings.save_changes')}

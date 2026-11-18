@@ -29,28 +29,28 @@ const buttonVariantClasses = cva(
       },
       size: {
         // 32px by default, 28px in rows, 24px inside another control. A shell toolbar, such as the top bar or the
-        // composer's tools, takes 32px controls: an icon button that holds a 20px icon 6px inside its edge, and a
+        // composer's tools, takes 32px controls: an icon button that centres a 20px icon in a 24px box, and a
         // label of 12px text with a 12px arrow. The action row under content, such as a chat message's, takes the same
         // 32px icon buttons. `icon-lg` keeps its name for the shell toolbar and draws the same button as `icon-md`.
         default: 'h-control-md px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
         sm: 'h-control-sm gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
         xs: "h-control-xs gap-1 px-2 text-50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
         icon: 'size-control-md',
-        'icon-md': "size-control-md p-1.25 [&_svg:not([class*='size-'])]:size-5",
+        'icon-md': "size-control-md p-0.75 [&_svg:not([class*='size-'])]:size-5",
         'icon-sm': 'size-control-sm',
         'icon-xs': "size-control-xs [&_svg:not([class*='size-'])]:size-3.5",
-        'icon-lg': "size-control-md p-1.25 [&_svg:not([class*='size-'])]:size-5",
-        toolbar: "h-control-md gap-1 px-1.75 py-1.25 text-50 font-normal [&_svg:not([class*='size-'])]:size-3"
+        'icon-lg': "size-control-md p-0.75 [&_svg:not([class*='size-'])]:size-5",
+        toolbar: "h-control-md gap-1 px-1.75 py-0.75 text-50 font-normal [&_svg:not([class*='size-'])]:size-3"
       }
     },
     compoundVariants: [
-      // A ghost toolbar or action-row control tints only the box that holds its icon or label. The fill clips to the
-      // content box, 6px inside the button's top and bottom edges (its 1px border and 5px of padding), and the outer
-      // radius adds those 6px, so the tinted box keeps the micro radius.
+      // A ghost toolbar or action-row control tints a 24px box around its icon or label. The fill clips to the
+      // content box, 4px inside the button's top and bottom edges (its 1px border and 3px of padding), and the outer
+      // radius adds those 4px, so the tinted box keeps the control radius.
       {
         variant: 'ghost',
         size: ['icon-lg', 'icon-md', 'toolbar'],
-        className: 'bg-clip-content rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)]'
+        className: 'bg-clip-content rounded-[calc(var(--radius-control)+var(--spacing))]'
       }
     ],
     defaultVariants: {

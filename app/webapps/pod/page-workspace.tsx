@@ -15,7 +15,7 @@ import { PageContent, PageLearningButton } from './page-content'
 import { KnowledgePage } from './knowledge-page'
 import { DocumentInsights } from './document-insights'
 import { DocumentOutline } from './document-outline'
-import { DocumentPage } from './document-editor'
+import { DocumentPage, replaceDocumentMatches } from './document-editor'
 import { downloadDraft } from './document-recovery'
 import { pageCreated, updatePageMetadata } from './state/navigation-cache'
 import { InternalAPIError } from '../common/internal-api-client'
@@ -820,6 +820,7 @@ function PageWorkspace({
       <ErrorBoundary variant="inline" resetKeys={[page.id]}>
         <PageBreadcrumbs
           ancestors={detail.ancestors}
+          privateOwnerUID={page.private_owner_uid}
           title={titleDraft.value.value}
           compact={isMobile}
           current={
@@ -1101,6 +1102,12 @@ function PageWorkspace({
             targetHeading={urlTarget?.kind === 'heading' ? urlTarget.heading : undefined}
             autoFocus={manualFind && !urlFind}
             onBeforeSearch={unfoldDocumentHeadings}
+            replace={
+              page.type === 'doc' && edit && editorHandle
+                ? (ranges, text) =>
+                    documentEditor.current ? replaceDocumentMatches(documentEditor.current, ranges, text) : 0
+                : undefined
+            }
             onClose={closeFindBar}
           />
         )}

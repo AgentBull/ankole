@@ -9,6 +9,7 @@ import { stripBidi } from '../../common/bidi'
 import { BdiLabel } from '../../common/bidi-file-name'
 import { podID, podLocation, sessionIdentityKey } from '../../common/browser-context'
 import { formatRelativeTime } from '../../common/date-time'
+import { linkTarget } from '../../common/router'
 import { conversationAttentionQuery, podKeys, type PodAgent } from '../api'
 import { podConversations } from '../api/generated/sdk.gen'
 import {
@@ -21,7 +22,7 @@ import {
   type PageDetail
 } from '../content-api'
 import { ContentError, scopeLabels, typeLabels } from '../content-primitives'
-import { jobsSummaryQuery } from '../jobs-api'
+import { jobAttentionLabel, jobNeedsAnswer, jobsBoardQuery, jobsSummaryQuery, type JobBoardItem } from '../jobs-api'
 import { usePageCreation } from '../page-create-menu'
 import { PageIcon } from '../page-icon'
 import { extractDocumentPreviewSnippet, PageBodyMiniature, pagePreviewWash } from '../page-sharing/share-preview'
@@ -61,7 +62,9 @@ function HomePageCard({
   const parentName = ancestors.at(-1) ? stripBidi(ancestors.at(-1)!.title) || t('pod.content.untitled') : ''
   const locationLabel = page.private_owner_uid ? t('pod.content.private') : parentName || scopeLabels.space
   const relative = timestamp ? formatRelativeTime(timestamp, i18n.language) : ''
-  const metaLine = [relative, locationLabel].filter(Boolean).join(' · ')
+  // Without an excerpt the miniature shows only the type glyph, so the meta line names the type as well.
+  const typeLabel = !snippet && (page.type === 'doc' || page.type === 'knowledge') ? typeLabels[page.type] : ''
+  const metaLine = [relative, typeLabel, locationLabel].filter(Boolean).join(' · ')
   const displayTitle = page.title.trim()
   const accessibleTitle = displayTitle || t('pod.content.untitled')
 
@@ -70,7 +73,7 @@ function HomePageCard({
       <Link
         to={pageHref(page.id, page.title)}
         aria-label={accessibleTitle}
-        aria-description={[typeLabels[page.type], metaLine].filter(Boolean).join(' · ')}
+        aria-description={[typeLabels[page.type], relative, locationLabel].filter(Boolean).join(' · ')}
         className="pod-home-card-link">
         <article className="pod-home-card">
           <div aria-hidden className="h-6 w-full shrink-0" style={{ background: pagePreviewWash(page.id) }} />
@@ -137,19 +140,47 @@ function HomeConversationCard({ room, timestamp }: { room: RoomRow; timestamp?: 
             <div className="truncate text-65 leading-4.5 font-medium text-fg-primary" dir="auto">
               <ConversationTitle room={room} />
             </div>
-            {preview ? (
-              <p className="m-0 mt-1.5 line-clamp-2 text-50 leading-4 text-fg-secondary">{preview}</p>
-            ) : (
-              <div aria-hidden className="mt-2 grid gap-1.25">
-                <span className="h-1.25 w-4/5 rounded-full bg-fg-primary/[0.08]" />
-                <span className="h-1.25 w-1/2 rounded-full bg-fg-primary/[0.08]" />
-              </div>
-            )}
+            {preview && <p className="m-0 mt-1.5 line-clamp-2 text-50 leading-4 text-fg-secondary">{preview}</p>}
             {metaLine && <p className="m-0 mt-auto truncate pt-2 text-50 leading-4 text-fg-tertiary">{metaLine}</p>}
           </div>
         </article>
       </Link>
     </li>
+  )
+}
+
+const HOME_JOB_ROWS = 3
+
+/** Each attention job opens its own card on /jobs; the rest stay one link away. */
+function HomeJobRows({ jobs }: { jobs: JobBoardItem[] }) {
+  const { t, i18n } = useTranslation()
+  return (
+    <>
+      {jobs.slice(0, HOME_JOB_ROWS).map(job => (
+        <Link
+          key={`job:${job.id}`}
+          className="pod-chat-recent-row"
+          {...linkTarget(podLocation('/jobs', { item: job.id }))}>
+          <span className="flex size-5 shrink-0 items-center justify-center text-fg-secondary">
+            <TaskListSquareLtrRegular aria-hidden className="size-4" />
+          </span>
+          <span className="pod-chat-recent-copy">
+            <span className="pod-chat-recent-title">{job.title}</span>
+            <span className="pod-chat-subtle flex items-center gap-1.5">
+              <Badge variant={jobNeedsAnswer(job) ? 'warning' : 'destructive'} size="sm">
+                {jobAttentionLabel(job, t)}
+              </Badge>
+              <span>{formatRelativeTime(job.updatedAt, i18n.language)}</span>
+            </span>
+          </span>
+        </Link>
+      ))}
+      {jobs.length > HOME_JOB_ROWS && (
+        <Link to={podLocation('/jobs').pathname} className="pod-home-section-more">
+          {t('pod.chat_room.view_all_count', { count: jobs.length })} →
+        </Link>
+      )}
+    </>
   )
 }
 
@@ -203,9 +234,11 @@ export function ChatHomeView({
     ...commentAttentionQuery,
     enabled: standalone
   })
-  const jobsSummary = useQuery({
-    ...jobsSummaryQuery,
-    enabled: standalone
+  // The sidebar already polls the light summary; the home reads the whole board only while it has rows to show.
+  const jobsSummary = useQuery({ ...jobsSummaryQuery, enabled: standalone })
+  const jobsBoard = useQuery({
+    ...jobsBoardQuery,
+    enabled: standalone && (jobsSummary.data?.attentionCount ?? 0) > 0
   })
   const recentPages = useQuery({
     ...pagesQuery('recent'),
@@ -225,8 +258,12 @@ export function ChatHomeView({
   const needsInputIDs = new Set(needsInput.map(room => room.id))
   const unreadCommentRows = (commentAttention.data ?? []).filter(row => row.unread_count > 0)
   const unreadCommentPages = usePagesMetadata(unreadCommentRows.map(row => row.page))
-  const jobsAttention = jobsSummary.data?.attentionCount ?? 0
-  const attentionTotal = needsInput.length + unreadCommentRows.length + jobsAttention
+  const attentionJobs = (jobsBoard.data?.items ?? [])
+    .filter(item => item.attention)
+    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  const answerJobs = attentionJobs.filter(jobNeedsAnswer)
+  const failedJobs = attentionJobs.filter(item => !jobNeedsAnswer(item))
+  const attentionTotal = needsInput.length + unreadCommentRows.length + answerJobs.length
 
   const hydratedRecentPages = usePagesMetadata(recentPages.data?.pages ?? [])
   const favoritePages = usePagesMetadata(favoritesQuery.data?.pages ?? []).slice(0, 8)
@@ -235,7 +272,7 @@ export function ChatHomeView({
     hydratedRecentPages.map(page => ({ ...page, relevantUnread: unreadByPage.get(page.id) ?? 0 })),
     (recentRooms.data?.conversations ?? []).filter(room => !needsInputIDs.has(room.id))
   ).slice(0, 8)
-  const attentionError = attention.error || commentAttention.error || jobsSummary.error
+  const attentionError = attention.error || commentAttention.error || jobsBoard.error
   const recentError = recentPages.error || recentRooms.error
   const favoritesError = favoritesQuery.error
   const knownPages = pagesByID(client, [...hydratedRecentPages, ...favoritePages])
@@ -302,7 +339,7 @@ export function ChatHomeView({
                 retry={() => {
                   void attention.refetch()
                   void commentAttention.refetch()
-                  void jobsSummary.refetch()
+                  void jobsBoard.refetch()
                 }}
               />
               {needsInput.map(room => (
@@ -344,21 +381,13 @@ export function ChatHomeView({
                   </Link>
                 )
               })}
-              {jobsAttention > 0 && (
-                <Link className="pod-chat-recent-row" to={podLocation('/jobs').pathname}>
-                  <span className="flex size-5 shrink-0 items-center justify-center text-fg-secondary">
-                    <TaskListSquareLtrRegular aria-hidden className="size-4" />
-                  </span>
-                  <span className="pod-chat-recent-copy">
-                    <span className="pod-chat-recent-title">{t('pod.jobs.title')}</span>
-                    <span className="pod-chat-subtle flex items-center gap-1.5">
-                      <Badge variant="warning" size="sm">
-                        {jobsAttention}
-                      </Badge>
-                    </span>
-                  </span>
-                </Link>
-              )}
+              <HomeJobRows jobs={answerJobs} />
+            </section>
+          )}
+          {failedJobs.length > 0 && (
+            <section data-slot="home-failed-jobs" className="pod-home-span-full">
+              <h2>{`${t('pod.chat_room.section_failed')} (${failedJobs.length})`}</h2>
+              <HomeJobRows jobs={failedJobs} />
             </section>
           )}
           {showSuggestions && assistantAvailable && (

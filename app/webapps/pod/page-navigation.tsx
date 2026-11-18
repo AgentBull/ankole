@@ -596,7 +596,7 @@ function FavoritesNavigationSection({
           })}
         </SidebarMenu>
       ) : (
-        <p className="pod-tree-empty">{t('pod.content.no_pages_yet')}</p>
+        <p className="pod-tree-empty">{t('pod.content.no_favorite_pages_yet')}</p>
       )}
     </NavigationSection>
   )

@@ -104,7 +104,7 @@ describe('Sidebar shell', () => {
       expect.arrayContaining(['bg-sidebar-border', 'ms-4', 'me-2'])
     )
     expect(classesOf(tagWith(html, 'data-slot="sidebar-footer"'))).toEqual(
-      expect.arrayContaining(['min-h-10.5', 'items-center', 'px-2'])
+      expect.arrayContaining(['min-h-10.5', 'items-center', 'px-2', 'pb-1.5'])
     )
   })
 
@@ -725,7 +725,7 @@ describe('Sidebar footer row', () => {
         'nav-row',
         'h-10.5',
         'gap-1',
-        'pe-1',
+        'px-1',
         'data-open:bg-layer-hover',
         '*:data-[slot=avatar]:size-6.5',
         '[&>[data-slot=avatar]_[data-slot=avatar-fallback]]:text-50',
@@ -734,7 +734,14 @@ describe('Sidebar footer row', () => {
       ])
     )
     expect(classesOf(tagWith(html, 'data-slot="sidebar-footer-label"'))).toEqual(
-      expect.arrayContaining(['text-75', '*:truncate', '[&>small]:text-50', '[&>small]:text-fg-secondary'])
+      expect.arrayContaining([
+        'flex-col',
+        'ps-1',
+        'text-65',
+        '*:truncate',
+        '[&>small]:text-50',
+        '[&>small]:text-fg-tertiary'
+      ])
     )
   })
 })

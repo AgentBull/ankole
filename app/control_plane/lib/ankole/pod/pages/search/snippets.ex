@@ -6,6 +6,14 @@ defmodule Ankole.Pod.Pages.Search.Snippets do
 
   @record_sep <<0x1E>>
   @unit_sep <<0x1F>>
+  @html_entities %{
+    "&amp;" => "&",
+    "&lt;" => "<",
+    "&gt;" => ">",
+    "&quot;" => "\"",
+    "&#x27;" => "'",
+    "&#39;" => "'"
+  }
 
   @doc "Classifies which projection fields (`:title`, `:meta`, `:body`) matched."
   @spec detect_match_fields(map(), [String.t()], boolean()) :: [:title | :meta | :body]
@@ -70,6 +78,8 @@ defmodule Ankole.Pod.Pages.Search.Snippets do
   def parse_pdb_snippet(raw_snippet, full_body) when is_binary(raw_snippet) do
     segments =
       raw_snippet
+      # `pdb.snippet` escapes the text as HTML; segments carry plain text that the browser renders as text.
+      |> String.replace(~r/&(?:amp|lt|gt|quot|#x27|#39);/, &Map.fetch!(@html_entities, &1))
       |> String.split(@record_sep)
       |> Enum.with_index()
       |> Enum.flat_map(fn

@@ -708,8 +708,8 @@ function SiteBackgroundAgentJobsAggregate() {
       emptyTitle={t('console.background_agent_jobs.empty_title')}
       emptyDescription={t('console.background_agent_jobs.empty_description')}
       emptyIcon={<BranchRegular aria-hidden />}
-      searchLabel={t('console.background_agent_jobs.search_label')}
-      searchPlaceholder={t('console.background_agent_jobs.search_placeholder')}
+      searchLabel={t('console.background_agent_jobs.search')}
+      searchPlaceholder={t('console.background_agent_jobs.search')}
       queryOptions={searchQuery =>
         listSiteBackgroundAgentJobsInfiniteOptions({ query: { q: searchQuery || undefined } })
       }

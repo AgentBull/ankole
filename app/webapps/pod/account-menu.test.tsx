@@ -16,7 +16,7 @@ for (const [locale, menuLabel, tenantName] of [
   ['en-US', 'Account menu:', 'Harbor Pod'],
   ['zh-Hans-CN', '账户菜单：', '']
 ] as const) {
-  test(`${locale} account button shows the person's name while PodTopBar shows the organization name "${tenantName}"`, async () => {
+  test(`${locale} account button shows the person's name over the organization name "${tenantName}", which PodTopBar shows too`, async () => {
     await loadLocale(locale)
     const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, staleTime: Infinity } } })
     const session: BrowserSessionResponse = {
@@ -74,7 +74,7 @@ for (const [locale, menuLabel, tenantName] of [
         .transform(new Response(html))
         .text()
 
-      expect(visibleText).toBe('Alice Reviewer')
+      expect(visibleText).toBe(`Alice Reviewer${tenantName}`)
       expect(topBarMarkText).toBe(tenantName ? `HP${tenantName}` : '')
       expect(accessibleName).toStartWith(menuLabel)
       if (tenantName) {

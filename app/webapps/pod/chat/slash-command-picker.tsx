@@ -91,11 +91,14 @@ export function SlashCommandPicker({
           )
           .map(skill => ({
             id: `skill:${skill.slug}`,
+            group: t('pod.meta.skills'),
             content: (
               <>
                 <FlashRegular aria-hidden className="size-3.5 shrink-0 text-primary" />
                 <span className="truncate font-medium">{skill.name}</span>
-                <span className="font-mono text-xs text-fg-tertiary">/{skill.slug}</span>
+                {skill.name !== skill.slug && (
+                  <span className="shrink-0 font-mono text-xs text-fg-tertiary">/{skill.slug}</span>
+                )}
                 {skill.agent_uid ? (
                   <span className="ml-auto shrink-0 rounded-mini bg-layer-03 px-1.5 py-0.5 text-50 text-fg-secondary">
                     {t('pod.meta.scope_personal_badge', { defaultValue: 'Personal' })}
@@ -109,7 +112,8 @@ export function SlashCommandPicker({
           }))
       : []
 
-  const options = [...skillOptions, ...commandOptions]
+  // Commands come first so that Skills arriving later never move the default command or the selection.
+  const options = [...commandOptions, ...skillOptions]
   return (
     <ComposerCompletionList
       id={id}

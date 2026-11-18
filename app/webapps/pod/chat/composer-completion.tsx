@@ -63,6 +63,23 @@ export function holdsEnter(event: Pick<KeyboardEvent, 'key' | 'shiftKey'>, loadi
 }
 
 export type CompletionOption = { id: string; group?: string; content: ReactNode; choose(): void }
+type CompletionSelection = { query: string; id?: string; armed: boolean }
+
+/**
+ * The position of the selected option. The selection follows the option's identity, so results that arrive or
+ * reorder later never move it; without a selection for this query, the first option is selected.
+ */
+export function selectedCompletionIndex(
+  options: Pick<CompletionOption, 'id'>[],
+  selection: CompletionSelection,
+  query: string
+) {
+  if (selection.query !== query) return 0
+  return Math.max(
+    0,
+    options.findIndex(option => option.id === selection.id)
+  )
+}
 
 export function ComposerMenuHighlight() {
   const ref = useRef<HTMLSpanElement>(null)
@@ -135,8 +152,8 @@ export function ComposerCompletionList({
   loading?: boolean
 }) {
   const { t } = useTranslation()
-  const [selection, setSelection] = useState({ query, index: 0, armed: false })
-  const index = selection.query === query ? Math.min(selection.index, Math.max(options.length - 1, 0)) : 0
+  const [selection, setSelection] = useState<CompletionSelection>({ query, armed: false })
+  const index = selectedCompletionIndex(options, selection, query)
   const list = useRef<HTMLDivElement>(null)
   const activeID = options[index] ? `${id}-${index}` : undefined
   useEffect(() => {
@@ -168,7 +185,7 @@ export function ComposerCompletionList({
         event.preventDefault()
         setSelection({
           query,
-          index: (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length,
+          id: options[(index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length]!.id,
           armed: true
         })
         return true
@@ -206,7 +223,7 @@ export function ComposerCompletionList({
               tabIndex={-1}
               className="flex min-h-10 w-full items-center gap-2.5 px-2.5 py-2 text-start text-sm leading-5 aria-selected:bg-layer-hover"
               onPointerDown={event => event.preventDefault()}
-              onPointerMove={() => setSelection({ query, index: position, armed: false })}
+              onPointerMove={() => setSelection({ query, id: option.id, armed: false })}
               onClick={option.choose}>
               {option.content}
             </button>

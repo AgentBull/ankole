@@ -90,6 +90,17 @@ export const roleLabels: Record<PageRole, string> = {
   }
 }
 
+/** The marker that tells a Private Page apart from a Space Page with the same name wherever Pages are listed. */
+export function PrivatePageBadge() {
+  const { t } = useTranslation()
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-mini bg-layer-03 px-1.5 py-0.5 text-50 leading-4 text-fg-secondary">
+      <LockClosedRegular aria-hidden className="size-3" />
+      {t('pod.content.private')}
+    </span>
+  )
+}
+
 export function Choice<T extends string>({
   value,
   onChange,

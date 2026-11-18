@@ -106,6 +106,8 @@ function connectorAuthSpec(
           text: badgeText,
           variant: state === 'answered' ? 'secondary' : 'outline'
         },
+        decidedBy: state === 'answered' ? prompt.answered_by_name : undefined,
+        decidedAt: state === 'answered' ? prompt.answered_at : undefined,
         testid: 'chat-connector-auth-card',
         actionKind: 'connector.auth'
       },
@@ -154,18 +156,6 @@ function connectorAuthSpec(
               uid: prompt.human_uid,
               name: prompt.display_name
             })
-          }),
-        state === 'answered' &&
-          add('connected', 'Outcome', {
-            icon: 'check',
-            text: prompt.answered_by_name
-              ? t('pod.chat_connector_auth.connected_by', {
-                  defaultValue: 'Connected by {$name} · Resuming automatically',
-                  name: prompt.answered_by_name
-                })
-              : t('pod.chat_connector_auth.connected_resuming', {
-                  defaultValue: 'Connected · Resuming automatically'
-                })
           }),
         state === 'superseded' &&
           add('superseded', 'Outcome', {

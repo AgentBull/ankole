@@ -8,6 +8,7 @@ import {
   DialogTitle,
   Input,
   Label,
+  Skeleton,
   toast
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
@@ -104,6 +105,7 @@ export function AccountSettings() {
       void refreshMemberProfileQueries(client)
     }
   })
+  const displayName = model.displayName.value ?? me.data?.displayName ?? ''
   const profileChanged =
     model.displayName.value !== undefined && model.displayName.value.trim() !== (me.data?.displayName ?? '')
   const request = useMutation({
@@ -185,7 +187,7 @@ export function AccountSettings() {
         }
       }}
       items={navigation}>
-      <ContentError error={accountError} />
+      <ContentError error={accountError} retry={me.error ? () => void refresh() : undefined} />
       {needsReauthentication && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-subtle bg-layer-03/30 px-4 py-3">
           <p className="text-sm text-fg-secondary">{t('pod.account.reauthenticate_hint')}</p>
@@ -213,8 +215,9 @@ export function AccountSettings() {
           <div className="grid gap-6">
             <ProfileAvatarUpload
               kind="member"
-              name={model.displayName.value ?? me.data?.displayName ?? ''}
+              name={displayName}
               avatarURL={me.data?.avatarURL}
+              loading={!me.data}
               onUploaded={avatarUploaded}
             />
             <form
@@ -225,19 +228,23 @@ export function AccountSettings() {
               }}>
               <div className="grid max-w-md gap-2">
                 <Label htmlFor="profile-name">{t('auth.member_name')}</Label>
-                <Input
-                  id="profile-name"
-                  name="displayName"
-                  required
-                  maxLength={160}
-                  disabled={profile.isPending}
-                  autoComplete="name"
-                  value={model.displayName.value ?? me.data?.displayName ?? ''}
-                  onChange={event => {
-                    profile.reset()
-                    model.displayName.value = event.target.value
-                  }}
-                />
+                {me.data ? (
+                  <Input
+                    id="profile-name"
+                    name="displayName"
+                    required
+                    maxLength={160}
+                    disabled={profile.isPending}
+                    autoComplete="name"
+                    value={displayName}
+                    onChange={event => {
+                      profile.reset()
+                      model.displayName.value = event.target.value
+                    }}
+                  />
+                ) : (
+                  <Skeleton aria-hidden className="h-control-md w-full" />
+                )}
               </div>
               {/* Like the Space settings save bar, the save action appears only while there is a change. */}
               {(profileChanged || profile.isPending || profile.isSuccess) && (
@@ -286,7 +293,9 @@ export function AccountSettings() {
                 </li>
               ))}
             </ul>
-            {desktopRuntime ? (
+            {!me.data ? (
+              <Skeleton aria-hidden className="h-control-md w-full max-w-md" />
+            ) : desktopRuntime ? (
               <div className="grid gap-3 border-t border-border-subtle pt-5">
                 <p className="text-sm text-fg-secondary">
                   {t(
@@ -420,7 +429,9 @@ export function AccountSettings() {
           title={t('pod.account.exit')}
           description={t('pod.account.exit_description')}
           className="ring-destructive/30">
-          {me.data?.managed ? (
+          {!me.data ? (
+            <Skeleton aria-hidden className="h-control-md w-32" />
+          ) : me.data.managed ? (
             <p className="text-sm leading-6 text-fg-secondary">{t('pod.account.managed_exit')}</p>
           ) : desktopRuntime ? (
             <div className="grid gap-3">

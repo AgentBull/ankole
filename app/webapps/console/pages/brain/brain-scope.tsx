@@ -13,7 +13,7 @@ export function BrainPageLink({ pageID, children }: { pageID?: string | null; ch
     enabled: Boolean(pageID),
     retry: false
   })
-  const label = children ?? page.data?.object?.title ?? pageID ?? '—'
+  const label = children ?? (page.data?.object?.title || pageID || '—')
   return page.data?.object ? (
     <a className="link text-xs" href={page.data.object.pod_url}>
       {label}

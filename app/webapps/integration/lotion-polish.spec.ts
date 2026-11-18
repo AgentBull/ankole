@@ -411,6 +411,23 @@ test('Unified Home (/) selects Home sidebar tree, offers 1-click New document, a
     if (url.pathname === '/api/v2/pod/jobs/summary') {
       return route.fulfill({ json: { attentionCount: 3, runningCount: 1 } })
     }
+    if (url.pathname === '/api/v2/pod/jobs') {
+      return route.fulfill({
+        json: {
+          items: ['Sync ledger', 'Weekly digest', 'Refund audit'].map((title, index) => ({
+            id: `job:${index + 1}`,
+            title,
+            kind: 'background_agent_job',
+            cardType: 'one_off',
+            column: 'running',
+            status: 'failed',
+            attention: true,
+            chainLength: 1,
+            updatedAt: '2026-11-16T10:00:00Z'
+          }))
+        }
+      })
+    }
     if (url.pathname === '/api/v2/pod/conversations') {
       return route.fulfill({
         json: {
@@ -447,13 +464,18 @@ test('Unified Home (/) selects Home sidebar tree, offers 1-click New document, a
   const chatTab = tabs.getByRole('tab', { name: 'Chat', exact: true })
   await expect(homeTab).toHaveAttribute('aria-selected', 'true')
 
-  // Needs attention aggregates waiting_choice (1) + unread comment row (1) + attention jobs (3) = 5
+  // The decisions heading counts what waits for a person: waiting_choice (1) + unread comment row (1).
   const attention = page.locator('[data-slot="home-needs-attention"]')
   await expect(attention).toBeVisible()
-  await expect(attention.locator('h2')).toContainText('(5)')
+  await expect(attention.locator('h2')).toContainText('(2)')
   await expect(attention).toContainText('Approve Q4 Rollout?')
   await expect(attention).toContainText('Architecture RFC')
-  await expect(attention.locator('a[href="/jobs"]')).toBeVisible()
+
+  // Failed jobs have their own heading, and each row opens that run on the Jobs board.
+  const failed = page.locator('[data-slot="home-failed-jobs"]')
+  await expect(failed.locator('h2')).toContainText('(3)')
+  await expect(failed.locator('a[href^="/jobs?item="]')).toHaveCount(3)
+  await expect(failed).toContainText('Sync ledger')
 
   // Starters / NextSteps, Jump back in (Pages + Conversations), and Favorites all coexist cleanly
   await expect(page.locator('.pod-chat-starters button')).toHaveCount(4)

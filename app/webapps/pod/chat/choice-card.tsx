@@ -25,8 +25,6 @@ type ClarifyView = {
   canCompose: boolean
   shortcuts: boolean
   readOnlyReason?: string
-  /** The question was answered while the card was on screen, so the outcome arrives instead of being there. */
-  fresh: boolean
 }
 
 /**
@@ -41,20 +39,28 @@ function clarifySpec(view: ClarifyView, t: ReturnType<typeof useTranslation>['t'
   const fields = (prompt.fields ?? []) as ClarifyField[]
   const pending = interaction.state === 'pending'
   const freeText = pending && prompt.allow_free_text
-  const answeredBy = interaction.answered_by_name || t('pod.chat_timeline.teammate')
   const answerLabel =
     prompt.choices.find(choice => choice.id === interaction.choice_id)?.label || interaction.answer_text
+  // The header carries the one conclusion of the card, so a decided question never still reads as waiting.
+  const title =
+    interaction.state === 'answered'
+      ? [t('pod.chat_timeline.answered'), answerLabel].filter(Boolean).join(' · ')
+      : interaction.state === 'superseded'
+        ? t('pod.chat_timeline.superseded')
+        : view.askedBy
+          ? t('pod.superagent.asks_you', { name: view.askedBy })
+          : t('pod.chat_timeline.decision_needed')
   return spec(
     add(
       'card',
       'InteractionCard',
       {
         kind: 'question',
-        title: view.askedBy
-          ? t('pod.superagent.asks_you', { name: view.askedBy })
-          : t('pod.chat_timeline.decision_needed'),
+        title,
         state: interaction.state,
-        muted: interaction.state === 'superseded'
+        muted: interaction.state === 'superseded',
+        decidedBy: interaction.state === 'answered' ? interaction.answered_by_name : undefined,
+        decidedAt: interaction.state === 'answered' ? interaction.answered_at : undefined
       },
       [
         add('question', 'Question', { text: prompt.question }),
@@ -122,13 +128,6 @@ function clarifySpec(view: ClarifyView, t: ReturnType<typeof useTranslation>['t'
             [],
             { submit: { action: 'answer_text' } }
           ),
-        interaction.state === 'answered' &&
-          add('answered', 'Outcome', {
-            icon: 'check',
-            fresh: view.fresh,
-            avatar: Array.from(answeredBy)[0],
-            text: [t('pod.chat_timeline.answered_by', { name: answeredBy }), answerLabel].filter(Boolean).join(' · ')
-          }),
         freeText &&
           view.canCompose &&
           add('compose', 'Group', { kind: 'compose' }, [
@@ -140,7 +139,6 @@ function clarifySpec(view: ClarifyView, t: ReturnType<typeof useTranslation>['t'
               { press: { action: 'compose' } }
             )
           ]),
-        interaction.state === 'superseded' && add('superseded', 'Outcome', { text: t('pod.chat_timeline.superseded') }),
         pending &&
           view.decidedElsewhere &&
           add('elsewhere', 'Outcome', { text: t('pod.chat.errors.interaction_not_pending'), live: true }),
@@ -187,7 +185,6 @@ export function ChoiceCard({
   const choices = prompt.choices
   const fields = (prompt.fields ?? []) as ClarifyField[]
   const [draft] = useState(() => createStateStore({ text: '', values: initialDraft(fields), errors: {}, edited: {} }))
-  const [firstState] = useState(interaction.state)
   const answer = (value: ClarifyAnswer) => {
     if (!enabled || submitting.current) return
     submitting.current = true
@@ -253,8 +250,7 @@ export function ChoiceCard({
           rejection: fieldErrors && { at: result!.submittedAt, fields: fieldErrors },
           canCompose: !!onComposeAnswer,
           shortcuts: enabled && keyboardActive,
-          readOnlyReason: onAnswer ? undefined : readOnlyReason,
-          fresh: interaction.state !== firstState
+          readOnlyReason: onAnswer ? undefined : readOnlyReason
         },
         t
       )}

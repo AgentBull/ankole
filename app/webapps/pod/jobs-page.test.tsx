@@ -9,7 +9,8 @@ import { stripBidi } from '../common/bidi'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { coalesceMatchesBinding } from './connector-event-picker'
 import { JobCreateFormContent } from './job-create-dialog'
-import { jobsKeys, type JobBoardItem, type JobCandidateAgent, type JobRoutineDetail } from './jobs-api'
+import type { ConversationExecutionDetail } from './chat/types'
+import { jobsKeys, resultPageLink, type JobBoardItem, type JobCandidateAgent, type JobRoutineDetail } from './jobs-api'
 import { JobsRoute } from './jobs-page'
 import {
   buildRoutineUpdatePayload,
@@ -237,6 +238,114 @@ test('cards surface summary snippets and determinate plan progress bars, and URL
   })
   expect(emptyFilteredHtml).toContain('No jobs match the current search or filters.')
   expect(emptyFilteredHtml).toContain('Clear filters')
+})
+
+const TODO_PAGE_ID = '019a2b00-0000-7000-8000-000000000071'
+
+test('the Running header counts healthy runs apart from attention items, and a finished card writes its outcome as plain text', async () => {
+  const failed = (id: number) =>
+    makeItem({
+      id: `job:${id}`,
+      rawID: String(id),
+      kind: 'background_agent_job',
+      cardType: 'one_off',
+      column: 'running',
+      status: 'failed',
+      title: 'Build the todo Applet',
+      attention: true,
+      attentionReason: 'failed'
+    })
+  const items = [
+    failed(61),
+    failed(62),
+    failed(63),
+    makeItem({
+      id: 'job:64',
+      rawID: '64',
+      kind: 'background_agent_job',
+      cardType: 'one_off',
+      column: 'completed',
+      status: 'succeeded',
+      title: 'Build the todo Applet',
+      summary: `**Done.** Published [Todo list](ankole:page/${TODO_PAGE_ID}) for the team.`
+    })
+  ]
+
+  const html = stripBidi(
+    await renderJobsAt('/jobs', client => {
+      client.setQueryData(jobsKeys.board, { items, agents: sampleAgents })
+    })
+  )
+
+  expect(html).toMatch(/Running<\/span><span[^>]*>0<\/span>/)
+  expect(html).toContain('>Needs attention 3</span>')
+  expect(html).toContain('Done. Published Todo list for the team.')
+  expect(html).not.toContain('ankole:page/')
+  // The deliverable opens from the detail panel's title, so the card stays as the design draws it.
+  expect(html).not.toContain('Open Todo list')
+})
+
+test('a failed execution leads with what to do next and keeps the raw diagnostic behind Technical details', async () => {
+  const card = makeItem({
+    id: 'job:61',
+    rawID: '61',
+    kind: 'background_agent_job',
+    cardType: 'one_off',
+    column: 'running',
+    status: 'failed',
+    title: 'Build the todo Applet',
+    attention: true,
+    attentionReason: 'failed'
+  })
+  const detail: ConversationExecutionDetail = {
+    id: '61',
+    kind: 'background_agent_job',
+    title: 'Build the todo Applet',
+    agentUID: 'pa-alice',
+    status: 'failed',
+    task: null,
+    createdAt: '2026-11-15T07:00:00Z',
+    startedAt: '2026-11-15T07:00:01Z',
+    completedAt: '2026-11-15T07:00:52Z',
+    updatedAt: '2026-11-15T07:00:52Z',
+    stoppable: false,
+    canMessage: false,
+    continuedFromJobID: null,
+    successorJobID: null,
+    outcomeText: `Saved a first draft as [Todo list](ankole:page/${TODO_PAGE_ID}).`,
+    errorText: 'getaddrinfo ENOTFOUND api.internal:443 (transport closed)',
+    stepCount: 0,
+    pendingQuestions: [],
+    plan: null,
+    threads: [],
+    workflowCounts: null,
+    items: [],
+    nextCursor: null
+  }
+
+  const html = stripBidi(
+    await renderJobsAt('/jobs?item=job%3A61', client => {
+      client.setQueryData(jobsKeys.board, { items: [card], agents: sampleAgents })
+      client.setQueryData(jobsKeys.execution('background_agent_job', '61'), { pages: [detail], pageParams: [null] })
+    })
+  )
+  const t = i18n.getFixedT('en-US')
+
+  expect(html).toContain(t('pod.chat_timeline.execution_failed_hint_with_result'))
+  expect(html).toContain(t('pod.chat_timeline.execution_technical_details'))
+  expect(html).not.toContain('ENOTFOUND')
+  expect(html.indexOf('Open Todo list')).toBeGreaterThan(-1)
+  expect(html.indexOf('Open Todo list')).toBeLessThan(html.indexOf('role="alert"'))
+})
+
+test('resultPageLink reads the first linked Pod Page and skips links without a valid Page', () => {
+  expect(resultPageLink(`See [Q4 \\[Draft\\]](ankole:page/${TODO_PAGE_ID}) and [x](ankole:page/other)`)).toEqual({
+    id: TODO_PAGE_ID,
+    title: 'Q4 [Draft]'
+  })
+  expect(resultPageLink('[Broken](ankole:page/not-an-id)')).toBeUndefined()
+  expect(resultPageLink('[Site](https://example.com) only')).toBeUndefined()
+  expect(resultPageLink(null)).toBeUndefined()
 })
 
 test('By Agent view groups jobs per Agent and separates Page automations', async () => {

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { ConfigField } from '../common/config-fields'
 import { ContentError } from './content-primitives'
 import * as api from './api/generated/sdk.gen'
+import { localizedMap } from './connector-connection-dialog'
 import { CredentialBindingModel, type ConnectorConnection, type ConnectorDefinition } from './state/connectors'
 
 export function CredentialBindingDialog({
@@ -89,9 +90,9 @@ export function CredentialBindingDialog({
                 locale={i18n.language}
                 field={{
                   path,
-                  label: {
-                    default: personal ? t('pod.connectors.personal_access_token') : String(field.label ?? path)
-                  },
+                  label: personal
+                    ? { default: t('pod.connectors.personal_access_token') }
+                    : localizedMap(field.label, path)!,
                   type: String(field.type ?? 'string'),
                   encrypted: field.secret === true,
                   required: field.required === true

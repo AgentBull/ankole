@@ -94,6 +94,9 @@ serves several platforms, such as Feishu and Lark, its module exports
 `platform_name/1`. Connectors then adds a localized `platform_name`, chosen by
 the connection's public metadata, to that connection's public projection, so a
 connection card names the platform the connection actually calls.
+Each credential and public field in the catalog keeps the label that its plugin
+declares, either one plain string or a map of localized strings, so the
+connection and credential forms show each label in the viewer's language.
 
 For Microsoft 365, Entra ID's `clientID`/`clientSecret` and Teams'
 `appID`/`appPassword` names resolve the same application credential. Either

@@ -142,12 +142,10 @@ export function PageBodyMiniature({
       </div>
     )
   }
+  // Without an excerpt the miniature shows the page type rather than lines that read as content still loading.
   return (
-    <div aria-hidden className="mt-2 grid gap-1.25">
-      <span className="h-1.25 w-full rounded-full bg-fg-primary/[0.08]" />
-      <span className="h-1.25 w-[92%] rounded-full bg-fg-primary/[0.08]" />
-      <span className="h-1.25 w-[96%] rounded-full bg-fg-primary/[0.08]" />
-      <span className="h-1.25 w-[58%] rounded-full bg-fg-primary/[0.08]" />
+    <div aria-hidden className="mt-2 flex h-9 items-center justify-center text-fg-tertiary [&_.pod-page-icon]:size-6">
+      <PageIcon page={{ type, icon: null, system_key: null }} />
     </div>
   )
 }

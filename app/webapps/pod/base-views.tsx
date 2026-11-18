@@ -37,7 +37,7 @@ import {
   resolveVisibleFields,
   writableField
 } from './base-fields'
-import { useRetainedDetailRecord } from './base-card-views'
+import { useRetainedDetailRecord, type RecordLocation } from './base-card-views'
 import { ReferenceLabelsProvider } from './base-field-value'
 import { RecordFormModel } from './state/record-form'
 import type { ConfiguredView, ViewConfig } from './state/view-config'
@@ -76,6 +76,7 @@ export type ViewProps = {
   configure(config: ViewConfig): void
   configuring?: boolean
   onFieldCreated?(fieldID: string): void
+  recordLocation?: RecordLocation
 }
 
 export function BaseViewContent(props: ViewProps) {
@@ -109,7 +110,7 @@ function GridView(props: ViewProps) {
   const visible = resolveVisibleFields(props.fields, props.view.config.visible_fields, 'grid')
   const scroll = useRef<HTMLDivElement>(null)
   const [retained, setRetained] = useState<string[]>([])
-  const detail = useRetainedDetailRecord(props.records, props.update, props.remove)
+  const detail = useRetainedDetailRecord(props.records, props.update, props.remove, props.recordLocation)
   const [addingRow, setAddingRow] = useState(false)
   const [pendingFocusID, setPendingFocusID] = useState<string>()
   const [pendingNewRecord, setPendingNewRecord] = useState<BaseRecord>()
@@ -433,8 +434,11 @@ export function RecordDetailsDialog({
         className="pod-dialog pod-record-dialog"
         closeLabel={t('common.close')}
         showCloseButton={!pending}
+        initialFocus="content"
         aria-busy={pending}>
-        <DialogTitle>{t('pod.content.record_details')}</DialogTitle>
+        <DialogTitle>
+          <RecordTitle record={record} fields={fields} fallback={t('pod.content.record_details')} />
+        </DialogTitle>
         <div className="pod-dialog-body grid gap-4">
           {fields.map(field => (
             <div className="grid gap-2 text-sm" key={field.id}>

@@ -8,6 +8,7 @@ import {
   BoardCardFooter,
   BoardCardHeader,
   BoardCardProgress,
+  BoardCardTag,
   BoardCardTitle,
   BoardColumn,
   BoardColumnEmpty,
@@ -21,8 +22,6 @@ import {
 import {
   AddRegular,
   ArrowRightRegular,
-  BotRegular,
-  BranchRegular,
   CalendarClockRegular,
   CheckmarkCircleFilled,
   CircleHalfFillRegular,
@@ -41,9 +40,19 @@ import { formatRelativeTime } from '../common/date-time'
 import { requestErrorMessage } from '../common/request-errors'
 import { stopPodJobExecution } from './api/generated/sdk.gen'
 import { ChatAvatar } from './chat/chat-avatar'
-import { ExecutionStatusMark, isLiveExecutionStatus } from './chat/execution-status'
+import { conversationPreview } from './chat/conversation-row'
+import { ExecutionStatusMark, executionStatusTone, isLiveExecutionStatus } from './chat/execution-status'
 import type { JobStarterPreset } from './job-create-dialog'
-import { jobColumns, jobsError, jobsKeys, type JobBoardItem, type JobCandidateAgent, type JobColumn } from './jobs-api'
+import {
+  jobAttentionLabel,
+  jobColumns,
+  jobNeedsAnswer,
+  jobsError,
+  jobsKeys,
+  type JobBoardItem,
+  type JobCandidateAgent,
+  type JobColumn
+} from './jobs-api'
 import type { PanelInputEvent } from './panel-motion'
 
 function columnMeta(column: JobColumn, hasAttention = false): { icon: ReactNode; tone: BoardTone } {
@@ -54,21 +63,6 @@ function columnMeta(column: JobColumn, hasAttention = false): { icon: ReactNode;
       return { icon: <CircleHalfFillRegular />, tone: hasAttention ? 'amber' : 'blue' }
     case 'completed':
       return { icon: <CheckmarkCircleFilled />, tone: 'green' }
-  }
-}
-
-function jobKindIcon(kind: JobBoardItem['kind']): ReactNode {
-  switch (kind) {
-    case 'background_agent_job':
-      return <BotRegular aria-hidden className="size-3.5 shrink-0 text-fg-tertiary" />
-    case 'workflow':
-      return <BranchRegular aria-hidden className="size-3.5 shrink-0 text-fg-tertiary" />
-    case 'cron':
-      return <CalendarClockRegular aria-hidden className="size-3.5 shrink-0 text-fg-tertiary" />
-    case 'automation_job':
-      return <FlashRegular aria-hidden className="size-3.5 shrink-0 text-fg-tertiary" />
-    case 'checkback':
-      return <ClockRegular aria-hidden className="size-3.5 shrink-0 text-fg-tertiary" />
   }
 }
 
@@ -102,7 +96,9 @@ export function StatusColumnsBoard({
             }
             return 0
           })
-        const meta = columnMeta(column, column === 'running' && cards.some(card => card.attention))
+        // The running column holds active runs and the pinned attention items; its header counts each set apart.
+        const attentionCount = column === 'running' ? cards.filter(card => card.attention).length : 0
+        const meta = columnMeta(column, attentionCount > 0)
 
         const quickAction =
           column === 'scheduled' && canCreateScheduled ? (
@@ -129,7 +125,22 @@ export function StatusColumnsBoard({
 
         return (
           <BoardColumn key={column} aria-label={t(`pod.jobs.columns.${column}`)}>
-            <BoardColumnHeader icon={meta.icon} tone={meta.tone} count={cards.length} actions={quickAction}>
+            <BoardColumnHeader
+              icon={meta.icon}
+              tone={meta.tone}
+              count={cards.length - attentionCount}
+              actions={
+                attentionCount > 0 || quickAction ? (
+                  <>
+                    {attentionCount > 0 && (
+                      <Badge variant="warning" size="sm">
+                        {t('pod.jobs.column_attention', { count: attentionCount })}
+                      </Badge>
+                    )}
+                    {quickAction}
+                  </>
+                ) : undefined
+              }>
               {t(`pod.jobs.columns.${column}`)}
             </BoardColumnHeader>
             {cards.length > 0 ? (
@@ -319,11 +330,13 @@ function JobCard({
   })
 
   const hasPlan = item.planTotal != null && item.planTotal > 0
-  const metaDetail = hasPlan ? null : cardProgressSummary(item, t)
+  // Only work still in flight draws its plan; a finished card keeps to its kind, title, outcome and Agent.
+  const showProgress = hasPlan && item.column !== 'completed'
+  const metaDetail = hasPlan || item.column === 'completed' ? null : cardProgressSummary(item, t)
   const planLabel = hasPlan
     ? `${item.planCompleted ?? 0}/${item.planTotal}${item.chainLength > 1 ? ` · +${item.chainLength - 1}` : ''}`
     : null
-  const snippet = item.summary?.trim()
+  const snippet = conversationPreview(item.summary)
   const showSnippet = Boolean(snippet && snippet !== item.title.trim())
 
   const timestamp =
@@ -331,16 +344,26 @@ function JobCard({
       ? formatRelativeTime(item.nextRunAt, i18n.language)
       : formatRelativeTime(item.updatedAt, i18n.language)
 
+  const statusTone = executionStatusTone(item.status)
+  // A failed run reads as danger in any column; only one that waits for an answer reads as a warning.
   const cardTone: BoardCardTone = item.attention
-    ? item.status === 'waiting_on_user'
+    ? jobNeedsAnswer(item)
       ? 'warning'
       : 'danger'
-    : 'default'
+    : statusTone === 'failed'
+      ? 'danger'
+      : 'default'
+  // A danger card says what went wrong in its description; a warning card names what it waits for in a badge.
+  const description =
+    cardTone === 'danger'
+      ? [jobAttentionLabel(item, t), showSnippet ? snippet : null].filter(Boolean).join(' · ')
+      : showSnippet
+        ? snippet
+        : ''
 
   return (
     <BoardCard selected={selected} tone={cardTone} className={item.status === 'paused' ? 'opacity-80' : undefined}>
       <BoardCardHeader>
-        {jobKindIcon(item.kind)}
         <span className="truncate font-medium text-fg-secondary">{t(`pod.jobs.kinds.${item.kind}`)}</span>
 
         {item.cardType === 'routine' && item.status === 'paused' ? (
@@ -348,28 +371,25 @@ function JobCard({
             {t('pod.jobs.status_paused')}
           </Badge>
         ) : item.cardType === 'routine' && item.triggerSummary ? (
-          <span className="max-w-36 truncate rounded-mini bg-layer-01 px-1.5 py-0.5 font-mono text-50 leading-3.5 text-fg-secondary">
-            {item.triggerSummary}
-          </span>
+          <BoardCardTag>{item.triggerSummary}</BoardCardTag>
         ) : metaDetail ? (
           <span className="truncate font-mono text-50 text-fg-tertiary tabular-nums">{metaDetail}</span>
         ) : null}
 
-        {item.attention && (
-          <Badge variant={item.status === 'waiting_on_user' ? 'warning' : 'destructive'} size="sm">
-            {attentionLabel(item, t)}
-          </Badge>
-        )}
-
         <BoardCardAside>
           {item.status === 'paused' ? (
             <PauseCircleRegular aria-hidden className="size-3.5 text-fg-tertiary" />
-          ) : isLiveExecutionStatus(item.status) || item.attention ? (
+          ) : cardTone === 'warning' ? (
+            <Badge variant="warning" size="sm">
+              {jobAttentionLabel(item, t)}
+            </Badge>
+          ) : isLiveExecutionStatus(item.status) ||
+            item.attention ||
+            statusTone === 'failed' ||
+            statusTone === 'stopped' ? (
             <span className="flex shrink-0 [&>svg]:size-3.5">
               <ExecutionStatusMark status={item.status} />
             </span>
-          ) : item.column === 'completed' ? (
-            <CheckmarkCircleFilled aria-hidden className="size-3.5 text-success" />
           ) : null}
           {item.stoppable && item.activeExecutionKind && item.activeExecutionID && (
             <BoardCardActions>
@@ -393,9 +413,9 @@ function JobCard({
         {item.title}
       </BoardCardTitle>
 
-      {showSnippet && <BoardCardDescription>{snippet}</BoardCardDescription>}
+      {description && <BoardCardDescription>{description}</BoardCardDescription>}
 
-      {hasPlan && item.planTotal != null && (
+      {showProgress && item.planTotal != null && (
         <BoardCardProgress
           value={item.planCompleted ?? 0}
           max={item.planTotal}
@@ -442,9 +462,8 @@ function JobCard({
 }
 
 function cardProgressTone(item: JobBoardItem): BoardProgressTone {
-  if (item.attention) return item.status === 'waiting_on_user' ? 'warning' : 'danger'
-  if (item.column === 'completed') return 'success'
-  return 'info'
+  if (item.attention) return jobNeedsAnswer(item) ? 'warning' : 'danger'
+  return 'neutral'
 }
 
 function cardProgressSummary(item: JobBoardItem, t: TFunction): string | null {
@@ -462,12 +481,6 @@ function cardProgressSummary(item: JobBoardItem, t: TFunction): string | null {
     parts.push(`+${item.chainLength - 1}`)
   }
   return parts.length > 0 ? parts.join(' · ') : null
-}
-
-function attentionLabel(item: JobBoardItem, t: (key: string) => string): string {
-  if (item.status === 'waiting_on_user') return t('pod.jobs.attention_waiting')
-  if (item.status === 'unavailable') return t('pod.jobs.status_unavailable')
-  return t('pod.jobs.attention_failed')
 }
 
 export function FilteredEmptyJobsState({ onReset }: { onReset: () => void }) {

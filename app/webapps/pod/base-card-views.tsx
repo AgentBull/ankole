@@ -82,13 +82,18 @@ function extractUpdatedRecord(result: unknown, id: string): BaseRecord | undefin
   return Array.isArray(records) ? records.find(record => record.id === id) : undefined
 }
 
+/** A Base page opens records through its URL and renders their details dialog itself. */
+export type RecordLocation = { open(record: BaseRecord): void }
+
 /**
  * Keeps an open record-details dialog mounted even if pagination trims cached pages back to page 1.
+ * With a record location, the view hands the record to that location and renders no dialog of its own.
  */
 export function useRetainedDetailRecord(
   records: readonly BaseRecord[],
   update: ViewProps['update'],
-  remove: ViewProps['remove']
+  remove: ViewProps['remove'],
+  location?: RecordLocation
 ) {
   const [snapshot, setSnapshot] = useState<BaseRecord>()
   const live = snapshot ? records.find(record => record.id === snapshot.id) : undefined
@@ -116,7 +121,7 @@ export function useRetainedDetailRecord(
 
   return {
     record: detailRecord,
-    open: (record: BaseRecord) => setSnapshot(record),
+    open: (record: BaseRecord) => (location ? location.open(record) : setSnapshot(record)),
     close: () => setSnapshot(undefined),
     update: wrappedUpdate,
     remove: wrappedRemove

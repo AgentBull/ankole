@@ -4,6 +4,9 @@ import {
   Card,
   CardContent,
   CardHeader,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   Dialog,
   DialogContent,
   DialogTitle,
@@ -19,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@ankole/uikit'
+import { ChevronDownRegular } from '@ankole/uikit/icons'
 import { useModel } from '@preact/signals-react'
 import { ContentError, ContentSkeleton } from './content-primitives'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -445,6 +449,12 @@ export function Connectors() {
                 )
                 const definition = catalog.data?.connectors?.find(item => item.plugin_id === connection.plugin_id)
                 const supportsOAuth = supportsOAuthAccount(connection)
+                const connectionStatus = t(`pod.connectors.status.${connection.status}`, {
+                  defaultValue: connection.status ?? ''
+                })
+                // A personal account that is no longer active was authorised once and now needs the person again.
+                const authorized = personal.some(account => account.status === 'active')
+                const reconnectNeeded = subjectKind === 'human' && !authorized && personal.length > 0
                 return (
                   <Card
                     key={connection.slug}
@@ -460,7 +470,9 @@ export function Connectors() {
                             connection.plugin_id}
                         </Badge>
                         <Badge variant="outline">
-                          {t(`pod.connectors.status.${connection.status}`, { defaultValue: connection.status ?? '' })}
+                          {subjectKind === 'human'
+                            ? t('pod.connectors.space_connection_status', { status: connectionStatus })
+                            : connectionStatus}
                         </Badge>
                         {connection.is_default && <Badge variant="outline">{t('pod.connectors.default')}</Badge>}
                       </div>
@@ -488,36 +500,61 @@ export function Connectors() {
                             )}
                           </p>
                         )}
-                      {personal.map(account => (
-                        <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
-                          <div>
-                            <p>
-                              {account.subject_kind === 'app' ? `${t('pod.connectors.application_account')} · ` : ''}
-                              {account.owner_principal_uid && account.owner_principal_uid !== session.data?.principalUID
-                                ? `${account.owner_principal_uid} · `
-                                : ''}
-                              {typeof account.public_metadata?.name === 'string'
-                                ? account.public_metadata.name
-                                : account.external_subject_id || account.account_key}
-                            </p>
-                            <p className="text-fg-secondary">
-                              {t(`pod.connectors.status.${account.status}`, { defaultValue: account.status ?? '' })}
-                              {account.granted_scopes?.length ? ` · ${account.granted_scopes.join(', ')}` : ''}
-                            </p>
-                            {account.last_error && (
-                              <p className="text-destructive">{connectorFailureMessage(account.last_error)}</p>
+                      {personal.map(account => {
+                        const accountStatus = t(`pod.connectors.status.${account.status}`, {
+                          defaultValue: account.status ?? ''
+                        })
+                        return (
+                          <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                            <div>
+                              <p>
+                                {account.subject_kind === 'app' ? `${t('pod.connectors.application_account')} · ` : ''}
+                                {account.owner_principal_uid &&
+                                account.owner_principal_uid !== session.data?.principalUID
+                                  ? `${account.owner_principal_uid} · `
+                                  : ''}
+                                {typeof account.public_metadata?.name === 'string'
+                                  ? account.public_metadata.name
+                                  : account.external_subject_id || account.account_key}
+                              </p>
+                              <p className="text-fg-secondary">
+                                {subjectKind === 'human'
+                                  ? t('pod.connectors.personal_authorization_status', { status: accountStatus })
+                                  : accountStatus}
+                                {subjectKind === 'human' && account.status !== 'active'
+                                  ? ` · ${t('pod.connectors.status.reauth_required')}`
+                                  : ''}
+                              </p>
+                              {account.granted_scopes?.length ? (
+                                <Collapsible>
+                                  <CollapsibleTrigger render={<Button variant="ghost" size="xs" />}>
+                                    {t('pod.connectors.granted_scopes')}
+                                    <ChevronDownRegular
+                                      data-icon="inline-end"
+                                      aria-hidden
+                                      className="transition-transform group-aria-expanded/button:rotate-180"
+                                    />
+                                  </CollapsibleTrigger>
+                                  <CollapsibleContent>
+                                    <p className="text-fg-secondary">{account.granted_scopes.join(', ')}</p>
+                                  </CollapsibleContent>
+                                </Collapsible>
+                              ) : null}
+                              {account.last_error && (
+                                <p className="text-destructive">{connectorFailureMessage(account.last_error)}</p>
+                              )}
+                            </div>
+                            {account.status === 'active' && (subjectKind === 'human' || catalog.data?.can_manage) && (
+                              <Button
+                                variant="outline"
+                                disabled={disconnect.isPending}
+                                onClick={() => disconnect.mutate(account.id!)}>
+                                {t('pod.connectors.disconnect')}
+                              </Button>
                             )}
                           </div>
-                          {account.status === 'active' && (subjectKind === 'human' || catalog.data?.can_manage) && (
-                            <Button
-                              variant="outline"
-                              disabled={disconnect.isPending}
-                              onClick={() => disconnect.mutate(account.id!)}>
-                              {t('pod.connectors.disconnect')}
-                            </Button>
-                          )}
-                        </div>
-                      ))}
+                        )
+                      })}
                       {connection.plugin_id === 'salesforce' && (
                         <p className="text-sm text-fg-secondary">{t('pod.connectors.guide_salesforce')}</p>
                       )}
@@ -540,7 +577,9 @@ export function Connectors() {
                         {subjectKind === 'human' && supportsOAuth && connection.status === 'active' && (
                           <Button
                             variant={
-                              requested === connection.slug && requestedSubjectKind === 'human' ? 'default' : 'outline'
+                              reconnectNeeded || (requested === connection.slug && requestedSubjectKind === 'human')
+                                ? 'default'
+                                : 'outline'
                             }
                             disabled={oauth.isPending}
                             onClick={() =>
@@ -551,14 +590,11 @@ export function Connectors() {
                               })
                             }>
                             {t(
-                              personal.some(
-                                account =>
-                                  account.subject_kind === 'human' &&
-                                  account.owner_principal_uid === session.data?.principalUID &&
-                                  account.status === 'active'
-                              )
+                              authorized
                                 ? 'pod.connectors.reconnect'
-                                : 'pod.connectors.connect'
+                                : reconnectNeeded
+                                  ? 'pod.connectors.connect_again'
+                                  : 'pod.connectors.connect'
                             )}
                           </Button>
                         )}

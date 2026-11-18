@@ -193,12 +193,17 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     backgroundAgentJobs: async ({ location }: ConsoleRouteLoaderContext) => {
       const tenantID = await resolveEffectiveTenantID(location.searchStr)
       if (!canPrefetchTenant(tenantID)) return null
-      const { backgroundAgentJobListOptions } = await import('./pages/background-agent-jobs')
+      const { backgroundAgentJobListOptions, backgroundAgentJobStatusParam } =
+        await import('./pages/background-agent-jobs')
       const searchParams = new URLSearchParams(location.searchStr)
       const selectedID = resourceID(searchParams.get('job'), 1000)
       const list = ensureTenant(
         tenantID,
-        backgroundAgentJobListOptions(searchParams.get('agent')?.trim() ?? '', searchParams.get('q') ?? '')
+        backgroundAgentJobListOptions(
+          searchParams.get('agent')?.trim() ?? '',
+          searchParams.get('q') ?? '',
+          backgroundAgentJobStatusParam(searchParams.get('status'))
+        )
       )
 
       return selectedID

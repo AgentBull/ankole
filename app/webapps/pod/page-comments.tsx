@@ -315,7 +315,9 @@ export function PageComments({
             send={add}
             refresh={refresh}
           />
-          {!canComment && <p className="text-xs text-fg-tertiary">{t('pod.document.comments_read_only')}</p>}
+          <p className="text-xs text-fg-tertiary">
+            {t(canComment ? 'pod.document.comments_audience' : 'pod.document.comments_read_only')}
+          </p>
         </div>
       </ErrorBoundary>
     </>

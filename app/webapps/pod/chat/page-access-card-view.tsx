@@ -52,6 +52,8 @@ function pageAccessSpec(
           text: badgeText,
           variant: state === 'answered' ? 'secondary' : 'outline'
         },
+        decidedBy: state === 'answered' ? prompt.answered_by_name : undefined,
+        decidedAt: state === 'answered' ? prompt.answered_at : undefined,
         testid: 'chat-page-access-card',
         actionKind: 'pod.page.grant_view'
       },
@@ -107,18 +109,6 @@ function pageAccessSpec(
               defaultValue: 'Granting view access and resuming…'
             }),
             live: true
-          }),
-        state === 'answered' &&
-          add('answered', 'Outcome', {
-            icon: 'check',
-            text: prompt.answered_by_name
-              ? t('pod.chat_page_access.granted_by', {
-                  defaultValue: 'Granted by {$name} · Resuming automatically',
-                  name: prompt.answered_by_name
-                })
-              : t('pod.chat_page_access.granted_resuming', {
-                  defaultValue: 'Access granted · Resuming automatically'
-                })
           }),
         state === 'superseded' &&
           add('superseded', 'Outcome', {

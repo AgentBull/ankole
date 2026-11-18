@@ -64,13 +64,15 @@ export function AgentFilter({ scope }: { scope: AgentScope }) {
 
   return (
     <Select
+      // The closed trigger names the scope by the Agent's name, and shows a skeleton while the Agents load.
+      items={Object.fromEntries(scope.agents.map(agent => [agent.uid, agent.display_name || agent.uid]))}
       loading={scope.isLoading}
       value={scope.agentUID || null}
       onValueChange={value => scope.selectAgent(value == null ? '' : String(value))}>
       {/* The all-agents state is the null value, which the trigger styles as an
           unfilled placeholder; it is a real scope, so keep the label readable. */}
       <SelectTrigger aria-label={t('console.agents.agent')} className="w-56 data-placeholder:text-fg-primary">
-        <SelectValue />
+        <SelectValue placeholder={t('console.all_agents')} />
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={null}>{t('console.all_agents')}</SelectItem>

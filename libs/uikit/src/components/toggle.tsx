@@ -19,10 +19,10 @@ const toggleVariants = cva(
         default:
           'h-control-md min-w-control-md px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
         sm: 'h-control-sm min-w-control-sm px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
-        // A shell toolbar's 32px toggle, like the `icon-lg` button: its fills tint only the box that holds the 20px
-        // icon, 6px inside the toggle's edge, and keep the micro radius there.
+        // A shell toolbar's 32px toggle, like the `icon-lg` button: its fills tint a 24px box around the 20px icon,
+        // 4px inside the toggle's edge, and keep the control radius there.
         'icon-lg':
-          "size-control-md min-w-control-md rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)] bg-clip-content p-1.25 [&_svg:not([class*='size-'])]:size-5"
+          "size-control-md min-w-control-md rounded-[calc(var(--radius-control)+var(--spacing))] bg-clip-content p-0.75 [&_svg:not([class*='size-'])]:size-5"
       }
     },
     defaultVariants: {

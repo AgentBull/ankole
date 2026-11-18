@@ -119,7 +119,7 @@ export function WorkersListPage() {
                   confirm={{
                     title: t('console.workers.force_reset_title'),
                     description: t('console.workers.force_reset_description', { id: worker.agent_uid }),
-                    confirmLabel: t('console.workers.force_reset')
+                    confirmLabel: t('console.workers.force_reset_generation')
                   }}
                   onConfirm={() => forceReset.mutate({ path: { agent_uid: worker.agent_uid } })}
                 />

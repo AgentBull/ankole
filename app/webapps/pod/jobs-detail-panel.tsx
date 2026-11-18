@@ -32,7 +32,7 @@ import { podLocation, podPagePath } from '../common/pod-url'
 import { requestErrorMessage } from '../common/request-errors'
 import { changePodJobRoutine } from './api/generated/sdk.gen'
 import { ChatMarkdown } from './chat/chat-markdown'
-import { ExecutionInspectorPanel } from './chat/execution-inspector-panel'
+import { ExecutionInspectorPanel, TechnicalDetails } from './chat/execution-inspector-panel'
 import { ExecutionStatusMark, executionStatusLabelKey, executionStatusTone } from './chat/execution-status'
 import { ContentError } from './content-primitives'
 import {
@@ -654,7 +654,9 @@ function RoutineInspectorContent({
                           </span>
                         </div>
                         {entry.error ? (
-                          <p className="line-clamp-3 ps-5.5 text-destructive-fg">{entry.error}</p>
+                          <div className="ps-5.5 text-destructive-fg">
+                            <TechnicalDetails text={entry.error} />
+                          </div>
                         ) : entry.summary ? (
                           <RunSummaryView summary={entry.summary} expandLabel={t('pod.jobs.summary_expand')} />
                         ) : null}

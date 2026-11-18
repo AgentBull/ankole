@@ -272,6 +272,7 @@ function AgentSkillsSection({ agent }: { agent: MetaAgent }) {
   return (
     <fieldset className="space-y-3 rounded-lg border border-border-subtle p-5">
       <legend className="font-semibold">{t('pod.meta.enabled_skills')}</legend>
+      {!agent.can_bind && <p className="text-xs text-fg-tertiary">{t('pod.meta.skills_read_only')}</p>}
       <div className="divide-y divide-border-subtle">
         {items.map(skill => {
           const isPersonal = skill.agent_uid === agent.uid
@@ -296,12 +297,20 @@ function AgentSkillsSection({ agent }: { agent: MetaAgent }) {
                   )}
                 </div>
                 {skill.description && <p className="mt-0.5 text-xs text-fg-secondary">{skill.description}</p>}
-                {isPersonal && (
+                {isPersonal ? (
                   <p className="mt-0.5 text-xs text-fg-tertiary">
                     {t('pod.meta.personal_skill_always_active', {
                       defaultValue: 'Personal Skills are always active on your Personal Assistant.'
                     })}
                   </p>
+                ) : (
+                  skill.enabled_for_all && (
+                    <Link
+                      to={`/meta/skills/${skill.slug}`}
+                      className="mt-0.5 block text-xs text-fg-tertiary underline underline-offset-4">
+                      {t('pod.meta.inherited_from_all')}
+                    </Link>
+                  )
                 )}
               </div>
               <Switch

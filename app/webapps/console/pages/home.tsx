@@ -27,7 +27,7 @@ import {
 import { agentWorkerListOptions } from '../api/agent-workers'
 import { agentListOptions } from '../api/agents'
 import { aiGatewayConversationsOptions } from '../api/ai-gateway-conversations'
-import { backgroundAgentJobsOptions } from '../api/background-agent-jobs'
+import { backgroundAgentJobsOptions, queuedSince } from '../api/background-agent-jobs'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
@@ -100,7 +100,10 @@ export function HomePage() {
   const readyWorkers = workerRows.filter(worker => worker.state === 'ready').length
   const failingWorkers = workerRows.filter(workerNeedsAttention).length
   const enabledProviders = providerRows.filter(provider => !provider.disabled_at).length
-  const failedJobs = jobRows.filter(job => job.status === 'failed')
+  // The alert reads the newest page of Jobs. When older Jobs exist, the window starts at the oldest Job on the
+  // page, and the board link carries that start so it opens the same set.
+  const failureWindowStart = jobs.data?.nextAfter ? (jobRows.at(-1)?.queued_at ?? undefined) : undefined
+  const failedJobs = jobRows.filter(job => job.status === 'failed' && queuedSince(job, failureWindowStart))
 
   // Use the same readiness report and step definitions as the header. Hide
   // completed steps. Hide this section when the deployment instance is ready.
@@ -146,8 +149,10 @@ export function HomePage() {
       tone: 'danger',
       title: t('console.home.alert_failed_jobs_title', { count: failedJobs.length }),
       description: t('console.home.alert_failed_jobs_description'),
-      to: '/background-agent-jobs',
-      action: t('console.home.alert_failed_jobs_action')
+      to: failedJobsPath(failedJobs, failureWindowStart),
+      action: t(
+        failedJobs.length === 1 ? 'console.home.alert_failed_job_action' : 'console.home.alert_failed_jobs_action'
+      )
     })
   }
 
@@ -389,6 +394,17 @@ export function RouteErrorPage({ error, reset }: { error?: unknown; reset?: () =
   )
 }
 
+/**
+ * Where the failed-Jobs alert leads: the one failed Job's detail, or the board narrowed to the failed Jobs queued
+ * since `windowStart`, so the board counts what the alert counted.
+ */
+function failedJobsPath(failed: readonly { id: number }[], windowStart: string | undefined): string {
+  if (failed.length === 1) return `/background-agent-jobs?job=${failed[0].id}`
+  const search = new URLSearchParams({ status: 'failed' })
+  if (windowStart) search.set('since', windowStart)
+  return `/background-agent-jobs?${search}`
+}
+
 type Alert = {
   tone: 'danger' | 'warning'
   title: string
@@ -415,7 +431,7 @@ function AlertRow({ alert }: { alert: Alert }) {
           <p className="text-sm leading-6 text-fg-secondary">{alert.description}</p>
         </div>
       </div>
-      <Link to={alert.to} className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}>
+      <Link {...linkTarget(alert.to)} className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}>
         {alert.action}
       </Link>
     </div>

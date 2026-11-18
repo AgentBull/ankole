@@ -397,7 +397,7 @@ function SidebarFooter({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="sidebar-footer"
       data-sidebar="footer"
-      className={cn('flex min-h-10.5 shrink-0 items-center gap-1 px-2', className)}
+      className={cn('flex min-h-10.5 shrink-0 items-center gap-1 px-2 pb-1.5', className)}
       {...props}
     />
   )
@@ -405,7 +405,7 @@ function SidebarFooter({ className, ...props }: React.ComponentProps<'div'>) {
 
 /**
  * The footer's one row, such as the account switcher: a 42px navigation row that spans the footer. It starts with a
- * 26px `Avatar` at the fill's edge, whose initials take the 12px step, then a `SidebarFooterLabel`, and it ends with
+ * 26px `Avatar` 4px inside the fill, whose initials take the 12px step, then a `SidebarFooterLabel`, and it ends with
  * an 18px icon in the secondary colour 4px inside the fill. While the menu that it opens is open, it keeps the hover
  * fill. `render` names another element, such as a menu trigger.
  */
@@ -421,7 +421,7 @@ function SidebarFooterButton({
         'data-slot': 'sidebar-footer-button',
         'data-sidebar': 'footer-button',
         className: cn(
-          'nav-row flex h-10.5 w-full min-w-0 cursor-pointer items-center gap-1 rounded-control pe-1 text-start focus-visible:-outline-offset-2 data-open:bg-layer-hover *:data-[slot=avatar]:size-6.5 [&>[data-slot=avatar]_[data-slot=avatar-fallback]]:text-50 [&>svg:last-child]:size-4.5 [&>svg:last-child]:shrink-0 [&>svg:last-child]:text-fg-secondary',
+          'nav-row flex h-10.5 w-full min-w-0 cursor-pointer items-center gap-1 rounded-control px-1 text-start focus-visible:-outline-offset-2 data-open:bg-layer-hover *:data-[slot=avatar]:size-6.5 [&>[data-slot=avatar]_[data-slot=avatar-fallback]]:text-50 [&>svg:last-child]:size-4.5 [&>svg:last-child]:shrink-0 [&>svg:last-child]:text-fg-secondary',
           className
         )
       },
@@ -431,13 +431,16 @@ function SidebarFooterButton({
   )
 }
 
-/** The label of a `SidebarFooterButton`: a name in 14px primary text, then a `small` detail in 12px secondary text. */
+/**
+ * The label of a `SidebarFooterButton`, 8px after the avatar: a name in 13px primary text and, on a second line, a
+ * `small` detail in 12px tertiary text.
+ */
 function SidebarFooterLabel({ className, ...props }: React.ComponentProps<'span'>) {
   return (
     <span
       data-slot="sidebar-footer-label"
       className={cn(
-        'flex min-w-0 flex-1 items-baseline gap-1 text-75 *:truncate [&>small]:text-50 [&>small]:text-fg-secondary',
+        'flex min-w-0 flex-1 flex-col ps-1 text-65 leading-4.5 *:truncate [&>small]:text-50 [&>small]:leading-4 [&>small]:text-fg-tertiary',
         className
       )}
       {...props}

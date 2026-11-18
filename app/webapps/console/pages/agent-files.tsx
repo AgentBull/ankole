@@ -13,6 +13,7 @@ import {
 } from '../tenant-context'
 import {
   Button,
+  CopyButton,
   Dialog,
   DialogClose,
   DialogContent,
@@ -307,13 +308,7 @@ function NodeRow({
   const [moving, setMoving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const isFile = node.kind === 'file'
-  const rootLabel = node.parent_id
-    ? null
-    : node.private_owner_uid
-      ? t('console.drive.private', { id: node.private_owner_uid })
-      : node.conversation_id
-        ? t('console.drive.conversation', { id: node.conversation_id })
-        : t('console.drive.public')
+  const conversationID = node.parent_id ? null : node.conversation_id
   const download = async () => {
     const result = await downloadDriveFile(tenantID, node.id)
     if (result.error !== undefined || !(result.data instanceof Blob)) {
@@ -364,13 +359,28 @@ function NodeRow({
               </Button>
             </form>
           ) : (
-            <button
-              type="button"
-              data-row-link
-              className="min-w-0 break-all text-left hover:underline"
-              onClick={() => (isFile ? void download() : onNavigate(node.id))}>
-              {rootLabel ?? <BdiLabel value={node.name} />}
-            </button>
+            <div className="grid min-w-0">
+              <button
+                type="button"
+                data-row-link
+                className="min-w-0 break-all text-left hover:underline"
+                onClick={() => (isFile ? void download() : onNavigate(node.id))}>
+                <DriveNodeName node={node} />
+              </button>
+              {/* shortcut: the Drive listing carries no conversation title or owner, so the ID stays the only
+                  identifier; show the title first once the listing returns it. */}
+              {conversationID ? (
+                <span className="flex min-w-0 items-center gap-1 font-mono text-xs text-fg-secondary">
+                  <span className="truncate">{conversationID}</span>
+                  <CopyButton
+                    size="icon-xs"
+                    value={conversationID}
+                    label={t('console.drive.copy_conversation_id')}
+                    copiedLabel={t('common.copied')}
+                  />
+                </span>
+              ) : null}
+            </div>
           )}
         </div>
       </TableCell>
@@ -446,6 +456,14 @@ function NodeRow({
   )
 }
 
+/** A root reads as the space it is; any other node reads as its own name. */
+function DriveNodeName({ node }: { node: DriveNode }) {
+  const { t } = useTranslation()
+  if (node.parent_id) return <BdiLabel value={node.name} />
+  if (node.private_owner_uid) return t('console.drive.private', { id: node.private_owner_uid })
+  return node.conversation_id ? t('console.drive.conversation') : t('console.drive.public')
+}
+
 function MoveDialog({
   tenantID,
   node,
@@ -487,7 +505,10 @@ function MoveDialog({
             .map(child => (
               <Button key={child.id} variant="ghost" className="justify-start" onClick={() => navigate(child.id)}>
                 <FolderRegular />
-                {child.private_owner_uid ?? child.conversation_id ?? <BdiLabel value={child.name} />}
+                <DriveNodeName node={child} />
+                {!child.parent_id && child.conversation_id ? (
+                  <span className="truncate font-mono text-xs text-fg-secondary">{child.conversation_id}</span>
+                ) : null}
               </Button>
             ))}
           {listing.data?.next_after ? (

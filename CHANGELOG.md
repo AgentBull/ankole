@@ -1,5 +1,62 @@
 # Changelog
 
+## Version 2.0.0-alpha.175 (2026-11-18)
+
+- Follow the designers' latest component edits everywhere the kit is used. A
+  text field that holds focus draws a blue edge on all four sides instead of a
+  ring under it. Tabs over a hairline are 14px labels in a taller row, and the
+  open tab is Medium. A toolbar icon button tints a 24px box around its icon.
+  The unread count on a Pod sidebar tab floats on the tab's corner as a bubble.
+  The account row at the foot of the sidebar sits 6px above the edge, sets the
+  name in 13px, 8px after the avatar, and shows the Pod's name under it.
+- Draw the Jobs board as designed. A card names its kind in text without an
+  icon, and a finished card keeps to its kind, title, outcome, and Agent. A
+  running card's bar is neutral, a waiting card shows its badge at the end of
+  the first row, and a failed card in any column has the red tint and states
+  the failure in red. Warning and failed cards now draw their tinted gradient,
+  which never appeared before. The view switch is a segmented control.
+- Replace text in a document from the find bar. The bar now has Find and
+  Replace tabs: Replace changes the current match and moves to the next, and
+  Replace all changes every match and reports how many. One undo restores
+  each replacement. Previous and Next are labelled buttons.
+- Stop the Pod space settings from showing a default as the saved value. Until
+  the server answers, each field shows a placeholder, so a closed guest policy
+  never appears checked. Profile, sign-in, and leave panels wait the same way.
+- Name what needs a person on the Pod home. Jobs that wait for an answer stay
+  under the decisions heading, failed or unavailable jobs get their own heading,
+  and each row opens that run. The Jobs board counts running work and work that
+  needs attention separately.
+- Lead a failed run's detail with a plain sentence and fold the raw error under
+  "Technical details". Show a finished job's result as an open action under
+  the detail title, and write card summaries as plain text.
+- Keep a Base's table, view, and open record in the address, so a refresh, the
+  Back button, or a copied link returns to the same record. The record dialog
+  is titled with the record and no longer starts in an editable field.
+- Keep the Brain graph's search in the address and fit the view to a submitted
+  search, so Back returns to the same hits at a readable size.
+- Wrap the summary of a permission or approval card so it can be read in full,
+  and replace the card's "needs your decision" heading with the answer, the
+  person, and the time once it is answered.
+- Label a suggested reply in the composer, and keep conversation commands first
+  in the slash menu with skills in their own group, so the selection no longer
+  jumps when skills load.
+- In quick search, list a result whose name equals the query first, mark private
+  pages, show snippets without HTML entities, and name the footer link "View in
+  page search". Favorites and Shared lists explain how they fill instead of
+  offering to create a page elsewhere, and a page's first breadcrumb names the
+  list it belongs to.
+- Say whose setting it is: the page tree's permissions entry is named "Space
+  page permissions", an inherited skill switch links to the all-members
+  setting, connector cards state the space connection and the person's
+  authorization separately, and the page assistant and comment inputs say who
+  can see them. Connector forms use the viewer's language.
+- Show seconds in a document's version history when two versions share a minute.
+- In the Console, a failed-jobs alert opens the failed job, or the board filtered
+  to the same failures. The ended column is named "Ended", the Agent filter
+  shows its selection when closed, the Agent detail page has section links,
+  untitled Brain objects show their path, and a Drive conversation folder shows
+  a copyable ID.
+
 ## Version 2.0.0-alpha.174 (2026-11-18)
 
 - Cache the system packages that Playwright's Chromium needs alongside the

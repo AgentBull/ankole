@@ -76,32 +76,67 @@ defmodule Ankole.Plugins.CloudConnectorsAdapter.Definitions do
 
   defp oauth_fields,
     do: [
-      field("clientID", "OAuth client ID", false),
-      field("clientSecret", "OAuth client secret", true)
+      field(
+        "clientID",
+        text("OAuth client ID", "OAuth 客户端 ID", "OAuth クライアント ID", "OAuth 클라이언트 ID"),
+        false
+      ),
+      field(
+        "clientSecret",
+        text("OAuth client secret", "OAuth 客户端密钥", "OAuth クライアントシークレット", "OAuth 클라이언트 시크릿"),
+        true
+      )
     ]
 
   defp credentials("zendesk"),
     do: [
-      field("subdomain", "Zendesk subdomain", false),
-      field("email", "Administrator email", false),
-      field("api_token", "API token", true)
+      field(
+        "subdomain",
+        text("Zendesk subdomain", "Zendesk 子域名", "Zendesk サブドメイン", "Zendesk 하위 도메인"),
+        false
+      ),
+      field(
+        "email",
+        text("Administrator email", "管理员邮箱", "管理者のメールアドレス", "관리자 이메일"),
+        false
+      ),
+      field("api_token", text("API token", "API Token", "API トークン", "API 토큰"), true)
     ]
 
   defp credentials("sentry"),
     do: [
-      field("access_token", "Access token", true),
+      access_token(),
       Map.put(
-        field("webhook_secret", "Internal Integration client secret (for events)", true),
+        field(
+          "webhook_secret",
+          text(
+            "Internal Integration client secret (for events)",
+            "Internal Integration 客户端密钥（用于事件）",
+            "Internal Integration のクライアントシークレット（イベント用）",
+            "Internal Integration 클라이언트 시크릿(이벤트용)"
+          ),
+          true
+        ),
         :required,
         false
       )
     ]
 
-  defp credentials(_), do: [field("access_token", "Access token", true)]
+  defp credentials(_), do: [access_token()]
+
+  defp access_token,
+    do: field("access_token", text("Access token", "访问令牌", "アクセストークン", "액세스 토큰"), true)
+
   defp field(key, label, secret), do: %{key: key, label: label, secret: secret, required: true}
 
   defp public_fields(id) when id in ~w(gitlab sentry salesforce),
-    do: [%{key: "base_url", label: "Platform URL", required: false}]
+    do: [
+      %{
+        key: "base_url",
+        label: text("Platform URL", "平台地址", "プラットフォームの URL", "플랫폼 URL"),
+        required: false
+      }
+    ]
 
   defp public_fields(_), do: []
 

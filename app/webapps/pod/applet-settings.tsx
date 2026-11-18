@@ -159,6 +159,7 @@ export function AppletSettingsDialog({
   const isMobile = useIsMobile()
   const navFadeRef = useScrollFadeRef<HTMLDivElement>('x', undefined, isMobile)
   const envBadgeDescId = useId()
+  const jobHeaderId = useId()
   const canEdit = canEditAppletEnv(detail)
   const canCreateJob = !detail.page.deleted_at && detail.actions.includes('node_contribute')
   const activeTab: AppletSettingsTab = ['environment', 'bindings'].includes(tab) && !canEdit ? 'automation' : tab
@@ -333,14 +334,18 @@ export function AppletSettingsDialog({
               )}
               <div hidden={!jobTabHeader} className="mb-5 grid gap-5 [&[hidden]]:hidden">
                 {jobTabHeader ? (
-                  <header className="grid gap-1">
+                  <header id={jobHeaderId} className="grid gap-1">
                     <h2 className="text-base font-semibold text-fg-primary">{jobTabHeader.title}</h2>
                     <p className="text-sm text-fg-secondary">{jobTabHeader.description}</p>
                   </header>
                 ) : null}
                 <AppletJobSelectorBar controller={jobsController} isActive={Boolean(jobTabHeader)} />
               </div>
-              <TabsContent value="automation" keepMounted className="outline-none [&[hidden]]:hidden">
+              <TabsContent
+                value="automation"
+                aria-describedby={jobHeaderId}
+                keepMounted
+                className="outline-none [&[hidden]]:hidden">
                 {visitedTabs.has('automation') ? (
                   <ErrorBoundary variant="panel" resetKeys={[detail.page.id]}>
                     <AppletAutomationTab
@@ -351,7 +356,11 @@ export function AppletSettingsDialog({
                   </ErrorBoundary>
                 ) : null}
               </TabsContent>
-              <TabsContent value="webhooks" keepMounted className="outline-none [&[hidden]]:hidden">
+              <TabsContent
+                value="webhooks"
+                aria-describedby={jobHeaderId}
+                keepMounted
+                className="outline-none [&[hidden]]:hidden">
                 {visitedTabs.has('webhooks') ? (
                   <ErrorBoundary variant="panel" resetKeys={[detail.page.id]}>
                     <AppletWebhooksTab
@@ -362,7 +371,11 @@ export function AppletSettingsDialog({
                   </ErrorBoundary>
                 ) : null}
               </TabsContent>
-              <TabsContent value="logs" keepMounted className="outline-none [&[hidden]]:hidden">
+              <TabsContent
+                value="logs"
+                aria-describedby={jobHeaderId}
+                keepMounted
+                className="outline-none [&[hidden]]:hidden">
                 {visitedTabs.has('logs') ? (
                   <ErrorBoundary variant="panel" resetKeys={[detail.page.id]}>
                     <AppletLogsTab controller={jobsController} isActive={activeTab === 'logs'} />

@@ -181,7 +181,7 @@ test('a reply suggestion targets an idle Agent reply when the viewer is the only
   ).replace(/[\u2066-\u2069]/g, '')
   expect(completedHtml).toContain('pod-chat-composer-suggestion')
   expect(completedHtml).toContain('Paste the new webhook token')
-  expect(completedHtml).toContain('⇥')
+  expect(completedHtml).toContain('Suggested reply<kbd')
   expect(completedHtml).toContain('Tab</kbd>')
   expect(completedHtml).toContain('aria-label="Tab — Use the suggested reply: Paste the new webhook token"')
   expect(completedHtml).toContain('title="Press Tab to use this suggestion"')

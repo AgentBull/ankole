@@ -644,7 +644,7 @@ for (const type of ['kanban', 'gallery'] as const) {
       await expect(card).toContainText('Value 1')
       await expect(card).not.toContainText('Value 6')
       await card.getByRole('button', { name: 'Visible record', exact: true }).click()
-      const details = page.getByRole('dialog', { name: '记录详情', exact: true })
+      const details = page.getByRole('dialog', { name: 'Visible record', exact: true })
       await expect(details.getByRole('textbox', { name: 'Detail 6', exact: true })).toHaveValue('Value 6')
       await details.getByRole('button', { name: '关闭', exact: true }).last().click()
     } finally {
