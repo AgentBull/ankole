@@ -347,24 +347,38 @@ jobs:
           key: ${{ steps.wasm-cache.outputs.cache-primary-key }}
       - if: ${{ matrix.suite == 'webapps' }}
         run: bun run --filter @ankole/webapps test
-      # Downloading Chromium from Playwright's CDN has taken up to seven minutes.
-      # The install below still adds the system packages and skips browsers
-      # that the cache restored.
-      - name: Read the Playwright version
+      # Downloading Chromium from Playwright's CDN has taken up to seven minutes,
+      # and the Ubuntu mirror that runners in AWS use has taken five minutes for
+      # Chromium's system packages. The cache keeps both, keyed by the runner
+      # image so that packages follow the image's package versions.
+      - name: Read the Playwright version and runner image
         id: playwright
         working-directory: app/webapps
-        run: echo "version=$(bunx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(bunx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+          echo "image=${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: playwright-cache
         with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-      - run: bunx playwright install --with-deps chromium
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/playwright-apt
+          key: playwright-chromium-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}
+      # apt-get installs a package from its archive directory when the file
+      # matches the package index, so restored packages skip the mirror.
+      - name: Install Chromium and its system packages
         working-directory: app/webapps
+        run: |
+          mkdir -p ~/.cache/playwright-apt
+          find ~/.cache/playwright-apt -name '*.deb' -exec sudo cp -t /var/cache/apt/archives {} +
+          bunx playwright install --with-deps chromium
+          find /var/cache/apt/archives -maxdepth 1 -name '*.deb' -exec cp -t ~/.cache/playwright-apt {} +
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ matrix.suite == 'webapps' && github.ref == 'refs/heads/main' && steps.playwright-cache.outputs.cache-hit != 'true' }}
         with:
-          path: ~/.cache/ms-playwright
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/playwright-apt
           key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
       - if: ${{ matrix.suite == 'editor' }}
         run: bunx playwright test --project=chromium --shard="$SHARD"
