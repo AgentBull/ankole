@@ -27,6 +27,7 @@ defmodule Ankole.Sessions.ToolCatalog do
           Tools.Peers,
           Tools.RelatedContext,
           Tools.Pod,
+          Tools.PodUI,
           Tools.Message
         ],
         fn owner ->

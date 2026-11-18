@@ -4841,6 +4841,14 @@ prompt_dismiss = "나중에"
 untitled = "대화"
 new_comments = "새 댓글"
 
+[pod.agent_ui]
+browser_assistant = "브라우저 어시스턴트"
+confirm_title = "{$agent}에게 이 작업을 허용할까요?"
+confirm_description = "요청한 작업: “{$control}”에서 {$action} 실행. 이 컨트롤의 작업은 항상 승인이 필요합니다."
+confirm_press = "요청한 작업: “{$control}” 누르기. 이 컨트롤의 작업은 항상 승인이 필요합니다."
+allow = "허용"
+deny = "허용 안 함"
+
 [pod.settings]
 description = "스페이스의 정보, 멤버, 접근 권한, 통합을 관리합니다."
 navigation = "스페이스 설정 섹션"

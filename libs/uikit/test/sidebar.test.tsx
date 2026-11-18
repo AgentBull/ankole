@@ -288,6 +288,21 @@ describe('Sidebar menu rows', () => {
     )
   })
 
+  test('keeps a link row a link under the row slot, as a button that an Agent can press', () => {
+    const html = shell(
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton render={<a href="/conversations/1" />}>Team goal</SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    )
+    const row = tagWith(html, 'data-slot="sidebar-menu-button"')
+    expect(row.startsWith('<a ')).toBe(true)
+    expect(attributeOf(row, 'href')).toBe('/conversations/1')
+    expect(attributeOf(row, 'data-sidebar')).toBe('menu-button')
+    expect(row).not.toContain('type="button"')
+  })
+
   test('places a 20px arrow over the row icon slot and 24px actions after the row that wait for it', () => {
     const html = shell(
       <SidebarMenu>

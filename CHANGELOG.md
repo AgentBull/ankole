@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 2.0.0-alpha.169 (2026-11-18)
+
+- Let an Agent operate the Pod page that the person it works for has open.
+  The Agent reads the page's controls, finds items, and fills fields, picks
+  options, or presses buttons and sidebar rows there, and the tab the person
+  is looking at runs each step. Controls that cannot be undone, such as
+  delete buttons, wait until the person allows them in a dialog, and private
+  values stay hidden from the Agent. When the person has no Pod tab open, the
+  Agent says so.
+- Browsers with WebMCP can also let their built-in assistant operate Pod
+  under the same confirmation rule.
+
 ## Version 2.0.0-alpha.168 (2026-11-18)
 
 - Keep a Pod settings save in progress when an administrator continues typing.

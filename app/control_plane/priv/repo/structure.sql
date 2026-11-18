@@ -25,13 +25,6 @@ CREATE SCHEMA paradedb;
 
 
 --
--- Name: vector; Type: EXTENSION; Schema: -; Owner: -
---
-
-CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
-
-
---
 -- Name: pg_search; Type: EXTENSION; Schema: -; Owner: -
 --
 
@@ -43,6 +36,13 @@ CREATE EXTENSION IF NOT EXISTS pg_search WITH SCHEMA paradedb;
 --
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+
+
+--
+-- Name: vector; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 
 
 --
@@ -4089,6 +4089,36 @@ COMMENT ON COLUMN public.permission_grants.metadata IS 'Grant metadata that is n
 
 
 --
+-- Name: pod_agent_ui_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pod_agent_ui_requests (
+    tenant_id uuid NOT NULL,
+    id uuid NOT NULL,
+    agent_uid text NOT NULL,
+    principal_uid text NOT NULL,
+    operation text NOT NULL,
+    arguments jsonb DEFAULT '{}'::jsonb NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    result jsonb,
+    error text,
+    inserted_at timestamp(6) without time zone NOT NULL,
+    claimed_at timestamp(6) without time zone,
+    completed_at timestamp(6) without time zone,
+    CONSTRAINT pod_agent_ui_requests_error_check CHECK (((error IS NULL) OR (length(error) <= 4000))),
+    CONSTRAINT pod_agent_ui_requests_operation_check CHECK ((operation = ANY (ARRAY['snapshot'::text, 'act'::text, 'query'::text]))),
+    CONSTRAINT pod_agent_ui_requests_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'claimed'::text, 'done'::text, 'failed'::text, 'expired'::text])))
+);
+
+
+--
+-- Name: TABLE pod_agent_ui_requests; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.pod_agent_ui_requests IS 'Agent operations on the Pod page that a Human has open, and what that page answered.';
+
+
+--
 -- Name: pod_applet_approvals; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6284,6 +6314,14 @@ ALTER TABLE ONLY public.pages
 
 ALTER TABLE ONLY public.permission_grants
     ADD CONSTRAINT permission_grants_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: pod_agent_ui_requests pod_agent_ui_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_agent_ui_requests
+    ADD CONSTRAINT pod_agent_ui_requests_pkey PRIMARY KEY (tenant_id, id);
 
 
 --
@@ -8973,6 +9011,13 @@ CREATE INDEX permission_grants_tenant_id_index ON public.permission_grants USING
 --
 
 CREATE UNIQUE INDEX permission_grants_userset_natural_index ON public.permission_grants USING btree (tenant_id, source_node_id, source_action, resource_pattern, action, condition) WHERE (source_node_id IS NOT NULL);
+
+
+--
+-- Name: pod_agent_ui_requests_pending_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX pod_agent_ui_requests_pending_index ON public.pod_agent_ui_requests USING btree (tenant_id, principal_uid, inserted_at) WHERE (status = 'pending'::text);
 
 
 --
@@ -11825,6 +11870,30 @@ ALTER TABLE ONLY public.permission_grants
 
 ALTER TABLE ONLY public.permission_grants
     ADD CONSTRAINT permission_grants_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: pod_agent_ui_requests pod_agent_ui_requests_agent_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_agent_ui_requests
+    ADD CONSTRAINT pod_agent_ui_requests_agent_fkey FOREIGN KEY (tenant_id, agent_uid) REFERENCES public.principals(tenant_id, uid) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: pod_agent_ui_requests pod_agent_ui_requests_principal_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_agent_ui_requests
+    ADD CONSTRAINT pod_agent_ui_requests_principal_fkey FOREIGN KEY (tenant_id, principal_uid) REFERENCES public.principals(tenant_id, uid) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: pod_agent_ui_requests pod_agent_ui_requests_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pod_agent_ui_requests
+    ADD CONSTRAINT pod_agent_ui_requests_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT;
 
 
 --
