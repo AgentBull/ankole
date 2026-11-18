@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.173 (2026-11-18)
+## Version 2.0.0-alpha.174 (2026-11-18)
 
 - Follow the designers' latest component edits everywhere the kit is used. A
   text field that holds focus draws a blue edge on all four sides instead of a
@@ -56,6 +56,13 @@
   shows its selection when closed, the Agent detail page has section links,
   untitled Brain objects show their path, and a Drive conversation folder shows
   a copyable ID.
+
+## Version 2.0.0-alpha.173 (2026-11-18)
+
+- Stop the editor's browser tests from failing on slow CI runners. They now
+  wait up to 15 seconds for each expectation, and the 500-row table typing
+  check allows three seconds per keystroke, which still catches the old
+  26-second slowdown it guards against.
 
 ## Version 2.0.0-alpha.172 (2026-11-18)
 
