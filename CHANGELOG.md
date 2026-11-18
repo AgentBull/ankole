@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.176 (2026-11-18)
+
+- Let every runner reuse the cached Chromium system packages. Runners in AWS
+  and Azure report different image versions, so the cache key now names only
+  the Ubuntu release and the month, and a new month starts from the previous
+  month's copy.
+
 ## Version 2.0.0-alpha.175 (2026-11-18)
 
 - Follow the designers' latest component edits everywhere the kit is used. A

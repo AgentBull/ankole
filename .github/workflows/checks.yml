@@ -349,21 +349,24 @@ jobs:
         run: bun run --filter @ankole/webapps test
       # Downloading Chromium from Playwright's CDN has taken up to seven minutes,
       # and the Ubuntu mirror that runners in AWS use has taken five minutes for
-      # Chromium's system packages. The cache keeps both, keyed by the runner
-      # image so that packages follow the image's package versions.
-      - name: Read the Playwright version and runner image
+      # Chromium's system packages. The cache keeps both. Runners in AWS and
+      # Azure report different image versions on the same day, so the key names
+      # only the Ubuntu release and renews each month to pick up package
+      # updates, falling back to the previous month's copy until `main` saves.
+      - name: Read the Playwright version and cache period
         id: playwright
         working-directory: app/webapps
         run: |
-          echo "version=$(bunx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-          echo "image=${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+          echo "prefix=playwright-chromium-${ImageOS}-$(bunx playwright --version | awk '{print $2}')-" >> "$GITHUB_OUTPUT"
+          echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: playwright-cache
         with:
           path: |
             ~/.cache/ms-playwright
             ~/.cache/playwright-apt
-          key: playwright-chromium-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}
+          key: ${{ steps.playwright.outputs.prefix }}${{ steps.playwright.outputs.month }}
+          restore-keys: ${{ steps.playwright.outputs.prefix }}
       # apt-get installs a package from its archive directory when the file
       # matches the package index, so restored packages skip the mirror.
       - name: Install Chromium and its system packages
