@@ -3,9 +3,10 @@
 ## Version 2.0.0-alpha.171 (2026-11-18)
 
 - Stop the frontend browser check from failing about half the time on pull
-  requests. The first test that opens a Spreadsheet Page now waits up to 20
-  seconds for the Vite server to compile the spreadsheet modules, which took
-  longer than the default 5 seconds on CI runners.
+  requests. CI runners render these pages about three times slower than a
+  developer machine, so the webapps browser suite now waits up to 15 seconds
+  for each expectation instead of 5, and up to 20 seconds for the first visit
+  to a Spreadsheet Page while the Vite server compiles its modules.
 
 ## Version 2.0.0-alpha.170 (2026-11-18)
 
