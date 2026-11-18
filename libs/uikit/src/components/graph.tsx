@@ -65,6 +65,10 @@ const HOVER_INTENT_DELAY_MS = 100
 // hundred nodes and edges cannot finish such a frame in time. A larger graph changes in one step instead.
 const ANIMATED_ELEMENT_LIMIT = 200
 
+const ZOOM_RANGE: [number, number] = [0.22, 3.5]
+// Fitting a handful of nodes would zoom to the range limit; the fit stops where labels still read at their own size.
+const READABLE_FIT_ZOOM = 1.5
+
 export interface AnkoleGraphHandle {
   zoomIn: () => void
   zoomOut: () => void
@@ -82,6 +86,8 @@ export interface AnkoleGraphProps {
   highlightedNodeId?: string | null
   focusCenterNodeId?: string | null
   showEdgeLabels?: boolean
+  /** Each new value fits the graph into view once it has drawn; panning and zooming afterwards stay the person's. */
+  fitKey?: string | null
   onSelectNode?: (nodeId: string | null) => void
   onHoverNode?: (nodeId: string | null) => void
   onNavigateNode?: (node: AnkoleGraphNode, event: MouseEvent<HTMLAnchorElement>) => void
@@ -134,6 +140,7 @@ export function AnkoleGraph({
   highlightedNodeId = null,
   focusCenterNodeId: requestedFocusCenterNodeId = null,
   showEdgeLabels = false,
+  fitKey = null,
   onSelectNode,
   onHoverNode,
   onNavigateNode,
@@ -153,6 +160,7 @@ export function AnkoleGraph({
   const graphRef = useRef<Graph | null>(null)
   // The latest render or redraw, so a focus can start after the redraw that a selection triggers.
   const pendingDrawRef = useRef<Promise<unknown>>(Promise.resolve())
+  const fittedKeyRef = useRef<string | null>(null)
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
 
   const [stageSize, setStageSize] = useState<{ width: number; height: number }>({ width: 960, height: 560 })
@@ -215,19 +223,28 @@ export function AnkoleGraph({
   const latestSyncRef = useRef(placeAnchors)
   latestSyncRef.current = placeAnchors
 
+  // The first render lays the graph out before it draws, and a selection redraws it; the node links show
+  // before either finishes. A viewport action waits for that render or redraw, so a click is not dropped
+  // and a redraw cannot cancel its animation.
+  const afterDraw = useCallback((action: (graph: Graph) => Promise<unknown>) => {
+    void pendingDrawRef.current
+      .then(() => {
+        const graph = graphRef.current
+        if (!graph || graph.destroyed || !graph.rendered) return
+        return action(graph).then(() => latestSyncRef.current())
+      })
+      .catch(() => {})
+  }, [])
+  const fitView = useCallback(() => {
+    afterDraw(graph => {
+      graph.setZoomRange([ZOOM_RANGE[0], READABLE_FIT_ZOOM])
+      return graph.fitView({ when: 'always', direction: 'both' }, animated ? { duration: 180 } : false).finally(() => {
+        if (!graph.destroyed) graph.setZoomRange(ZOOM_RANGE)
+      })
+    })
+  }, [afterDraw, animated])
+
   useImperativeHandle(ref, () => {
-    // The first render lays the graph out before it draws, and a selection redraws it; the node links show
-    // before either finishes. A viewport action waits for that render or redraw, so a click is not dropped
-    // and a redraw cannot cancel its animation.
-    const afterDraw = (action: (graph: Graph) => Promise<unknown>) => {
-      void pendingDrawRef.current
-        .then(() => {
-          const graph = graphRef.current
-          if (!graph || graph.destroyed || !graph.rendered) return
-          return action(graph).then(() => latestSyncRef.current())
-        })
-        .catch(() => {})
-    }
     return {
       zoomIn() {
         afterDraw(graph => graph.zoomBy(1.25, animated ? { duration: 150 } : false))
@@ -235,9 +252,7 @@ export function AnkoleGraph({
       zoomOut() {
         afterDraw(graph => graph.zoomBy(0.8, animated ? { duration: 150 } : false))
       },
-      fitView() {
-        afterDraw(graph => graph.fitView({ when: 'always', direction: 'both' }, animated ? { duration: 180 } : false))
-      },
+      fitView,
       focusNode(nodeId: string) {
         // The click that focuses a node usually selects it as well, and React starts that redraw after the
         // click handler returns, so the focus waits one task before it joins the pending redraw.
@@ -248,7 +263,7 @@ export function AnkoleGraph({
         )
       }
     }
-  }, [animated])
+  }, [afterDraw, animated, fitView])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -367,7 +382,7 @@ export function AnkoleGraph({
       height: initialSize.height,
       autoResize: false,
       animation: animated,
-      zoomRange: [0.22, 3.5],
+      zoomRange: ZOOM_RANGE,
       autoFit: { type: 'view', options: { when: 'overflow', direction: 'both' } },
       padding: [36, 36, 36, 36]
     })
@@ -409,6 +424,7 @@ export function AnkoleGraph({
     return () => {
       cancelHoverTimer()
       prevStructureKeyRef.current = ''
+      fittedKeyRef.current = null
       previousPositionsRef.current = new Map()
       graphRef.current = null
       // A render of the destroyed graph may never settle, so the next graph starts a fresh chain.
@@ -489,6 +505,13 @@ export function AnkoleGraph({
       pendingDrawRef.current = Promise.all([pendingDrawRef.current, drawn])
     }
   }, [animated, graphSpec, layout, nodes.length, structureKey])
+
+  // This effect follows the data effect, so the fit waits for the draw of the nodes that changed the key.
+  useEffect(() => {
+    if (!fitKey || fitKey === fittedKeyRef.current) return
+    fittedKeyRef.current = fitKey
+    fitView()
+  }, [fitKey, fitView])
 
   const forwardWheelToCanvas = useCallback((event: React.WheelEvent<HTMLAnchorElement>) => {
     const host = canvasHostRef.current

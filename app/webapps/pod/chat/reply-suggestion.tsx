@@ -1,3 +1,4 @@
+import { Kbd } from '@ankole/uikit'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -104,7 +105,10 @@ export function useReplySuggestion({
   }
 }
 
-/** Inline ghost placeholder and trailing Tab keycap inside an empty composer input. */
+/**
+ * Inline ghost text inside an empty composer input, labelled as a suggestion with its Tab key so that nobody reads it
+ * as their own draft. Accepting it or typing removes the label along with the ghost.
+ */
 export function ReplySuggestionGhost({ suggestion }: { suggestion: ActiveReplySuggestion | undefined }) {
   const { t } = useTranslation()
   if (!suggestion) return null
@@ -121,12 +125,8 @@ export function ReplySuggestionGhost({ suggestion }: { suggestion: ActiveReplySu
         title={t('pod.reply_suggestion.tab_hint')}
         onMouseDown={event => event.preventDefault()}
         onClick={suggestion.accept}>
-        <kbd className="pod-chat-composer-suggestion-kbd">
-          <span aria-hidden className="pod-chat-composer-suggestion-glyph">
-            ⇥
-          </span>
-          Tab
-        </kbd>
+        {t('pod.reply_suggestion.label')}
+        <Kbd>Tab</Kbd>
       </button>
     </div>
   )

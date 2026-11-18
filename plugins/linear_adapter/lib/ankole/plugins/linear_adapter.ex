@@ -19,8 +19,28 @@ defmodule Ankole.Plugins.LinearAdapter do
         module: Ankole.Plugins.LinearAdapter.Connector,
         auth_schemes: ["oauth2"],
         credential_fields: [
-          %{key: "clientID", label: "OAuth client ID", secret: false, required: true},
-          %{key: "clientSecret", label: "OAuth client secret", secret: true, required: true}
+          %{
+            key: "clientID",
+            label: %{
+              "default" => "OAuth client ID",
+              "zh-Hans-CN" => "OAuth 客户端 ID",
+              "ja-JP" => "OAuth クライアント ID",
+              "ko-KR" => "OAuth 클라이언트 ID"
+            },
+            secret: false,
+            required: true
+          },
+          %{
+            key: "clientSecret",
+            label: %{
+              "default" => "OAuth client secret",
+              "zh-Hans-CN" => "OAuth 客户端密钥",
+              "ja-JP" => "OAuth クライアントシークレット",
+              "ko-KR" => "OAuth 클라이언트 시크릿"
+            },
+            secret: true,
+            required: true
+          }
         ]
       }
     ]

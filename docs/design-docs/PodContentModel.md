@@ -595,7 +595,13 @@ categories participate alongside regular Pages (excluding hidden
 `ankole_brain_sources` backing nodes), whereas internal Page pickers default
 `domain` to `pages`. While the 180 ms input debounce settles, the command menu
 filters cached Pages locally using their latest confirmed titles, then replaces
-them in exact server order (`shouldFilter={false}`), showing empty-query `Recent searches`
+them in exact server order (`shouldFilter={false}`). An entry whose name equals the
+query, ignoring case and repeated whitespace, leads the list and holds the default
+selection however its results arrive, and its group moves to the top while the
+other groups keep their order, so Enter opens the exact match. The footer link
+`View in page search` names its destination, because `/content/search` covers
+Pages and Brain knowledge only; Chats stay openable from the menu itself. The menu
+shows empty-query `Recent searches`
 (persisted in `pod_search_queries` with 30-second prefix/suffix coalescing, a
 20-entry per-principal cap, single-entry deletion, and Clear) above `Recent
 pages`. The browser also caches Page metadata and recent searches by Pod and
@@ -618,7 +624,8 @@ or jumping to the matched file line, CSV row, workbook sheet, presentation
 slide, or PDF page and highlighting matches through `TreeWalker` and
 `CSS.highlights` until Escape clears the find bar. Search hits, quick-navigation
 items, and Page references in Chat render visible ancestor breadcrumbs so users
-can tell identically named Pages apart, alongside consistent per-type Page icons
+can tell identically named Pages apart; search hits in the full page and the
+command menu also mark each Private Page with the same `Private` badge, alongside consistent per-type Page icons
 across sidebars, pickers, embeds, and Chat messages. Within content lists, `J`
 and `K` move focus while text inputs preserve normal typing and IME keys;
 desktop lists use compact row density and touch layouts expand hit targets.
@@ -661,13 +668,16 @@ follows the title, and the more-actions menu sits at the header's end. That menu
 `Find in conversation` (`⌘F` / `Ctrl+F`), followed by rename, pin, export, and
 delete or leave, and every item carries an icon. On a Page, the top bar's path
 is the Page path in 12 px secondary text with tertiary `/` separators, in text
-only: every path begins at `Pages`, which links to all Pages, then names the
+only: every path begins at the list that holds the Page, which is `Space`,
+`Private`, `Shared with me` for another person's Private Page, or `Brain` for
+knowledge. When the browser does not know the viewer, a Private Page's path
+begins at `Search all pages` instead. The path then names the
 direct parent and ends with the open Page beside its favorite star; on a phone
 the Page's more-actions menu adds or removes the favorite instead. On an
 Applet Page, a muted link to the Conversation where an Agent created the Applet
 follows the star while the viewer can still open that Conversation, and on a
-narrow top bar the link keeps only its icon. Any ancestors between `Pages` and
-the direct parent fold into a menu behind an ellipsis. On a phone, `Pages` gives
+narrow top bar the link keeps only its icon. Any ancestors between that list and
+the direct parent fold into a menu behind an ellipsis. On a phone, the list gives
 way to the title and every ancestor folds into that menu. The path is the Page
 read's `ancestors`, so an unreadable parent starts the path below it. The
 Page's people and actions sit at the end of the top bar. A document's save state
@@ -694,7 +704,11 @@ starts 18 px in from the panel's edge. Selects in either header are borderless t
 chat composer docks at the bottom of the panel before the first message as
 well as after it. The Assistant panel connects only the current member's
 personal assistant, with private task history for the Page and no Agent picker.
-Guests see Comments without an Assistant panel. Selected text offers Ask
+Guests see Comments without an Assistant panel. Below each input, the panel
+names who will read what the member sends: the Assistant composer says that
+only the member and their personal assistant see the chat and that the
+assistant's edits change this Page, and the Comments composer says that members
+who can see the Page's comments see the comment. Selected text offers Ask
 assistant and Comment; mentioning a colleague in Comments addresses that
 colleague in the Page's internal comment Session.
 
@@ -1090,8 +1104,10 @@ fills directories that have no cached data and keeps only the active path in its
 own query. Revalidating the path preserves loaded directory pages and cursors.
 Creation controls subscribe to an enabled directory query whenever they need
 the caller's root capabilities. The default creation menu and Recent select
-those capabilities from the Space root query; favorites, Shared, and search
-also load that directory. These consumers share its cache and in-flight request,
+those capabilities from the Space root query, and search also loads that
+directory. Favorites and Shared offer no creation menu, because a Page created
+there would land in Space: an empty Favorites list links to Space to find Pages,
+and an empty Shared list says that Pages others share appear there. These consumers share its cache and in-flight request,
 and fetch independently of sidebar bootstrap success. Access changes invalidate
 the same query so active consumers reread the caller's permissions.
 Lists expose a retry when this read fails and prevent creation from cached
@@ -1138,7 +1154,11 @@ details through TanStack Query, which owns freshness and deduplicates the read
 when the user follows the link. A cold expansion rotates the arrow immediately
 and shows an inline spinner after 250 ms, keeping the row height stable. Cached
 children remain visible during background validation. Opening Home uses the
-existing cache, and the Space settings dialog loads its details when opened.
+existing cache, and the Space page permissions dialog loads its details when opened.
+The `Space` tree's header calls that dialog `Space page permissions` and titles it
+with the organization's name, because it sets the default member role and the
+Agent grants for the Space's Pages; the account menu's `Pod settings` manages the
+organization itself.
 
 The sidebar retains Home inside a React Activity boundary. While Chat is selected,
 React preserves Home's local branch choices and DOM but releases its query and
@@ -1250,7 +1270,7 @@ Within the domain:
   `ILIKE` substring recall, scores `sort=best` through a single formula
   combining lexical tier/BM25 weight, 30-day workspace activity from
   `page_daily_activities`, and caller recency/favorite boosts from
-  `page_user_states` (`edited_at` and `visited_at`), and emits offset-safe `snippet.segments` plus discriminated-union
+  `page_user_states` (`edited_at` and `visited_at`), and emits offset-safe plain-text `snippet.segments` (decoding once the HTML escaping that `pdb.snippet` applies) plus discriminated-union
   `primary_target` locators (resolving document headings through
   `Ankole.Kernel.page_sections/1`) exclusively for the post-`LIMIT` result
   slice. Page lifecycle mutations, document saves (including external `<embed>`
@@ -1812,7 +1832,9 @@ state if the last checkpoint is at least five minutes old. Identical states and
 comment-only OT batches do not add checkpoints. The history viewer presents the
 current document separately from saved checkpoints. No timer or background job
 is needed to make this decision. Ordinary checkpoints show the content's last
-modification time; restore entries show the restore operation time. The preview
+modification time; restore entries show the restore operation time. When two
+adjacent entries fall in the same minute, the list and the preview header show
+their seconds, so the reader can tell the two saves apart. The preview
 also identifies when the snapshot was saved. Readers can compare a selected
 version with the current document using Markdown additions and deletions,
 including title and icon changes. The comparison renders from the two saved
@@ -2238,6 +2260,20 @@ queries in parallel while editor code chunks load, sharing one query cache
 between navigation and the editor (which renders read errors with retry buttons)
 and recording at most one recent-page visit even if development-mode effects
 replay.
+
+The Base Page keeps the selected table, the selected view, and the open record
+in its URL through the parameters that a Base search result already carries
+(`at=table:<id>` and `view=<id>`) plus `record=<id>`, so a refresh, Back, or a
+copied link returns a reader with the same access to the same record. Switching
+the table or view replaces the current history entry, whereas opening a record
+pushes a new one; Back therefore closes the record and leaves the table and view
+in place, and closing the dialog removes `record`. When the URL names a table
+that no longer exists, the page opens the first table. When it names a record
+that was deleted or that the reader cannot see, the page opens the table and
+tells the reader that the record is unavailable. The record details dialog takes
+the record's display-field value as its title and starts focus on the dialog
+rather than on its first editable field. A Base embedded in another Page keeps
+its table and view in the embed instead of the URL.
 
 `Ankole.Pod.Bases` owns table schemas, record writes, and queries. Tables,
 fields, and views are Ash resources that inherit their host Base Page's access

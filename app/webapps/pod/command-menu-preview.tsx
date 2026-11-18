@@ -1,6 +1,6 @@
 import { Button } from '@ankole/uikit'
 import { useMemo } from 'react'
-import { InlineLoading } from './content-primitives'
+import { InlineLoading, PrivatePageBadge } from './content-primitives'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { PuzzlePieceRegular } from '@ankole/uikit/icons'
@@ -281,7 +281,12 @@ export function CommandMenuPreview({
                 query={trimmedQuery}
               />
             </div>
-            {crumb ? <p className="truncate text-xs text-fg-tertiary">{crumb}</p> : null}
+            {(previewPage.private_owner_uid || crumb) && (
+              <p className="flex min-w-0 items-center gap-1.5 text-xs text-fg-tertiary">
+                {previewPage.private_owner_uid && <PrivatePageBadge />}
+                <span className="truncate">{crumb}</span>
+              </p>
+            )}
           </div>
 
           {xmlPreview.headings.length > 0 && (

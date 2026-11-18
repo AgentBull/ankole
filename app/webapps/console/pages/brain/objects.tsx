@@ -137,7 +137,9 @@ function BrainObjectsList() {
           <TableCell>
             <Badge variant="secondary">{object.subtype ? `${object.type}/${object.subtype}` : object.type}</Badge>
           </TableCell>
-          <TableCell className="max-w-[360px] truncate">{object.title}</TableCell>
+          <TableCell className="max-w-[360px] truncate">
+            {object.title?.trim() || <span className="text-fg-secondary">{untitledObjectLabel(object)}</span>}
+          </TableCell>
           <TableCell className="text-xs text-fg-secondary">{formatConsoleDate(object.updated_at)}</TableCell>
           <TableCell>
             <div className="flex flex-wrap gap-1">
@@ -153,6 +155,14 @@ function BrainObjectsList() {
       ))}
     </ResourceListPage>
   )
+}
+
+/**
+ * Names an untitled object by its parent directory and last slug segment, so untitled pages that share a name, such
+ * as several default-named pages under different folders, still read differently in the title column.
+ */
+function untitledObjectLabel(object: { id: string; slug?: string | null }): string {
+  return (object.slug ?? '').split('/').filter(Boolean).slice(-2).join('/') || object.id
 }
 
 export function BrainObjectDrawer() {
@@ -176,7 +186,7 @@ export function BrainObjectDrawer() {
             onClick={requestClose}>
             <DismissRegular />
           </Button>
-          <DrawerTitle className="text-lg tracking-normal normal-case">{page?.title ?? slug}</DrawerTitle>
+          <DrawerTitle className="text-lg tracking-normal normal-case">{page?.title || slug}</DrawerTitle>
           <DrawerDescription className="text-left break-all font-mono text-xs">{slug}</DrawerDescription>
         </DrawerHeader>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">

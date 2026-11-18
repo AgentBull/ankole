@@ -89,6 +89,7 @@ export function SkillBindings({ skill }: { skill: MetaSkill }) {
           onCheckedChange={enabled => change.mutate({ kind: 'all', enabled })}
         />
       </div>
+      {!current.can_bind_all && <p className="text-xs text-fg-tertiary">{t('pod.meta.all_agents_read_only')}</p>}
       <div className="space-y-2 text-sm">
         <label htmlFor={`${id}-colleagues`}>{t('pod.meta.colleagues')}</label>
         {colleagues.some(agent => agent.can_bind) ? (

@@ -9,8 +9,9 @@ import { cn } from '../lib/utils'
  * A one-time code field.
  *
  * The field shows the state of the code as a whole. `aria-invalid` marks a rejected code: the slots take the
- * error baseline and the group nudges once. `data-status="verifying"` passes a band of light over the slots while
- * the code is checked, and `data-status="success"` turns the baselines to the success mark.
+ * invalid fill, the focused slot a destructive edge, and the group nudges once. `data-status="verifying"` passes a
+ * band of light over the slots while the code is checked, and `data-status="success"` turns the baselines to the
+ * success mark.
  */
 function InputOTP({
   className,
@@ -88,7 +89,7 @@ function InputOTPGroup({ className, children, ...props }: React.ComponentProps<'
         ref={ringRef}
         data-slot="input-otp-focus"
         aria-hidden
-        className="pointer-events-none absolute top-0 left-0 z-10 grid place-items-center rounded-control border border-transparent opacity-0 shadow-[inset_0_-1px_0_var(--color-ring)] data-visible:opacity-100 group-has-[>[data-active=true][aria-invalid=true]]/otp-slots:shadow-[inset_0_-1px_0_var(--color-destructive)] group-has-[input:disabled]/input-otp:hidden motion-safe:[transition:transform_260ms_cubic-bezier(.22,1,.36,1),width_260ms_cubic-bezier(.22,1,.36,1),opacity_180ms_ease]">
+        className="pointer-events-none absolute top-0 left-0 z-10 grid place-items-center rounded-control border border-border-active opacity-0 data-visible:opacity-100 group-has-[>[data-active=true][aria-invalid=true]]/otp-slots:border-destructive group-has-[input:disabled]/input-otp:hidden motion-safe:[transition:transform_260ms_cubic-bezier(.22,1,.36,1),width_260ms_cubic-bezier(.22,1,.36,1),opacity_180ms_ease]">
         {slots?.some(slot => slot.hasFakeCaret) && (
           <span className="h-4 w-px bg-fg-primary motion-safe:animate-otp-caret" />
         )}
@@ -113,8 +114,8 @@ function InputOTPSlot({
       data-active={isActive}
       style={{ '--otp-index': index } as React.CSSProperties}
       className={cn(
-        'relative flex size-control-md items-center justify-center overflow-hidden rounded-control border border-field-border bg-field text-sm transition-[color,border-color,background-color,box-shadow] outline-none aria-invalid:bg-(--field-invalid) group-has-[input[aria-invalid=true]]/input-otp:bg-(--field-invalid) group-has-[input[data-status=success]]/input-otp:border-b-success group-has-[input[data-status=success]]/input-otp:shadow-[inset_0_-1px_0_var(--color-success)] data-[active=true]:z-10 data-[active=true]:border-control-edge data-[active=true]:border-b-ring data-[active=true]:bg-page data-[active=true]:shadow-[inset_0_-1px_0_var(--color-ring)] group-has-[input:disabled]/input-otp:border-transparent group-has-[input:disabled]/input-otp:text-fg-disabled',
-        'group-has-[>[data-slot=input-otp-focus][data-visible]]/otp-slots:data-[active=true]:border-b-field-border group-has-[>[data-slot=input-otp-focus][data-visible]]/otp-slots:data-[active=true]:shadow-none',
+        'relative flex size-control-md items-center justify-center overflow-hidden rounded-control border border-field-border bg-field text-sm transition-[color,border-color,background-color,box-shadow] outline-none aria-invalid:bg-(--field-invalid) group-has-[input[aria-invalid=true]]/input-otp:bg-(--field-invalid) group-has-[input[data-status=success]]/input-otp:border-b-success group-has-[input[data-status=success]]/input-otp:shadow-[inset_0_-1px_0_var(--color-success)] data-[active=true]:z-10 data-[active=true]:border-border-active data-[active=true]:bg-page group-has-[input:disabled]/input-otp:border-transparent group-has-[input:disabled]/input-otp:text-fg-disabled',
+        'group-has-[>[data-slot=input-otp-focus][data-visible]]/otp-slots:data-[active=true]:border-field-border',
         className
       )}
       {...props}>

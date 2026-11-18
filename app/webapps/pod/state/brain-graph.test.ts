@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildBrainOntologyGraph, resolveBrainColorRamp } from './brain-graph'
+import { brainSearchFitKey, buildBrainOntologyGraph, resolveBrainColorRamp } from './brain-graph'
 
 const CATEGORIES = [
   { id: 'cat-people', name: 'people', can_edit: false, entity_type: 'person', primitive: 'entity' },
@@ -178,5 +178,28 @@ describe('buildBrainOntologyGraph', () => {
 
     expect(graph.edges.find(edge => edge.label === 'advises')?.ramp).not.toBe('gray')
     expect(graph.edges.find(edge => edge.label === 'evidences')?.ramp).toBe('gray')
+  })
+})
+
+describe('brainSearchFitKey', () => {
+  const hit = [{ id: 'c-acme' }]
+
+  test('a query restored from the URL fits its visible set once the graph has nodes', () => {
+    const restored = { query: 'acme', count: 0 }
+    expect(brainSearchFitKey(restored, 'acme', [])).toBeNull()
+    expect(brainSearchFitKey(restored, 'acme', hit)).toBe('0:c-acme')
+  })
+
+  test('typing past the committed query asks for no fit until Enter commits it', () => {
+    expect(brainSearchFitKey({ query: 'acme', count: 1 }, 'acme c', hit)).toBeNull()
+    expect(brainSearchFitKey({ query: '', count: 0 }, '', hit)).toBeNull()
+    expect(brainSearchFitKey({ query: 'acme c', count: 2 }, 'acme c', hit)).toBe('2:c-acme')
+  })
+
+  test('a new visible set under the same committed query asks for a new fit', () => {
+    const committed = { query: 'acme', count: 1 }
+    expect(brainSearchFitKey(committed, 'acme', [...hit, { id: 'c-acme-cloud' }])).not.toBe(
+      brainSearchFitKey(committed, 'acme', hit)
+    )
   })
 })

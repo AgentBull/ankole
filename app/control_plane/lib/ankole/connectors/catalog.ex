@@ -103,7 +103,8 @@ defmodule Ankole.Connectors.Catalog do
   defp field(field) do
     %{
       key: Ankole.Attrs.get(field, :path),
-      label: label(Ankole.Attrs.get(field, :label)),
+      # Forms pick the viewer's locale from the declared label map.
+      label: Ankole.Attrs.get(field, :label),
       secret: Ankole.Attrs.get(field, :encrypted) == true,
       required: Ankole.Attrs.get(field, :required) == true,
       type: Ankole.Attrs.get(field, :type) || "string",
@@ -116,9 +117,6 @@ defmodule Ankole.Connectors.Catalog do
   defp localized(value) when is_binary(value), do: %{"default" => value}
   defp localized(value) when is_map(value), do: value
 
-  defp label(value) when is_binary(value), do: value
-  defp label(value) when is_map(value), do: value["default"] || value["en"] || ""
-  defp label(_), do: ""
   defp scheme("lark"), do: "lark_app"
   defp scheme("email"), do: "imap_smtp"
   defp scheme(_), do: "platform_app"

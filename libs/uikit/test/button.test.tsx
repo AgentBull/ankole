@@ -8,7 +8,7 @@ function buttonClasses(node: React.ReactNode) {
 }
 
 describe('Button toolbar sizes', () => {
-  test('holds a 20px icon 6px inside a 32px toolbar icon button whose ghost hover tints only the icon box', () => {
+  test('centres a 20px icon in a 32px toolbar icon button whose ghost hover tints a 24px box', () => {
     const classes = buttonClasses(
       <Button variant="ghost" size="icon-lg" aria-label="Search">
         <svg aria-hidden />
@@ -17,10 +17,10 @@ describe('Button toolbar sizes', () => {
     expect(classes).toEqual(
       expect.arrayContaining([
         'size-control-md',
-        'p-1.25',
+        'p-0.75',
         "[&_svg:not([class*='size-'])]:size-5",
         'bg-clip-content',
-        'rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)]',
+        'rounded-[calc(var(--radius-control)+var(--spacing))]',
         'hover:bg-layer-hover',
         'active:bg-layer-pressed'
       ])
@@ -29,7 +29,7 @@ describe('Button toolbar sizes', () => {
     expect(classes).not.toContain('rounded-control')
   })
 
-  test('holds a 20px icon 6px inside a 32px action-row button whose ghost hover tints only the icon box', () => {
+  test('centres a 20px icon in a 32px action-row button whose ghost hover tints a 24px box', () => {
     const classes = buttonClasses(
       <Button variant="ghost" size="icon-md" aria-label="Copy">
         <svg aria-hidden />
@@ -38,10 +38,10 @@ describe('Button toolbar sizes', () => {
     expect(classes).toEqual(
       expect.arrayContaining([
         'size-control-md',
-        'p-1.25',
+        'p-0.75',
         "[&_svg:not([class*='size-'])]:size-5",
         'bg-clip-content',
-        'rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)]',
+        'rounded-[calc(var(--radius-control)+var(--spacing))]',
         'hover:bg-layer-hover'
       ])
     )
@@ -88,7 +88,7 @@ describe('buttonVariants', () => {
     expect(raw).toEqual(
       expect.arrayContaining([
         'bg-clip-content',
-        'rounded-[calc(var(--radius-micro)+var(--spacing)*1.5)]',
+        'rounded-[calc(var(--radius-control)+var(--spacing))]',
         'max-md:hidden'
       ])
     )

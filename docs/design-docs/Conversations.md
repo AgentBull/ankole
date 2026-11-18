@@ -817,8 +817,15 @@ Action Card, is an outline card at most 540 px wide that narrows with its
 column. A 20 px icon and a 12 px status line head it, its question takes the
 message text's 14 px step in the Medium weight, and its choices are rows of 14 px text that take the
 hover wash. While the decision waits, the card's edge and status line take the
-warning colour; once it is decided, the card returns to the plain hairline and
-states the outcome on a 12 px line. Queued
+warning colour, and the status line says that a decision is needed. Once the
+decision is made, the card returns to the plain hairline and its status line
+becomes the card's one conclusion: "Answered" with the chosen option for a
+question, or the outcome badge for an approval, followed by who decided and
+when, whenever Pod knows them. The chosen option stays selected and every option
+stays disabled, so the card repeats no receipt underneath; a 12 px line under the
+card adds only progress, a warning, or the executor's note. A summary that a
+person approves wraps in full inside its Unicode bidirectional isolate, while a
+page title or a name may truncate. Queued
 messages offer a labelled Steer action, and a background run card counts its
 time in minutes and hours once it runs past a minute. A run card is an outline
 card at most 540 px wide that narrows with its column: a 20 px status icon, the
@@ -998,6 +1005,12 @@ overrides:
   Clicking the writing surface between controls focuses the textarea.
   Autocomplete popovers keep focus inside the textarea, respond to arrow keys,
   `Tab`, `Enter`, and `Escape`, and match multi-word names and Page titles.
+  The selected option follows its identity, so results that arrive later never
+  move it. The `/` menu lists the conversation commands first and the Skills
+  after them under their own heading, so the first command stays the default on
+  a slow load and on a fast one; typing filters both groups. A Skill row shows
+  the Skill's title with its `/slug` beside it, or the slug once when the Skill
+  has no separate title, and a one-line truncated description.
   The options appear from the corner nearest the composer, and one highlight
   follows the active option under the pointer or keyboard. The recipient,
   model, and send-mode menus open toward the space available beside their
@@ -1059,7 +1072,8 @@ overrides:
   reference card.
 - **Reply suggestion:** After an Agent reply in a room whose only human
   participant is the viewer, Pod shows one suggested next message as inline
-  ghost text with a trailing `⇥ Tab` keycap inside the empty composer once the
+  ghost text, labelled "Suggested reply" with a `Tab` key in the tertiary colour
+  so that nobody mistakes it for their own draft, inside the empty composer once the
   room is completely idle—with no pending question, prepared confirmation card,
   queued input, active Agent turn, linked Background Agent Job, running
   Workflow, or active colleague exchange. `Conversations.ReplySuggestion`
@@ -1068,9 +1082,10 @@ overrides:
   `light` is unset) from the last eight messages, in the language the Human
   writes in the room, and returns no text for a multi-line reply, a reply over
   120 characters, or one that repeats the Human's last message. Pressing `Tab`
-  in the empty composer or clicking the `⇥ Tab` keycap fills the draft. Typing
-  or new work hides it, and after the Human passes over three suggestions in a
-  row Pod stops showing suggestions in that room for the rest of the visit.
+  in the empty composer or clicking the label fills the draft, which then is an
+  ordinary draft without the label. Typing or new work hides it, and after the
+  Human passes over three suggestions in a row Pod stops showing suggestions in
+  that room for the rest of the visit.
   Ankole stores no suggestion.
 - **Editing and conflict handling:** Editing a queued item (`action: "edit"`)
   loads that item into the composer, whereas editing a committed timeline

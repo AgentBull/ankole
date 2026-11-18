@@ -48,7 +48,7 @@ function PageCell({ page }: { page?: BrainMergePageSummary | null }) {
   if (!page) return <span className="text-xs">—</span>
   return (
     <div className="grid gap-0.5">
-      <BrainPageLink pageID={page.page_id}>{page.title ?? page.slug}</BrainPageLink>
+      <BrainPageLink pageID={page.page_id}>{page.title || page.slug}</BrainPageLink>
       <span className="font-mono text-50 text-fg-secondary">{page.slug}</span>
     </div>
   )

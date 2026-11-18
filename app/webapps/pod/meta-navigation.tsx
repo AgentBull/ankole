@@ -56,12 +56,17 @@ export function isMetaTargetActive(
   return true
 }
 
+/** A Meta section stays current on its list, its detail pages, and every query view below its path. */
+export function isMetaSectionActive(to: string, pathname: string, activeSection?: CollapsibleSection): boolean {
+  const section = podLocation(to).pathname
+  return isSidebarSectionActive(activeSection, 'meta') && (pathname === section || pathname.startsWith(`${section}/`))
+}
+
 export function MetaLink({ to, children, onNavigate }: { to: string; children: ReactNode; onNavigate?: () => void }) {
   return (
     <Link
       {...linkTarget(to)}
       onClick={onNavigate}
-      activeOptions={{ exact: true }}
       className="nav-row flex min-w-0 flex-1 items-center gap-1.5 truncate rounded-control px-2 py-1">
       {children}
     </Link>
@@ -80,6 +85,7 @@ type MetaTreeProps = {
 function MetaBranch({
   branchKey,
   to,
+  section = false,
   label,
   icon,
   children,
@@ -92,12 +98,17 @@ function MetaBranch({
 }: MetaTreeProps & {
   branchKey: string
   to?: string
+  section?: boolean
   label: string
   icon: ReactNode
   children: ReactNode
 }) {
   const open = expanded.has(branchKey)
-  const active = to ? isMetaTargetActive(to, pathname, searchStr, activeSection) : false
+  const active = !to
+    ? false
+    : section
+      ? isMetaSectionActive(to, pathname, activeSection)
+      : isMetaTargetActive(to, pathname, searchStr, activeSection)
   return (
     <SidebarMenuItem>
       <SidebarMenuRow className="pod-tree-row" data-active={active ? '' : undefined}>
@@ -199,12 +210,19 @@ export function MetaNavigation({
   }
   return (
     <SidebarMenu className="pod-tree">
-      <MetaBranch branchKey="brain" to="/meta/brain" label={t('pod.meta.brain')} icon={<BrainRegular />} {...treeProps}>
+      <MetaBranch
+        branchKey="brain"
+        to="/meta/brain"
+        section
+        label={t('pod.meta.brain')}
+        icon={<BrainRegular />}
+        {...treeProps}>
         <BrainTree {...treeProps} />
       </MetaBranch>
       <MetaBranch
         branchKey="skills"
         to="/meta/skills"
+        section
         label={t('pod.meta.skills')}
         icon={<PuzzlePieceRegular />}
         {...treeProps}>
@@ -213,6 +231,7 @@ export function MetaNavigation({
       <MetaBranch
         branchKey="agents"
         to="/meta/agents"
+        section
         label={t('pod.meta.agents')}
         icon={<BotRegular />}
         {...treeProps}>

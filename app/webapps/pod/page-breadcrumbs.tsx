@@ -17,27 +17,31 @@ import {
 } from '@ankole/uikit'
 import { Link } from '@tanstack/react-router'
 
-import { podLocation } from '../common/browser-context'
+import { podLocation, principalUID } from '../common/browser-context'
 import { BdiLabel } from '../common/bidi-file-name'
 import { stripBidi } from '../common/bidi'
 import { linkTarget } from '../common/router'
 import { pageLocation } from './state/page-location'
 import type { Page } from './content-api'
+import { scopeLabels } from './content-primitives'
 
 /**
- * The Page's path in the top bar, in text only. Every path starts from the same anchor, `Pages`, so the bar keeps
- * one shape from Page to Page; the direct parent follows, and any ancestors between them fold into a menu behind
- * the ellipsis. On a phone the anchor gives way to the title and every ancestor folds into the menu. Ancestors
- * shrink before the title does.
+ * The Page's path in the top bar, in text only. Every path starts from the list that holds the Page: Brain, Space,
+ * Private, or Shared with me for another person's Private Page. The direct parent follows, and any ancestors between
+ * them fold into a menu behind the ellipsis. On a phone the anchor gives way to the title and every ancestor folds
+ * into the menu. Ancestors shrink before the title does.
  */
 export function PageBreadcrumbs({
   ancestors: sourceAncestors,
+  privateOwnerUID,
   title,
   compact,
   current
 }: {
   /** The readable ancestors from the root down to the parent, as the Page read returns them. */
   ancestors: readonly Page[]
+  /** The owner of the Private root that holds the Page, as the Page read reports it. */
+  privateOwnerUID?: string | null
   title: string
   compact: boolean
   /** Replaces the open Page's title, such as with a field that renames it in place. */
@@ -45,14 +49,27 @@ export function PageBreadcrumbs({
 }) {
   const { t } = useTranslation()
   const brain = sourceAncestors.some(page => page.type === 'knowledge' || page.system_key?.startsWith('ankole_brain'))
+  const viewerUID = principalUID()
+  const scope = !privateOwnerUID
+    ? 'space'
+    : !viewerUID
+      ? undefined
+      : privateOwnerUID === viewerUID
+        ? 'private'
+        : 'shared'
+  const anchor = brain
+    ? { to: '/meta/brain', label: t('pod.meta.brain') }
+    : scope
+      ? { to: podLocation(`/content/${scope}`).pathname, label: scopeLabels[scope] }
+      : { to: podLocation('/content/search').pathname, label: t('pod.content.search_all_pages') }
   const ancestors = usePagesMetadata(sourceAncestors).filter(page => page.system_key !== 'ankole_brain')
   const folded = compact ? ancestors : ancestors.slice(0, -1)
   const parent = compact ? undefined : ancestors.at(-1)
   const crumbs = [
     !compact && (
       <BreadcrumbItem key="anchor" className="shrink-0">
-        <BreadcrumbLink render={<Link to={brain ? '/meta/brain' : podLocation('/content/all').pathname} />}>
-          <span>{t(brain ? 'pod.meta.brain' : 'pod.content.pages')}</span>
+        <BreadcrumbLink render={<Link to={anchor.to} />}>
+          <span>{anchor.label}</span>
         </BreadcrumbLink>
       </BreadcrumbItem>
     ),

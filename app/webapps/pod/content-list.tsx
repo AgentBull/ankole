@@ -1,9 +1,19 @@
 import { useSearchDraft } from '../common/use-search-draft'
 import { formatRelativeTime } from '../common/date-time'
 import { usePageHref, usePageMetadata, usePagesMetadata } from './use-page-metadata'
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, toast } from '@ankole/uikit'
+import {
+  Button,
+  buttonVariants,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  toast
+} from '@ankole/uikit'
 import { pageCreated } from './state/navigation-cache'
-import { DeleteRegular, DismissRegular, LockClosedRegular } from '@ankole/uikit/icons'
+import { DeleteRegular, DismissRegular } from '@ankole/uikit/icons'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import type { TFunction } from 'i18next'
@@ -40,7 +50,7 @@ import {
   type PageSearchSort,
   type PageType
 } from './content-api'
-import { ContentError, scopeLabels, typeLabels, ContentSkeleton } from './content-primitives'
+import { ContentError, PrivatePageBadge, scopeLabels, typeLabels, ContentSkeleton } from './content-primitives'
 import { PermanentDeletePageDialog, usePagePurge } from './page-actions'
 import { CreatePageButton } from './page-create-menu'
 import { PageIcon } from './page-icon'
@@ -80,6 +90,8 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
   const effectiveScope = scope === 'search' ? 'all' : scope
   const search = effectiveScope === 'all'
   const trash = effectiveScope === 'trash'
+  // Favorites and Shared fill from starring and sharing, so a Page created there would land somewhere else.
+  const collected = effectiveScope === 'favorites' || effectiveScope === 'shared'
   const rootScope = effectiveScope === 'space' || effectiveScope === 'private'
   const [searchParams, setSearchParams] = useSearchParams()
   const query = searchParams.get('q') ?? ''
@@ -182,7 +194,7 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
   const searched = useQuery({ ...pageSearchQuery(query, searchOptions), enabled: search })
   const roots = useInfiniteQuery({
     ...pageChildrenQuery(effectiveScope === 'private' ? 'private' : 'space'),
-    enabled: !trash && domain === 'pages'
+    enabled: !trash && !collected && domain === 'pages'
   })
   const creatorCandidates = useQuery({
     queryKey: contentKeys.mentionCandidates('principal', ''),
@@ -248,13 +260,14 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
       .then(() => client.invalidateQueries({ queryKey: contentKeys.recentSearches(8) }))
       .catch(() => {})
   }
-  const error = pages.error || (!trash && roots.error) || restore.error
+  const error = pages.error || (!trash && !collected && roots.error) || restore.error
   return (
     <ContentListFrame
       title={search ? t('pod.content.search_pages') : scopeLabels[effectiveScope]}
       actions={
         domain === 'pages' &&
         !trash &&
+        !collected &&
         (effectiveScope === 'private'
           ? capabilities?.can_create_private !== false
           : capabilities?.can_create_space === true) && (
@@ -397,7 +410,7 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
         error={error}
         retry={() => {
           void pages.refetch()
-          if (!rootScope && !trash) void roots.refetch()
+          if (!rootScope && !trash && !collected) void roots.refetch()
         }}
       />
       {pages.isPending || (debouncing && !rows?.length) ? (
@@ -468,15 +481,25 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
         </Button>
       )}
       {!pages.isPending && !debouncing && !error && !rows?.length && (
-        <p className="py-10 text-sm text-fg-tertiary">
-          {query || (search && hasNonDefaultFilters)
-            ? trash
-              ? t('pod.content.no_matching_pages_in_trash')
-              : t('pod.content.no_pages_you_can_view_were_found')
-            : trash
-              ? t('pod.content.trash_is_empty')
-              : t('pod.content.no_pages_yet')}
-        </p>
+        <div className="space-y-3 py-10 text-sm text-fg-tertiary">
+          <p>
+            {Boolean(query || (search && hasNonDefaultFilters)) &&
+              (trash ? t('pod.content.no_matching_pages_in_trash') : t('pod.content.no_pages_you_can_view_were_found'))}
+            {!(query || (search && hasNonDefaultFilters)) &&
+              (trash
+                ? t('pod.content.trash_is_empty')
+                : effectiveScope === 'favorites'
+                  ? t('pod.content.no_favorite_pages_yet')
+                  : effectiveScope === 'shared'
+                    ? t('pod.content.shared_pages_appear_here')
+                    : t('pod.content.no_pages_yet'))}
+          </p>
+          {effectiveScope === 'favorites' && domain === 'pages' && (
+            <Link to="/content/space" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+              {t('pod.content.find_pages_in_space')}
+            </Link>
+          )}
+        </div>
       )}
       {purging && (
         <PermanentDeletePageDialog
@@ -657,12 +680,7 @@ function PageListItem({
           {targetBadge}
         </span>
       )}
-      {showPrivateBadge && (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-mini bg-layer-03 px-1.5 py-0.5 text-50 leading-4 text-fg-secondary">
-          <LockClosedRegular aria-hidden className="size-3" />
-          {t('pod.content.private')}
-        </span>
-      )}
+      {showPrivateBadge && <PrivatePageBadge />}
       {timestamp && <span className="shrink-0 text-xs text-fg-tertiary">{timestamp}</span>}
       <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[page.type]}</span>
     </>

@@ -75,7 +75,7 @@ test('knowledge approval exposes changes, keyboard-openable full draft and captu
   expect(decisions).toEqual([])
   await dialog.screenshot({ path: testInfo.outputPath('knowledge-approval.png') })
   await dialog.getByRole('button', { name: 'Confirm & Execute', exact: true }).click()
-  await expect(dialog).toContainText(/Confirmed and executed by.*Alice/)
+  await expect(dialog.locator('.pod-chat-choice-header')).toContainText(/Alice.*Executed/)
   expect(decisions).toEqual([{ data: { decision: 'confirm' } }])
 })
 

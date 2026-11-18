@@ -725,7 +725,7 @@ describe('Sidebar footer row', () => {
         'nav-row',
         'h-10.5',
         'gap-1',
-        'pe-1',
+        'px-1',
         'data-open:bg-layer-hover',
         '*:data-[slot=avatar]:size-6.5',
         '[&>[data-slot=avatar]_[data-slot=avatar-fallback]]:text-50',

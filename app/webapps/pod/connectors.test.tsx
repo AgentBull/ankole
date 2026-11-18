@@ -14,7 +14,11 @@ import type {
 import { Connectors } from './connectors'
 import { connectorKeys } from './state/connectors'
 
-test('subscription polling exposes reauthorization when the account query still has its earlier active snapshot', async () => {
+async function renderConnectors(
+  account: PodConnectorAccountsListResponse['accounts'][number],
+  triggers: PodConnectorTriggersListResponse['triggers'],
+  check: (render: () => string, client: QueryClient) => void
+) {
   await loadLocale('en-US')
   const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, staleTime: Infinity } } })
   const session: BrowserSessionResponse = {
@@ -42,22 +46,6 @@ test('subscription polling exposes reauthorization when the account query still 
       }
     ]
   }
-  const accounts: PodConnectorAccountsListResponse = {
-    accounts: [
-      {
-        id: 'alice-calendar',
-        auth_config_id: 'calendar-connection',
-        account_key: 'alice',
-        plugin_id: 'googlecalendar',
-        owner_principal_uid: 'alice',
-        subject_kind: 'human',
-        status: 'active',
-        granted_scopes: [],
-        public_metadata: { name: 'Alice calendar' },
-        updated_at: '2026-11-04T10:00:00Z'
-      }
-    ]
-  }
   const catalog: PodConnectorsCatalogResponse = {
     can_manage: false,
     oauth_callback_url: 'https://console.example/oauth/cloud/connectors/callback',
@@ -79,26 +67,12 @@ test('subscription polling exposes reauthorization when the account query still 
       }
     ]
   }
-  const trigger: PodConnectorTriggersListResponse['triggers'][number] = {
-    id: 'calendar-subscription',
-    auth_config_id: 'calendar-connection',
-    connected_account_id: 'alice-calendar',
-    connected_account_status: 'active',
-    owner_principal_uid: 'alice',
-    plugin_id: 'googlecalendar',
-    trigger_type: 'googlecalendar.event.created',
-    scope_key: 'primary',
-    status: 'provisioning',
-    config: {},
-    config_ref: 'connector-trigger://calendar-subscription',
-    updated_at: '2026-11-04T10:00:00Z'
-  }
   client.setQueryData(['pod-session', '', ''], session)
   client.setQueryData(connectorKeys.catalog, catalog)
   client.setQueryData(connectorKeys.connections, connections)
-  client.setQueryData(connectorKeys.accounts('mine'), accounts)
+  client.setQueryData(connectorKeys.accounts('mine'), { accounts: [account] })
   client.setQueryData(connectorKeys.accounts('team'), { accounts: [] })
-  client.setQueryData(connectorKeys.triggers, { triggers: [trigger] })
+  client.setQueryData(connectorKeys.triggers, { triggers })
   const rootRoute = createRootRoute({ component: Connectors })
   const router = createRouter({ routeTree: rootRoute, history: createMemoryHistory({ initialEntries: ['/'] }) })
   await router.load()
@@ -116,6 +90,44 @@ test('subscription polling exposes reauthorization when the account query still 
       </I18nextProvider>
     )
   try {
+    check(render, client)
+  } finally {
+    client.clear()
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+}
+
+const activeAccount: PodConnectorAccountsListResponse['accounts'][number] = {
+  id: 'alice-calendar',
+  auth_config_id: 'calendar-connection',
+  account_key: 'alice',
+  plugin_id: 'googlecalendar',
+  owner_principal_uid: 'alice',
+  subject_kind: 'human',
+  status: 'active',
+  granted_scopes: [],
+  public_metadata: { name: 'Alice calendar' },
+  updated_at: '2026-11-04T10:00:00Z'
+}
+
+const trigger: PodConnectorTriggersListResponse['triggers'][number] = {
+  id: 'calendar-subscription',
+  auth_config_id: 'calendar-connection',
+  connected_account_id: 'alice-calendar',
+  connected_account_status: 'active',
+  owner_principal_uid: 'alice',
+  plugin_id: 'googlecalendar',
+  trigger_type: 'googlecalendar.event.created',
+  scope_key: 'primary',
+  status: 'provisioning',
+  config: {},
+  config_ref: 'connector-trigger://calendar-subscription',
+  updated_at: '2026-11-04T10:00:00Z'
+}
+
+test('subscription polling exposes reauthorization when the account query still has its earlier active snapshot', async () => {
+  await renderConnectors(activeAccount, [trigger], (render, client) => {
     expect(render()).not.toContain('Authorize and continue')
     // Reconciliation expires the account. Only the trigger query polls; its response
     // includes the account status read by Triggers.list during that request.
@@ -130,11 +142,24 @@ test('subscription polling exposes reauthorization when the account query still 
         }
       ]
     })
-    expect(client.getQueryData(connectorKeys.accounts('mine'))).toEqual(accounts)
+    expect(client.getQueryData(connectorKeys.accounts('mine'))).toEqual({ accounts: [activeAccount] })
     expect(render()).toContain('Authorize and continue')
-  } finally {
-    client.clear()
-    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
-    else Reflect.deleteProperty(globalThis, 'window')
-  }
+  })
+})
+
+test('a personal card names the workspace connection and the person as separate subjects', async () => {
+  await renderConnectors(
+    { ...activeAccount, status: 'revoked', granted_scopes: ['calendar.events.readonly'] },
+    [],
+    render => {
+      // Interpolated values arrive wrapped in Unicode isolation marks.
+      const html = render().replace(/[⁨⁩]/g, '')
+      expect(html).toContain('Workspace connection: Active')
+      expect(html).toContain('Your authorization: Revoked · Authorization required')
+      expect(html).toContain('Reconnect')
+      expect(html).not.toContain('Connect my account')
+      expect(html).toContain('Authorized scopes')
+      expect(html).not.toContain('calendar.events.readonly')
+    }
+  )
 })

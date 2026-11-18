@@ -12,7 +12,9 @@ import {
 } from '@ankole/uikit/icons'
 import { Link } from '@tanstack/react-router'
 import { createContext, useContext, type ReactNode, type Ref } from 'react'
-import { BdiLabel } from '../../common/bidi-file-name'
+import { useTranslation } from 'react-i18next'
+import { stripBidi } from '../../common/bidi'
+import { formatRelativeTime } from '../../common/date-time'
 import type { PageSharingExplain } from '../content-api'
 import { AccessWaterfallView } from '../page-sharing/access-waterfall-view'
 import { usePageHref } from '../use-page-metadata'
@@ -29,10 +31,14 @@ type Bound = { $bindState: string }
 export type InteractionElements = {
   InteractionCard: {
     kind: 'question' | 'approval'
+    /** The card's conclusion: what waits on the reader, or what became of the decision. */
     title: string
     state: string
     muted?: boolean
     badge?: { text: string; variant: 'secondary' | 'destructive' | 'outline' }
+    /** Who decided and when, once the decision is made; either may be unknown. */
+    decidedBy?: string | null
+    decidedAt?: string | null
     testid?: string
     actionKind?: string
   }
@@ -56,7 +62,6 @@ export type InteractionElements = {
   Outcome: {
     text: string
     icon?: 'check' | 'close' | 'warning'
-    avatar?: string
     live?: boolean
     warning?: boolean
     /** The outcome was decided while the card was on screen, so it arrives instead of being there. */
@@ -84,7 +89,9 @@ const CardRef = createContext<Ref<HTMLDivElement> | undefined>(undefined)
 
 function InteractionCard({ element: { props }, children }: Rendered<'InteractionCard'>) {
   const ref = useContext(CardRef)
+  const { i18n } = useTranslation()
   const Icon = props.kind === 'approval' ? ShieldKeyholeRegular : QuestionCircleRegular
+  const decided = [props.decidedBy, formatRelativeTime(props.decidedAt, i18n.language)].filter(Boolean).join(' · ')
   return (
     <div
       ref={ref}
@@ -95,6 +102,7 @@ function InteractionCard({ element: { props }, children }: Rendered<'Interaction
       <div className="pod-chat-choice-header">
         <Icon aria-hidden />
         <span>{props.title}</span>
+        {decided && <span className="pod-chat-choice-decided">{decided}</span>}
         {props.badge && <Badge variant={props.badge.variant}>{props.badge.text}</Badge>}
       </div>
       {children}
@@ -169,11 +177,6 @@ function Outcome({ element: { props } }: Rendered<'Outcome'>) {
       data-tone={props.warning ? 'warning' : undefined}
       className="pod-chat-choice-outcome">
       {Icon && <Icon aria-hidden />}
-      {props.avatar && (
-        <span className="pod-chat-event-avatar" aria-hidden>
-          {props.avatar}
-        </span>
-      )}
       {Icon ? <span>{props.text}</span> : props.text}
     </p>
   )
@@ -221,10 +224,9 @@ function WaterfallDisclosure({ element: { props } }: Rendered<'WaterfallDisclosu
 
 const registry: { [K in keyof InteractionElements]: (props: Rendered<K>) => ReactNode } = {
   InteractionCard,
+  // A question or summary is a sentence the reader decides on, so it wraps in full; only names truncate.
   Question: ({ element: { props } }) => (
-    <p className="pod-chat-choice-question">
-      {props.bidi ? <BdiLabel value={props.text} showBidiWarning={false} /> : props.text}
-    </p>
+    <p className="pod-chat-choice-question">{props.bidi ? <bdi>{stripBidi(props.text)}</bdi> : props.text}</p>
   ),
   Choices: ({ children }) => <div className="pod-chat-choices">{children}</div>,
   Choice,

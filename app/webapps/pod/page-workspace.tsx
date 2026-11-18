@@ -820,6 +820,7 @@ function PageWorkspace({
       <ErrorBoundary variant="inline" resetKeys={[page.id]}>
         <PageBreadcrumbs
           ancestors={detail.ancestors}
+          privateOwnerUID={page.private_owner_uid}
           title={titleDraft.value.value}
           compact={isMobile}
           current={

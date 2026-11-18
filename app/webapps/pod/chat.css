@@ -1099,7 +1099,8 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 }
 
 /* The suggestion takes the place and type of the composer's first line of text: 16px from the top and 22px from
-   the sides, 16px on a 24px line. */
+   the sides, 16px on a 24px line. Its label and Tab key follow in the 12px tertiary step, so the line never reads
+   as the person's own draft. */
 .pod-chat-composer-suggestion {
   position: absolute;
   inset-block-start: 0;
@@ -1128,42 +1129,25 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-mini, 4px);
   background: transparent;
+  color: var(--fg-tertiary);
+  font-size: var(--text-50);
+  line-height: var(--text-50--line-height);
+  white-space: nowrap;
   pointer-events: auto;
   cursor: pointer;
+  transition: color var(--duration-feedback, 120ms);
 }
 .pod-chat-composer-suggestion-accept:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
-.pod-chat-composer-suggestion-kbd {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 5px;
-  border: 1px solid color-mix(in srgb, var(--fg-placeholder) 32%, var(--border-subtle));
-  border-radius: var(--radius-mini, 4px);
-  font-family: var(--font-family-sans);
-  font-size: var(--text-25);
-  font-weight: 500;
-  line-height: 16px;
-  color: var(--fg-placeholder);
-  transition:
-    color var(--duration-feedback, 120ms),
-    border-color var(--duration-feedback, 120ms),
-    background-color var(--duration-feedback, 120ms);
-}
-.pod-chat-composer-suggestion-glyph {
-  font-size: var(--text-50);
-  line-height: 1;
-}
-.pod-chat-composer-suggestion-accept:hover:not(:disabled) .pod-chat-composer-suggestion-kbd {
+.pod-chat-composer-suggestion-accept:hover {
   color: var(--fg-secondary);
-  border-color: var(--border-strong);
-  background: var(--layer-hover);
 }
 @media (pointer: coarse) {
   .pod-chat-composer-suggestion-accept {
@@ -1176,7 +1160,7 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
   .pod-chat-composer-suggestion {
     animation: none;
   }
-  .pod-chat-composer-suggestion-kbd {
+  .pod-chat-composer-suggestion-accept {
     transition: none;
   }
 }
@@ -1756,16 +1740,6 @@ body:has(.pod-chat-inspector-resize[data-resizing]) {
 .pod-chat-notice-avatar.pod-chat-avatar {
   font-size: var(--text-25);
   line-height: var(--text-25--line-height);
-}
-.pod-chat-event-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--layer-03);
-  font-size: 8px; /* glyph */ /* glyph */
 }
 /* Chat prose is 14px primary text on a 26px line in the regular weight, with blocks 12px apart, as in a document,
    and no room before the first or after the last. The message, a list item, and a quote each stack their own blocks
@@ -2599,9 +2573,22 @@ summary.pod-chat-block-card-header:hover {
 }
 .pod-chat-choice-header > span {
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .pod-chat-choice-header > [data-slot='badge'] {
   margin-inline-start: auto;
+}
+/* Who decided and when sit at the end of the status line, before the badge; a long name truncates there. */
+.pod-chat-choice-header > .pod-chat-choice-decided {
+  flex-shrink: 0;
+  max-width: 50%;
+  margin-inline-start: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pod-chat-choice-decided + [data-slot='badge'] {
+  margin-inline-start: 0;
 }
 .pod-chat-choice-question {
   margin: 0;
@@ -2701,7 +2688,8 @@ summary.pod-chat-block-card-header:hover {
 .pod-chat-choice-custom input:focus {
   box-shadow: 0 1px var(--ring);
 }
-/* What became of a decision is the card's status line: 12px secondary text after a 20px mark. */
+/* The header states what became of a decision. A footer line adds only what the header cannot: progress, a
+   warning, or the executor's note, as 12px secondary text after a 20px mark. */
 .pod-chat-choice-outcome {
   display: flex;
   align-items: center;
@@ -2713,14 +2701,6 @@ summary.pod-chat-block-card-header:hover {
 }
 .pod-chat-choice-outcome[data-tone='warning'] {
   color: var(--warning-fg);
-}
-/* The person who answered appears as a 20px avatar, whose initial takes the 10px step on its 16px line. */
-.pod-chat-choice-outcome > .pod-chat-event-avatar {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  font-size: var(--text-25);
-  line-height: var(--text-25--line-height);
 }
 /* An outcome that is decided while its card is on screen arrives out of a soft blur. A card that was decided
    before it was shown renders its outcome still. */

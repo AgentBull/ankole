@@ -43,6 +43,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from '../common/router'
+import { useSearchDraft } from '../common/use-search-draft'
 import { PageContentList } from './content-list'
 import { ContentError } from './content-primitives'
 import { metaBrainQuery, metaKeys } from './meta-api'
@@ -50,6 +51,7 @@ import { BrainMyContextView, BrainNodeClaimsSection } from './meta-brain-claims'
 import { usePageCreation } from './page-create-menu'
 import { PageRoute } from './page-workspace'
 import {
+  brainSearchFitKey,
   buildBrainOntologyGraph,
   resolveBrainColorRamp,
   type BrainEntityLayer,
@@ -424,8 +426,23 @@ function BrainInspectorCard({
 export function MetaBrain() {
   const { t } = useTranslation()
   const graph = useQuery(metaBrainQuery())
-  const [search, setSearch] = useState('')
   const [params, setParams] = useSearchParams()
+  const query = params.get('q') ?? ''
+  const [search, setSearch] = useSearchDraft(
+    query,
+    value =>
+      setParams(
+        current => {
+          if (value) current.set('q', value)
+          else current.delete('q')
+          return current
+        },
+        { replace: true, preventScrollReset: true }
+      ),
+    { delay: 180 }
+  )
+  // Enter commits the query; a query restored from the URL counts as committed, so Back returns to a fitted set.
+  const [committed, setCommitted] = useState(() => ({ query, count: 0 }))
   const lens = params.get('lens') === 'mine' ? 'mine' : 'workspace'
   const category = params.get('category') ?? 'all'
   const layoutMode = parseLayoutMode(params.get('layout'))
@@ -498,6 +515,7 @@ export function MetaBrain() {
 
   const selection = useMemo(() => projection.inspect(selectedNodeId), [projection, selectedNodeId])
   const hasHiddenLayers = hiddenEntityTypes.size > 0 || hiddenRelationKinds.size > 0
+  const fitKey = brainSearchFitKey(committed, search, projection.nodes)
 
   const view = params.get('view')
   if (view === 'trash' || view === 'favorites') return <PageContentList scope={view} domain="brain" />
@@ -582,7 +600,16 @@ export function MetaBrain() {
               <label htmlFor="brain-search" className="mb-1 block text-sm">
                 {t('pod.meta.find_object')}
               </label>
-              <Input id="brain-search" value={search} onChange={event => setSearch(event.target.value)} />
+              <Input
+                id="brain-search"
+                value={search}
+                onChange={event => setSearch(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
+                    setCommitted(previous => ({ query: search, count: previous.count + 1 }))
+                  }
+                }}
+              />
             </div>
 
             <div className="w-48">
@@ -714,6 +741,7 @@ export function MetaBrain() {
             highlightedNodeId={hoveredDirectoryId ?? (focusOnMe ? projection.primaryFocusNodeId : null)}
             focusCenterNodeId={selectedNodeId ?? (focusOnMe ? projection.primaryFocusNodeId : null)}
             showEdgeLabels={showEdgeLabels}
+            fitKey={fitKey}
             onSelectNode={setSelectedNodeId}
             onNavigateNode={node => {
               if (node.href) void navigate({ to: node.href })

@@ -417,6 +417,7 @@
   --color-scrim-secondary: var(--scrim-secondary);
   --color-border-subtle: var(--border-subtle);
   --color-border-strong: var(--border-strong);
+  --color-border-active: var(--border-active);
   --color-destructive: var(--destructive);
   --color-destructive-fg: var(--destructive-fg);
   --color-destructive-subtle: var(--destructive-subtle);
@@ -521,9 +522,11 @@
      the strong border) outlines objects. The quaternary border is an image, not a colour: a
      gradient that runs from blue at the start of an edge through a softer blue to brand-60 at its end, and the
      composer takes it as its edge. Over a translucent surface, the faint overlay border is the ceramic hairline
-     and the strong one is deeppurple-60 at 80%. */
+     and the strong one is deeppurple-60 at 80%. A field that holds focus trades its edge for the active border,
+     blue-30, on all four sides. */
   --border-subtle: var(--color-gray-50);
   --border-strong: var(--color-gray-60);
+  --border-active: var(--color-blue-30);
   --border-quaternary-stops: #6ecbf9 0%, #7bb3ed 43%, var(--color-brand-60) 100%;
   --border-quaternary: linear-gradient(90deg, var(--border-quaternary-stops));
   --border-overlay-strong: color-mix(in srgb, var(--color-deeppurple-60) 80%, transparent);
@@ -557,7 +560,8 @@
   --primary-disabled: color-mix(in srgb, var(--color-brand-60), var(--color-white) 90%);
   --primary-disabled-fg: var(--color-brand-30);
   --inverse: var(--color-gray-90);
-  /* Keyboard focus is brand: the ring takes brand-60 in light mode and brand-70 in dark mode. */
+  /* Keyboard focus is brand: the ring takes brand-60 in light mode and brand-70 in dark mode. A field draws no ring;
+     its edge turns to the active border instead. */
   --ring: var(--color-brand-60);
   /* Content that a person selects takes brand-30 at 30%, denser than the hover wash. */
   --selection: color-mix(in srgb, var(--color-brand-30) 30%, transparent);
@@ -679,7 +683,7 @@
   /* Component roles that depart from the semantic layer. */
   /* The choice controls take deeppurple ink: a checkbox and a radio draw their edge and their checked fill in
      deeppurple-60, a switch's track is deeppurple-60 off and deeppurple-70 on, and the chosen tab reads in
-     deeppurple-60 over a deeppurple-70 indicator. An unchosen tab steps back to the tertiary text. */
+     deeppurple-60 over a deeppurple-70 indicator. An unchosen tab keeps the secondary text. */
   --choice: var(--color-deeppurple-60);
   --choice-edge: var(--color-deeppurple-60);
   --switch-track: var(--color-deeppurple-60);
@@ -687,7 +691,7 @@
   --switch-track-disabled: var(--color-gray-50);
   --tab-current: var(--color-deeppurple-60);
   --tab-indicator: var(--color-deeppurple-70);
-  --tab-idle: var(--fg-tertiary);
+  --tab-idle: var(--fg-secondary);
   /* A status badge or alert lays its status background at half strength, and a badge writes its label in the
      dark step of the same hue. */
   --status-fill-alpha: 50%;
@@ -703,21 +707,21 @@
   /* A field inside a menu or the composer rounds to 6px, between the control and the surface radius. */
   --menu-field-radius: 6px;
   /* A board card's tone dot and the edges of its warning and danger states. */
-  --board-tone-gray: var(--color-gray-50);
+  --board-tone-gray: var(--fg-tertiary);
   --board-tone-blue: var(--color-blue-50);
-  --board-tone-amber: var(--color-amber-50);
+  --board-tone-amber: var(--warning-fg);
   --board-tone-purple: var(--color-purple-50);
-  --board-tone-green: var(--color-green-50);
+  --board-tone-green: var(--success);
   --board-tone-red: var(--color-red-50);
   --board-progress-warning: var(--color-amber-60);
-  --board-warning-edge: color-mix(in oklab, var(--color-amber-50) 75%, transparent);
-  --board-danger-edge: color-mix(in oklab, var(--color-red-40) 65%, transparent);
+  --board-warning-edge: color-mix(in oklab, var(--warning) 45%, transparent);
+  --board-danger-edge: color-mix(in oklab, var(--destructive) 45%, transparent);
   /* The pill that names who is working on a board, and the pill that counts the jobs needing attention. */
-  --board-chip: var(--color-blue-10);
-  --board-chip-edge: color-mix(in oklab, var(--color-blue-30) 60%, transparent);
-  --board-warning-chip: var(--color-amber-10);
-  --board-warning-chip-edge: color-mix(in oklab, var(--color-amber-40) 70%, transparent);
-  --board-warning-icon: var(--color-amber-80);
+  --board-chip: var(--layer-01);
+  --board-chip-edge: transparent;
+  --board-warning-chip: var(--warning-subtle);
+  --board-warning-chip-edge: color-mix(in oklab, var(--warning) 35%, transparent);
+  --board-warning-icon: var(--warning-fg);
   /* A found match in a Page, and the match the find bar points at. */
   --search-mark: var(--badge-yellow);
   --search-mark-current: color-mix(in oklab, var(--color-amber-50) 55%, transparent);
@@ -781,6 +785,9 @@
      overlay border and divider are gray-60 at 60%; the brand overlay divider is brand-80 at 26%. */
   --border-subtle: var(--color-gray-100);
   --border-strong: var(--color-gray-70);
+  /* The active border steps two places down its ramp, as the field edge does from gray-50 to gray-70, so a focused
+     field stays as light as its resting edge on the dark page and only turns blue. */
+  --border-active: var(--color-blue-50);
   --border-quaternary-stops: var(--color-brand-50), var(--color-brand-50);
   --border-quaternary: linear-gradient(90deg, var(--border-quaternary-stops));
   --border-overlay-strong: color-mix(in srgb, var(--color-gray-60) 60%, transparent);

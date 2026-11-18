@@ -229,6 +229,20 @@ function collectObjectAncestors(
 }
 
 /**
+ * Names the camera fit that a committed search asks for. The key changes when the person commits the query again
+ * or the committed query's visible nodes change; while the field holds uncommitted text there is no key.
+ */
+export function brainSearchFitKey(
+  committed: { query: string; count: number },
+  search: string,
+  nodes: readonly { id: string }[]
+): string | null {
+  const query = committed.query.trim()
+  if (!query || query !== search.trim() || nodes.length === 0) return null
+  return `${committed.count}:${nodes.map(node => node.id).join(',')}`
+}
+
+/**
  * Projects the control-plane Brain ontology response into `<AnkoleGraph />` nodes,
  * hierarchical/semantic/ownership/evidence edges, category combos, facet layers, and inspector lookups.
  */

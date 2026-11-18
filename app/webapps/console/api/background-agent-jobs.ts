@@ -25,9 +25,19 @@ export function backgroundAgentJobsOptions({
 }: {
   agent_uid?: string
   search?: string
+  status?: BackgroundAgentJobListItem['status']
   limit: number
 }) {
   return { ...listBackgroundAgentJobsOptions({ query: { ...filters, page: { limit } } }), select: jobsPage }
+}
+
+/**
+ * Whether a Job was queued at or after `since`. The Console home alert counts failed Jobs with this test, and the
+ * board's `?since=` filter applies the same test, so both show one set. An empty or invalid `since` admits every Job.
+ */
+export function queuedSince(job: { queued_at?: string | null }, since: string | undefined): boolean {
+  const start = Date.parse(since ?? '')
+  return Number.isNaN(start) || Date.parse(job.queued_at ?? '') >= start
 }
 
 /** The query of one Job, with the flat record as its data. */

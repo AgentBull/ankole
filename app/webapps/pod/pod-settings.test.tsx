@@ -3,9 +3,59 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
 import i18n, { loadLocale } from '../common/i18n'
-import type { PodAdminIdentityDirectoryResponse } from './api/generated/types.gen'
-import { ManagedAgent } from './pod-settings'
+import type { PodAdminIdentityDirectoryResponse, PodAdminSettingsResponse } from './api/generated/types.gen'
+import { GeneralSettings, ManagedAgent } from './pod-settings'
 import { PodProviderDirectoryReview } from './pod-settings-directory'
+import { PodSettingsModel } from './state/pod-settings'
+
+test('General settings show no value for any field until the server has answered', async () => {
+  await loadLocale('en-US')
+  const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, retry: false } } })
+  const model = new PodSettingsModel()
+  const render = () =>
+    renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <GeneralSettings model={model} />
+        </I18nextProvider>
+      </QueryClientProvider>
+    )
+
+  try {
+    // The first frame, before the response seeds the form, keeps the labels and shows skeletons in place of values.
+    const loading = render()
+    expect(loading).toContain('aria-busy="true"')
+    expect(loading).toContain('Allow external guests')
+    expect(loading).toContain('data-slot="skeleton"')
+    expect(loading).not.toContain('role="checkbox"')
+    expect(loading).not.toContain('role="combobox"')
+    expect(loading).not.toContain('English')
+
+    const settings: PodAdminSettingsResponse = {
+      displayName: 'Acme Space',
+      defaultLocale: 'zh-Hans-CN',
+      allowExternalGuests: false,
+      emailAvailable: true,
+      loginPolicy: {
+        allow_email_otp: true,
+        allow_member_credential_change: true,
+        require_sso_for_members: false,
+        allow_invite_links: true,
+        allowed_email_domains: []
+      }
+    }
+    client.setQueryData(['pod-admin-settings'], settings)
+    model.initialize('pod-1', settings)
+    const loaded = render()
+    expect(loaded).not.toContain('data-slot="skeleton"')
+    expect(loaded).toContain('简体中文')
+    expect(loaded).toContain('value="Acme Space"')
+    // The guest policy is the first checkbox and shows the stored answer: off.
+    expect(loaded.match(/role="checkbox"[^>]*aria-checked="(true|false)"/)?.[1]).toBe('false')
+  } finally {
+    client.clear()
+  }
+})
 
 test('each Agent card and its actions name the Agent they act on', async () => {
   await loadLocale('en-US')

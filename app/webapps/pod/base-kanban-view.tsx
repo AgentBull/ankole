@@ -147,7 +147,7 @@ function KanbanColumn({
     [props.view.config.filter, props.view.config.sort, field.id, group.valueJSON, group.value]
   )
   const rows = useInfiniteBaseRecords(props.tableID, columnQuery, 100)
-  const detail = useRetainedDetailRecord(rows.records, rows.update, rows.remove)
+  const detail = useRetainedDetailRecord(rows.records, rows.update, rows.remove, props.recordLocation)
   return (
     <ReferenceLabelsProvider fields={props.fields} records={rows.records}>
       <section

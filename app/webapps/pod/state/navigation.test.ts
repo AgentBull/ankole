@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { computed, effect } from '@preact/signals-react'
-import { isMetaTargetActive } from '../meta-navigation'
+import { isMetaSectionActive, isMetaTargetActive } from '../meta-navigation'
 import { routeSidebarTab } from '../sidebar'
 import { isSidebarSectionActive, mergeRecentEntries, NavigationModel } from './navigation'
 
@@ -240,6 +240,17 @@ test('isMetaTargetActive matches only the exact pathname and query parameters wi
   ).toBe(true)
   expect(isMetaTargetActive('/meta/brain?category=notes', '/meta/brain', '?category=notes', 'meta')).toBe(true)
   expect(isMetaTargetActive('/meta/brain?category=notes', '/meta/brain', '?category=notes', 'recent')).toBe(false)
+})
+
+test('isMetaSectionActive keeps a Meta section current on its list, detail pages, and direct links', () => {
+  expect(isMetaSectionActive('/meta/agents', '/meta/agents')).toBe(true)
+  expect(isMetaSectionActive('/meta/agents', '/meta/agents/colleagues/ops-bot')).toBe(true)
+  expect(isMetaSectionActive('/meta/agents', '/meta/agents/global')).toBe(true)
+  expect(isMetaSectionActive('/meta/skills', '/meta/skills/ops-guide')).toBe(true)
+  expect(isMetaSectionActive('/meta/brain', '/meta/brain/123', 'meta')).toBe(true)
+  expect(isMetaSectionActive('/meta/brain', '/meta/brainstorm')).toBe(false)
+  expect(isMetaSectionActive('/meta/skills', '/meta/agents/assistant')).toBe(false)
+  expect(isMetaSectionActive('/meta/agents', '/meta/agents/colleagues/ops-bot', 'recent')).toBe(false)
 })
 
 test('Recents retains at most three waiting or active items and reflects reopening an old conversation', () => {

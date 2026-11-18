@@ -732,7 +732,7 @@
   border-bottom-color: var(--field-border-hover);
 }
 
-/* Slot controls indicate focus with an inset box-shadow, which Forced Colors Mode strips.
+/* Slot controls indicate focus with the colour of their edge, which Forced Colors Mode replaces with a system colour.
    Restore a system Highlight outline whenever a slot or composite field holds keyboard focus. */
 @media (forced-colors: active) {
   :is([data-slot='input'], [data-slot='textarea'], [data-slot='select-trigger'][data-variant='field']):focus-visible,

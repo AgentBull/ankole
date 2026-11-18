@@ -1,4 +1,4 @@
-import { Avatar, AvatarFallback, AvatarImage, Button, cn, toast } from '@ankole/uikit'
+import { Avatar, AvatarFallback, AvatarImage, Button, cn, Skeleton, toast } from '@ankole/uikit'
 import { CameraRegular } from '@ankole/uikit/icons'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -13,11 +13,14 @@ export function ProfileAvatarUpload({
   kind,
   name,
   avatarURL,
+  loading = false,
   onUploaded
 }: {
   kind: 'member' | 'space'
   name: string
   avatarURL?: string | null
+  /** The profile has not loaded yet, so the picture is unknown rather than missing. */
+  loading?: boolean
   onUploaded(avatarURL: string): void
 }) {
   const { t } = useTranslation()
@@ -83,15 +86,19 @@ export function ProfileAvatarUpload({
   return (
     <div className="grid gap-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-        <Avatar
-          className={cn(
-            'size-20 bg-layer-03 ring-1 ring-border-subtle',
-            square && 'rounded-2xl',
-            pending && 'opacity-70'
-          )}>
-          {source && <AvatarImage src={source} alt={t('pod.settings.avatar_alt', { name })} />}
-          <AvatarFallback className="text-xl font-medium">{avatarInitials(name)}</AvatarFallback>
-        </Avatar>
+        {loading ? (
+          <Skeleton aria-hidden className={cn('size-20 shrink-0', square ? 'rounded-2xl' : 'rounded-full')} />
+        ) : (
+          <Avatar
+            className={cn(
+              'size-20 bg-layer-03 ring-1 ring-border-subtle',
+              square && 'rounded-2xl',
+              pending && 'opacity-70'
+            )}>
+            {source && <AvatarImage src={source} alt={t('pod.settings.avatar_alt', { name })} />}
+            <AvatarFallback className="text-xl font-medium">{avatarInitials(name)}</AvatarFallback>
+          </Avatar>
+        )}
         <div className="grid min-w-0 gap-2">
           <div className="grid gap-1">
             <p className="text-sm font-medium text-fg-primary">{t('pod.settings.avatar')}</p>
@@ -104,7 +111,7 @@ export function ProfileAvatarUpload({
               type="button"
               size="sm"
               variant="outline"
-              disabled={pending}
+              disabled={pending || loading}
               aria-describedby={`${kind}-avatar-hint`}
               onClick={() => input.current?.click()}>
               <CameraRegular aria-hidden data-icon="inline-start" />

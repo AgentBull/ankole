@@ -56,11 +56,7 @@ export function PageContent({
     case 'base':
       return (
         <Suspense fallback={<ContentSkeleton variant="table" />}>
-          <BasePage
-            detail={detail}
-            tableID={searchTarget?.kind === 'table' ? searchTarget.tableID : undefined}
-            viewID={searchTarget?.kind === 'table' ? searchTarget.viewID : undefined}
-          />
+          <BasePage detail={detail} />
         </Suspense>
       )
     case 'applet':

@@ -32,11 +32,14 @@ function Tabs<T extends string = string>({
 }
 
 const tabsListVariants = cva(
-  'group/tabs-list relative isolate inline-flex w-fit items-center justify-center text-fg-secondary group-data-horizontal/tabs:h-control-md group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col',
+  'group/tabs-list relative isolate inline-flex w-fit items-center justify-center text-fg-secondary group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col',
   {
     variants: {
       variant: {
-        default: 'border-b border-border-subtle bg-transparent',
+        // Tabs that name the views of one object: 14px labels in a 36px row over a hairline, which the open tab's
+        // 2px indicator covers. The hairline is an inset shadow, so the indicator never overflows a list that scrolls.
+        default:
+          'bg-transparent shadow-[inset_0_-1px_0_var(--color-border-subtle)] group-data-horizontal/tabs:h-[calc(var(--spacing-control-lg)+3px)]',
         // Tabs that name a place, like a segmented control: the open tab sits on the selected fill, which slides
         // and stretches to the next tab when the selection changes.
         object: 'gap-0.5 bg-transparent group-data-horizontal/tabs:h-control-sm',
@@ -186,11 +189,14 @@ function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsTab>) {
       className={cn(
         "group/tabs-trigger relative inline-flex h-full flex-1 cursor-pointer items-center justify-center gap-2 border border-transparent px-3 py-0 text-65 font-normal whitespace-nowrap text-(--tab-idle) transition-colors group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-1.5 hover:text-fg-primary focus-visible:-outline-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:text-fg-disabled has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:text-fg-disabled [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         'data-selected:text-(--tab-current)',
+        'group-data-[variant=default]/tabs-list:text-75 group-data-[variant=default]/tabs-list:leading-5 group-data-[variant=default]/tabs-list:data-selected:font-medium group-data-[variant=default]/tabs-list:group-data-horizontal/tabs:px-4 group-data-[variant=default]/tabs-list:group-data-horizontal/tabs:pb-0.75',
         'group-data-[variant=object]/tabs-list:flex-none group-data-[variant=object]/tabs-list:gap-1.5 group-data-[variant=object]/tabs-list:rounded-control group-data-[variant=object]/tabs-list:px-2 group-data-[variant=object]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=object]/tabs-list:border-0 group-data-[variant=object]/tabs-list:fine-hover:hover:bg-layer-hover group-data-[variant=object]/tabs-list:hover:text-fg-primary group-data-[variant=object]/tabs-list:data-selected:text-(--tab-current) group-data-[variant=object]/tabs-list:data-selected:fine-hover:hover:bg-transparent',
         // A chip keeps 2px and 4px of padding around a 24px icon and 15px text, so the bare icon of a closed tab holds
         // still when the tab opens. A closed tab draws in the secondary colour; the open tab draws its icon and its
         // Medium label in the primary colour.
-        "group-data-[variant=chip]/tabs-list:flex-none group-data-[variant=chip]/tabs-list:gap-0 group-data-[variant=chip]/tabs-list:rounded-control group-data-[variant=chip]/tabs-list:border-0 group-data-[variant=chip]/tabs-list:px-1 group-data-[variant=chip]/tabs-list:py-0.5 in-data-[mobile=true]:group-data-[variant=chip]/tabs-list:py-1.5 group-data-[variant=chip]/tabs-list:text-85 group-data-[variant=chip]/tabs-list:text-fg-secondary group-data-[variant=chip]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=chip]/tabs-list:fine-hover:hover:bg-layer-hover group-data-[variant=chip]/tabs-list:data-selected:font-medium group-data-[variant=chip]/tabs-list:data-selected:text-fg-primary group-data-[variant=chip]/tabs-list:data-selected:fine-hover:hover:bg-transparent group-data-[variant=chip]/tabs-list:[&_svg:not([class*='size-'])]:size-6",
+        // A count `Badge` inside a chip leaves the row and sits on the chip's top end corner, 4px above it and 6px
+        // inside its end edge, like a notification bubble.
+        "group-data-[variant=chip]/tabs-list:flex-none group-data-[variant=chip]/tabs-list:[&>[data-slot=badge]]:absolute group-data-[variant=chip]/tabs-list:[&>[data-slot=badge]]:-top-1 group-data-[variant=chip]/tabs-list:[&>[data-slot=badge]]:start-[calc(100%-var(--spacing)*1.5)] group-data-[variant=chip]/tabs-list:gap-0 group-data-[variant=chip]/tabs-list:rounded-control group-data-[variant=chip]/tabs-list:border-0 group-data-[variant=chip]/tabs-list:px-1 group-data-[variant=chip]/tabs-list:py-0.5 in-data-[mobile=true]:group-data-[variant=chip]/tabs-list:py-1.5 group-data-[variant=chip]/tabs-list:text-85 group-data-[variant=chip]/tabs-list:text-fg-secondary group-data-[variant=chip]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=chip]/tabs-list:fine-hover:hover:bg-layer-hover group-data-[variant=chip]/tabs-list:data-selected:font-medium group-data-[variant=chip]/tabs-list:data-selected:text-fg-primary group-data-[variant=chip]/tabs-list:data-selected:fine-hover:hover:bg-transparent group-data-[variant=chip]/tabs-list:[&_svg:not([class*='size-'])]:size-6",
         className
       )}
       {...props}
@@ -212,7 +218,7 @@ function TabsLabel({ className, children, ...props }: ComponentProps<'span'>) {
         className
       )}
       {...props}>
-      <span className="min-w-0 overflow-hidden ps-1 whitespace-nowrap opacity-0 blur-[2px] transition-[opacity,filter] duration-160 ease-out group-data-selected/tabs-trigger:opacity-100 group-data-selected/tabs-trigger:blur-none group-data-selected/tabs-trigger:delay-60 group-data-selected/tabs-trigger:duration-240 motion-reduce:transition-none">
+      <span className="min-w-0 overflow-hidden px-1 whitespace-nowrap opacity-0 blur-[2px] transition-[opacity,filter] duration-160 ease-out group-data-selected/tabs-trigger:opacity-100 group-data-selected/tabs-trigger:blur-none group-data-selected/tabs-trigger:delay-60 group-data-selected/tabs-trigger:duration-240 motion-reduce:transition-none">
         {children}
       </span>
     </span>

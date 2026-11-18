@@ -72,7 +72,14 @@ import {
   type PageSearchOptions,
   type PageSearchSort
 } from './content-api'
-import { ContentError, scopeIcons, scopeLabels, typeLabels, InlineLoading } from './content-primitives'
+import {
+  ContentError,
+  PrivatePageBadge,
+  scopeIcons,
+  scopeLabels,
+  typeLabels,
+  InlineLoading
+} from './content-primitives'
 import { isImeComposingKey } from './find-bar'
 import { PageIcon } from './page-icon'
 import { HighlightedBdiLabel, HighlightedText, SearchSnippet } from './search-highlight'
@@ -114,6 +121,25 @@ export function usePodCommandMenu() {
   const open = useContext(PodCommandContext)
   if (!open) throw new Error('Pod command menu provider is missing')
   return open
+}
+
+/**
+ * Lists first the entries whose name equals the query once trimmed, lowercased and with whitespace collapsed, and
+ * moves their group to the top, so the default selection opens the exact match. Other groups keep their order.
+ */
+export function promoteExactName<G extends { entries: readonly unknown[] }>(
+  groups: readonly G[],
+  query: string,
+  names: (entry: G['entries'][number]) => readonly string[]
+): { groups: G[]; exact?: G['entries'][number] } {
+  const key = (text: string) => normalizeSearchQuery(text.trim().replace(/\s+/g, ' '))
+  const needle = key(query)
+  const isExact = (entry: G['entries'][number]) => names(entry).some(name => key(name) === needle)
+  const index = needle ? groups.findIndex(group => group.entries.some(isExact)) : -1
+  if (index < 0) return { groups: [...groups] }
+  const group = groups[index]!
+  const entries = [...group.entries.filter(isExact), ...group.entries.filter(entry => !isExact(entry))]
+  return { groups: [{ ...group, entries } as G, ...groups.filter((_, i) => i !== index)], exact: entries[0] }
 }
 
 export function resolvePodTarget(href: string): { to: string; search?: Record<string, string>; url: string } {
@@ -447,7 +473,7 @@ export function PodCommandSurface({
     return onSelectTarget(href, state)
   }
 
-  const { groups, entries, firstPageEntry } = useMemo(() => {
+  const { groups, entries, exactValue, firstPageEntry } = useMemo(() => {
     const rawNav: Array<Omit<CommandNavigationEntry, 'kind' | 'url'>> = []
     if (agents.data?.personalAssistantAvailable) {
       const text = t('pod.chat.new_conversation')
@@ -630,12 +656,6 @@ export function PodCommandSurface({
       }
     })
 
-    const exactNavMatch =
-      Boolean(trimmedQuery) &&
-      navEntries.some(item =>
-        item.keywords.some(keyword => normalizeSearchQuery(keyword) === normalizeSearchQuery(trimmedQuery))
-      )
-
     const orderedGroups: CommandEntryGroup[] = []
     const pushRecent = () => {
       if (recentEntries.length > 0) orderedGroups.push({ kind: 'recent-search', entries: recentEntries })
@@ -691,12 +711,6 @@ export function PodCommandSurface({
       pushPages()
       pushNav()
       pushChats()
-    } else if (exactNavMatch) {
-      pushNav()
-      pushPages()
-      pushColleagues()
-      pushSkills()
-      pushChats()
     } else {
       pushPages()
       pushColleagues()
@@ -705,10 +719,25 @@ export function PodCommandSurface({
       pushNav()
     }
 
-    const flatEntries = orderedGroups.flatMap<CommandEntry>(group => group.entries)
+    const promoted = promoteExactName(orderedGroups, trimmedQuery, entry => {
+      switch (entry.kind) {
+        case 'page':
+          return [entry.page.title]
+        case 'colleague':
+          return [entry.agent.displayName]
+        case 'skill':
+          return [entry.skill.name]
+        case 'chat':
+        case 'nav':
+          return entry.keywords
+        case 'recent-search':
+          return []
+      }
+    })
     return {
-      groups: orderedGroups,
-      entries: flatEntries,
+      groups: promoted.groups,
+      entries: promoted.groups.flatMap<CommandEntry>(group => group.entries),
+      exactValue: promoted.exact?.value ?? '',
       firstPageEntry: pageEntries[0]
     }
   }, [
@@ -727,6 +756,11 @@ export function PodCommandSurface({
     t,
     trimmedQuery
   ])
+
+  // Results arrive in several responses, and the list may have moved the selection before the exact match came in.
+  useEffect(() => {
+    if (exactValue) onActiveValueChange('')
+  }, [exactValue])
 
   const effectiveActiveEntry = useMemo(
     () => (activeValue ? entries.find(entry => entry.value === activeValue) : undefined) ?? entries[0],
@@ -956,8 +990,11 @@ export function PodCommandSurface({
                                     </span>
                                   )}
                                 </span>
-                                {item.parentPath && (
-                                  <span className="block truncate text-xs text-fg-tertiary">{item.parentPath}</span>
+                                {(item.page.private_owner_uid || item.parentPath) && (
+                                  <span className="flex min-w-0 items-center gap-1.5 text-xs text-fg-tertiary">
+                                    {item.page.private_owner_uid && <PrivatePageBadge />}
+                                    <span className="truncate">{item.parentPath}</span>
+                                  </span>
                                 )}
                                 {trimmedQuery && item.match?.snippet && item.match.snippet.segments.length > 0 && (
                                   <SearchSnippet snippet={item.match.snippet} />
@@ -1108,7 +1145,7 @@ export function PodCommandSurface({
                 variant="ghost"
                 size="xs"
                 onClick={() => void choose(openFullSearchHref, undefined, trimmedQuery)}>
-                {t('pod.command.view_all_results')}
+                {t('pod.command.view_in_page_search')}
                 <ArrowUpRightRegular aria-hidden data-icon="inline-end" />
               </Button>
             )}

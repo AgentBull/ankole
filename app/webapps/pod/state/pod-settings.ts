@@ -139,6 +139,8 @@ export const PodSettingsModel = createModel(() => {
     guests,
     policy,
     domains,
+    /** The fields hold the space's settings only once the server has answered; until then they are placeholders. */
+    loaded: computed(() => savedSettings.value !== undefined),
     dirty,
     commitSaved,
     captureSave() {

@@ -2,7 +2,7 @@ import { t } from 'i18next'
 import { beforeAll, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../common/i18n'
-import { ContentLoading, ContentSkeleton, InlineLoading } from './content-primitives'
+import { ContentLoading, ContentSkeleton, InlineLoading, PrivatePageBadge } from './content-primitives'
 
 beforeAll(() => loadLocale('en-US'))
 
@@ -18,4 +18,10 @@ test('loading states expose the generic or caller-supplied label', () => {
   }
   const labeled = renderToStaticMarkup(<ContentSkeleton variant="list" label="Loading tables…" />)
   expect(labeled).toContain('Loading tables…')
+})
+
+test('the private marker names the Private scope in words, not only with its lock icon', () => {
+  const html = renderToStaticMarkup(<PrivatePageBadge />)
+  expect(html).toContain(t('pod.content.private'))
+  expect(html).toContain('aria-hidden')
 })

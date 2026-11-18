@@ -12,7 +12,7 @@ import type { ViewConfig } from './state/view-config'
 export function GalleryView(props: CardViewProps) {
   const { t } = useTranslation()
   const { RecordDetailsDialog } = props
-  const detail = useRetainedDetailRecord(props.records, props.update, props.remove)
+  const detail = useRetainedDetailRecord(props.records, props.update, props.remove, props.recordLocation)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [columns, setColumns] = useState(3)
   const attachmentFields = props.fields.filter(field => field.type === 'attachment')

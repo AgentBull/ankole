@@ -83,6 +83,7 @@ export type ChatInteraction = {
   answer_text?: string | null
   answered_by_name?: string | null
   answered_by_uid?: string | null
+  answered_at?: string | null
 }
 
 export type ConnectorAuthPrompt = {

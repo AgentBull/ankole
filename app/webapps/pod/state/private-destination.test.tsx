@@ -88,8 +88,52 @@ describe('Private page creation', () => {
   }
 })
 
+test('Favorites and Shared say how they fill instead of offering a Page that would land in Space', async () => {
+  for (const [scope, empty] of [
+    ['favorites', t('pod.content.no_favorite_pages_yet')],
+    ['shared', t('pod.content.shared_pages_appear_here')]
+  ] as const) {
+    const client = new QueryClient({
+      defaultOptions: { queries: { gcTime: Infinity, retry: false, staleTime: Infinity } }
+    })
+    client.setQueryData(contentKeys.children('space'), {
+      pages: [{ pages: [], principal_uid: 'current-human', can_create_space: true, next_cursor: null }],
+      pageParams: [undefined]
+    })
+    client.setQueryData(contentKeys.list(scope), { pages: [] })
+    const rootRoute = createRootRoute()
+    const route = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/content/$scope',
+      component: ContentListRoute
+    })
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([route]),
+      history: createMemoryHistory({ initialEntries: [`/content/${scope}`] }),
+      parseSearch: parseRouterSearch,
+      stringifySearch: stringifyRouterSearch
+    })
+    await router.load()
+    try {
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={client}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      )
+      expect(html).toContain(empty)
+      expect(html).not.toContain(`aria-label="${t('pod.content.new_page')}"`)
+      const spaceLink = new RegExp(
+        `<a\\b[^>]*href="/content/space"[^>]*>${RegExp.escape(t('pod.content.find_pages_in_space'))}</a>`
+      )
+      expect(spaceLink.test(html)).toBe(scope === 'favorites')
+    } finally {
+      client.clear()
+    }
+  }
+})
+
 test('content lists disable cached creation permissions when the directory read fails', async () => {
-  for (const scope of ['space', 'private', 'favorites', 'shared', 'search']) {
+  for (const scope of ['space', 'private', 'search']) {
     const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, retry: false } } })
     const key = contentKeys.children(scope === 'private' ? 'private' : 'space')
     client.setQueryData(key, {

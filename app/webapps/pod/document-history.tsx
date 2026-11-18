@@ -13,7 +13,7 @@ import { PageIcon } from './page-icon'
 import { pageIcon } from './page-icon-value'
 import { isRealtimeAccessDenied } from './realtime'
 import { downloadDocument, downloadKnowledge } from './state/document-export'
-import { versionTime } from './state/document-history'
+import { versionsShowingSeconds, versionTime, type VersionTime } from './state/document-history'
 import { updatePageMetadata, refreshDirectories } from './state/navigation-cache'
 import { KnowledgeProperties } from './knowledge-properties'
 
@@ -76,6 +76,9 @@ export function DocumentHistory({
     }
   })
   const date = (value: string) => formatDateTime(value, i18n.language)
+  const showingSeconds = versionsShowingSeconds(entries)
+  const versionDate = (version: VersionTime) =>
+    formatDateTime(versionTime(version), i18n.language, showingSeconds.has(version.id) ? 'medium' : 'short')
   const exportSnapshot = useMutation({
     mutationFn: () =>
       detail.page.type === 'knowledge'
@@ -126,7 +129,7 @@ export function DocumentHistory({
                   </div>
                   <p className="pod-page-save-state">
                     {snapshot
-                      ? `${date(versionTime(snapshot))} · ${snapshot.author.name || snapshot.author.principal_uid}`
+                      ? `${versionDate(snapshot)} · ${snapshot.author.name || snapshot.author.principal_uid}`
                       : t('pod.document.current_version')}
                   </p>
                   {snapshot && (
@@ -202,7 +205,7 @@ export function DocumentHistory({
                     confirm(undefined)
                     restore.reset()
                   }}>
-                  <time dateTime={versionTime(item)}>{date(versionTime(item))}</time>
+                  <time dateTime={versionTime(item)}>{versionDate(item)}</time>
                   <span className="flex min-w-0 flex-wrap items-center gap-2 [overflow-wrap:anywhere]">
                     {item.author.name || item.author.principal_uid}
                     {item.author.kind === 'agent' && (

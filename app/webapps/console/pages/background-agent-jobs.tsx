@@ -41,6 +41,7 @@ import {
   ClockRegular,
   CodeRegular,
   DismissCircleRegular,
+  DismissRegular,
   DocumentTextRegular,
   PersonRegular,
   WindowConsoleRegular
@@ -54,6 +55,7 @@ import { requestErrorMessage } from '../../common/request-errors'
 import {
   backgroundAgentJobOptions,
   backgroundAgentJobsOptions,
+  queuedSince,
   type BackgroundAgentJobItem,
   type BackgroundAgentJobListItem
 } from '../api/background-agent-jobs'
@@ -114,6 +116,11 @@ const columns: Column[] = [
   { key: 'finished', statuses: ['succeeded', 'failed', 'stopped'] }
 ]
 
+/** The Job status that `?status=` narrows the board to, or undefined for every status. */
+export function backgroundAgentJobStatusParam(value: string | null): JobStatus | undefined {
+  return columns.flatMap(column => column.statuses).find(status => status === value)
+}
+
 export function BackgroundAgentJobsPage() {
   const scope = useAgentScope()
   return <BackgroundAgentJobsForScope key={scope.agentUID} scope={scope} />
@@ -127,6 +134,9 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   const [searchDraft, setSearchDraft] = useResourceSearchDraft(searchFilter, draft =>
     setSearchParams(current => backgroundAgentJobSearchParams(current, draft), { replace: true })
   )
+  const statusFilter = backgroundAgentJobStatusParam(searchParams.get('status'))
+  const since = searchParams.get('since') ?? ''
+  const sinceValid = !Number.isNaN(Date.parse(since))
   const selectedID = resourceID(searchParams.get('job'), 1000)
   const turnsCursor = searchParams.get('cursor') ?? undefined
   const [cancelTargetID, setCancelTargetID] = useState<number>()
@@ -144,7 +154,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   }, [searchFilter, searchParam, setSearchParams])
 
   // This list endpoint spans agents on its own; the scope only narrows it.
-  const list = useQuery(backgroundAgentJobListOptions(scope.agentUID, searchFilter))
+  const list = useQuery(backgroundAgentJobListOptions(scope.agentUID, searchFilter, statusFilter))
   const detail = useQuery({
     ...backgroundAgentJobOptions(selectedID ?? 1000),
     enabled: selectedID !== undefined,
@@ -188,7 +198,8 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
     },
     pending: complete.isPending
   })
-  const jobs = list.data?.jobs ?? []
+  const fetchedJobs = list.data?.jobs ?? []
+  const jobs = fetchedJobs.filter(job => queuedSince(job, since))
   const selected = detail.data
   const cancelTarget =
     jobs.find(job => job.id === cancelTargetID) ?? (selected?.id === cancelTargetID ? selected : undefined)
@@ -207,11 +218,17 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
     setSearchParams(current => backgroundAgentJobScopeParams(current, agentUID))
   }
 
-  const isFiltered = Boolean(scope.agentUID || searchFilter.trim())
+  const statusFilterLabel = [
+    statusFilter ? t(`console.background_agent_jobs.status_${statusFilter}`) : '',
+    sinceValid ? t('console.background_agent_jobs.filter_since', { time: formatConsoleDate(since) }) : ''
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const isFiltered = Boolean(scope.agentUID || searchFilter.trim() || statusFilterLabel)
   const clearFilters = () => {
     setSearchDraft('')
     setSearchParams(current => {
-      const next = backgroundAgentJobSearchParams(current, '')
+      const next = backgroundAgentJobStatusFilterParams(backgroundAgentJobSearchParams(current, ''))
       return scope.agentUID ? backgroundAgentJobScopeParams(next, '') : next
     })
   }
@@ -238,7 +255,23 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
           placeholder={t('console.background_agent_jobs.search')}
           value={searchDraft}
           onChange={setSearchDraft}
-          filters={<AgentFilter scope={{ ...scope, selectAgent }} />}
+          filters={
+            <>
+              <AgentFilter scope={{ ...scope, selectAgent }} />
+              {statusFilterLabel ? (
+                <Badge variant="secondary">
+                  {statusFilterLabel}
+                  <button
+                    aria-label={t('console.background_agent_jobs.clear_status_filter', { filter: statusFilterLabel })}
+                    className="ml-1 inline-flex"
+                    type="button"
+                    onClick={() => setSearchParams(current => backgroundAgentJobStatusFilterParams(current))}>
+                    <DismissRegular className="size-3" />
+                  </button>
+                </Badge>
+              ) : null}
+            </>
+          }
         />
         {!list.isLoading ? <ResultCount count={jobs.length} /> : null}
       </ScopeBar>
@@ -317,8 +350,9 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
 
       {/* The board reads one page and the finished column grows without bound, so
           a busy deployment instance silently loses its older jobs off the end. Say that
-          the view is capped rather than let it look complete. */}
-      {list.data?.nextAfter ? (
+          the view is capped rather than let it look complete. A `since` window that
+          already cut the page shows its whole set. */}
+      {list.data?.nextAfter && jobs.length === fetchedJobs.length ? (
         <p className="text-sm text-fg-secondary">{t('console.background_agent_jobs.capped', { count: jobs.length })}</p>
       ) : null}
 
@@ -446,19 +480,30 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   )
 }
 
-export function backgroundAgentJobListOptions(agentUID: string, search = '') {
+export function backgroundAgentJobListOptions(agentUID: string, search = '', status?: JobStatus) {
   const agent = agentUID || undefined
   return {
-    ...backgroundAgentJobsOptions({ agent_uid: agent, search: search.trim() || undefined, limit: 100 }),
+    ...backgroundAgentJobsOptions({ agent_uid: agent, search: search.trim() || undefined, status, limit: 100 }),
     refetchInterval: ACTIVITY_REFRESH_MS,
     // A search commit changes the query key; keep the previous board on screen
     // instead of collapsing the columns into skeletons. Never across an agent
-    // scope change: another Agent's rows must not show under the new scope.
+    // or status scope change: rows outside the new scope must not show under it.
     placeholderData: (
       previousData: ListBackgroundAgentJobsResponse | undefined,
       previousQuery: { queryKey: ReturnType<typeof listBackgroundAgentJobsQueryKey> } | undefined
-    ) => (previousQuery?.queryKey[0].query?.agent_uid === agent ? previousData : undefined)
+    ) =>
+      previousQuery?.queryKey[0].query?.agent_uid === agent && previousQuery?.queryKey[0].query?.status === status
+        ? previousData
+        : undefined
   }
+}
+
+/** Drops the status and `since` window, which returns the board to every Job. */
+export function backgroundAgentJobStatusFilterParams(current: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(current)
+  next.delete('status')
+  next.delete('since')
+  return next
 }
 
 export function backgroundAgentJobSearchParams(current: URLSearchParams, search: string): URLSearchParams {

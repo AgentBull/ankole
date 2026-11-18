@@ -100,6 +100,34 @@ defmodule Ankole.Pod.PageFullTextSearchTest do
     assert title_hit.id == doc.id
   end
 
+  test "snippets carry the matched text as plain text, without the HTML escaping of pdb.snippet",
+       ctx do
+    {:ok, doc} =
+      Pages.create(ctx.actor, %{
+        title: "Escaped snippet",
+        xml: ~s(<page><p>{"status": "ok", "owner": "Tom's"} &amp; &lt;done&gt;</p></page>)
+      })
+
+    assert {:ok, %{pages: [found], matches: [match]}} = Pages.search(ctx.actor, "status")
+    assert found.id == doc.id
+    # The fragment ends at the last word, so the closing `>` gives way to an ellipsis.
+    assert Enum.map_join(match.snippet.segments, & &1.text) ==
+             ~s({"status": "ok", "owner": "Tom's"} & <done…)
+
+    assert %{text: "status", hit: true} in match.snippet.segments
+
+    # Escaped entity text in the source survives as written: each entity decodes once.
+    assert [
+             %{text: ~s(He said "), hit: false},
+             %{text: "hi", hit: true},
+             %{text: ~s(" & wrote &quot;), hit: false}
+           ] =
+             Pages.Search.parse_pdb_snippet(
+               "He said &quot;\x1Ehi\x1F&quot; &amp; wrote &amp;quot;",
+               ~s(He said "hi" & wrote &quot;)
+             )
+  end
+
   test "updating a :doc page body indexes newly added text and removes deleted text from search",
        ctx do
     {:ok, doc} =

@@ -51,7 +51,7 @@ defmodule Ankole.Plugins.GitHubAdapter do
           },
           %{
             key: "privateKey",
-            label: "App private key (PEM)",
+            label: text("App private key (PEM)", "App 私钥（PEM）", "App の秘密鍵（PEM）", "App 개인 키(PEM)"),
             type: "multiline",
             secret: true,
             required: true,
@@ -59,21 +59,23 @@ defmodule Ankole.Plugins.GitHubAdapter do
           },
           %{
             key: "clientID",
-            label: "OAuth client ID",
+            label: text("OAuth client ID", "OAuth 客户端 ID", "OAuth クライアント ID", "OAuth 클라이언트 ID"),
             secret: false,
             required: true,
             schemes: ["oauth2", "github_app"]
           },
           %{
             key: "clientSecret",
-            label: "OAuth client secret",
+            label:
+              text("OAuth client secret", "OAuth 客户端密钥", "OAuth クライアントシークレット", "OAuth 클라이언트 시크릿"),
             secret: true,
             required: true,
             schemes: ["oauth2", "github_app"]
           },
           %{
             key: "webhookSecret",
-            label: "App webhook secret",
+            label:
+              text("App webhook secret", "App Webhook 密钥", "App の Webhook シークレット", "App 웹훅 시크릿"),
             secret: true,
             required: false,
             schemes: ["github_app"]
@@ -82,15 +84,38 @@ defmodule Ankole.Plugins.GitHubAdapter do
         public_fields: [
           %{
             key: "installation_id",
-            label: "GitHub App installation ID",
+            label:
+              text(
+                "GitHub App installation ID",
+                "GitHub App 安装 ID",
+                "GitHub App のインストール ID",
+                "GitHub App 설치 ID"
+              ),
             required: true,
             schemes: ["github_app"]
           },
-          %{key: "base_url", label: "REST API URL", required: false},
-          %{key: "web_url", label: "GitHub website URL", required: false},
-          %{key: "uploads_url", label: "Release upload URL", required: false}
+          %{
+            key: "base_url",
+            label: text("REST API URL", "REST API 地址", "REST API の URL", "REST API URL"),
+            required: false
+          },
+          %{
+            key: "web_url",
+            label:
+              text("GitHub website URL", "GitHub 网站地址", "GitHub ウェブサイトの URL", "GitHub 웹사이트 URL"),
+            required: false
+          },
+          %{
+            key: "uploads_url",
+            label:
+              text("Release upload URL", "Release 上传地址", "Release アップロード URL", "Release 업로드 URL"),
+            required: false
+          }
         ]
       }
     ]
   end
+
+  defp text(default, chinese, japanese, korean),
+    do: %{"default" => default, "zh-Hans-CN" => chinese, "ja-JP" => japanese, "ko-KR" => korean}
 end

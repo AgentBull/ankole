@@ -29,24 +29,12 @@ function actionCardSpec(
   const details = formatPayloadDetails(card, t)
   const sharingExplainText =
     card.action_kind === 'pod.page.set_sharing' ? formatSharingExplainText(payload.explain_summaries, t) : undefined
-  const resolvedBy = card.resolved_by_name || t('pod.chat_timeline.teammate')
-  const confirmedBy = t('pod.chat_action_card.confirmed_by', {
-    defaultValue: 'Confirmed by {$name}',
-    name: resolvedBy
-  })
-  const settledOutcome = (
-    id: string,
-    icon: 'check' | 'warning',
-    warning: boolean,
-    actorText: string,
-    fallbackNote?: string
-  ) =>
-    add(id, 'Outcome', {
-      icon,
-      warning,
-      fresh: view.fresh,
-      text: [actorText, card.resolution_note || fallbackNote].filter(Boolean).join(' · ')
-    })
+  const decided = status !== 'prepared'
+  // The header states the outcome and who decided it; a footer note adds only what the executor reported.
+  const settledNote = (id: string, icon: 'check' | 'warning', fallbackNote?: string) => {
+    const text = card.resolution_note || fallbackNote
+    return !!text && add(id, 'Outcome', { icon, warning: icon === 'warning', fresh: view.fresh, text })
+  }
   return spec(
     add(
       'card',
@@ -60,6 +48,8 @@ function actionCardSpec(
           text: actionStatusLabel(status, t),
           variant: actionBadgeVariant(status)
         },
+        decidedBy: decided ? card.resolved_by_name : undefined,
+        decidedAt: decided ? card.resolved_at : undefined,
         testid: 'chat-action-card',
         actionKind: card.action_kind
       },
@@ -173,52 +163,23 @@ function actionCardSpec(
               { press: { action: 'resolve', params: { decision: 'confirm' } } }
             )
           ]),
-        status === 'executing' &&
-          !canRecover &&
-          !view.submitting &&
-          add('executing', 'Outcome', {
-            text: t('pod.chat_action_card.executing_by', {
-              defaultValue: 'Confirmed by {$name} · Executing…',
-              name: resolvedBy
-            }),
-            live: true
-          }),
-        status === 'executed' &&
-          settledOutcome(
-            'executed',
-            'check',
-            false,
-            t('pod.chat_action_card.executed_by', {
-              defaultValue: 'Confirmed and executed by {$name}',
-              name: resolvedBy
-            })
-          ),
+        status === 'executed' && settledNote('executed', 'check'),
         status === 'execution_uncertain' &&
-          settledOutcome(
+          settledNote(
             'execution-uncertain',
             'warning',
-            true,
-            confirmedBy,
             t('pod.chat_action_card.uncertain_notice', {
               defaultValue: 'The upstream call ended with an uncertain outcome. Inspect upstream state before retrying.'
             })
           ),
         status === 'failed' &&
-          settledOutcome(
+          settledNote(
             'failed',
             'warning',
-            true,
-            confirmedBy,
             t('pod.chat_action_card.failed_notice', {
               defaultValue: 'Execution failed before mutating upstream state.'
             })
           ),
-        status === 'cancelled' &&
-          add('cancelled', 'Outcome', {
-            icon: 'close',
-            fresh: view.fresh,
-            text: t('pod.chat_action_card.cancelled_by', { defaultValue: 'Cancelled by {$name}', name: resolvedBy })
-          }),
         status === 'stale' &&
           add('stale', 'Outcome', {
             icon: 'warning',

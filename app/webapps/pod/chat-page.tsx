@@ -451,25 +451,29 @@ export function ChatPage({
     return () => element.removeEventListener('keydown', handle)
   }, [conversationID, roomReady, openFinding])
   const composer = (
-    <Composer
-      model={model}
-      agents={callableAgents}
-      personalAssistant={personalAssistant}
-      assistantAvailable={!!agents.data?.personalAssistantAvailable}
-      directColleague={!!colleagueUID}
-      agentsLoaded={agents.isSuccess}
-      agentsPending={agents.isPending}
-      agentUID={agentUID}
-      detail={data}
-      commands={commands}
-      onInvite={() => setSharing(true)}
-      onRename={() => setRenaming(true)}
-      onSummary={() => changeSummary(true)}
-      onNew={onNewConversation}
-      inputRef={composerInput}
-      answering={actions.answer.isPending}
-      onAnswer={(interactionID, answer) => actions.answer.mutateAsync({ interactionID, answer })}
-    />
+    <>
+      <Composer
+        model={model}
+        agents={callableAgents}
+        personalAssistant={personalAssistant}
+        assistantAvailable={!!agents.data?.personalAssistantAvailable}
+        directColleague={!!colleagueUID}
+        agentsLoaded={agents.isSuccess}
+        agentsPending={agents.isPending}
+        agentUID={agentUID}
+        detail={data}
+        commands={commands}
+        onInvite={() => setSharing(true)}
+        onRename={() => setRenaming(true)}
+        onSummary={() => changeSummary(true)}
+        onNew={onNewConversation}
+        inputRef={composerInput}
+        answering={actions.answer.isPending}
+        onAnswer={(interactionID, answer) => actions.answer.mutateAsync({ interactionID, answer })}
+      />
+      {/* The Page assistant is a private chat that can still edit the shared Page, so it says both before sending. */}
+      {pageID && <p className="mt-1.5 px-3 text-xs text-fg-tertiary">{t('pod.page_chat.audience')}</p>}
+    </>
   )
   const failure = model.error.value
   const retry = (

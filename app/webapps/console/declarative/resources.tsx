@@ -354,16 +354,13 @@ export function DeclarativeResourceTable({
                   }
                 />
               ) : canInspectDetail && resolvedRowSpecs.length === 0 ? (
-                <RowViewAction
-                  label={t('common.view', { defaultValue: 'Inspect' })}
-                  onOpen={() => setSelectedRow(row)}
-                />
+                <RowViewAction label={t('common.view_details')} onOpen={() => setSelectedRow(row)} />
               ) : (
                 <TableCell className="text-right">
                   <div className="flex flex-wrap items-center justify-end gap-1">
                     {canInspectDetail ? (
                       <Button size="xs" type="button" variant="outline" onClick={() => setSelectedRow(row)}>
-                        {t('common.view', { defaultValue: 'Inspect' })}
+                        {t('common.view_details')}
                       </Button>
                     ) : null}
                     {extraMenuActions.map((action, index) => (

@@ -158,18 +158,20 @@ export function formatRecordLabel(
 export function RecordTitle({
   record,
   primary,
-  fields
+  fields,
+  fallback
 }: {
   record: BaseRecord
   primary?: BaseField
   fields?: readonly BaseField[]
+  fallback?: string
 }) {
   const resolved = primary ?? fields?.find(field => field.is_primary) ?? fields?.[0]
   const value = resolved ? fieldValue(record, resolved) : null
   return resolved && hasTitleValue(value) ? (
     <FieldValue field={resolved} value={value} plain />
   ) : (
-    <>{shortRecordID(record.id)}</>
+    <>{fallback ?? shortRecordID(record.id)}</>
   )
 }
 

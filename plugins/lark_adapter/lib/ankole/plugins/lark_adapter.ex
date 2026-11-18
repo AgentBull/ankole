@@ -20,13 +20,31 @@ defmodule Ankole.Plugins.LarkAdapter do
   alias Ankole.Plugins.LarkAdapter.CardKit
 
   # Chat bindings, identity providers, and connector connections choose from the same platforms.
-  @domain_label %{"default" => "Service region", "zh-Hans-CN" => "服务区域"}
+  @domain_label %{
+    "default" => "Service region",
+    "zh-Hans-CN" => "服务区域",
+    "ja-JP" => "サービスリージョン",
+    "ko-KR" => "서비스 리전"
+  }
   @domain_options [
     %{
       value: "feishu",
-      label: %{"default" => "Feishu (Mainland China)", "zh-Hans-CN" => "飞书（中国大陆）"}
+      label: %{
+        "default" => "Feishu (Mainland China)",
+        "zh-Hans-CN" => "飞书（中国大陆）",
+        "ja-JP" => "Feishu（中国本土）",
+        "ko-KR" => "Feishu(중국 본토)"
+      }
     },
-    %{value: "lark", label: %{"default" => "Lark (Global)", "zh-Hans-CN" => "Lark（海外）"}}
+    %{
+      value: "lark",
+      label: %{
+        "default" => "Lark (Global)",
+        "zh-Hans-CN" => "Lark（海外）",
+        "ja-JP" => "Lark（グローバル）",
+        "ko-KR" => "Lark(글로벌)"
+      }
+    }
   ]
 
   @impl true
@@ -126,7 +144,16 @@ defmodule Ankole.Plugins.LarkAdapter do
             default: "feishu",
             options: @domain_options
           },
-          %{key: "identityProvider", label: "Employee identity provider", required: false},
+          %{
+            key: "identityProvider",
+            label: %{
+              "default" => "Employee identity provider",
+              "zh-Hans-CN" => "员工身份源",
+              "ja-JP" => "従業員の ID プロバイダー",
+              "ko-KR" => "직원 ID 공급자"
+            },
+            required: false
+          },
           %{
             key: "linkPreview",
             label: %{

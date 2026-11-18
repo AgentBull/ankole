@@ -292,7 +292,7 @@ function ComboboxChips({
   return (
     <ComboboxChipsPrimitive
       className={cn(
-        'flex min-h-control-md flex-wrap items-center gap-1 rounded-control border border-field-border bg-field bg-clip-padding px-3 py-[3px] text-sm leading-5 transition-[background-color] duration-(--duration-feedback) hover:bg-field-hover focus-within:border-control-edge focus-within:border-b-ring focus-within:bg-page focus-within:shadow-[inset_0_-1px_0_var(--color-ring)] has-aria-invalid:bg-(--field-invalid) has-data-[slot=combobox-chip]:pl-[3px]',
+        'flex min-h-control-md flex-wrap items-center gap-1 rounded-control border border-field-border bg-field bg-clip-padding px-3 py-[3px] text-sm leading-5 transition-[background-color] duration-(--duration-feedback) hover:bg-field-hover focus-within:border-border-active focus-within:bg-page has-aria-invalid:bg-(--field-invalid) has-data-[slot=combobox-chip]:pl-[3px]',
         className
       )}
       {...props}
