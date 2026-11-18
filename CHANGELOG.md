@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.171 (2026-11-18)
+
+- Stop the frontend browser check from failing about half the time on pull
+  requests. The first test that opens a Spreadsheet Page now waits up to 20
+  seconds for the Vite server to compile the spreadsheet modules, which took
+  longer than the default 5 seconds on CI runners.
+
 ## Version 2.0.0-alpha.170 (2026-11-18)
 
 - Cut the frontend browser check on pull requests roughly in half. The
