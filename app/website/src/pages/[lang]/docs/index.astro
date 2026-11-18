@@ -2,7 +2,7 @@
 import { RiArrowRightLine } from '@remixicon/react'
 import { getCollection } from 'astro:content'
 import Reveal from '../../../components/Reveal.astro'
-import { getSiteTitle } from '../../../consts'
+import { ANKOLE_AI_URL, getSiteTitle } from '../../../consts'
 import { isValidLocale, LOCALES, type Locale } from '../../../i18n/config'
 import { localePath, t } from '../../../i18n/utils'
 import BaseLayout from '../../../layouts/BaseLayout.astro'
@@ -43,6 +43,16 @@ const description = t(locale, 'docs.index.subtitle')
 						{title}
 					</h1>
 					<p class="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">{description}</p>
+					<p class="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
+						<a
+							href={ANKOLE_AI_URL}
+							target="_blank"
+							rel="noreferrer"
+							class="text-foreground underline decoration-brand-60 underline-offset-4 dark:decoration-brand-40"
+						>
+							{t(locale, 'docs.index.ankoleAi')}
+						</a>
+					</p>
 					{
 						first && (
 							<a

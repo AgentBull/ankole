@@ -396,7 +396,7 @@ ActorRuntime maps scheduled ActorEvents to dedicated turn kinds:
 
 Agent Computer derives the schedule mode from the ActorEvent type. The request
 context carries the schedule origin and whether the Agent can report success
-without a reply; it does not repeat the mode. A cron turn also says that Ankole
+without a reply; it does not repeat the mode. A cron turn also says that OpenAnkole
 will deliver the configured output. The Agent runs once even when the rule has
 multiple targets. After completion, SignalsGateway stores one target-scoped
 outbox intent for each target. A BackgroundAgentJob created by that turn keeps

@@ -61,7 +61,6 @@ defmodule FeishuOpenAPI.MixProject do
       main: "readme",
       extras: [
         "README.md",
-        "README.zh-Hans.md": [title: "README (简体中文)", filename: "readme.zh-hans"],
         LICENSE: [title: "License"]
       ],
       extra_section: "Guides",

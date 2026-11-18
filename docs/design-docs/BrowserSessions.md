@@ -1,6 +1,6 @@
 # Browser Sessions
 
-Ankole gives one browser a consistent Human identity while keeping Console
+OpenAnkole gives one browser a consistent Human identity while keeping Console
 permission separate from OIDC authentication. PostgreSQL owns authentication
 state and the generation used to reject obsolete callbacks and cookies.
 

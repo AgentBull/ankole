@@ -5,7 +5,7 @@ section: Guides
 order: 307
 ---
 
-Ankole reads the web with `web_search` and `web_fetch`, and drives a real browser with the `browser` Skill. Some work still falls outside all three: a page that refuses an ordinary fetch, a whole documentation site that must become clean Markdown, a site that must answer in a JSON shape you define, or a competitor page that must be watched for months. The `context-dev` Skill covers that work through the [Context.dev](https://context.dev) API.
+OpenAnkole reads the web with `web_search` and `web_fetch`, and drives a real browser with the `browser` Skill. Some work still falls outside all three: a page that refuses an ordinary fetch, a whole documentation site that must become clean Markdown, a site that must answer in a JSON shape you define, or a competitor page that must be watched for months. The `context-dev` Skill covers that work through the [Context.dev](https://context.dev) API.
 
 The Skill is off by default, and it stays off until you add an API key and enable it. Every call spends credits from your Context.dev account, so the setup is deliberate.
 
@@ -59,11 +59,11 @@ The Skill takes effect on the Agent's next turn. Disabling it removes the connec
 
 Ask an enabled Agent for something small, such as the brand profile of a domain you know. A `401` in the reply means the key is missing or wrong: check that the variable name is exactly `CONTEXT_DEV_API_KEY`, that it is not shown as "Not set", and that no Agent-level value overrides the global one.
 
-## How Ankole connects
+## How OpenAnkole connects
 
-Context.dev publishes an MCP server at `https://mcp.context.dev/mcp`. The `context-dev` Skill declares it as a [Skill-backed MCP dependency](../mcp/), so the connection exists only while an enabled execution runs. Ankole writes a private, single-use mcporter configuration for each turn, Background Agent Job execution, or Automation attempt, and puts only the variable name in that file. The key value stays in the execution environment and never enters the configuration.
+Context.dev publishes an MCP server at `https://mcp.context.dev/mcp`. The `context-dev` Skill declares it as a [Skill-backed MCP dependency](../mcp/), so the connection exists only while an enabled execution runs. OpenAnkole writes a private, single-use mcporter configuration for each turn, Background Agent Job execution, or Automation attempt, and puts only the variable name in that file. The key value stays in the execution environment and never enters the configuration.
 
-Context's own desktop instructions use a browser OAuth sign-in, which a headless Worker cannot complete. Ankole uses the API-key path that the same server supports through the `Authorization` header, so no interactive sign-in is needed.
+Context's own desktop instructions use a browser OAuth sign-in, which a headless Worker cannot complete. OpenAnkole uses the API-key path that the same server supports through the `Authorization` header, so no interactive sign-in is needed.
 
 The server is not registered as a native model tool. The Agent reads the Skill, chooses one tool, and calls it through mcporter. [Use an MCP-backed Skill](../using-mcp/) describes that path.
 
@@ -84,8 +84,8 @@ Two habits control the bill. First, a crawl and a search bill per unit, so an un
 ## Limits
 
 - **The credits are real money.** Anything you ask an enabled Agent to research on the open web can reach for this Skill. Scope the environment variable to specific Agents if that matters.
-- **Monitors and batches outlive the conversation.** They live in your Context.dev account, not in Ankole. Ankole has no page that lists them; the Agent lists them through the Skill.
-- **Results are untrusted input.** A scraped page is web content, not instruction. Ankole treats it that way, and so should you when you forward it.
+- **Monitors and batches outlive the conversation.** They live in your Context.dev account, not in OpenAnkole. OpenAnkole has no page that lists them; the Agent lists them through the Skill.
+- **Results are untrusted input.** A scraped page is web content, not instruction. OpenAnkole treats it that way, and so should you when you forward it.
 - **Workspace files do not need this Skill.** For a PDF or an image that is already in the Agent's workspace, the [`pdf` and `ocr` Skills](../ocr/) read it locally and for free.
 
 ## Next

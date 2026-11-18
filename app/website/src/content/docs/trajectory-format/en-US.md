@@ -1,11 +1,11 @@
 ---
 title: Trajectory and message format
-description: How Ankole stores and projects conversation messages and background-job trajectories — the two storage shapes, the ChatML canonical form, and the model-visible projection.
+description: How OpenAnkole stores and projects conversation messages and background-job trajectories — the two storage shapes, the ChatML canonical form, and the model-visible projection.
 section: Developer guide
 order: 121
 ---
 
-Ankole records what an agent did in two places, for two kinds of work: AIGateway stores conversation messages (the live transcript a stateful Responses conversation produces), and Background Agent Jobs store turn trajectories (the per-turn record of a durable job's execution). This page documents both storage shapes, the canonical ChatML format, and the model-visible projection that strips protocol detail. It builds on [AIGateway](../ai-gateway/) and [Background Agent Jobs](../background-agent-jobs/).
+OpenAnkole records what an agent did in two places, for two kinds of work: AIGateway stores conversation messages (the live transcript a stateful Responses conversation produces), and Background Agent Jobs store turn trajectories (the per-turn record of a durable job's execution). This page documents both storage shapes, the canonical ChatML format, and the model-visible projection that strips protocol detail. It builds on [AIGateway](../ai-gateway/) and [Background Agent Jobs](../background-agent-jobs/).
 
 The decisive property, stated up front: the model never sees raw storage rows. Both shapes project to a model-visible form that strips protocol identities and replaces them with turn-local call aliases — the model sees "tool call 1 → tool result 1," not internal UUIDs or wire protocol fields. The stored form is for durability and audit; the projected form is for the model.
 
@@ -42,7 +42,7 @@ A background job stores its per-turn execution as an append-only stream of sanit
 
 The rows are append-only: a steer or nudge appends new items instead of rewriting stored ones. Every reader projects each stored item into canonical ChatML messages at read time, and an item that projects no messages stays stored for thread replay. A turn recorded before the item stream existed has no item rows, so its trajectory renders empty.
 
-Tool-result message metadata records `execution_mechanism` as `provider_hosted` when the model Provider executes the tool, or `local_dynamic` when Codex invokes a dynamic tool implemented by Ankole. This stable fact distinguishes tools that use the same display name.
+Tool-result message metadata records `execution_mechanism` as `provider_hosted` when the model Provider executes the tool, or `local_dynamic` when Codex invokes a dynamic tool implemented by OpenAnkole. This stable fact distinguishes tools that use the same display name.
 
 This is a separate storage shape from the AIGateway conversation messages, because a background job's trajectory belongs to the job, not to a conversation. The job's turns are their own thread; the conversation it reports back to receives the result, not the trajectory.
 
@@ -71,7 +71,7 @@ The two do not mix. A conversation's messages are AIGateway's; a job's trajector
 
 ## What this guide is not
 
-It is not a ChatML specification — the canonical ChatML format is a standard, and Ankole's read-time projection keeps that shape, not redefines it. It is not a consumer-facing API for reading trajectories — the Console routes (`/ai-gateway/conversations/:id/messages`, `/background-agent-jobs/:id`) are the operator surface, documented in the [Console API reference](../console-api/). And it is not a substitute for the storage pages; this is the format-level view across both.
+It is not a ChatML specification — the canonical ChatML format is a standard, and OpenAnkole's read-time projection keeps that shape, not redefines it. It is not a consumer-facing API for reading trajectories — the Console routes (`/ai-gateway/conversations/:id/messages`, `/background-agent-jobs/:id`) are the operator surface, documented in the [Console API reference](../console-api/). And it is not a substitute for the storage pages; this is the format-level view across both.
 
 ## Next steps
 

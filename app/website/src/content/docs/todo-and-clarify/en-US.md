@@ -1,6 +1,6 @@
 ---
 title: Todo and clarify
-description: How an Ankole agent plans a complex task and resolves a real ambiguity mid-task — the todo tool (per-session, at most one item in progress) and the clarify tool (one decision question, durably recorded, ends the turn). What the agent uses each for, and what an operator should not expect them to do.
+description: How an OpenAnkole agent plans a complex task and resolves a real ambiguity mid-task — the todo tool (per-session, at most one item in progress) and the clarify tool (one decision question, durably recorded, ends the turn). What the agent uses each for, and what an operator should not expect them to do.
 section: Developer guide
 order: 124
 ---

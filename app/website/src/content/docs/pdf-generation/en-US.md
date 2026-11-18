@@ -5,7 +5,7 @@ section: Guides
 order: 306
 ---
 
-PDF generation is a common deliverable — a report, a proposal, a formatted document that must ship as a PDF. Ankole's `pdf` skill handles this through the worker's installed PDF toolchain (Pandoc, two PDF engines, Poppler, QPDF) and runs as a background job. This guide is the practical shape of a PDF-generating agent.
+PDF generation is a common deliverable — a report, a proposal, a formatted document that must ship as a PDF. OpenAnkole's `pdf` skill handles this through the worker's installed PDF toolchain (Pandoc, two PDF engines, Poppler, QPDF) and runs as a background job. This guide is the practical shape of a PDF-generating agent.
 
 The decisive property, stated up front: the `pdf` skill is a **filesystem-and-tools skill, not a model feature**. The agent uses its shell tools to run Pandoc and the PDF engines; the skill's `SKILL.md` tells it how. There is no `generate_pdf` API call — it is document preparation through the shell, guided by the skill.
 

@@ -71,17 +71,8 @@ const ROW = 'gap-x-8 gap-y-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr
 		</ol>
 
 		<Reveal>
-			{/*
-			 * Optical margin alignment. 「 carries 11px of empty box before its ink at this
-			 * size, so a quote whose box aligns with the rows above reads as indented. It
-			 * hangs by that much and the first real character lands on the axis. The Latin
-			 * “ costs a single pixel, so it is left alone rather than nudged for symmetry.
-			 */}
 			<blockquote
-				class:list={[
-					'm-0 mt-10 border-l-2 border-brand-60 pl-6 text-lg leading-8 text-foreground dark:border-brand-40',
-					(lang === 'zh-Hans-CN' || lang === 'ja-JP') && '[text-indent:-0.61em]'
-				]}
+				class="m-0 mt-10 border-l-2 border-brand-60 pl-6 text-lg leading-8 text-foreground dark:border-brand-40"
 			>
 				{t(lang, 'usecases.quote')}
 			</blockquote>

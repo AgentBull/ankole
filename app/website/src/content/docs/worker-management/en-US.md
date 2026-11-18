@@ -15,7 +15,7 @@ Open **Console → Workers**. Each row shows:
 - **Slots:** the largest number of Agent turns that it can run at the same time;
 - **Active turns:** turns that are running now;
 - **Last heartbeat:** the last time that the control plane received Worker state;
-- **Version:** the Ankole version on the Worker.
+- **Version:** the OpenAnkole version on the Worker.
 
 The control plane can assign work while at least one Worker is ready. A Worker with no recent heartbeat usually has a stopped container, a network problem, or an authentication failure between the Worker and control plane.
 
@@ -29,7 +29,7 @@ Check these items in order:
 2. Worker logs do not show a control-plane address, authentication, or connection error.
 3. The control plane and Worker use the same `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY`.
 4. The Worker can reach the control plane Runtime Fabric address.
-5. The control plane and Worker use compatible Ankole versions.
+5. The control plane and Worker use compatible OpenAnkole versions.
 
 For Docker Compose:
 

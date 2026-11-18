@@ -100,7 +100,7 @@ INTENT** for the application in the Discord Developer Portal.
 Discord sends component interactions to an HTTP endpoint instead of the gateway
 when the application has an **Interactions Endpoint URL**. Messages still
 arrive, so the adapter does not block on this, but buttons in an Agent reply
-never reach Ankole.
+never reach OpenAnkole.
 
 ## Receive Messages
 
@@ -151,9 +151,9 @@ Principal and does not need a LocalPassword credential.
 SignalsGateway first commits the admitted message with a pending attachment
 projection. The adapter then downloads the CDN bytes, writes them to the
 Agent's `user-files` lane, and updates the same entry. An unmatched sender
-cannot make Ankole download a file.
+cannot make OpenAnkole download a file.
 
-Discord serves attachments without a documented size ceiling, so Ankole applies
+Discord serves attachments without a documented size ceiling, so OpenAnkole applies
 its own budget of 25 MB. For a larger file, the adapter keeps the provider file
 metadata and a clear `provider_download_limit` restriction. It does not create
 a local path or claim that the Agent can read the file.
@@ -204,7 +204,7 @@ on those two operations is a success.
 
 Edits, deletes, and reaction changes are safe to repeat, so a transport or
 server failure on those operations remains retryable. A successful message
-create that has no message ID is unknown because Ankole cannot checkpoint it
+create that has no message ID is unknown because OpenAnkole cannot checkpoint it
 without risking a duplicate.
 
 Rate-limit responses are retryable. Discord reports `retry_after` in fractional

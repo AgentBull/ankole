@@ -7,24 +7,24 @@ order: 34
 
 Skill lessons give an Agent short, dated cautions when it loads a Skill. They help the Agent avoid recurring tool failures, environment traps, and working-method mistakes. The shared `SKILL.md` stays unchanged.
 
-Skill lessons are inspired by GBrain's experiments with Skill optimization; they are dated notes accumulated by an Agent while using a Skill. Ankole limits machine-written content to leased, Agent-specific process notes and never modifies the Skill body.
+Skill lessons are inspired by GBrain's experiments with Skill optimization; they are dated notes accumulated by an Agent while using a Skill. OpenAnkole limits machine-written content to leased, Agent-specific process notes and never modifies the Skill body.
 
 One lesson belongs to one Agent and one Skill. Put a rule in the Skill source when it must apply to every Agent.
 
 ## What can become a lesson
 
-Ankole can retain two kinds of process guidance:
+OpenAnkole can retain two kinds of process guidance:
 
 - A tool problem or environment condition that appears in more than one Background Agent Job.
 - A reusable correction about how to work that a person gives while a Job is running.
 
-A lesson can say when to stop, what to check, or how to call a tool. It cannot judge how good, deep, complete, or well-written a result should be. Ankole does not score task results to decide whether a lesson worked.
+A lesson can say when to stop, what to check, or how to call a tool. It cannot judge how good, deep, complete, or well-written a result should be. OpenAnkole does not score task results to decide whether a lesson worked.
 
 An instruction for one task is not a lesson. A one-time scope, format, or terminology request stays with that task. Most evidence batches produce no lesson.
 
 ## What evidence is required
 
-Ankole looks at finished Background Agent Jobs that contain a failed command or tool call, or a human message after the Job started. It considers only the last 30 days.
+OpenAnkole looks at finished Background Agent Jobs that contain a failed command or tool call, or a human message after the Job started. It considers only the last 30 days.
 
 Dreaming starts a reflection Job after the Agent has enough unprocessed signal Jobs. The default threshold is 10. The reflection receives up to 30 of the most recent qualifying Jobs.
 
@@ -40,7 +40,7 @@ Retired lessons and machine lessons outside their review grace period are not de
 
 ## Keep machine lessons current
 
-A Dreaming lesson starts with a seven-day lease. Scheduled Dreaming reviews it when the lease is due, when the Ankole release changes, or when the Skill body changes.
+A Dreaming lesson starts with a seven-day lease. Scheduled Dreaming reviews it when the lease is due, when the OpenAnkole release changes, or when the Skill body changes.
 
 The review has three outcomes:
 
@@ -82,5 +82,5 @@ Open **Brain → Health** to see whether Skill learning is enabled, active lesso
 - A machine lesson is one to three short English sentences and at most 100 tokens. It uses a condition, an action, and an optional check.
 - One reflection can add at most two lessons to one Skill. Dreaming stops adding when that Skill already has 10 active lessons.
 - Machine-written lessons cannot contain URLs or content that matches the injection checks.
-- Lessons are Agent-specific. Ankole does not share them across Agents.
-- Ankole cannot prove a lesson is true or predict its effect without replaying the task. The dated, conditional text tells the Agent to check the current environment before it acts.
+- Lessons are Agent-specific. OpenAnkole does not share them across Agents.
+- OpenAnkole cannot prove a lesson is true or predict its effect without replaying the task. The dated, conditional text tells the Agent to check the current environment before it acts.

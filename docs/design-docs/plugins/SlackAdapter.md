@@ -69,7 +69,7 @@ reconciliation. Healthy connections compare configured values only, so a
 temporary identity lookup failure cannot replace their resolved identity.
 
 The Socket Mode client processes an event before it acknowledges it. Slack can
-send the event again after a crash. Database keys prevent duplicate Ankole
+send the event again after a crash. Database keys prevent duplicate OpenAnkole
 records.
 
 ## Receive Messages and Learn Channels
@@ -125,7 +125,7 @@ stores their Slack timestamps in the PostgreSQL reply checkpoint. A restart can
 therefore repaint the same Slack messages. A terminal reply updates that same
 surface instead of posting a duplicate final message.
 
-Slack Block Kit buttons carry the complete Ankole interaction protocol. The
+Slack Block Kit buttons carry the complete OpenAnkole interaction protocol. The
 adapter resolves the Slack user to an active Principal before it accepts a
 managed action, and it repaints answered or superseded controls. Slack message
 blocks do not provide a submit action for free-text input, so a free-text prompt
@@ -165,7 +165,7 @@ scope list is in the website Quick start guide.
 
 OIDC login normalizes Slack claims. If a bot token is present, it also tries to
 load the full user through `users.info`. The Principal login flow receives that
-user, but AuthZ still decides whether the person can use Ankole.
+user, but AuthZ still decides whether the person can use OpenAnkole.
 
 Full sync imports users and user groups. Real-time user and user-group events
 update the same Principal and AuthZ records. If a user-group event omits
@@ -178,7 +178,7 @@ work, and replies. Principals and AuthZ store people, groups, memberships, and
 grants.
 
 A control-plane restart rebuilds Socket Mode connections. Startup jobs refresh
-the stored channel records. Run a full directory sync when Slack and Ankole
+the stored channel records. Run a full directory sync when Slack and OpenAnkole
 might differ.
 
 ## Tests

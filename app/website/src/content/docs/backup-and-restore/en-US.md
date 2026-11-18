@@ -5,7 +5,7 @@ section: Guides
 order: 315
 ---
 
-An Ankole deployment instance holds two things you cannot reconstruct: the PostgreSQL database and the Agent Home volume. PostgreSQL stores durable control-plane state. Agent Home stores workspaces, durable Agent documents, installed Skills, and conversation and Job files.
+An OpenAnkole deployment instance holds two things you cannot reconstruct: the PostgreSQL database and the Agent Home volume. PostgreSQL stores durable control-plane state. Agent Home stores workspaces, durable Agent documents, installed Skills, and conversation and Job files.
 
 The decisive property, stated up front: a database migration cannot be reversed by rolling the image back. A backup you have not restored is a hope, not a backup. The whole point of this page is the restore step — test it, on a separate host, before you rely on it.
 
@@ -14,7 +14,7 @@ The decisive property, stated up front: a database migration cannot be reversed 
 | Back up | Why | How |
 |---|---|---|
 | **PostgreSQL** (`ankole_postgresql_data` on Compose; your external server on Helm) | all durable semantic truth | `pg_dump -Fc` archive |
-| **Agent Home** (`ankole_agents_data` on Compose; the RWX claim on Helm) | per-Agent workspaces, durable documents, installed Skills, conversation and Job files | volume snapshot or filesystem-level backup, taken while Ankole is stopped |
+| **Agent Home** (`ankole_agents_data` on Compose; the RWX claim on Helm) | per-Agent workspaces, durable documents, installed Skills, conversation and Job files | volume snapshot or filesystem-level backup, taken while OpenAnkole is stopped |
 
 Do **not** back up the container images — they are rebuildable from the registry. Do not back up the Caddy data or the ephemeral worker state; neither holds anything you cannot recreate. And do not back up only one of the two — PostgreSQL references files in Agent Home, and Agent Home without the database rows that point at it is an orphan.
 
@@ -34,7 +34,7 @@ Take this backup before every upgrade, before any destructive operation (`kit ap
 
 ## Back up Agent Home
 
-Agent Home is a filesystem, not a database — back it up while Ankole is **stopped**, so no worker is writing to it during the backup:
+Agent Home is a filesystem, not a database — back it up while OpenAnkole is **stopped**, so no worker is writing to it during the backup:
 
 ```bash
 # Compose: snapshot the named volume, or copy it while the stack is down
@@ -52,7 +52,7 @@ The reason to stop the stack (or at least quiesce the workers) is that a worker 
 Restore to a separate host first, every time. A restore you have not tested is the most expensive thing you can own in an incident.
 
 ```bash
-# on a test host with a fresh Ankole database
+# on a test host with a fresh OpenAnkole database
 docker compose exec -T postgresql \
   pg_restore -U ankole -d ankole --clean --if-exists \
   < "ankole-YYYYMMDD.dump"

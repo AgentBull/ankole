@@ -1,8 +1,8 @@
 # App Configuration
 
-Ankole reads settings from two places. The process environment provides values
-that Ankole needs before it can start. AppConfigure stores values that an
-operator can change while Ankole runs.
+OpenAnkole reads settings from two places. The process environment provides values
+that OpenAnkole needs before it can start. AppConfigure stores values that an
+operator can change while OpenAnkole runs.
 
 Put each setting in one place. Code must not ask AppConfigure for a value that
 the process needs during startup.
@@ -26,7 +26,7 @@ may not exist yet.
 ## Settings That Operators Can Change
 
 AppConfigure stores a declared set of settings in PostgreSQL. Operators, setup
-flows, Ankole subsystems, and trusted Plugins can use them.
+flows, OpenAnkole subsystems, and trusted Plugins can use them.
 
 Examples include:
 
@@ -104,7 +104,7 @@ encrypted value shape must provide its own editor.
 
 Each row applies either to the complete deployment instance or to one Agent:
 
-- `global` identifies the Ankole deployment instance.
+- `global` identifies the OpenAnkole deployment instance.
 - `agent:<agent_uid>` identifies one Agent override.
 
 A scoped definition allows both forms. A global definition rejects Agent
@@ -277,4 +277,4 @@ setting must apply it after the write.
 - Code defaults are effective values, not database rows.
 - Reads never store generated values.
 - A successful PostgreSQL commit means that a write succeeded.
-- Ankole can rebuild the ETS cache from PostgreSQL.
+- OpenAnkole can rebuild the ETS cache from PostgreSQL.

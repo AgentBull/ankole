@@ -58,10 +58,7 @@ defmodule WeComOpenAPI.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: [
-        "README.md",
-        "README.zh-Hans.md": [title: "README (简体中文)", filename: "readme.zh-hans"]
-      ],
+      extras: ["README.md"],
       extra_section: "Guides",
       source_ref: "main",
       source_url_pattern: "#{@repo_url}/blob/main/#{@source_root}/%{path}#L%{line}"

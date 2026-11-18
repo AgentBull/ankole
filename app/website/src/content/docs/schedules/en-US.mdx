@@ -7,7 +7,7 @@ order: 21
 
 import DocsKnowledgeNote from '../../../components/docs/DocsKnowledgeNote.astro'
 
-Ankole provides two scheduling tools at the same level:
+OpenAnkole provides two scheduling tools at the same level:
 
 - **Cron** repeats work, such as a daily briefing, a weekly project check, or a check every 30 minutes.
 - **Checkback** wakes the current conversation once so that the Agent can continue after a delay.
@@ -74,13 +74,13 @@ Open a schedule to see its recent run history. When a result is missing, first c
 
 ## Checkback
 
-A Checkback is a one-time follow-up that an Agent creates while it works, such as "check the deployment again in 30 minutes." By default, Ankole wakes the same conversation when it becomes due so that the Agent can continue with its existing context.
+A Checkback is a one-time follow-up that an Agent creates while it works, such as "check the deployment again in 30 minutes." By default, OpenAnkole wakes the same conversation when it becomes due so that the Agent can continue with its existing context.
 
 Its purpose is similar to <a href="https://docs.openclaw.ai/gateway/heartbeat" target="_blank" rel="noreferrer">OpenClaw's heartbeat</a>: both let an Agent return without a new human message.
 
 A heartbeat wakes the Agent on a fixed cadence so that the model repeatedly decides whether anything needs attention.
 
-A Checkback uses a push model: the Agent registers one follow-up only when needed, and Ankole dispatches a wake-up event when it becomes due.
+A Checkback uses a push model: the Agent registers one follow-up only when needed, and OpenAnkole dispatches a wake-up event when it becomes due.
 
 Because the model does not run polling turns between checks, Checkback avoids idle executions and uses fewer tokens.
 

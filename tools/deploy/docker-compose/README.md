@@ -1,8 +1,6 @@
-# Ankole single-host Docker Compose
+# OpenAnkole single-host Docker Compose
 
-[简体中文](README.zh-Hans.md)
-
-This Compose project runs one private Ankole deployment instance on a Linux,
+This Compose project runs one private OpenAnkole deployment instance on a Linux,
 macOS, or Windows host. Docker must be able to run Linux `amd64` or `arm64`
 containers. The project includes PostgreSQL, database migration, worker-key
 bootstrap, the control plane, one Agent Computer worker, and Caddy HTTPS.
@@ -127,7 +125,7 @@ docker compose exec -T postgresql \
 ```
 
 Back up the `ankole_agents_data` volume with a volume snapshot or a
-filesystem-level backup while Ankole is stopped. PostgreSQL data is in
+filesystem-level backup while OpenAnkole is stopped. PostgreSQL data is in
 `ankole_postgresql_data`. Test database and Agent Home restore together on a
 separate host.
 

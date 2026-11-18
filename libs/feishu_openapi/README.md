@@ -1,7 +1,5 @@
 # FeishuOpenAPI
 
-English | [简体中文](README.zh-Hans.md)
-
 `FeishuOpenAPI` is a thin Elixir client for Feishu/Lark OpenAPI and event push.
 
 - you pass raw API paths such as `"contact/v3/users/:user_id"` (the `/open-apis/` prefix is auto-prepended; absolute paths starting with `/` pass through)

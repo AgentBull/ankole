@@ -1,7 +1,7 @@
 # Local Password Identity Provider
 
-The local password identity provider lets people sign in to Ankole with an
-email address and a password that Ankole stores itself. It is part of the
+The local password identity provider lets people sign in to OpenAnkole with an
+email address and a password that OpenAnkole stores itself. It is part of the
 control plane, not a Plugin, so setup and the console always list it. It needs
 no external service.
 

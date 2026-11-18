@@ -1,8 +1,8 @@
 # SlackOpenAPI
 
-`SlackOpenAPI` is Ankole's thin Elixir client for Slack Web API, Socket Mode,
+`SlackOpenAPI` is OpenAnkole's thin Elixir client for Slack Web API, Socket Mode,
 Sign in with Slack, cursor pagination, private-file downloads, and the external
-file-upload flow. It intentionally contains no Ankole domain policy.
+file-upload flow. It intentionally contains no OpenAnkole domain policy.
 
 ```elixir
 client =

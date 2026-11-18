@@ -1,6 +1,6 @@
 ---
 title: Context compression and compaction
-description: How Ankole keeps long conversations within a model's context — AIGateway automatic history compaction and verbatim user-original retention.
+description: How OpenAnkole keeps long conversations within a model's context — AIGateway automatic history compaction and verbatim user-original retention.
 section: Developer guide
 order: 116
 ---

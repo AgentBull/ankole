@@ -19,9 +19,9 @@ These are trusted components that are already installed in this instance. The Ag
 
 ### Agent Plugin: capabilities that share one package
 
-An Ankole Agent Plugin is a superset of an <a href="https://developers.openai.com/plugins" target="_blank" rel="noreferrer">OpenAI Plugin</a>.
+An OpenAnkole Agent Plugin is a superset of an <a href="https://developers.openai.com/plugins" target="_blank" rel="noreferrer">OpenAI Plugin</a>.
 
-An OpenAI Plugin can group one or more Skills, an MCP server, and optional UI in one package. Ankole keeps this structure and adds a **workspace template**.
+An OpenAI Plugin can group one or more Skills, an MCP server, and optional UI in one package. OpenAnkole keeps this structure and adds a **workspace template**.
 
 An Agent Plugin can therefore provide working methods, execution tools, and the initial environment for a task. It is more than one prompt.
 
@@ -29,19 +29,19 @@ Enabling an Agent Plugin in the Console makes the package available to the Agent
 
 #### Workspace templates prepare complex tasks
 
-The `workspace-template/` directory belongs to an Agent Plugin. When Ankole creates a Background Agent Job, it can copy this template into the new Job workspace.
+The `workspace-template/` directory belongs to an Agent Plugin. When OpenAnkole creates a Background Agent Job, it can copy this template into the new Job workspace.
 
 A template can provide `AGENTS.md`, directories, research methods, validation scripts, Playbooks, and other task files. The Job receives a durable workspace that it can update and recover.
 
-Ankole's state-of-the-art [Deep Research](../deep-research-job/) is a representative example. The main Agent first confirms the research request and then creates a Background Agent Job with the `deep-research` workspace template.
+OpenAnkole's state-of-the-art [Deep Research](../deep-research-job/) is a representative example. The main Agent first confirms the research request and then creates a Background Agent Job with the `deep-research` workspace template.
 
 The template provides the research workflow, evidence directories, analysis methods, and validation tools. The Job can collect sources, revise its analysis, and create the final report in one workspace.
 
-Enabling an Agent Plugin with a workspace template does not change an existing conversation or create a Job. Ankole initializes a new Job workspace only when a task selects that template.
+Enabling an Agent Plugin with a workspace template does not change an existing conversation or create a Job. OpenAnkole initializes a new Job workspace only when a task selects that template.
 
 ### Skill: one repeatable working method
 
-Ankole Skills conform to the <a href="https://agentskills.io/specification" target="_blank" rel="noreferrer">official Agent Skills specification</a>.
+OpenAnkole Skills conform to the <a href="https://agentskills.io/specification" target="_blank" rel="noreferrer">official Agent Skills specification</a>.
 
 Each Skill contains at least one `SKILL.md` file with YAML frontmatter. It can also contain `scripts/`, `references/`, and `assets/`.
 
@@ -49,9 +49,9 @@ The Agent first sees the name and description. It loads the full instructions an
 
 A Skill explains how to complete a kind of work. When the workflow needs live data, authentication, or a controlled action, the Skill can select an MCP domain tool and call it through mcporter. The MCP catalog is not a second model-visible tool registry.
 
-#### Ankole extension: select the Skill execution surface
+#### OpenAnkole extension: select the Skill execution surface
 
-Ankole adds `ankole-runtime` to the standard frontmatter:
+OpenAnkole adds `ankole-runtime` to the standard frontmatter:
 
 ```yaml
 ---
@@ -71,7 +71,7 @@ This field controls where the Skill is visible. It does not create a Background 
 
 The Deep Research entry Skill uses `main` because it confirms the request in the original conversation and creates the Job. The research Skills can then run inside the Background Agent Job.
 
-#### Ankole extension: discover a Skill through Brain
+#### OpenAnkole extension: discover a Skill through Brain
 
 Some SOPs and methods are useful only when the current work matches them, so listing them in every prompt would waste context. A shipped Skill can declare `brain-recall-only: true`. It remains a standard Skill and keeps the same Agent Plugin, Skill enablement, execution-surface, and `skill_view` rules, but Brain discovers it by meaning instead of placing it in the model-visible Skill catalog.
 
@@ -79,7 +79,7 @@ Brain searches the Skill's name, description, and tags. After a match, the Agent
 
 ### Control Plane Plugin: extend the management platform
 
-A Control Plane Plugin is not an OpenAI Plugin and does not enter the Agent's working context. It extends the Ankole control plane.
+A Control Plane Plugin is not an OpenAI Plugin and does not enter the Agent's working context. It extends the OpenAnkole control plane.
 
 A Control Plane Plugin can provide Channel Providers, identity sources, system settings, and supervised services. These components change the startup structure, so an enable or disable action applies only at the next control-plane start.
 

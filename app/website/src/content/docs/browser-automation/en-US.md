@@ -1,6 +1,6 @@
 ---
 title: Browser automation
-description: How an Ankole agent drives a real browser session — the browser skill, when to use it instead of web_search/web_fetch, how to enable it, and why the agent must use the preconfigured ankole-browser CLI instead of launching Chromium itself.
+description: How an OpenAnkole agent drives a real browser session — the browser skill, when to use it instead of web_search/web_fetch, how to enable it, and why the agent must use the preconfigured ankole-browser CLI instead of launching Chromium itself.
 section: Guides
 order: 305
 ---
@@ -11,7 +11,7 @@ The decisive property, stated up front: there is one browser owner per agent ses
 
 ## What browser automation is
 
-Browser automation in Ankole is the `browser` skill, shipped at `app/library/skills/browser/SKILL.md`. It is a builtin skill (`default_enabled: true`) tagged for the background-job runtime (`ankole-runtime: background_job`). When an agent invokes it, the work runs inside a background job, isolated from the owning turn, against a real Chromium session that the runtime owns.
+Browser automation in OpenAnkole is the `browser` skill, shipped at `app/library/skills/browser/SKILL.md`. It is a builtin skill (`default_enabled: true`) tagged for the background-job runtime (`ankole-runtime: background_job`). When an agent invokes it, the work runs inside a background job, isolated from the owning turn, against a real Chromium session that the runtime owns.
 
 The skill's own description is the contract the model reads to decide whether to use it: use the browser when the work depends on rendered page state, interaction, screenshots, persistent login state, or a reproducible Playwright workflow; prefer [web_search](../web-tools/) or [web_fetch](../web-tools/) for ordinary discovery and text extraction.
 

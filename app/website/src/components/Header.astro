@@ -1,10 +1,9 @@
 ---
 import { RiGithubFill, RiMenuLine } from '@remixicon/react'
 import logo from '../assets/logo.svg'
-import { GITHUB_URL, getSiteTitle } from '../consts'
-import { LOCALE_LABELS, LOCALES, type Locale } from '../i18n/config'
+import { ANKOLE_AI_URL, GITHUB_URL, getSiteTitle } from '../consts'
+import type { Locale } from '../i18n/config'
 import { localePath, t } from '../i18n/utils'
-import LanguageDropdown from './LanguageDropdown'
 import ThemeToggle from './ThemeToggle'
 
 interface Props {
@@ -14,18 +13,11 @@ interface Props {
 const { lang } = Astro.props
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const pathname = Astro.url.pathname
-const pathWithoutLang = pathname.replace(new RegExp(`^${base}/${lang}(/|$)`), '/')
 const siteTitle = getSiteTitle(lang)
 const mobileMenuId = `site-nav-toggle-${lang}`
 
 const docsHref = localePath(lang, 'docs')
 const docsActive = pathname.startsWith(`${base}/${lang}/docs`)
-
-const localeItems = LOCALES.map(locale => ({
-	href: `${base}/${locale}${pathWithoutLang === '/' ? '/' : pathWithoutLang}`,
-	label: LOCALE_LABELS[locale],
-	active: locale === lang
-}))
 
 const navLinkClass =
 	'inline-flex h-9 items-center px-3 text-sm text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground'
@@ -45,10 +37,10 @@ const navLinkActiveClass = 'text-foreground'
 				<RiGithubFill className="mr-1.5 size-4" />
 				{t(lang, 'nav.github')}
 			</a>
+			<a href={ANKOLE_AI_URL} target="_blank" rel="noreferrer" class={navLinkClass}>{t(lang, 'nav.ankoleAi')}</a>
 		</nav>
 
 		<div class="ml-auto flex shrink-0 items-center gap-1">
-			<LanguageDropdown client:load label={t(lang, 'nav.languages')} items={localeItems} />
 			<ThemeToggle
 				client:load
 				labelDark={t(lang, 'nav.theme.toDark')}
@@ -73,6 +65,7 @@ const navLinkActiveClass = 'text-foreground'
 				<RiGithubFill className="mr-1.5 size-4" />
 				{t(lang, 'nav.github')}
 			</a>
+			<a href={ANKOLE_AI_URL} target="_blank" rel="noreferrer" class={navLinkClass}>{t(lang, 'nav.ankoleAi')}</a>
 		</div>
 	</nav>
 </header>

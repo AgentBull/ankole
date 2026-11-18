@@ -5,7 +5,7 @@ section: Reference
 order: 201
 ---
 
-Ankole uses MCP behind Skills for domain integrations. It does not keep an Agent-level MCP registry or a persistent mcporter config.
+OpenAnkole uses MCP behind Skills for domain integrations. It does not keep an Agent-level MCP registry or a persistent mcporter config.
 
 Skill MCP dependencies are not registered as native model tools. The Agent does not receive their complete MCP catalogs. This keeps the Skill as the routing owner and avoids a second tool-selection surface.
 
@@ -78,7 +78,7 @@ Main Agents call mcporter through the command tool. Background Agent Jobs call i
 
 ## Native model-visible MCP boundary
 
-No bundled model-visible MCP server currently ships with Ankole. A future concrete integration must use the same `mcp__<server>` namespace, tool names, descriptions, and deferred loading behavior in Main and Background. Ankole passes the server JSON Schema into each runtime unchanged. Main uses its Responses tool owner; Background uses Codex native MCP and lets Codex own that projection. Ankole does not rewrite one runtime's schema to imitate the other, and it does not add an empty registry or a general local MCP loader for this future case.
+No bundled model-visible MCP server currently ships with OpenAnkole. A future concrete integration must use the same `mcp__<server>` namespace, tool names, descriptions, and deferred loading behavior in Main and Background. OpenAnkole passes the server JSON Schema into each runtime unchanged. Main uses its Responses tool owner; Background uses Codex native MCP and lets Codex own that projection. OpenAnkole does not rewrite one runtime's schema to imitate the other, and it does not add an empty registry or a general local MCP loader for this future case.
 
 ## Select and call one tool
 
@@ -98,7 +98,7 @@ An Automation script uses the same argv, writes JSON to the child stdin, checks 
 
 ## Security limits
 
-MCP output is untrusted input. The Skill and mcporter path does not provide Ankole's former native output-schema validation, MCP annotation scheduling, tool-level approval UI, or result redaction against every WorkerEnv secret. Use it for trusted, first-party MCP Skills. The remote credential scope remains the real read or write permission boundary.
+MCP output is untrusted input. The Skill and mcporter path does not provide OpenAnkole's former native output-schema validation, MCP annotation scheduling, tool-level approval UI, or result redaction against every WorkerEnv secret. Use it for trusted, first-party MCP Skills. The remote credential scope remains the real read or write permission boundary.
 
 ## Next steps
 

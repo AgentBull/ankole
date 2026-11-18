@@ -85,7 +85,7 @@ does not move an existing account. An operator must merge an existing duplicate.
 Principals and AuthZ store imported users, groups, and memberships. The provider
 library caches access tokens in memory and requests a new token after restart.
 
-Run a full sync when Google and Ankole might differ. The adapter has no Google
+Run a full sync when Google and OpenAnkole might differ. The adapter has no Google
 webhook or watch channel.
 
 ## Tests

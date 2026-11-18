@@ -1,13 +1,13 @@
 ---
 title: Security hardening
-description: The end-to-end shape of hardening an Ankole deployment instance — least authority, secret discipline, SSRF, credential rotation, and minimum ingress.
+description: The end-to-end shape of hardening an OpenAnkole deployment instance — least authority, secret discipline, SSRF, credential rotation, and minimum ingress.
 section: Guides
 order: 316
 ---
 
-Ankole ships with its security boundaries in place — Principal/AuthZ, encrypted secrets, sandboxed workers, authenticated ingress. Hardening is not adding walls; it is tightening the ones that are there to the smallest surface your actual usage needs. This page walks the five surfaces an operator hardens, in the order that closes the most risk first.
+OpenAnkole ships with its security boundaries in place — Principal/AuthZ, encrypted secrets, sandboxed workers, authenticated ingress. Hardening is not adding walls; it is tightening the ones that are there to the smallest surface your actual usage needs. This page walks the five surfaces an operator hardens, in the order that closes the most risk first.
 
-The decisive property, stated up front: Ankole's model is *least authority by default, expanded only where evidence demands*. Every move below narrows a permission, a secret's reach, or a network path. If you find yourself widening one, ask why — a widening is the move that deserves the scrutiny, not the narrowing.
+The decisive property, stated up front: OpenAnkole's model is *least authority by default, expanded only where evidence demands*. Every move below narrows a permission, a secret's reach, or a network path. If you find yourself widening one, ask why — a widening is the move that deserves the scrutiny, not the narrowing.
 
 ## Surface 1: Principal and AuthZ authority
 
@@ -31,9 +31,9 @@ Store credentials for Agent tools in **Environment variables** in the Console, w
 
 ## Surface 3: SSRF and model-controlled fetches
 
-An agent with `web_fetch` can ask Ankole to fetch URLs. `security.ssrf_filter` is the AppConfigure key that decides what gets rejected.
+An agent with `web_fetch` can ask OpenAnkole to fetch URLs. `security.ssrf_filter` is the AppConfigure key that decides what gets rejected.
 
-- **The default is `false` — and read why before you flip it.** Ankole is commonly an enterprise-internal agent, and intranet access is expected; the filter is off so internal fetches work.
+- **The default is `false` — and read why before you flip it.** OpenAnkole is commonly an enterprise-internal agent, and intranet access is expected; the filter is off so internal fetches work.
 - **Cloud metadata endpoints are always blocked**, regardless of the setting. A model that tries to read `169.254.169.254` is rejected whether the filter is on or off.
 - **When the filter is on**, private, loopback, link-local, and CGNAT targets are rejected. Turn it on when your agent fetches from the public internet and has no legitimate reason to reach internal IPs — that is the case the filter exists for.
 
@@ -43,13 +43,13 @@ The decision applies to the complete deployment instance, and the wrong choice i
 
 Each chat adapter and identity provider holds credentials (`appID`/`appSecret`, `botToken`/`appToken`, `clientId`/`clientSecret`, Entra ID `appPassword`, the Google Workspace `serviceAccountKey`). Rotate them on a cadence, and on any suspicion of leak.
 
-- **Rotate at the provider first, then in Ankole.** Invalidate the old credential in the provider's console, then put the new value in the adapter's AppConfigure. The order matters: a credential rotated in Ankole but still valid at the provider is a window.
+- **Rotate at the provider first, then in OpenAnkole.** Invalidate the old credential in the provider's console, then put the new value in the adapter's AppConfigure. The order matters: a credential rotated in OpenAnkole but still valid at the provider is a window.
 - **Use the correct Console page.** Put credentials for Agent tools in **Environment variables**. Rotate chat-channel and identity-provider credentials on their own Console pages.
 - **Directory sync credentials are credentials too.** The Google Workspace `serviceAccountKey` and `adminEmail`, the Entra ID app used for Graph — these can read your directory. Treat their rotation with the same seriousness as the chat credentials.
 
 ## Surface 5: Minimum network ingress
 
-Ankole needs some ingress; it rarely needs all of it. Tighten to what each transport actually requires.
+OpenAnkole needs some ingress; it rarely needs all of it. Tighten to what each transport actually requires.
 
 - **Long-connection adapters need only outbound.** Lark, Slack, and DingTalk open outbound WebSocket/Stream connections; they do not need a public ingress endpoint. Keep the deployment private if you only use these.
 - **Teams and webhook ingress need a public endpoint — scope it.** Bot Framework and the `/webhooks/v1/...` front door need to be reachable. Use your ingress to restrict that path to the expected providers (by source IP where you can), and rely on the adapter's own authentication (Bot Framework JWT, Graph `clientState`, ZAP/PLAIN worker auth) for the rest.
@@ -65,7 +65,7 @@ Hardening is not a one-time pass; it is a posture. Two habits keep it:
 
 ## What this guide is not
 
-It is not a penetration test, and not a compliance checklist — it is the operator moves that tighten Ankole's existing boundaries. It is not "lock everything down"; least authority means the *minimum* surface your usage needs, not zero surface, and an agent that cannot do its job is its own failure. And it is not a substitute for the per-surface pages; each surface above links to the reference that explains its exact fields.
+It is not a penetration test, and not a compliance checklist — it is the operator moves that tighten OpenAnkole's existing boundaries. It is not "lock everything down"; least authority means the *minimum* surface your usage needs, not zero surface, and an agent that cannot do its job is its own failure. And it is not a substitute for the per-surface pages; each surface above links to the reference that explains its exact fields.
 
 ## Next steps
 

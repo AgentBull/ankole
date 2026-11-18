@@ -42,7 +42,7 @@ Use **Addressed messages only** for a group that needs question-and-answer behav
 
 ## Choose what happens to unknown senders
 
-Ankole maps each sender to a known account automatically: an account that
+OpenAnkole maps each sender to a known account automatically: an account that
 directory sync or login already imported matches by its platform id, and a new
 platform account matches when the platform reports an email or mobile number
 that an existing account owns. This mapping is best effort — a sender from
@@ -55,7 +55,7 @@ sender:
 | Option | Behavior |
 |---|---|
 | **Manual review** (default) | The sender appears under **Identity → Pending mappings** in the Console. Until an administrator binds the account there, a message that addresses the Agent gets one fixed reply that asks the sender to contact an administrator, and nothing else happens — the message does not enter context or Brain learning. |
-| **Create a standalone account** | Ankole creates a standalone account for the sender and serves them at once. Use this for open channels where anyone may talk to the Agent. When the sender's platform id is already the identifier of an existing account, such as a local-login account whose identifier is its email address, Ankole creates nothing and holds the sender for manual review, because only an administrator can decide that they are the same person. |
+| **Create a standalone account** | OpenAnkole creates a standalone account for the sender and serves them at once. Use this for open channels where anyone may talk to the Agent. When the sender's platform id is already the identifier of an existing account, such as a local-login account whose identifier is its email address, OpenAnkole creates nothing and holds the sender for manual review, because only an administrator can decide that they are the same person. |
 
 Unaddressed group chatter from an unmapped sender is always ignored.
 

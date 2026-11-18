@@ -143,7 +143,7 @@ bytes from `api-data.line.me`, writes them to the Agent's `user-files` lane,
 and updates the same entry. The webhook answer does not wait for the download.
 If the task cannot start, the webhook fails and LINE delivers the event again;
 the pending observation is already durable, so that redelivery fetches the
-file. An unmatched sender cannot make Ankole download a file. A redelivered event
+file. An unmatched sender cannot make OpenAnkole download a file. A redelivered event
 keeps a result this Agent already holds and fetches everything else again,
 including a download whose earlier task never finished, because the adapter
 cannot prove that such a task is alive. SignalsGateway never replaces an
@@ -153,7 +153,7 @@ file. A copy that another Agent downloaded does not count: when a route moves
 to another Agent, that Agent fetches its own copy.
 
 A video or audio message from the LINE app is transcoded first; the task waits
-a bounded time for that. Ankole applies its own budget of 25 MB. For a larger
+a bounded time for that. OpenAnkole applies its own budget of 25 MB. For a larger
 file, the adapter keeps the provider file metadata and a clear
 `provider_download_limit` restriction. Content that another service hosts
 keeps its URL and is not downloaded. The adapter never creates a local path
@@ -184,7 +184,7 @@ the standard SignalsGateway action event. A stale token produces no visible
 change.
 
 Outbound attachments are outside the contract. A bot can send only image,
-video, and audio messages, each by a public HTTPS URL, and Ankole serves no
+video, and audio messages, each by a public HTTPS URL, and OpenAnkole serves no
 public file. An attachment row stops with a permanent
 `outbound_attachments_not_supported` error; the text row still goes out.
 

@@ -1,0 +1,33 @@
+---
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const home = `${base}/en-US/`
+---
+
+<!doctype html>
+<html lang="en-US">
+	<head>
+		<meta charset="utf-8" />
+		<title>Page not found</title>
+		<meta name="robots" content="noindex" />
+		<script is:inline define:vars={{ base }}>
+			;(function () {
+				var retired = { 'zh-Hans-CN': true, 'ja-JP': true, 'ko-KR': true }
+				var path = location.pathname
+				var prefix = ''
+				if (base && path.indexOf(base) === 0) prefix = base
+				var rest = path.slice(prefix.length)
+				var parts = rest.split('/').filter(Boolean)
+				if (!parts.length || !retired[parts[0]]) return
+				parts[0] = 'en-US'
+				var target = prefix + '/' + parts.join('/')
+				if (rest.endsWith('/')) target += '/'
+				location.replace(target + location.search + location.hash)
+			})()
+		</script>
+	</head>
+	<body>
+		<p>
+			This page is not available. The English site is at <a href={home}>{home}</a>.
+		</p>
+	</body>
+</html>

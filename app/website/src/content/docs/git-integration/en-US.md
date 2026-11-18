@@ -1,11 +1,11 @@
 ---
 title: Git integration
-description: How an Ankole Agent uses git in a normal conversation or a Background Agent Job.
+description: How an OpenAnkole Agent uses git in a normal conversation or a Background Agent Job.
 section: Guides
 order: 303
 ---
 
-An Ankole Agent uses standard git commands through the shell tools that the Worker provides. The same tools are available in a normal conversation and in a Background Agent Job.
+An OpenAnkole Agent uses standard git commands through the shell tools that the Worker provides. The same tools are available in a normal conversation and in a Background Agent Job.
 
 The decisive property, stated up front: the agent runs git **inside the worker's sandbox**, against the `/agents/<key>/` filesystem. It does not have a special git integration layer — it uses the same shell tools it uses for everything else, and the filesystem is the workspace. The `design-md` skill and the persona carry the conventions; the tools carry the execution.
 
@@ -56,7 +56,7 @@ Set up a coding agent that reviews PRs:
 
 ## What this guide is not
 
-It is not a git tutorial — the agent uses standard git commands. It is not a CI/CD integration — Ankole does not run CI; the agent can trigger CI through shell commands if the repo's CI is command-driven. And it is not a code-review automation guide — the agent reviews code the way its persona tells it to, through the shell tools.
+It is not a git tutorial — the agent uses standard git commands. It is not a CI/CD integration — OpenAnkole does not run CI; the agent can trigger CI through shell commands if the repo's CI is command-driven. And it is not a code-review automation guide — the agent reviews code the way its persona tells it to, through the shell tools.
 
 ## Next steps
 

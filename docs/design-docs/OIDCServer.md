@@ -1,7 +1,7 @@
 # OIDC Server
 
-The control plane is the OpenID Provider for one Ankole installation. It uses
-Boruta 2.3.8 for OAuth 2.0 and OpenID Connect protocol processing. Ankole owns
+The control plane is the OpenID Provider for one OpenAnkole installation. It uses
+Boruta 2.3.8 for OAuth 2.0 and OpenID Connect protocol processing. OpenAnkole owns
 Client administration, Human identity, persistence, token policy, and the web
 routes. It does not use Boruta's administration UI, identity store, or gateway.
 
@@ -166,7 +166,7 @@ OIDC signing key and RS256. Include `iss`, `aud`, `iat`, `exp`, `jti`, `events`,
 and use `typ=logout+jwt`. The receiver must apply the specification's complete
 validation and logout rules. Treat HTTP 200 or 204 as success.
 
-Ankole chooses session-specific logout. Issue `sid` in ID Tokens and send it
+OpenAnkole chooses session-specific logout. Issue `sid` in ID Tokens and send it
 in Logout Tokens. Preserve it through refresh within that session. A fresh
 login after account recovery has a new `sid`. Address every recorded old
 Client/session pair; do not replace these requests with a subject-only logout
@@ -185,13 +185,13 @@ Use a fresh token when the previous one expires; retain the original target
 must never target sessions created after recovery. HTTP success records the
 Client's acknowledgement, not an independently verified business-access result.
 
-Use only registered absolute callback addresses without fragments. Ankole's
+Use only registered absolute callback addresses without fragments. OpenAnkole's
 deployment policy requires HTTPS in production; permit HTTP only for an
 explicit confidential development Client on a trusted network. Do not
 follow redirects or allow an unvalidated callback target. The control-plane
 deployment must be able to reach the registered callback.
 
-Client registration stays administrator-managed. Ankole does not provide
+Client registration stays administrator-managed. OpenAnkole does not provide
 dynamic registration or front-channel logout. Browser logout uses the same
 notification owner, with the scope defined below.
 
@@ -207,11 +207,11 @@ A disabled querying Client also fails authentication. Apply inactive-token
 rules only after authenticating the caller, and apply the RFC error rules to
 malformed requests.
 
-The Ankole profile supports its OIDC Access and Refresh Tokens. An enabled
+The OpenAnkole profile supports its OIDC Access and Refresh Tokens. An enabled
 confidential Client authenticates with `client_secret_basic` and can inspect
 only tokens issued to that Client. Do not accept Console tokens, Agent tokens,
 ID Tokens, or a public `client_id` as caller authentication. Public Clients
-retain their existing login flows; Ankole does not give them anonymous
+retain their existing login flows; OpenAnkole does not give them anonymous
 Introspection access or a secret to embed in an application.
 
 Read the current token, Human, Client, and revocation state. A disabled Human,
@@ -232,7 +232,7 @@ tokens from logs.
 
 ### Client Integration
 
-Ankole provides the protocol, durable notification delivery, and current
+OpenAnkole provides the protocol, durable notification delivery, and current
 token checks. The Client owns its business session and access rules. It must validate notifications, match `sid`, make repeated logout
 safe, and prevent a delayed login callback from recreating an already logged-out
 session. A standard Logout Token is not an employee-status or HR event.
@@ -327,7 +327,7 @@ identity conflicts. A valid Client ID and registered redirect are sufficient
 for the no-hint confirmation path; no Client secret enters the browser. Cancel
 leaves the OP session active and displays that result on the OP page.
 
-Confirmed logout ends the current browser's Ankole authentication through
+Confirmed logout ends the current browser's OpenAnkole authentication through
 Browser Sessions. It does not disable the Principal or end other devices.
 Notify RP sessions associated with that browser through the existing
 Back-Channel Logout delivery path, including the initiating RP. Complete one

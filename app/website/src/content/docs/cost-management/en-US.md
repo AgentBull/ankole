@@ -1,11 +1,11 @@
 ---
 title: Cost management
-description: The levers that control what Ankole spends — model profiles, reasoning effort, web tools, turn budgets, Workflow fanout, and background-job caps.
+description: The levers that control what OpenAnkole spends — model profiles, reasoning effort, web tools, turn budgets, Workflow fanout, and background-job caps.
 section: Guides
 order: 314
 ---
 
-Most of what Ankole spends is model tokens, and most of *that* is decided by a small set of configuration levers, not by usage you cannot shape. This page names the levers, says what each one costs and saves, and gives the order to pull them when the bill is too high. Every lever here is a real knob in the control plane; none of it is "use the agent less."
+Most of what OpenAnkole spends is model tokens, and most of *that* is decided by a small set of configuration levers, not by usage you cannot shape. This page names the levers, says what each one costs and saves, and gives the order to pull them when the bill is too high. Every lever here is a real knob in the control plane; none of it is "use the agent less."
 
 The decisive property, stated up front: cost is a function of *which model runs, how many times, and for how long*. The levers map to those three: the model-profile tiers pick the model, the agent-loop budgets cap the iterations, and the Workflow and Job caps bound fanout and retries. Pull the one that matches where the spend is.
 
@@ -114,7 +114,7 @@ This is the pattern: cost problems are often behavior problems in disguise, and 
 
 ## What cost management is not
 
-It is not a real-time spend dashboard — Ankole does not emit one. It is not a way to cap spend at a dollar amount; the levers cap *calls and iterations*, and the dollar amount is the provider's rate times those. And it is not a substitute for reading the conversations surface; the levers are only worth pulling once you know which one is set wrong.
+It is not a real-time spend dashboard — OpenAnkole does not emit one. It is not a way to cap spend at a dollar amount; the levers cap *calls and iterations*, and the dollar amount is the provider's rate times those. And it is not a substitute for reading the conversations surface; the levers are only worth pulling once you know which one is set wrong.
 
 ## Next steps
 

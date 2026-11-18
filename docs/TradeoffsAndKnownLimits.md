@@ -1,6 +1,6 @@
 # Tradeoffs and Known Limits
 
-This page explains what Ankole does not guarantee. Each subsystem design
+This page explains what OpenAnkole does not guarantee. Each subsystem design
 document describes the related behavior in more detail.
 
 ## One Instance Is One Trust Boundary
@@ -24,13 +24,13 @@ equals the subject id, and it refuses the write when that UID is taken.
 The cost is that a provider subject whose id equals an existing Principal UID
 gets no account by itself: identity admission holds the sender for manual
 review, and the subject stays unmapped until an operator binds it to a
-Principal. Ankole accepts this cost because the alternative silently gives an
+Principal. OpenAnkole accepts this cost because the alternative silently gives an
 account to whoever controls a matching identifier, which for an email address
 can be anyone on the internet. See [Principal](design-docs/Principal.md).
 
 ## The Worker Container Protects the Host
 
-Ankole treats each Agent Computer container or pod as a trusted, first-party
+OpenAnkole treats each Agent Computer container or pod as a trusted, first-party
 worker. The container forms the main security barrier around Agent code.
 
 Bubblewrap adds command isolation inside the container. Strong mode mounts a new
@@ -42,7 +42,7 @@ profile. Kubernetes must grant equivalent kernel access for strong mode.
 
 Bubblewrap does not make hostile code safe inside one trusted worker. Use
 separate containers or deployment instances for hostile workloads. An attacker
-who controls a worker can control a trusted part of Ankole.
+who controls a worker can control a trusted part of OpenAnkole.
 
 All sandboxes in one Worker can read and write `/var/share`. This directory is
 Worker-local and disposable. It is suitable for caches, but it does not isolate
@@ -57,7 +57,7 @@ supports read and write access from each worker.
 
 Agent Home contains Codex state, Agent documents, user files, installed Skills,
 Session workspaces, and Job workspaces. PostgreSQL records when those resources
-exist and how Ankole uses them.
+exist and how OpenAnkole uses them.
 
 WorkerPool keeps one Agent's live work on one worker. It selects that worker
 with the Agent UID. New work waits when the selected worker has no capacity.
@@ -89,7 +89,7 @@ RuntimeFabric carries live traffic through one Phoenix Channel per worker. This
 traffic includes turn control, RPC calls, worker status, and flow control.
 File bytes move over HTTP through a signed relay URL.
 
-The worker connection is not a durable queue. PostgreSQL keeps any fact that Ankole must replay,
+The worker connection is not a durable queue. PostgreSQL keeps any fact that OpenAnkole must replay,
 check, reconcile, or commit after a restart.
 
 `ActorBus` is a name for Actor message behavior. It is not a second transport
@@ -116,7 +116,7 @@ terminal Response alone does not prove that the turn completed.
 SignalsGateway receives provider events, applies binding rules, starts Agent
 work, shows live previews, and sends replies.
 
-A provider acknowledgement confirms only that Ankole received the provider
+A provider acknowledgement confirms only that OpenAnkole received the provider
 event. It does not confirm that an Agent replied.
 
 Live previews are temporary. A crash can leave old preview content at the
@@ -125,7 +125,7 @@ provider. A terminal model Response does not stop that preview.
 Turn completion, an empty result, dead-letter handling, or an explicit stop ends
 the preview. The final reply always comes from a stored outbox row.
 
-Ankole can send a provider operation more than once. Adapters use provider
+OpenAnkole can send a provider operation more than once. Adapters use provider
 idempotency or reconciliation when available. A visible final reply with an
 unknown result retries only inside its attempt budget and carries a
 possible-duplicate notice. Other uncertain operations remain
@@ -145,7 +145,7 @@ ActorEvents. Neither event alone answers "what did this Turn reply". The
 outbox and follows it to the message. A reader that starts from an ActorEvent
 and expects both parts under it finds only one of them.
 
-This split is the cost of anchoring the reply where the user is looking. Ankole
+This split is the cost of anchoring the reply where the user is looking. OpenAnkole
 accepts it instead of posting the answer under an older message.
 
 ## Message Edits and Files Have Provider Limits
@@ -165,7 +165,7 @@ unsupported work instead of pretending that the provider completed it.
 ## WhatsApp Replies Expire after 24 Hours
 
 Meta closes the WhatsApp customer service window 24 hours after the user's
-newest message. Ankole checks that window before every send and stops the reply
+newest message. OpenAnkole checks that window before every send and stops the reply
 with a permanent error instead of calling the Cloud API, so an answer that a
 background job or a scheduled push produces after the window never arrives. Only
 a paid template message can open a new window, and templates are outside the
@@ -174,7 +174,7 @@ user writes again.
 
 The Cloud API also reports a failed delivery asynchronously, after it has
 already accepted the send. The outbox row records that send as a success, so
-Ankole logs the later failure and cannot repair the delivery by itself. A send
+OpenAnkole logs the later failure and cannot repair the delivery by itself. A send
 carries no idempotency key and offers no read-back, so an uncertain answer
 reports `unknown` and follows the possible-duplicate flow above.
 
@@ -259,23 +259,23 @@ AIGateway requests, or logs.
 RuntimeFabric currently assumes private endpoints and trusted workers. It does
 not admit public workers or protect traffic on a hostile network.
 
-## Offboarding Stops at Ankole's Boundary
+## Offboarding Stops at OpenAnkole's Boundary
 
-Disabling a Human stops new authentication and new work admission in Ankole.
+Disabling a Human stops new authentication and new work admission in OpenAnkole.
 Detection of a provider departure depends on provider events and the periodic
 directory sync; a provider outage or an incomplete admission scope delays it,
 and manual disablement remains available.
 
-An attempt that passed its start check before the disablement finishes. Ankole
+An attempt that passed its start check before the disablement finishes. OpenAnkole
 does not interrupt it or recheck the Human between its tool calls.
 
 OIDC Clients receive Back-Channel Logout and can query Introspection, but each
-Client applies the result on its own schedule. Ankole sets no end-to-end logout
+Client applies the result on its own schedule. OpenAnkole sets no end-to-end logout
 deadline and cannot report local disablement as proof that every Client has
 blocked access.
 
-Ankole does not revoke credentials that it did not issue. A Client's cached
-result, a personal provider authorization held outside Ankole, and a Lark CLI
+OpenAnkole does not revoke credentials that it did not issue. A Client's cached
+result, a personal provider authorization held outside OpenAnkole, and a Lark CLI
 profile that an admitted attempt already selected keep working until their own
 expiry. See [Human Offboarding](design-docs/HumanOffboarding.md),
 [Browser Sessions](design-docs/BrowserSessions.md), and
@@ -349,9 +349,9 @@ one of those paths works.
 Static review can find a contract mismatch. It cannot prove behavior across a
 live worker, provider, database restart, or network failure.
 
-## Features That Ankole Does Not Provide
+## Features That OpenAnkole Does Not Provide
 
-Ankole currently does not provide:
+OpenAnkole currently does not provide:
 
 - long-term memory (the prior Brain module is removed and awaiting a rewrite)
 - public admission for untrusted workers

@@ -1,6 +1,6 @@
 ---
 title: AppConfigure
-description: Manage Ankole AppConfigure runtime settings in the Console and reference the built-in keys.
+description: Manage OpenAnkole AppConfigure runtime settings in the Console and reference the built-in keys.
 section: User guide
 order: 43
 ---
@@ -11,7 +11,7 @@ LLM Providers, Identity Providers, chat channels, and environment variables have
 
 ## AppConfigure and environment variables
 
-AppConfigure settings are stored in PostgreSQL. They control Ankole product behavior while the instance runs. Most changes apply to later work and do not require a new deployment.
+AppConfigure settings are stored in PostgreSQL. They control OpenAnkole product behavior while the instance runs. Most changes apply to later work and do not require a new deployment.
 
 [Deployment environment variables](../environment-variables/) start the control plane, PostgreSQL, and Workers. Restart the affected process after you change one.
 
@@ -33,7 +33,7 @@ The key is the stable name of the setting. Its description explains what it cont
 
 The AppConfigure page changes instance overrides. A key marked **Instance or Agent** also lets its owning feature store an override for one Agent, but this page does not select or edit an Agent.
 
-When Ankole resolves one of these settings for an Agent, it uses this order:
+When OpenAnkole resolves one of these settings for an Agent, it uses this order:
 
 1. the current Agent override;
 2. the instance override;
@@ -54,13 +54,13 @@ Most changes apply to later work. If the page says that a change applies at the 
 
 ## Reset a setting
 
-When you no longer need a custom value, open the setting and select **Reset to default**. This removes the stored override and makes Ankole use the default declared by the installed version.
+When you no longer need a custom value, open the setting and select **Reset to default**. This removes the stored override and makes OpenAnkole use the default declared by the installed version.
 
 Resetting is different from entering the current default as a custom value. A reset follows a changed default in a later version. A stored custom value does not.
 
 ## Current built-in AppConfigure keys
 
-The following AppConfigure keys are built into Ankole. A Control Plane Plugin can register more keys. The **AppConfigure** page in the current instance is the authoritative list.
+The following AppConfigure keys are built into OpenAnkole. A Control Plane Plugin can register more keys. The **AppConfigure** page in the current instance is the authoritative list.
 
 ### Agent runtime
 
@@ -121,7 +121,7 @@ See [LLM observability](../llm-observability/) for Langfuse, LangSmith, Victoria
 | `principals.identity_providers.directory_full_sync_interval_hours` | Instance | Full organization-directory synchronization interval |
 | `plugins.enabled_ids` | Instance | Control Plane Plugins to enable at the next start |
 | `system.timezone` | Instance | Default time zone for schedules and other control-plane features |
-| `i18n.default_locale` | Instance | Default language for the Ankole interface |
+| `i18n.default_locale` | Instance | Default language for the OpenAnkole interface |
 
 ### Workers, web reading, and security
 
@@ -145,6 +145,6 @@ The first-run setup flow owns these keys. To read the activation code, run `kit 
 
 ## Encrypted settings
 
-Ankole stores credential settings in encrypted form and shows a mask in the list and editor. Saving the mask keeps the current value. Entering new content replaces it.
+OpenAnkole stores credential settings in encrypted form and shows a mask in the list and editor. Saving the mask keeps the current value. Entering new content replaces it.
 
 Use **Reveal** only when you must check the current value. Do not copy a revealed credential into chat, screenshots, or tickets.

@@ -43,7 +43,7 @@ If the list is empty, add a matching Provider first. See [Quick start](../quicks
 
 ## Current built-in Providers
 
-A Control Plane Plugin can add more Provider kinds. The following kinds are built into Ankole now.
+A Control Plane Plugin can add more Provider kinds. The following kinds are built into OpenAnkole now.
 
 ### `web_search` Providers
 

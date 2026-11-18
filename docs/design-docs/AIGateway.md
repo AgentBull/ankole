@@ -544,7 +544,7 @@ The retrieve endpoint does not return those identifiers.
 
 Stateful execution requires WebSocket `response.create` with `store=true`.
 
-The caller's `store` flag controls storage in Ankole. AIGateway consumes this
+The caller's `store` flag controls storage in OpenAnkole. AIGateway consumes this
 flag before provider dispatch. The OpenAI, Azure OpenAI, and OpenAI-compatible
 Responses adapters set the upstream `store` field to `false` independently.
 Local conversation storage does not depend on upstream response storage.
@@ -767,7 +767,7 @@ A stateful model round follows this sequence:
 5. Plan automatic compaction when the context requires it.
 6. Start the run in one transaction.
 7. Insert one message row with `status = generating`.
-8. Prepare the upstream request without Ankole stateful fields.
+8. Prepare the upstream request without OpenAnkole stateful fields.
 9. Stream normalized provider events.
 10. Store complete content or an error before reporting that the Response ended.
 
@@ -1049,10 +1049,10 @@ Under that one protocol there are two backends. The local backend writes the
 summary with the Agent's light profile. The pass-through backend forwards the
 trigger to the Provider and returns the Provider's own compaction item. The `upstream` field of the
 `ai_gateway.compaction` settings selects between them, next to every other
-compaction field. It defaults to `false`, because Ankole can always compact
+compaction field. It defaults to `false`, because OpenAnkole can always compact
 locally, and because a Provider-owned compaction item binds the rest of that
 history to the same upstream. It is an instance decision, not a per-Agent
-capability: one Ankole instance serves one enterprise, and the binding it
+capability: one OpenAnkole instance serves one enterprise, and the binding it
 creates outlives the Agent that triggered it.
 
 Pass-through needs two structural preconditions: an effective Responses wire,
@@ -1124,7 +1124,7 @@ Version 3 keeps this binding check because its provider-native output is one
 opaque value that AIGateway cannot project item by item. Reactive replay
 recovery does not replace this check.
 
-A stateless trigger returns version 3 output without an Ankole handle. The
+A stateless trigger returns version 3 output without an OpenAnkole handle. The
 caller must continue with a compatible Responses provider. When its input
 already contains provider-native compaction state and upstream compaction is
 disabled or fails, AIGateway cannot read that ciphertext, so it does not fail
@@ -1226,7 +1226,7 @@ cannot block an ordinary conversation. If neither native nor fallback execution
 is available, request preparation returns an explicit unsupported-value error.
 AIGateway never adds an image tool that the caller did not declare. Before a
 Responses request or native image dispatch, it inlines local input-image and
-mask references because the Provider cannot read Ankole artifact IDs. It also
+mask references because the Provider cannot read OpenAnkole artifact IDs. It also
 restores each stored `image_generation_call.result` from its Artifact. This
 applies to compatible Responses endpoints regardless of their image-generation
 capability: a proxy can return images and remove item IDs on later requests.
@@ -1402,7 +1402,7 @@ boundary instead of retaining duplicate payloads. The common layer removes
 credentials, headers, generic caller metadata, encrypted reasoning and tool
 fields, and `__ankole_*` control fields. It replaces inline `data:` media with
 its byte count and omits an input or output payload that exceeds 1 MiB. Enabling
-the feature still sends model content outside Ankole, so the operator must
+the feature still sends model content outside OpenAnkole, so the operator must
 treat the receiver as a trusted system.
 
 For Langfuse v4, use a base endpoint such as
@@ -1443,7 +1443,7 @@ the same code and message on both edges.
 ## Split Work between Elixir and Rust
 
 Elixir chooses the provider, model, eligible endpoints, and headers. It
-prepares the provider request and removes Ankole-only state fields before
+prepares the provider request and removes OpenAnkole-only state fields before
 sending it.
 
 Elixir also owns the complete public stream lifecycle. One `ResponseStream`

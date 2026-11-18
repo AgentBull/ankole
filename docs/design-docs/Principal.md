@@ -4,7 +4,7 @@ A Principal identifies the human or Agent responsible for an action. Work,
 permissions, and audit records all use that same identity.
 
 Current Principal types are `human`, `agent`, and `system`.
-One UID identifies a Principal across the complete deployment instance. Ankole
+One UID identifies a Principal across the complete deployment instance. OpenAnkole
 does not add a second organization boundary inside the instance.
 
 ## What the Principal Subsystem Stores
@@ -43,7 +43,7 @@ An Agent UID must also match this pattern:
 ^[a-z0-9][a-z0-9._-]{0,95}$
 ```
 
-This pattern makes the UID safe to use when Ankole selects an Agent Home path.
+This pattern makes the UID safe to use when OpenAnkole selects an Agent Home path.
 
 ## Stored Rows
 
@@ -135,7 +135,7 @@ The binding ID identifies only that external link. The Principal UID still
 identifies the responsible human or Agent.
 
 Provider names scope binding rows, not Principal identity. When no binding
-already exists for a provider subject, Ankole matches known contact data. An
+already exists for a provider subject, OpenAnkole matches known contact data. An
 equal Principal UID is not a match: a UID such as a local account's sign-in
 email is a name, not evidence that the subject is that person.
 
@@ -177,7 +177,7 @@ senders match only through an `email` binding.
 Step 5 creates; it never joins. When a Principal with that UID already exists,
 the write fails with `principal_uid_taken`. Only an operator can decide that
 the subject and the existing account are one person, through a manual
-mapping. Ankole does not prepend the provider name to a generated UID; a
+mapping. OpenAnkole does not prepend the provider name to a generated UID; a
 collision is refused instead of renamed.
 
 The transaction locks every supplied provider subject candidate, the email
@@ -196,7 +196,7 @@ without a manual mapping. An address that is already bound elsewhere stays
 there; the write logs `identity_providers.directory.email_already_bound` and
 continues.
 
-If another Principal owns the supplied email or mobile number, Ankole ignores
+If another Principal owns the supplied email or mobile number, OpenAnkole ignores
 that field and logs `principals.platform_subject.contact_conflict`. It still
 stores the remaining identity data.
 
@@ -277,5 +277,5 @@ See [AuthZ](AuthZ.md) for the decision contract.
 - Keep Agent runtime facts outside the common Principal row.
 - Require a nonempty Agent role and a JSON options object.
 - Prefer `platform_subject` when provider records refer to the same human.
-- Verify a channel identity before Ankole trusts it to act for a Principal.
+- Verify a channel identity before OpenAnkole trusts it to act for a Principal.
 - Keep groups and grants inside AuthZ.

@@ -5,7 +5,7 @@ section: Developer guide
 order: 113
 ---
 
-Skills and Control Plane Plugins both extend Ankole, but they solve different problems. Select the correct extension point before you write code.
+Skills and Control Plane Plugins both extend OpenAnkole, but they solve different problems. Select the correct extension point before you write code.
 
 | Requirement | Use |
 |---|---|

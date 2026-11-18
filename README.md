@@ -1,29 +1,35 @@
-# Ankole, the enterprise Agent Harness with a Company Brain
+# OpenAnkole, the enterprise Agent Harness with a Company Brain
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 ![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
 ![Runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20Phoenix%2FOTP%20%2B%20Rust-blue)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/AgentBull/ankole)
 
-[简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md)
+[Why OpenAnkole](#why-openankole) · [Company Brain](#company-brain) · [Decision work](#decision-work) · [Enterprise runtime](#enterprise-runtime) · [Architecture](#architecture) · [Current status](#current-status) · [Development](#development)
 
-[Why Ankole](#why-ankole) · [Company Brain](#company-brain) · [Decision work](#decision-work) · [Enterprise runtime](#enterprise-runtime) · [Architecture](#architecture) · [Current status](#current-status) · [Development](#development)
+OpenAnkole is the open source Agent Harness in this repository.
+Company knowledge, live signals, permissions, tools, and observed results become the context that an Agent uses to make a decision and to show its evidence.
+OpenAnkole includes an enterprise bot that you can run in place of Claude Tag.
+You host the control plane, the workers, and the data.
+
+Use Ankole.AI at [https://ankole.ai/](https://ankole.ai/) for the hosted Agent OS.
+Ankole.AI is closed-source SaaS.
+In Ankole.AI, a team can change Base, Doc, and Applet while work is in progress.
+That is malleable software.
 
 **Give your company a Brain and every Agent better judgment.**
 
-Ankole is the open source Claude Tag alternative for company work. Its enterprise Agent Harness assembles company knowledge, live signals, permissions, tools, and observed results into the context an Agent needs to make a decision and show its evidence.
-
 Company Brain gives durable Agents shared knowledge. The Harness applies enterprise authority and carries work across model calls.
 
-A model can reason only over the context it receives. Ankole selects the relevant facts and capabilities, enforces authority, preserves work through failure, and records results for later decisions.
+A model can reason only over the context it receives. OpenAnkole selects the relevant facts and capabilities, enforces authority, preserves work through failure, and records results for later decisions.
 
-Ankole runs on infrastructure that the company controls. Identity, context, credentials, artifacts, audit records, and execution stay in that environment.
+OpenAnkole runs on infrastructure that the company controls. Identity, context, credentials, artifacts, audit records, and execution stay in that environment.
 
 The Harness gives each model call continuity, authority, durable state, and feedback from results.
 
-## Why Ankole
+## Why OpenAnkole
 
-Most Agent stacks combine a model, a prompt, and a set of tools. Each call begins with context assembled for that moment. Ankole maintains the company state and runtime required for work that continues after the call.
+Most Agent stacks combine a model, a prompt, and a set of tools. Each call begins with context assembled for that moment. OpenAnkole maintains the company state and runtime required for work that continues after the call.
 
 - The Harness assembles current context, selects capabilities, enforces authority, and preserves state across model calls.
 - Messages, schedules, webhooks, market changes, and internal events can wake the right Agent.
@@ -44,7 +50,7 @@ It learns from conversations, registered files and URLs, and deliberate Agent wr
 
 ## Decision work
 
-Ankole supports decisions with explicit assumptions and observable outcomes. Current examples include industry research, product selection, deep data analysis, and forecasting.
+OpenAnkole supports decisions with explicit assumptions and observable outcomes. Current examples include industry research, product selection, deep data analysis, and forecasting.
 
 - The Agent starts with current rules, prior decisions, relevant evidence, available authority, and recent changes.
 - Deep Research divides evidence gathering across independent workers, tests competing hypotheses, records evidence gaps, and returns a cited report.
@@ -53,7 +59,7 @@ Ankole supports decisions with explicit assumptions and observable outcomes. Cur
 
 ## Enterprise runtime
 
-Ankole runs each active session as an addressable Virtual Actor. The actor can wake, receive messages, checkpoint, stream progress, hibernate, recover, and continue.
+OpenAnkole runs each active session as an addressable Virtual Actor. The actor can wake, receive messages, checkpoint, stream progress, hibernate, recover, and continue.
 
 Five mechanisms keep the work alive and accountable:
 
@@ -117,17 +123,17 @@ The Elixir/OTP control plane owns durable decisions for Principal/AuthZ, Signals
 
 ## Current status
 
-Ankole runs in production as a complete enterprise Agent Harness. Companies can host the control plane, Agent Computer, kernel, and operator console on their own infrastructure.
+OpenAnkole runs in production as a complete enterprise Agent Harness. Companies can host the control plane, Agent Computer, kernel, and operator console on their own infrastructure.
 
 - OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, and other endpoints compatible with the OpenAI API support compaction, stateful conversations, reasoning effort control, and provider usage records.
 - Slack, Microsoft Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, and Email adapters connect Agents to company chat, consumer chat, and a dedicated mailbox. Slack, Entra ID, Google Workspace, Lark/Feishu, DingTalk, WeCom, and a built-in local password provider supply sign-in and directory sync.
 - Per-Agent token quotas cap model spend for a repeating period. Human offboarding disables a departed person's sign-in and future work, from the Console or from a directory departure event, with audited restoration.
 - Brain provides scoped disclosure, conversation and source learning, offline consolidation, operator review, full text search, and vector search.
 - Sessions wake, checkpoint, stream progress, hibernate, recover with context, and accept live steering or cancellation.
-- The operator console included with Ankole manages Agents, library settings, plugins, providers, models, identity, signals, Workers, Brain knowledge, and Background Agent Jobs.
+- The operator console included with OpenAnkole manages Agents, library settings, plugins, providers, models, identity, signals, Workers, Brain knowledge, and Background Agent Jobs.
 - Unit suites and dedicated system suites cover scheduling, Worker computers, recovery under failure, concurrency, and performance.
 
-Ankole is still defining its public API compatibility contract. Releases can include breaking changes.
+OpenAnkole is still defining its public API compatibility contract. Releases can include breaking changes.
 
 | Area | Status |
 | --- | --- |
@@ -137,19 +143,19 @@ Ankole is still defining its public API compatibility contract. Releases can inc
 | Frontend | Vite + React console, auth, and setup surfaces under `app/webapps`, built into the Phoenix static shell. |
 | Local services | PostgreSQL is provided through the devkit Docker Compose setup. |
 | Design docs | Architecture and runtime design documents live under `docs/design-docs`. |
-| Production readiness | Running in production. State persistence, live control, and operator interfaces are complete. Ankole is still defining its public API compatibility contract. |
+| Production readiness | Running in production. State persistence, live control, and operator interfaces are complete. OpenAnkole is still defining its public API compatibility contract. |
 
 ## Current repository
 
-This repository is the active Ankole control plane and runtime workspace.
+This repository is the active OpenAnkole control plane and runtime workspace.
 
 - `app/control_plane` - Phoenix/OTP control plane for Principal/AuthZ, AppConfigure, setup, console, the Control Plane Plugin registry, I18n, SignalsGateway, actor runtime, RuntimeFabric, and durable state in PostgreSQL.
 - `app/kernel` - shared Rust foundation loaded by Elixir and Bun for crypto, identifiers, phone/JWT helpers, AuthZ evaluation, and RuntimeFabric protobuf envelopes.
 - `app/agent_computer` - Bun + TypeScript Agent Computer worker for the local LLM loop, provider adapters, tools, skill loading, files, terminal state, and worker daemon.
 - `app/webapps` - Vite + React frontend applications for auth, setup, and console surfaces, built into the Phoenix static shell.
-- `app/library` - bundled Skills, Agent Plugins provided by Ankole, and starter templates such as `MISSION.md` and `SOUL.md`.
+- `app/library` - bundled Skills, Agent Plugins provided by OpenAnkole, and starter templates such as `MISSION.md` and `SOUL.md`.
 - `app/locales` - shared TOML translation catalogs consumed by the control plane and browser surfaces.
-- `libs/uikit` - shared UI primitives for Ankole webapps.
+- `libs/uikit` - shared UI primitives for OpenAnkole webapps.
 - `libs/feishu_openapi` - local Lark/Feishu OpenAPI client library.
 - `libs/slack_openapi` - local Slack Web API, Socket Mode, and OIDC client library.
 - `internals/plugins` - private Control Plane Plugin code compiled into private releases.
@@ -162,12 +168,12 @@ SignalsGateway receives provider traffic. It converts external chats, webhooks, 
 
 ## Development
 
-Ankole defaults to Bun for workspace scripts and Elixir/Phoenix for the control plane.
+OpenAnkole defaults to Bun for workspace scripts and Elixir/Phoenix for the control plane.
 
 For a first local setup, copy this single prompt into a coding agent:
 
 ```text
-Read https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md in full, then guide me through a complete local Ankole setup and its documented verification from entry to result. Treat that guide as the source of truth. Perform and verify every safe reversible step. Pause for actions that require a human account, secret, OAuth flow, or approval for a destructive step. Declare completion only after its success criteria pass.
+Read https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md in full, then guide me through a complete local OpenAnkole setup and its documented verification from entry to result. Treat that guide as the source of truth. Perform and verify every safe reversible step. Pause for actions that require a human account, secret, OAuth flow, or approval for a destructive step. Declare completion only after its success criteria pass.
 ```
 
 ```shell

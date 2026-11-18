@@ -52,7 +52,7 @@ Each enabled binding has one supervised mailbox owner. The owner opens one
 IMAP connection over implicit TLS, logs in, selects `INBOX`, and then repeats
 this cycle:
 
-1. `UID SEARCH UNSEEN` lists the messages that Ankole has not confirmed.
+1. `UID SEARCH UNSEEN` lists the messages that OpenAnkole has not confirmed.
 2. For each UID in ascending order, `UID FETCH` reads the size and the full
    message with `BODY.PEEK[]`, so the fetch itself does not change flags.
 3. The adapter decodes the message and calls SignalsGateway ingress.
@@ -90,7 +90,7 @@ The signal channel is the email thread. The channel ID is
 adapter collects the IDs in its `In-Reply-To` and `References` headers and
 looks them up in the binding's mirrored entries. A hit joins that entry's
 channel. A miss starts a new thread whose root is the message's own ID. This
-lookup also finds the replies that Ankole sent, because SignalsGateway mirrors
+lookup also finds the replies that OpenAnkole sent, because SignalsGateway mirrors
 every successful outbound send. The adapter does not group messages by
 subject.
 
@@ -105,10 +105,10 @@ The message text is the `text/plain` part, so a control command at the start
 of the body keeps its meaning. The subject is the channel name and the
 `subject` entry metadata; a message without a body carries its subject as the
 text. When only `text/html` is present, the adapter converts it to plain text
-and keeps links. When a message joins a thread that Ankole already mirrors,
+and keeps links. When a message joins a thread that OpenAnkole already mirrors,
 the adapter removes the quoted text below a reply separator and records
 `quoted_text_removed` in the entry metadata; the mirrored entries already
-hold the earlier messages. The first message Ankole sees in a thread keeps
+hold the earlier messages. The first message OpenAnkole sees in a thread keeps
 its complete body, and so does a forwarded message: a forward marker line
 above the first reply separator, or a subject with a forward prefix, stops
 the cut.
@@ -189,7 +189,7 @@ SignalsGateway first commits the admitted message with a pending attachment
 projection. The adapter then writes each MIME part that carries a filename, or
 that is not text, to the Agent's `user-files` lane under
 `inbox/<attachment id>/<name>` and updates the same entry. An unmatched
-sender cannot make Ankole write a file.
+sender cannot make OpenAnkole write a file.
 
 A message larger than 25 MB is fetched as headers only. Its entry keeps the
 subject and a size notice, records `size_limit_exceeded` in the metadata, and

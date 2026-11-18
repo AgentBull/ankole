@@ -5,7 +5,7 @@ section: Developer guide
 order: 110
 ---
 
-Control Plane Plugins are how an Ankole deployment instance extends its own control plane — adds a signal adapter, an identity provider, an AppConfigure key, or a supervised process — without the control plane growing those things as one-off code paths. This page maps the model against the real code in `Ankole.Plugins`.
+Control Plane Plugins are how an OpenAnkole deployment instance extends its own control plane — adds a signal adapter, an identity provider, an AppConfigure key, or a supervised process — without the control plane growing those things as one-off code paths. This page maps the model against the real code in `Ankole.Plugins`.
 
 The decisive property, stated up front: these are first-party Elixir modules compiled into the release, not a marketplace of installable extensions. A plugin is discovered and validated at boot, opted into through a single global enable list, and activated only on the next process start. There is no hot-load, no third-party discovery, no isolation machinery — by design.
 
@@ -47,7 +47,7 @@ Contract-specific callback semantics stay with the subsystem that consumes the c
 
 Plugins are instance-wide and fail closed, so the operator explicitly opts them in through one durable list: `plugins.enabled_ids`, an AppConfigure key stored in PostgreSQL. The registry reads that list once, in `init/1`, when the control plane starts.
 
-Changing the enable list does **not** take effect immediately. It takes effect on the next Ankole process start. This is deliberate. Activating or deactivating a plugin can add or remove supervised children and config keys, which is a boot-time concern, not a hot-swap. The Console's `PUT /control-plane-plugins` route is therefore labeled "configure one Control Plane Plugin for the next process start" — it writes the intent, and a restart applies it.
+Changing the enable list does **not** take effect immediately. It takes effect on the next OpenAnkole process start. This is deliberate. Activating or deactivating a plugin can add or remove supervised children and config keys, which is a boot-time concern, not a hot-swap. The Console's `PUT /control-plane-plugins` route is therefore labeled "configure one Control Plane Plugin for the next process start" — it writes the intent, and a restart applies it.
 
 The registry itself is a GenServer whose state is immutable for the lifetime of the process. If module validation, a uniqueness invariant, or config registration fails during `init/1`, it returns `:stop`, which halts application startup before the system can run with a partly registered plugin set. A bad plugin fails the boot loudly, not silently.
 

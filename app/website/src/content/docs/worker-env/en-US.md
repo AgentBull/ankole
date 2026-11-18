@@ -44,7 +44,7 @@ This section shows default values, global values, and values for this Agent. The
 | Type | Meaning | Available actions |
 |---|---|---|
 | Custom | An administrator added the variable in the Console | Edit or delete |
-| Declared | Ankole or an enabled plugin provides the variable | Edit the value or reset it to the default |
+| Declared | OpenAnkole or an enabled plugin provides the variable | Edit the value or reset it to the default |
 
 A declared variable has a fixed name and data format. A variable with no value and no default appears as **Unset**.
 

@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-Some Ankole capabilities are shell commands in the Agent Computer, not model-visible tools. The Agent calls them through the shell, like `gh` or `kubectl`. Webhook endpoint commands and automation job commands use this shape.
+Some OpenAnkole capabilities are shell commands in the Agent Computer, not model-visible tools. The Agent calls them through the shell, like `gh` or `kubectl`. Webhook endpoint commands and automation job commands use this shape.
 
 This page describes when to ship a capability in this shape and the disclosure architecture that makes it discoverable and correct without a tool registration, a Skill index entry, or a system prompt section.
 

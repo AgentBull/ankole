@@ -5,7 +5,7 @@ section: Guides
 order: 309
 ---
 
-Automation in Ankole combines one of three triggers with one of two consumers. An Agent session handles work that needs judgment, memory, or conversation. An automation job runs a deterministic script for mechanical handling. This page gives ready-to-use blueprints for the common shapes.
+Automation in OpenAnkole combines one of three triggers with one of two consumers. An Agent session handles work that needs judgment, memory, or conversation. An automation job runs a deterministic script for mechanical handling. This page gives ready-to-use blueprints for the common shapes.
 
 An Automation Job is not a workflow language or a step graph. It is an ordinary Bun `main.ts` inside the Agent Home. The trigger owner keeps time or ingress, and the selected consumer handles the unchanged event. The Agent returns only when the script emits an event or the failure policy wakes it.
 
@@ -85,7 +85,7 @@ This is how you get a "weekly deep research" without the schedule's turn running
 
 ## Blueprint: event-driven (webhook)
 
-An external system, such as a source repository or CI provider, calls a short-lived Ankole capability URL. The endpoint accepts the delivery and commits the selected consumer record before it returns success.
+An external system, such as a source repository or CI provider, calls a short-lived OpenAnkole capability URL. The endpoint accepts the delivery and commits the selected consumer record before it returns success.
 
 Use the default direct consumer when the Agent must inspect the current external object and judge the event. Bind the endpoint to an automation job when a deterministic script can filter or reconcile the receipt first. The receipt is untrusted in both paths, and consequential facts still come from the authoritative external source. Read [Webhook delegations](../webhook-delegations/) for capability security and lifecycle rules.
 
@@ -109,7 +109,7 @@ This separates observation (continuous, quiet) from synthesis (scheduled, loud).
 - **Want an external system to continue the work?** Webhook delegation, with a direct Agent or automation job consumer.
 - **Want quiet observation plus periodic synthesis?** Binding policy + schedule.
 
-## What automation in Ankole is not
+## What automation in OpenAnkole is not
 
 Triggered automation is not a workflow language. There is no YAML step list, platform DAG, hidden cursor, or general event bus. An Automation Job can run a small script, but the script owns its state and repeat safety. Delivery still uses the owner session's routing rule, and automation cannot bypass permissions.
 

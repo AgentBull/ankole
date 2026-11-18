@@ -1,6 +1,6 @@
 ---
 title: Code execution
-description: How an Ankole Agent runs code in a conversation or as a durable Background Agent Job.
+description: How an OpenAnkole Agent runs code in a conversation or as a durable Background Agent Job.
 section: Developer guide
 order: 122
 ---
@@ -22,7 +22,7 @@ Alongside the shell, the computer tools give the Agent two file primitives:
 - **Read a file** — `read-file-tool.ts`, for inspecting a file's contents directly rather than shelling out to `cat`.
 - **Edit files** — `apply-patch-tool.ts`, a freeform `apply_patch` tool that uses the same grammar as the pinned Codex release.
 
-The Main Agent sends the raw patch through AIGateway as a `custom_tool_call`. The Worker passes it to the native Codex binary through `/usr/local/bin/apply_patch`. Background Agent Jobs get the same freeform tool from the AIGateway model card and use the same binary. Ankole does not keep a separate patch parser.
+The Main Agent sends the raw patch through AIGateway as a `custom_tool_call`. The Worker passes it to the native Codex binary through `/usr/local/bin/apply_patch`. Background Agent Jobs get the same freeform tool from the AIGateway model card and use the same binary. OpenAnkole does not keep a separate patch parser.
 
 This shared path keeps normal conversations and Background Agent Jobs on one edit protocol. A patch that does not match fails in the native tool and returns that failure to the model. For a quick search, the shell is fine. Use `apply_patch` for file edits.
 
@@ -46,11 +46,11 @@ Everything the agent reads and writes lives under `/agents`, laid out per agent 
 
 `SOUL.md`, `MISSION.md`, and `DESIGN.md` are durable documents in the [Agent Library](../agent-library/). The first two define responsibility and behavior. `DESIGN.md` is the design system for visual work. `installed-skills/` holds Agent Skills. `sessions/` holds conversation workspaces with stable PostgreSQL-owned numeric IDs that start at 10000, and `jobs/` holds separate Background Agent Job workspaces.
 
-Background Agent Jobs load Skills through Ankole `skill_view`; they do not copy Skill roots into the Job workspace.
+Background Agent Jobs load Skills through OpenAnkole `skill_view`; they do not copy Skill roots into the Job workspace.
 
 ## Jupyter live kernel for iterative Python
 
-When the work is iterative Python — variables that must persist across executions, a DataFrame you want to inspect cell by cell, or a stateful REPL — the shell is the wrong tool. The `jupyter-live-kernel` skill is the right one. It is a builtin skill (`default_enabled: true`) that runs as a [background job](../background-jobs/), built on Ankole's Unix-socket adapter around hamelnb. The kernel stays alive across executions, so you can define a variable in one step and read it in the next, instead of reloading data every call.
+When the work is iterative Python — variables that must persist across executions, a DataFrame you want to inspect cell by cell, or a stateful REPL — the shell is the wrong tool. The `jupyter-live-kernel` skill is the right one. It is a builtin skill (`default_enabled: true`) that runs as a [background job](../background-jobs/), built on OpenAnkole's Unix-socket adapter around hamelnb. The kernel stays alive across executions, so you can define a variable in one step and read it in the next, instead of reloading data every call.
 
 The skill's own guidance is the rule of thumb: prefer a one-shot shell execution for short, stateless Python scripts; prefer this skill when you would normally want a Jupyter notebook or a stateful Python REPL. Data science, DataFrame inspection, notebook editing, and stateful API exploration are its sweet spot. The system Python, JupyterLab, ipykernel, and the hamelnb helper are already in the worker image, so a fresh agent can use the skill without installing anything.
 

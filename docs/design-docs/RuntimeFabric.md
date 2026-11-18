@@ -2,12 +2,12 @@
 
 RuntimeFabric connects the Elixir control plane to Agent Computer workers.
 It carries live messages but does not store them. PostgreSQL stores any data
-that Ankole needs after a restart.
+that OpenAnkole needs after a restart.
 
 The connection carries two groups of messages:
 
 - Actor messages start, steer, stop, and report non-response terminal states.
-- RPC messages ask another process to read or change Ankole data.
+- RPC messages ask another process to read or change OpenAnkole data.
 
 Both groups use the same worker connection and authentication. File bytes do
 not travel on this connection. A worker-file operation is a control-plane RPC
@@ -28,7 +28,7 @@ The control plane stores:
 Workers run Agent code and access mounted files. They do not define PostgreSQL
 rules or commit business records.
 
-Workers use RPC when they need to read or change stored Ankole data. The control
+Workers use RPC when they need to read or change stored OpenAnkole data. The control
 plane uses the worker-file RPC methods when it needs a worker file.
 
 All workers in one deployment instance must still see the same Agent Home
@@ -302,7 +302,7 @@ rejects the upgrade on a mismatch. The Worker validates the endpoint, copies
 the key into memory, and removes the key from the environment that child
 processes inherit.
 
-All workers can use the same key. Ankole does not store a different key for
+All workers can use the same key. OpenAnkole does not store a different key for
 each worker.
 
 `worker_id` names a worker slot chosen by the operator. The socket parameters
@@ -340,7 +340,7 @@ restore released assignments or old delivery attempts. A stopped worker cannot
 reactivate itself.
 
 This protocol authenticates trusted first-party workers. Database turn fences
-still protect each write. Ankole does not provide public worker admission
+still protect each write. OpenAnkole does not provide public worker admission
 here. TLS termination for `wss://` belongs to the ingress in front of the
 control plane.
 
@@ -855,7 +855,7 @@ Push and pull metadata include an XXH3 128-bit fingerprint. This value can show
 that a file changed. It is not a cryptographic digest.
 
 The worker keeps no transfer state after the RPC answers. The filesystem keeps
-the file. PostgreSQL records how Ankole uses it.
+the file. PostgreSQL records how OpenAnkole uses it.
 
 ## Move Attachments without an Agent Turn
 
@@ -887,7 +887,7 @@ Hosted tools make an exception for complete `image_generation_call` items.
 AIGateway owns their artifact bytes. SignalsGateway materializes those bytes
 under `user-files` during turn adoption.
 
-Ankole never searches model prose for file paths. The model must return a
+OpenAnkole never searches model prose for file paths. The model must return a
 structured attachment record.
 
 ## Keep Agent Skills in Sync

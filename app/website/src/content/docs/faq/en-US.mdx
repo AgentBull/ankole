@@ -1,6 +1,6 @@
 ---
 title: FAQ and troubleshooting
-description: Diagnose Ankole deployment, identity, model, Worker, and chat-channel failures from the symptom you can observe.
+description: Diagnose OpenAnkole deployment, identity, model, Worker, and chat-channel failures from the symptom you can observe.
 section: Reference
 order: 204
 ---
@@ -107,12 +107,12 @@ export const identityTabs = [
     issues: [
       {
         question: 'Slack sign-in fails during the authorization redirect',
-        symptom: 'Slack reports a redirect_uri mismatch before it returns to Ankole, or authorization returns to the wrong page.',
-        cause: 'The Slack Redirect URL does not exactly match the callback shown by /setup, or Ankole contains a Client ID from another app.',
+        symptom: 'Slack reports a redirect_uri mismatch before it returns to OpenAnkole, or authorization returns to the wrong page.',
+        cause: 'The Slack Redirect URL does not exactly match the callback shown by /setup, or OpenAnkole contains a Client ID from another app.',
         resolution: [
           'Copy the full callback from /setup into OAuth & Permissions → Redirect URLs.',
           'Compare the scheme, host, port, path, and Provider ID character by character.',
-          'Save the Slack app and start a new sign-in from Ankole. Do not reuse the old authorization page.'
+          'Save the Slack app and start a new sign-in from OpenAnkole. Do not reuse the old authorization page.'
         ]
       },
       {
@@ -132,7 +132,7 @@ export const identityTabs = [
         resolution: [
           'Turn on Sync directory changes in the IdP and provide a valid App-Level Token.',
           'Enable Socket Mode in Slack and allow outbound internet access from the control plane.',
-          'After App-Level Token rotation, update the value in Ankole and test a new directory change.'
+          'After App-Level Token rotation, update the value in OpenAnkole and test a new directory change.'
         ],
         links: [
           { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Configure the Slack IdP in Quick start' }
@@ -147,16 +147,16 @@ export const identityTabs = [
       {
         question: 'Microsoft sign-in reports AADSTS50011',
         symptom: 'The Microsoft authorization page reports a reply URL mismatch, usually with error AADSTS50011.',
-        cause: 'The Web Redirect URI in the Entra app registration does not exactly match the Ankole callback shown by /setup.',
+        cause: 'The Web Redirect URI in the Entra app registration does not exactly match the OpenAnkole callback shown by /setup.',
         resolution: [
           'Copy the /setup callback into the app registration as a Web Redirect URI.',
           'Check the scheme, host, port, path, and Provider ID. Do not use the Teams messaging endpoint here.',
-          'Wait for the portal change to apply, then start a new sign-in from Ankole.'
+          'Wait for the portal change to apply, then start a new sign-in from OpenAnkole.'
         ]
       },
       {
         question: 'Entra ID sign-in works, but directory sync is empty or returns 403',
-        symptom: 'The administrator can sign in, but Ankole has no users or permission groups. The logs can show a Graph 403.',
+        symptom: 'The administrator can sign in, but OpenAnkole has no users or permission groups. The logs can show a Graph 403.',
         cause: 'The app lacks Group.Read.All or User.Read.All, or the permissions exist but a tenant administrator has not granted consent.',
         resolution: [
           'Add the required Microsoft Graph Application permissions.',
@@ -167,10 +167,10 @@ export const identityTabs = [
       {
         question: 'Entra ID full sync works, but realtime changes do not arrive',
         symptom: 'A later full sync repairs the data, but membership changes do not appear within minutes.',
-        cause: 'Graph must reach the public HTTPS directory webhook. A bad Ankole public URL, unavailable ingress, or untrusted certificate prevents delivery.',
+        cause: 'Graph must reach the public HTTPS directory webhook. A bad OpenAnkole public URL, unavailable ingress, or untrusted certificate prevents delivery.',
         resolution: [
           'Confirm that the public HTTPS address is reachable from the internet and uses a trusted certificate.',
-          'Check that Ankole public URL matches the real entry point. It defines the Graph notification URL.',
+          'Check that OpenAnkole public URL matches the real entry point. It defines the Graph notification URL.',
           'Inspect subscription reconciliation logs and let the control plane rebuild the subscription after the entry point works.'
         ],
         links: [
@@ -184,8 +184,8 @@ export const identityTabs = [
     label: 'Google Workspace',
     issues: [
       {
-        question: 'Why does Ankole reject a valid Google account?',
-        symptom: 'Google authorization succeeds, but Ankole returns login_domain_not_allowed.',
+        question: 'Why does OpenAnkole reject a valid Google account?',
+        symptom: 'Google authorization succeeds, but OpenAnkole returns login_domain_not_allowed.',
         cause: 'The account domain is not in Allowed Workspace domains, the email is not verified, or the user has a consumer Gmail account without an hd claim.',
         resolution: [
           'Use an enterprise Google Workspace account, not a personal gmail.com account.',
@@ -205,7 +205,7 @@ export const identityTabs = [
       },
       {
         question: 'Why do Google Workspace member changes not appear at once?',
-        symptom: 'Ankole updates some time after a Workspace user or group change.',
+        symptom: 'OpenAnkole updates some time after a Workspace user or group change.',
         cause: 'The Google Workspace IdP currently supports full sync only. It has no realtime directory subscription. This delay is expected.',
         resolution: [
           'Wait for the next full sync. Do not expose a webhook for this Provider.',
@@ -224,7 +224,7 @@ export const identityTabs = [
     issues: [
       {
         question: 'Lark or Feishu reports a callback mismatch during sign-in',
-        symptom: 'The authorization page does not open, or authorization cannot return to Ankole.',
+        symptom: 'The authorization page does not open, or authorization cannot return to OpenAnkole.',
         cause: 'Lark matches redirect_uri exactly. localhost and 127.0.0.1, different ports, and different Provider IDs produce different URLs.',
         resolution: [
           'Copy the full callback shown for this IdP in /setup.',
@@ -271,13 +271,13 @@ export const identityTabs = [
         resolution: [
           'Use the Client ID from Credentials and basic information, not AgentId, robotCode, or a group-robot webhook token.',
           'Confirm that the app belongs to this enterprise and has the required sign-in and directory permissions.',
-          'Publish a new version and open a new authorization page from Ankole.'
+          'Publish a new version and open a new authorization page from OpenAnkole.'
         ]
       },
       {
         question: 'DingTalk reports a callback error only after the code scan',
         symptom: 'The authorization page opens and accepts the code scan, but redirect_uri fails after consent.',
-        cause: 'DingTalk checks the callback after consent. The registered URL does not exactly match the URL sent by Ankole.',
+        cause: 'DingTalk checks the callback after consent. The registered URL does not exactly match the URL sent by OpenAnkole.',
         resolution: [
           'Copy the full callback URL from /setup.',
           'Register it under Development configuration → Security settings → Redirect URL.',
@@ -305,10 +305,10 @@ export const identityTabs = [
     issues: [
       {
         question: 'WeCom sign-in or API calls report error 60020',
-        symptom: 'The QR scan does not return to Ankole, or saving the configuration reports an untrusted IP with code 60020.',
+        symptom: 'The QR scan does not return to OpenAnkole, or saving the configuration reports an untrusted IP with code 60020.',
         cause: 'WeCom requires server calls to come from a registered trusted IP. The self-built app and Contacts sync each keep their own trusted-IP list, and a missing egress IP is rejected.',
         resolution: [
-          'Give the Ankole deployment a fixed egress IP and add it to the self-built app trusted-IP list.',
+          'Give the OpenAnkole deployment a fixed egress IP and add it to the self-built app trusted-IP list.',
           'Add the same IP to the separate Contacts-sync trusted-IP list.',
           'Confirm the sign-in redirect domain is a trusted domain of the self-built app.'
         ]
@@ -347,18 +347,18 @@ export const channelTabs = [
       },
       {
         question: 'Slack direct messages work, but channel mentions do not',
-        symptom: 'The bot answers a direct message, but an explicit @mention in a channel never reaches Ankole.',
+        symptom: 'The bot answers a direct message, but an explicit @mention in a channel never reaches OpenAnkole.',
         cause: 'The bot is not a channel member, or the app does not subscribe to app_mention with app_mentions:read.',
         resolution: [
           'Invite the bot to the test channel.',
           'Add app_mention under Event Subscriptions and grant app_mentions:read.',
-          'After a scope change, install the app again and update the Bot Token in Ankole.'
+          'After a scope change, install the app again and update the Bot Token in OpenAnkole.'
         ]
       },
       {
         question: 'Slack delivers @mentions but not ordinary channel messages',
         symptom: 'addressed_only works, but observe_all or may_intervene still sees only explicit mentions.',
-        cause: 'The routing rule controls messages that Ankole receives. The Slack app still lacks the matching message event or history scope for that conversation type.',
+        cause: 'The routing rule controls messages that OpenAnkole receives. The Slack app still lacks the matching message event or history scope for that conversation type.',
         resolution: [
           'First verify the complete addressed_only path.',
           'Add the message event and history scope for the target conversation type as shown in Quick start.',
@@ -378,9 +378,9 @@ export const channelTabs = [
     label: 'Microsoft Teams',
     issues: [
       {
-        question: 'Teams sends a message, but Ankole receives nothing',
+        question: 'Teams sends a message, but OpenAnkole receives nothing',
         symptom: 'Teams shows no reply, and the control plane has no matching inbound activity.',
-        cause: 'Teams delivers Bot Framework webhooks. A private endpoint, untrusted certificate, or wrong path prevents the request from reaching Ankole.',
+        cause: 'Teams delivers Bot Framework webhooks. A private endpoint, untrusted certificate, or wrong path prevents the request from reaching OpenAnkole.',
         resolution: [
           'Give the instance a public HTTPS address with a trusted certificate.',
           'Set the Bot Framework Messaging endpoint to the exact Teams webhook URL from Quick start.',
@@ -388,7 +388,7 @@ export const channelTabs = [
         ]
       },
       {
-        question: 'Teams reaches Ankole, but sending the reply fails authentication',
+        question: 'Teams reaches OpenAnkole, but sending the reply fails authentication',
         symptom: 'The control plane receives the activity, then returns 401, 403, or a bot-token error when it sends the reply.',
         cause: 'appID, appPassword, tenantID, or botTenancy does not match the Azure Bot registration.',
         resolution: [
@@ -421,7 +421,7 @@ export const channelTabs = [
     issues: [
       {
         question: 'The Lark or Feishu bot exists, but no message gets a reply',
-        symptom: 'Neither direct messages nor group @mentions reach Ankole.',
+        symptom: 'Neither direct messages nor group @mentions reach OpenAnkole.',
         cause: 'The bot capability, published version, availability scope, long connection, or im.message.receive_v1 is not active.',
         resolution: [
           'Enable the bot, include the test user in the app scope, and publish the latest version.',
@@ -463,12 +463,12 @@ export const channelTabs = [
     issues: [
       {
         question: 'Is it a fault when DingTalk ignores group messages without an @mention?',
-        symptom: 'Direct messages and explicit @mentions can start the Agent, but ordinary group messages never enter Ankole.',
+        symptom: 'Direct messages and explicit @mentions can start the Agent, but ordinary group messages never enter OpenAnkole.',
         cause: 'No. As of July 2026, DingTalk delivers only group messages that explicitly mention the bot and does not expose the complete group history to the Agent.',
         resolution: [
           'Use an explicit @mention for every group test and keep the mode on addressed_only.',
           'Use Slack, Teams, or Lark/Feishu when the Agent needs continuous group context.',
-          'Do not select observe_all. Ankole cannot recover messages that DingTalk does not deliver.'
+          'Do not select observe_all. OpenAnkole cannot recover messages that DingTalk does not deliver.'
         ]
       },
       {
@@ -489,7 +489,7 @@ export const channelTabs = [
       },
       {
         question: 'The DingTalk Stream connection receives no messages',
-        symptom: 'The routing rule is enabled, but neither direct messages nor explicit @mentions reach Ankole.',
+        symptom: 'The routing rule is enabled, but neither direct messages nor explicit @mentions reach OpenAnkole.',
         cause: 'Mismatched credentials, an unpublished bot, or an app scope that excludes the test user can stop the Stream connection or delivery.',
         resolution: [
           'Check the Client ID and Client Secret of the chat app. Do not reuse the IdP app credentials by accident.',
@@ -515,7 +515,7 @@ export const channelTabs = [
     issues: [
       {
         question: 'Is it a fault when WeCom ignores group messages without an @mention?',
-        symptom: 'Direct messages and explicit @mentions can start the Agent, but ordinary group messages, group images, and group files never enter Ankole.',
+        symptom: 'Direct messages and explicit @mentions can start the Agent, but ordinary group messages, group images, and group files never enter OpenAnkole.',
         cause: 'No. WeCom delivers only direct messages and group messages that explicitly @-mention the AI bot, and group @-messages carry only text and mixed text-image content.',
         resolution: [
           'Use an explicit @mention for every group test. The only group mode is addressed_only.',
@@ -536,7 +536,7 @@ export const channelTabs = [
         symptom: 'The connection opens and then drops, or chat users can never join directory and sign-in identities.',
         cause: 'The platform allows exactly one long connection per bot, so another program with the same Bot ID kicks the connection. A bot that was not created by a corp super administrator delivers encrypted user ids.',
         resolution: [
-          'Make sure no other program uses the same Bot ID. When Ankole gets kicked, it parks and waits instead of fighting for the line.',
+          'Make sure no other program uses the same Bot ID. When OpenAnkole gets kicked, it parks and waits instead of fighting for the line.',
           'The bot must be created by a corp super administrator; otherwise delete it and recreate it with a super administrator account.'
         ],
         links: [
@@ -559,7 +559,7 @@ This page is not a product overview and does not repeat each provider setup guid
 | `/setup` or the Console does not open | Deployment, control plane, DNS, and HTTPS |
 | The Console opens, but sign-in fails or the directory is incomplete | Identity Provider (IdP) |
 | The Agent works in the Console, but one IM gets no message | That Channel Provider and its signal routing rule |
-| The IM message enters Ankole, but the Agent cannot generate a reply | LLM Provider, model profiles, and Worker |
+| The IM message enters OpenAnkole, but the Agent cannot generate a reply | LLM Provider, model profiles, and Worker |
 | Only one platform fails | Select that Provider below; do not apply another platform's fix |
 
 ## Problems shared by all platforms
@@ -600,4 +600,4 @@ Reproduce the fault once. Record the exact time, Agent UID, routing-rule name, P
 
 Do not send a Client Secret, Bot Token, App Token, model API key, full environment dump, or unredacted configuration file. When you report an issue, include redacted logs and exact reproduction steps instead of a complete log archive.
 
-- [Read Ankole logs](../log-reading/)
+- [Read OpenAnkole logs](../log-reading/)

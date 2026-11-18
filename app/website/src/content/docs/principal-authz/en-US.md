@@ -1,11 +1,11 @@
 ---
 title: Principal and AuthZ
-description: The permission boundary of an Ankole deployment instance — Principals as accountable subjects, permission grants, group membership, and runtime enforcement rather than prompt convention.
+description: The permission boundary of an OpenAnkole deployment instance — Principals as accountable subjects, permission grants, group membership, and runtime enforcement rather than prompt convention.
 section: Developer guide
 order: 106
 ---
 
-Every action in Ankole — a human signing in, an agent running a turn, a job waking its owner — is done by a Principal, and what that Principal may do is decided by AuthZ at the moment of the action. This page maps that boundary against the real code in `Ankole.Principals` and `Ankole.AuthZ`.
+Every action in OpenAnkole — a human signing in, an agent running a turn, a job waking its owner — is done by a Principal, and what that Principal may do is decided by AuthZ at the moment of the action. This page maps that boundary against the real code in `Ankole.Principals` and `Ankole.AuthZ`.
 
 The decisive property, stated up front: authorization is a runtime fact, enforced at the boundary, not a convention asked of the model. A Principal is a durable, accountable subject; its grants live in PostgreSQL; and every checked action is evaluated against an explicit snapshot by the kernel, with a decision the caller must honor.
 

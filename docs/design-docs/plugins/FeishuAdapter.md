@@ -324,7 +324,7 @@ access version. The Worker rejects a Human turn without a positive access versio
 After disablement and reviewed restoration, the new profile requires new app
 registration and user authorization. Old profiles remain on disk for admitted
 attempts, but future turns cannot select them through the trusted wrapper. This
-does not revoke provider credentials outside Ankole.
+does not revoke provider credentials outside OpenAnkole.
 
 The Skill wrapper removes the bot credential environment before every command.
 This is necessary because the Lark CLI environment credential provider has
@@ -336,7 +336,7 @@ Separation between senders is a Skill rule, not a sandbox boundary. The shared
 configuration directory lists every registered profile, and `lark-cli` stays on
 the Agent shell path, so a command that bypasses the wrapper could select
 another person's profile. The Skill states this and always calls the wrapper.
-The current extension model is first-party and trusted, so Ankole does not add
+The current extension model is first-party and trusted, so OpenAnkole does not add
 per-human filesystem isolation for it.
 
 Each Agent Computer's shared Lark CLI configuration holds one derived profile

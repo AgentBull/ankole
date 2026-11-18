@@ -58,7 +58,7 @@ disconnects, events, and callbacks. The Stream client acknowledges an event
 after its handler finishes.
 
 A crash before acknowledgement can make DingTalk send the event again. Database
-keys stop that retry from creating duplicate Ankole records.
+keys stop that retry from creating duplicate OpenAnkole records.
 
 ## Receive Messages
 

@@ -1,13 +1,13 @@
 ---
 title: Read logs
-description: Get Ankole logs from Docker Compose or Kubernetes, then use event names and context fields to locate a failure.
+description: Get OpenAnkole logs from Docker Compose or Kubernetes, then use event names and context fields to locate a failure.
 section: User guide
 order: 57
 ---
 
 When the Console only shows a failed request or an Agent does not reply, logs can show whether the failure is in the control plane, Worker, chat channel, or LLM Provider.
 
-Ankole writes structured JSON logs by default. Each record has a severity, event name, message, and related context. Find the event first. Then use the Agent UID, Provider ID, or failure reason to narrow the records.
+OpenAnkole writes structured JSON logs by default. Each record has a severity, event name, message, and related context. Find the event first. Then use the Agent UID, Provider ID, or failure reason to narrow the records.
 
 ## Get logs
 

@@ -5,7 +5,7 @@ section: User guide
 order: 25
 ---
 
-Send the file to an Agent and ask for the text that you need. Ankole includes OCR in the Agent Computer Worker, so you do not need to configure a model Provider, an API key, or a separate OCR service.
+Send the file to an Agent and ask for the text that you need. OpenAnkole includes OCR in the Agent Computer Worker, so you do not need to configure a model Provider, an API key, or a separate OCR service.
 
 For example, you can ask:
 
@@ -19,15 +19,15 @@ Read this receipt and list the merchant, date, items, tax, and total.
 
 ## Advanced recognition on ordinary CPUs
 
-Ankole uses the state-of-the-art, CPU-capable [PaddleOCR PP-OCRv6 medium](https://www.paddleocr.ai/latest/en/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html) detection and recognition models. The medium tier is the accuracy-focused model in the PP-OCRv6 family. In PaddleOCR's evaluation, it improves text detection by 4.6% and text recognition by 5.1% over PP-OCRv5_server.
+OpenAnkole uses the state-of-the-art, CPU-capable [PaddleOCR PP-OCRv6 medium](https://www.paddleocr.ai/latest/en/version3.x/algorithm/PP-OCRv6/PP-OCRv6.html) detection and recognition models. The medium tier is the accuracy-focused model in the PP-OCRv6 family. In PaddleOCR's evaluation, it improves text detection by 4.6% and text recognition by 5.1% over PP-OCRv5_server.
 
 One model covers 50 languages, including Simplified Chinese, Traditional Chinese, English, Japanese, and 46 Latin-script languages. It also handles text in document scans and natural scenes, such as screenshots, signs, product labels, and digital displays.
 
-Ankole runs the models locally through an OpenVINO-optimized CPU inference path. This gives a normal Worker fast local recognition without a GPU. The models are already in the Worker image, so a document does not go to an external OCR service and there is no fee for each page.
+OpenAnkole runs the models locally through an OpenVINO-optimized CPU inference path. This gives a normal Worker fast local recognition without a GPU. The models are already in the Worker image, so a document does not go to an external OCR service and there is no fee for each page.
 
-## Ankole selects the accurate path
+## OpenAnkole selects the accurate path
 
-OCR estimates text from pixels, but normal extraction reads the original characters. Ankole uses the more accurate path when it is available:
+OCR estimates text from pixels, but normal extraction reads the original characters. OpenAnkole uses the more accurate path when it is available:
 
 - For a PDF with a text layer, the Agent extracts the original text.
 - For a fully scanned PDF, it recognizes every page.

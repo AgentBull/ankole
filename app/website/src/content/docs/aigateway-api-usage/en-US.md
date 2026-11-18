@@ -63,7 +63,7 @@ Each is documented in the [AIGateway](../ai-gateway/) concept page and the relev
 
 ## What this guide is not
 
-It is not the AIGateway concept page. Read [AIGateway](../ai-gateway/) for the full route table, stateful lifecycle, and error envelope. It is also not an SDK. Ankole does not ship a client SDK; callers use standard HTTP clients against the REST API.
+It is not the AIGateway concept page. Read [AIGateway](../ai-gateway/) for the full route table, stateful lifecycle, and error envelope. It is also not an SDK. OpenAnkole does not ship a client SDK; callers use standard HTTP clients against the REST API.
 
 ## Next steps
 

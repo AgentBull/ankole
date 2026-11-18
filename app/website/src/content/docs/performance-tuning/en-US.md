@@ -5,7 +5,7 @@ section: Guides
 order: 319
 ---
 
-Performance in Ankole is mostly capacity: how many turns run at once, how many database connections they can draw from, and how many jobs an agent can run in parallel. This page names the knobs, gives their defaults, and — the part that matters — explains how they relate, because turning one without the others is how you get either a slow deployment instance or a failed one.
+Performance in OpenAnkole is mostly capacity: how many turns run at once, how many database connections they can draw from, and how many jobs an agent can run in parallel. This page names the knobs, gives their defaults, and — the part that matters — explains how they relate, because turning one without the others is how you get either a slow deployment instance or a failed one.
 
 The decisive property, stated up front: the knobs form a chain. Concurrent turns need database connections; database connections are capped by Postgres; job slots multiply the turns an agent can run. Raise one without the others and the chain breaks at the weakest link — turns queue, connections exhaust, or Postgres refuses connections. Tune them as a set, against the shape of your load, not one at a time.
 
@@ -47,9 +47,9 @@ A turn that holds a database connection waits when the pool is exhausted. Raise 
 
 Each agent runs at most `max_running_per_agent` (3) jobs concurrently. If an agent has three jobs in `running` and more in `queued`, the cap is the limit — not the worker, not the pool. Either accept the queue, or spread the work across more agents (each gets its own three slots). Raising `max_running_per_agent` is rarely the right move; the per-worker turn cap (`max_turns_per_worker`) and the global turn cap fence it anyway.
 
-### "Provider calls are the bottleneck" (not an Ankole knob)
+### "Provider calls are the bottleneck" (not an OpenAnkole knob)
 
-If `/ai-gateway/conversations` shows model calls taking most of a turn's time, the bottleneck is the provider, not Ankole. No capacity knob fixes that — see [Cost management](../cost-management/) for the model-side levers (cheaper `primary`, lower `reasoning_effort`), which also make turns faster.
+If `/ai-gateway/conversations` shows model calls taking most of a turn's time, the bottleneck is the provider, not OpenAnkole. No capacity knob fixes that — see [Cost management](../cost-management/) for the model-side levers (cheaper `primary`, lower `reasoning_effort`), which also make turns faster.
 
 ## A worked sizing
 

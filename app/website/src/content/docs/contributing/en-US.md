@@ -1,13 +1,13 @@
 ---
 title: Contributing
-description: The path to a merged Ankole contribution — where the rules live, how to set up, how to run the right checks, and the changelog and PR discipline the project requires.
+description: The path to a merged OpenAnkole contribution — where the rules live, how to set up, how to run the right checks, and the changelog and PR discipline the project requires.
 section: Guides
 order: 321
 ---
 
-Contributing to Ankole means reading two documents before the first edit, and following the path they define. This page is the map: it points at the authoritative sources, names the path through them, and stops short of duplicating either. If this page and a source document disagree, the source document is right.
+Contributing to OpenAnkole means reading two documents before the first edit, and following the path they define. This page is the map: it points at the authoritative sources, names the path through them, and stops short of duplicating either. If this page and a source document disagree, the source document is right.
 
-The decisive property, stated up front: Ankole's contribution rules are not optional conventions — they are enforced by the project's review process and by the changelog rule that gates every commit. A contribution that skips [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) or [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) will be asked to go back and read them. Read them first.
+The decisive property, stated up front: OpenAnkole's contribution rules are not optional conventions — they are enforced by the project's review process and by the changelog rule that gates every commit. A contribution that skips [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) or [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) will be asked to go back and read them. Read them first.
 
 ## The two documents that own the rules
 

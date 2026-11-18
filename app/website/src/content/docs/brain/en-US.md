@@ -9,7 +9,7 @@ Brain is a long-term memory system inspired by GBrain that maintains an up-to-da
 
 Brain does not keep a growing transcript and call it memory. It maintains a current view of people, organizations, events, judgments, and their relationships. New evidence can support an earlier claim, replace it, or expose a contradiction. The evidence and earlier state remain available for review.
 
-All Agents in one Ankole instance use the same knowledge space. Content is not copied into a private database for each Agent. Each memory carries its own audience scope, so shared storage does not mean unrestricted disclosure.
+All Agents in one OpenAnkole instance use the same knowledge space. Content is not copied into a private database for each Agent. Each memory carries its own audience scope, so shared storage does not mean unrestricted disclosure.
 
 ## What Brain can learn
 

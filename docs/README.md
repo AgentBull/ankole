@@ -1,13 +1,11 @@
-# Ankole Documentation
+# OpenAnkole Documentation
 
-[简体中文](./README.zh-Hans.md)
-
-Use this page to understand how Ankole works and where each part of the system
+Use this page to understand how OpenAnkole works and where each part of the system
 lives. Follow the links when you need the detailed contract for one module.
 
 ## Product Boundary
 
-Ankole is a private, self-hosted system for Agents that do long-running digital
+OpenAnkole is a private, self-hosted system for Agents that do long-running digital
 work. Each enterprise operates one private deployment instance. That instance
 contains its Agents, accounts, provider connections, configuration, and stored
 data.
@@ -17,7 +15,7 @@ decides what that Principal can do.
 
 An Agent receives work from provider messages, schedules, and Background Agent
 Jobs. It can use tools and resume work after a process fails. PostgreSQL stores
-the data that Ankole needs after a restart.
+the data that OpenAnkole needs after a restart.
 
 ## System Map
 
@@ -44,7 +42,7 @@ SignalsGateway ---- PostgreSQL ---- AIGateway ---- model providers
 
 Schedule creates an `ActorEvent` when work becomes due. A `BackgroundAgentJob`
 runs work outside the conversation that created it. AppConfigure stores settings
-that an operator can change while Ankole runs.
+that an operator can change while OpenAnkole runs.
 
 ## What Each Process Does
 
@@ -125,7 +123,7 @@ it. The endpoint starts after the subsystems that serve requests.
 
 ## What Survives a Restart
 
-PostgreSQL keeps the following data because Ankole needs it after a restart:
+PostgreSQL keeps the following data because OpenAnkole needs it after a restart:
 
 - Principals, humans, Agents, groups, memberships, and permission grants
 - AppConfigure values and encrypted provider configuration
@@ -135,14 +133,14 @@ PostgreSQL keeps the following data because Ankole needs it after a restart:
 - Brain pages, versions, chunks, claims, timelines, links, sources, schema packs, contradictions, and skill lessons
 - BackgroundAgentJob rows and their turn records
 
-Ankole can rebuild deliveries, activations, worker assignments, and
+OpenAnkole can rebuild deliveries, activations, worker assignments, and
 connected-worker rows. Losing those rows does not delete the work history.
 
 ## Message Lifecycle
 
-This sequence shows how Ankole handles a provider message addressed to an Agent.
+This sequence shows how OpenAnkole handles a provider message addressed to an Agent.
 
-1. The provider adapter converts the event to Ankole's common format.
+1. The provider adapter converts the event to OpenAnkole's common format.
 2. SignalsGateway checks the Agent's message policy and updates its copy of the provider message.
 3. SignalsGateway groups related input and writes one `ActorEvent` work item.
 4. ActorRuntime assigns a worker and sends a `turn_start` message with the turn fence for this attempt.
@@ -159,7 +157,7 @@ A terminal Response does not complete an Actor turn. If ActorRuntime does not
 receive the completion message, it can assign the work again.
 
 Live previews can disappear. The final reply always comes from a stored outbox
-row. Ankole records the provider's success before it treats the reply as sent.
+row. OpenAnkole records the provider's success before it treats the reply as sent.
 
 ## Do Not Mix These IDs
 
@@ -167,7 +165,7 @@ row. Ankole records the provider's success before it treats the reply as sent.
 | --- | --- |
 | `source_event_id` | One provider event and its duplicate-prevention key |
 | `source_entry_id` | One provider-visible entry |
-| `actor_event_id` | One Ankole work item stored in PostgreSQL |
+| `actor_event_id` | One OpenAnkole work item stored in PostgreSQL |
 | `ai_message_id` | One stored AIGateway message row |
 
 Do not use one identifier as a substitute for another. The module responsible
@@ -175,13 +173,13 @@ for the data assigns and checks its identifier.
 
 ## How Plugins and Skills Differ
 
-Ankole trusts the Elixir code in a Control Plane Plugin. Such a plugin can add
+OpenAnkole trusts the Elixir code in a Control Plane Plugin. Such a plugin can add
 configuration, adapters, model providers, and supervised processes.
 
 An Agent Plugin is a standard Codex Plugin package that groups related Agent
 capabilities. It can include a `workspace-template/` directory for a new Job.
 
-A Skill remains independent of both plugin systems. Ankole finds, configures,
+A Skill remains independent of both plugin systems. OpenAnkole finds, configures,
 and runs Skills without help from a Control Plane Plugin.
 
 ## Where to Change Code
@@ -238,7 +236,7 @@ credentials.
 | [Agent Token Quota](design-docs/AgentTokenQuota.md) | Per-Agent token limits, periods, resets, and the rejection contract |
 | [SignalsGateway](design-docs/SignalsGateway.md) | Provider input, Agent work, previews, and replies |
 | [BrainV3](design-docs/BrainV3.md) | Instance-shared knowledge, scoped disclosure, learning, and Dreaming |
-| [Brain Markdoc](design-docs/BrainMarkdoc.md) | Brain page body syntax and Object editing in the Console (Chinese) |
+| [Brain Markdoc](design-docs/BrainMarkdoc.md) | Brain page body syntax and Object editing in the Console |
 | [Skill Lessons](design-docs/SkillLessons.md) | Leased per-skill field notes from finished work |
 | [RuntimeFabric](design-docs/RuntimeFabric.md) | Worker channel messages, RPC calls, and file relay |
 | [Schedule](design-docs/Schedule.md) | Checkbacks, cron schedules, and wake events |
@@ -251,7 +249,7 @@ credentials.
 | [Browser Sessions](design-docs/BrowserSessions.md) | Browser identity, authentication freshness, concurrent login, and logout |
 | [OIDC Server](design-docs/OIDCServer.md) | OIDC protocol ownership, Client policy, tokens, and logout |
 | [AuthZ](design-docs/AuthZ.md) | Groups, grants, and CEL decisions |
-| [AppConfiguration](design-docs/AppConfiguration.md) | Startup settings and settings that can change while Ankole runs |
+| [AppConfiguration](design-docs/AppConfiguration.md) | Startup settings and settings that can change while OpenAnkole runs |
 | [Plugins](design-docs/Plugins.md) | Control Plane Plugins and Agent Plugins |
 | [MCP-backed Skills](design-docs/MCPBackedSkills.md) | MCP Skill execution and secrets |
 | [Web tools](design-docs/WebTools.md) | Web search, fetch, and rendered fallback |

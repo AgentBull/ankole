@@ -65,7 +65,7 @@ The durable shared writable runtime mount is `/agents`, laid out per actor key:
 
 The model sees the absolute container path. The Worker does not translate paths. `SOUL.md` and `MISSION.md` define Agent behavior and responsibility. `DESIGN.md` is the design system for visual work. The [Agent Library](../agent-library/) manages all three. `installed-skills/`, `sessions/`, and `jobs/` hold Skills, conversation workspaces, and Background Agent Job workspaces. PostgreSQL assigns each Session a stable numeric workspace ID that starts at 10000.
 
-The active Codex Home is a rebuildable Worker-local shard at `/var/lib/ankole/codex/<agent-key>/.codex`; it is not part of the Agent Home. Background Agent Jobs load Skills through Ankole `skill_view` and do not copy Skill roots into the Job workspace.
+The active Codex Home is a rebuildable Worker-local shard at `/var/lib/ankole/codex/<agent-key>/.codex`; it is not part of the Agent Home. Background Agent Jobs load Skills through OpenAnkole `skill_view` and do not copy Skill roots into the Job workspace.
 
 ## Streaming and progress
 

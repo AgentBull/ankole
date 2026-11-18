@@ -1,9 +1,7 @@
-# Deploy Ankole
-
-[简体中文](README.zh-Hans.md)
+# Deploy OpenAnkole
 
 This directory contains the supported self-hosted deployment assets for the
-open-source Ankole release.
+open-source OpenAnkole release.
 
 | Target | Files | Database |
 | --- | --- | --- |
@@ -21,7 +19,7 @@ Both targets run the same production path:
 The defaults pull `main-latest` images from the GitHub Container Registry. The
 RuntimeFabric workflow publishes the control-plane and worker tags only after it
 verifies the pair. These tags are mutable. For a controlled production rollout,
-pin both Ankole images to digests from the same verified pair.
+pin both OpenAnkole images to digests from the same verified pair.
 
 The Agent Computer needs `SYS_ADMIN` and an unconfined seccomp profile for
 strong bubblewrap isolation. These permissions make a worker a trusted

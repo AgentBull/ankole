@@ -5,7 +5,7 @@ section: Reference
 order: 202
 ---
 
-This page lists only the deployment environment variables that Ankole reads at process start. They connect PostgreSQL, establish instance secrets, start RuntimeFabric, and tune control-plane and Worker processes.
+This page lists only the deployment environment variables that OpenAnkole reads at process start. They connect PostgreSQL, establish instance secrets, start RuntimeFabric, and tune control-plane and Worker processes.
 
 The [AppConfigure](../app-configuration/) guide now owns the runtime settings that an administrator can change while the instance runs. Do not put those settings in `.env` or a Kubernetes Secret.
 
@@ -58,7 +58,7 @@ work.
 
 Proxy URLs can use `http`, `https`, `socks5`, or `socks5h`, including embedded
 credentials when the proxy requires authentication. `NO_PROXY` always wins.
-For secure requests, Ankole tries `HTTPS_PROXY`, then `ALL_PROXY`, then
+For secure requests, OpenAnkole tries `HTTPS_PROXY`, then `ALL_PROXY`, then
 `HTTP_PROXY`. For plain requests, it tries `HTTP_PROXY`, then `ALL_PROXY`.
 Restart the control plane after you change these variables.
 
@@ -73,7 +73,7 @@ The worker reads a small, fixed set of environment variables. Actor identity is 
 | `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` | the RuntimeFabric worker auth key; it is separate from the endpoint |
 | `ANKOLE_AGENTS_ROOT` | the root of the shared `/agents` workspace mount |
 | `ANKOLE_AGENT_COMPUTER_IMAGE` | the Agent Computer Worker image the worker runs |
-| `ANKOLE_VERSION` | the Ankole version label |
+| `ANKOLE_VERSION` | the OpenAnkole version label |
 
 The Worker image sets the browser, Bubblewrap, Codex, and Skill paths. These include `ANKOLE_BROWSER_*`, `ANKOLE_BWRAP_PATH`, `ANKOLE_CODEX_BINARY`, and `ANKOLE_BUILTIN_SKILLS_ROOT`. An administrator cannot change these paths.
 

@@ -1,11 +1,11 @@
 ---
 title: Audit trail
-description: How to read Ankole's audit surfaces — the AuthZ grant record, the control-plane structured logs, and what each records about who changed what and when.
+description: How to read OpenAnkole's audit surfaces — the AuthZ grant record, the control-plane structured logs, and what each records about who changed what and when.
 section: Developer guide
 order: 125
 ---
 
-An audit trail is the durable record of who changed what, and when. Ankole does not have one audit log; it has several surfaces, each owned by a different subsystem, each recording the decisions that matter to it. This page is the operator's map of those surfaces — what each records, how to read it, and how to use them together.
+An audit trail is the durable record of who changed what, and when. OpenAnkole does not have one audit log; it has several surfaces, each owned by a different subsystem, each recording the decisions that matter to it. This page is the operator's map of those surfaces — what each records, how to read it, and how to use them together.
 
 The decisive property, stated up front: every audit surface is **durable PostgreSQL state or structured logs**, not ephemeral metrics. A record that was written survives the process that wrote it; a record that was never written cannot be reconstructed.
 
@@ -26,7 +26,7 @@ The control plane emits structured logs with a stable shape — an event name, a
 
 The logs are not PostgreSQL — they are whatever your log ingester receives. If you need them for audit, ship them to a durable store (a log index, an S3 archive) in real time. Logs that were never shipped are gone with the process.
 
-See [Environment variables](../environment-variables/) for log settings and [Read Ankole logs](../log-reading/) for a diagnostic method.
+See [Environment variables](../environment-variables/) for log settings and [Read OpenAnkole logs](../log-reading/) for a diagnostic method.
 
 ## The actor-event and delivery rows
 
@@ -46,10 +46,10 @@ A real audit question usually spans more than one surface:
 
 ## What this guide is not
 
-It is not a compliance framework — Ankole provides the surfaces, and your compliance posture decides how long to retain them. It is not a SIEM integration guide — the logs are structured JSON, and your ingester is your choice. And it is not a substitute for tested backups — the audit trail lives in PostgreSQL, and a database you cannot restore takes the trail with it.
+It is not a compliance framework — OpenAnkole provides the surfaces, and your compliance posture decides how long to retain them. It is not a SIEM integration guide — the logs are structured JSON, and your ingester is your choice. And it is not a substitute for tested backups — the audit trail lives in PostgreSQL, and a database you cannot restore takes the trail with it.
 
 ## Next steps
 
 - For the permission model, read [Principal and AuthZ](../principal-authz/).
-- For log settings and diagnosis, read [Environment variables](../environment-variables/) and [Read Ankole logs](../log-reading/).
+- For log settings and diagnosis, read [Environment variables](../environment-variables/) and [Read OpenAnkole logs](../log-reading/).
 - For backup that protects the trail, read [Backup and restore](../backup-and-restore/).

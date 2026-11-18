@@ -1,11 +1,11 @@
 ---
 title: Operator tips
-description: Short, tested moves that save time when running Ankole — reading logs, scoping agents, rotating secrets, recovering from a stuck turn, and getting the model profile dials right.
+description: Short, tested moves that save time when running OpenAnkole — reading logs, scoping agents, rotating secrets, recovering from a stuck turn, and getting the model profile dials right.
 section: Guides
 order: 308
 ---
 
-This is a grab-bag of operator moves that did not fit cleanly into one guide but come up often. Each tip is short, grounded in how Ankole actually works, and costs you less than the first time you discover it the hard way.
+This is a grab-bag of operator moves that did not fit cleanly into one guide but come up often. Each tip is short, grounded in how OpenAnkole actually works, and costs you less than the first time you discover it the hard way.
 
 ## Read logs in pretty mode locally
 
@@ -62,7 +62,7 @@ Enter a replacement value to rotate a credential. Do not reveal the old value on
 
 ## Recover from a stuck turn
 
-A turn that seems stuck is usually waiting on the model or a provider, not on Ankole. Before cancelling anything:
+A turn that seems stuck is usually waiting on the model or a provider, not on OpenAnkole. Before cancelling anything:
 
 1. Check `/ai-gateway/conversations` for the turn's recent model calls — if there is a long gap, the provider is the holdup.
 2. Check the worker logs for an in-flight tool call — a slow tool looks like a stuck turn.

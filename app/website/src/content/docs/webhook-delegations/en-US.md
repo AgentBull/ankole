@@ -5,7 +5,7 @@ section: User guide
 order: 23
 ---
 
-A webhook delegation lets an Agent wait for work that runs outside Ankole. The external system detects an event and calls a short-lived Ankole callback URL. By default, Ankole stores the receipt, wakes the session that created the delegation, and returns the Agent's verified result through the original chat route. An endpoint can instead name an automation job when a deterministic script must consume the receipt first.
+A webhook delegation lets an Agent wait for work that runs outside OpenAnkole. The external system detects an event and calls a short-lived OpenAnkole callback URL. By default, OpenAnkole stores the receipt, wakes the session that created the delegation, and returns the Agent's verified result through the original chat route. An endpoint can instead name an automation job when a deterministic script must consume the receipt first.
 
 The callback is a wake-up capability. It is not proof that the request body is true. The Agent reads the current external object before it reports a fact or makes an authorized change.
 
@@ -19,7 +19,7 @@ Use a webhook delegation for a low-volume event that an external system can filt
 - a one-time event that should wake the same conversation;
 - a standing watch where repeated handling is safe.
 
-Do not use it for a high-volume stream, a polling loop, or a general event bus. Keep detection in the external system. Keep judgment, memory, and the reply in Ankole.
+Do not use it for a high-volume stream, a polling loop, or a general event bus. Keep detection in the external system. Keep judgment, memory, and the reply in OpenAnkole.
 
 Describe the outcome, authority, event set, and end time in the request. For example:
 
@@ -31,7 +31,7 @@ The GitHub Skill owns the setup and recovery details.
 
 Before the Agent creates a GitHub delegation:
 
-1. Route a public HTTPS host to the Ankole control plane. The host must preserve `/webhooks/v1/event-callbacks/*`.
+1. Route a public HTTPS host to the OpenAnkole control plane. The host must preserve `/webhooks/v1/event-callbacks/*`.
 2. Enable the public **GitHub** Agent Plugin and its required Skills for the Agent. GitHub is disabled by default.
 3. Add `GITHUB_TOKEN` to the Agent's WorkerEnv. The token needs read access to the target repository and write access to repository webhooks.
 4. Start a new Agent turn after you change the capability or WorkerEnv settings.
@@ -40,16 +40,16 @@ The endpoint commands are available only to the Main Agent during an active turn
 
 ## Lifecycle
 
-One live GitHub delegation has one repository, one exact event set, one expiry, one Ankole endpoint, one GitHub hook, and one reconciliation checkback.
+One live GitHub delegation has one repository, one exact event set, one expiry, one OpenAnkole endpoint, one GitHub hook, and one reconciliation checkback.
 
 1. The Agent creates an endpoint for the current conversation.
 2. It creates a durable checkback before it creates the GitHub hook. This records the cleanup and reconciliation obligation.
 3. It creates the repository hook with the callback URL. GitHub sends a `ping`.
 4. It reads the GitHub delivery log and confirms that the `ping` succeeded.
-5. When a matching delivery arrives, Ankole commits the endpoint decision and either the `webhook.received` ActorEvent or the bound automation job run in one PostgreSQL transaction before it returns success.
+5. When a matching delivery arrives, OpenAnkole commits the endpoint decision and either the `webhook.received` ActorEvent or the bound automation job run in one PostgreSQL transaction before it returns success.
 6. On the direct path, the woken Agent treats the receipt as untrusted input. A bound automation job must apply the same rule before it emits an event.
 7. Reconciliation checks the hook, event set, failed deliveries, current GitHub objects, expiry, and next check time.
-8. Teardown removes the GitHub hook before it cancels the Ankole endpoint and checkback.
+8. Teardown removes the GitHub hook before it cancels the OpenAnkole endpoint and checkback.
 
 GitHub does not automatically retry a failed webhook delivery. The GitHub Skill checks recent deliveries and uses GitHub's redelivery API when the failure is still relevant.
 
@@ -78,10 +78,10 @@ Cancel from the Console when you need emergency credential revocation. This does
 
 ## Security and delivery limits
 
-- Ankole returns the full callback URL once. PostgreSQL stores only its SHA-256 digest.
-- Ankole request logs replace `/webhooks/v1/event-callbacks/*` with `/webhooks/v1/event-callbacks/[REDACTED]`. Configure the ingress, proxy, and CDN to redact the same path.
+- OpenAnkole returns the full callback URL once. PostgreSQL stores only its SHA-256 digest.
+- OpenAnkole request logs replace `/webhooks/v1/event-callbacks/*` with `/webhooks/v1/event-callbacks/[REDACTED]`. Configure the ingress, proxy, and CDN to redact the same path.
 - The callback body limit is 1 MiB. An oversized request returns `413` before the normal body parser runs.
-- Ankole keeps only event metadata headers: `content-type`, `x-hub-signature-256`, `x-github-*`, and `ce-*`. It discards authorization and general request headers.
+- OpenAnkole keeps only event metadata headers: `content-type`, `x-hub-signature-256`, `x-github-*`, and `ce-*`. It discards authorization and general request headers.
 - The Agent sees a bounded receipt inside an untrusted-data boundary. A literal closing tag in external data is escaped.
 - The callback URL authorizes only a wake-up. It does not authorize a business effect, even when a signature header is present.
 

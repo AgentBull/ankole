@@ -1,11 +1,9 @@
 # DingTalkOpenAPI
 
-English | [简体中文](README.zh-Hans.md)
-
-`DingTalkOpenAPI` is Ankole's thin Elixir client for DingTalk enterprise-internal
+`DingTalkOpenAPI` is OpenAnkole's thin Elixir client for DingTalk enterprise-internal
 apps: dual-domain REST, Stream-mode long connection, authorization-code login,
 contacts, robot messaging, and card instances. It intentionally contains no
-Ankole domain policy.
+OpenAnkole domain policy.
 
 ```elixir
 client =

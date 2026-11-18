@@ -1,6 +1,6 @@
 ---
 import logo from '../assets/logo.svg'
-import { GITHUB_URL, getSiteTitle } from '../consts'
+import { ANKOLE_AI_URL, GITHUB_URL, getSiteTitle } from '../consts'
 import type { Locale } from '../i18n/config'
 import { localePath, t } from '../i18n/utils'
 
@@ -17,7 +17,8 @@ const columns = [
 		links: [
 			{ href: localePath(lang, 'docs'), label: t(lang, 'footer.product.docs') },
 			{ href: localePath(lang, 'docs/quickstart'), label: t(lang, 'footer.product.quickstart') },
-			{ href: localePath(lang, 'docs/architecture'), label: t(lang, 'footer.product.architecture') }
+			{ href: localePath(lang, 'docs/architecture'), label: t(lang, 'footer.product.architecture') },
+			{ href: ANKOLE_AI_URL, label: t(lang, 'footer.product.ankoleAi') }
 		]
 	},
 	{

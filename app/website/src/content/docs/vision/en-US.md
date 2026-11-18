@@ -5,7 +5,7 @@ section: User guide
 order: 42
 ---
 
-A user can send a screenshot, photo, or chart to an Agent in chat. If the normal turn model cannot accept images, Ankole uses the model in the `vision_fallback` profile to read the image.
+A user can send a screenshot, photo, or chart to an Agent in chat. If the normal turn model cannot accept images, OpenAnkole uses the model in the `vision_fallback` profile to read the image.
 
 You can leave this profile empty when `primary` already supports image input. You can also leave it empty for an Agent that never receives images.
 

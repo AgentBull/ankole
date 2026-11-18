@@ -1,17 +1,17 @@
 ---
 title: Adapter configuration guide
-description: Find the app type, credentials, permissions, and verification steps for each Ankole identity and chat adapter.
+description: Find the app type, credentials, permissions, and verification steps for each OpenAnkole identity and chat adapter.
 section: Getting started
 order: 3
 ---
 
-This page lists the enterprise identity and chat adapters included with Ankole. First determine whether a platform supplies an **Identity Provider (IdP)**, a **Channel Provider**, or both. Then consult the applicable configuration guide.
+This page lists the enterprise identity and chat adapters included with OpenAnkole. First determine whether a platform supplies an **Identity Provider (IdP)**, a **Channel Provider**, or both. Then consult the applicable configuration guide.
 
 During first-run setup, `/setup` shows the login callback URL and a guide link for the selected IdP. After setup, manage identity settings under **Console → Identity Providers**. Bind chat applications to Agents under **Console → Signal Routing**.
 
 ## Identity Providers
 
-An IdP supplies Console sign-in. It can also synchronize employees, departments, or groups when the platform supports this function. The built-in local password provider needs no external application: it is always listed in `/setup` and the Console, and it signs people in with an email address and a password that Ankole stores. Use it for the first administrator, for a small team without a directory, or for the accounts that consumer-IM users are mapped to. The credential names below match the Ankole form. Use the linked guide for the exact permissions, provider-console paths, and verification steps.
+An IdP supplies Console sign-in. It can also synchronize employees, departments, or groups when the platform supports this function. The built-in local password provider needs no external application: it is always listed in `/setup` and the Console, and it signs people in with an email address and a password that OpenAnkole stores. Use it for the first administrator, for a small team without a directory, or for the accounts that consumer-IM users are mapped to. The credential names below match the OpenAnkole form. Use the linked guide for the exact permissions, provider-console paths, and verification steps.
 
 | Platform | External application | Main configuration | Detailed guide |
 |---|---|---|---|
@@ -56,4 +56,4 @@ When you edit an Identity Provider or signal routing rule, the Console only indi
 3. Create the chat routing rule. Test it first with a direct message or an explicit mention.
 4. Confirm that the Agent receives the message and sends a reply. Then enable advanced functions such as group observation, real-time directory sync, or cards.
 
-If you change provider scopes, application permissions, or release scope, reinstall or republish the application when the provider requires this action. Update Ankole with each rotated credential.
+If you change provider scopes, application permissions, or release scope, reinstall or republish the application when the provider requires this action. Update OpenAnkole with each rotated credential.

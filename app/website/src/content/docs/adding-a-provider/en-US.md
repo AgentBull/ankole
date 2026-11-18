@@ -5,7 +5,7 @@ section: Developer guide
 order: 115
 ---
 
-An AIGateway provider is how Ankole talks to an upstream AI service — an LLM, an embedding model, a web-search API. This page is the contributor walkthrough: the provider DSL, the compiled `ProviderDefinition` it produces, the settings and capabilities a provider declares, and the prepare function that owns request construction. It builds on the [AIGateway](../ai-gateway/) concept page; this is *how to add a provider*.
+An AIGateway provider is how OpenAnkole talks to an upstream AI service — an LLM, an embedding model, a web-search API. This page is the contributor walkthrough: the provider DSL, the compiled `ProviderDefinition` it produces, the settings and capabilities a provider declares, and the prepare function that owns request construction. It builds on the [AIGateway](../ai-gateway/) concept page; this is *how to add a provider*.
 
 The decisive property, stated up front: the provider module owns request preparation in Elixir; the Rust `UniversalAIClient` owns the wire — transport, encoding, response normalization. The compiled definition describes only stable metadata, settings, and which prepare function owns each capability. A provider is not a full HTTP client; it is a prepare function plus a declaration.
 

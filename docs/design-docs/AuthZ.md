@@ -3,7 +3,7 @@
 AuthZ answers one question: can this Principal perform this action on this
 resource? A Principal is the human or Agent responsible for the request.
 
-PostgreSQL stores the permission rules for one Ankole deployment instance.
+PostgreSQL stores the permission rules for one OpenAnkole deployment instance.
 AuthZ manages subjects inside that instance. It does not create separate
 organization boundaries or keep a worker-local access list.
 
@@ -49,7 +49,7 @@ The Rust kernel:
 - evaluates grants and batches
 
 Elixir passes the kernel all data for one decision. The kernel never reads
-PostgreSQL or changes Ankole data. It does not know about setup sessions or
+PostgreSQL or changes OpenAnkole data. It does not know about setup sessions or
 first-administrator rules.
 
 Rustler and napi-rs expose the same rules to host runtimes. The bindings only

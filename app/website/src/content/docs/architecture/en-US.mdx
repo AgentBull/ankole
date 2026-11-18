@@ -1,13 +1,13 @@
 ---
 title: Architecture
-description: See how the control plane, Agent Computer Workers, Actor Runtime, Brain, and Background Agent Jobs form the Ankole Agent Harness.
+description: See how the control plane, Agent Computer Workers, Actor Runtime, Brain, and Background Agent Jobs form the OpenAnkole Agent Harness.
 section: Developer guide
 order: 100
 ---
 
 import DocsArchitectureDiagram from '../../../components/docs/DocsArchitectureDiagram.astro'
 
-Ankole is an enterprise Agent Harness with a Company Brain. It runs on company infrastructure and gives models the context, authority, persistent execution, and feedback that company decisions require.
+OpenAnkole is an enterprise Agent Harness with a Company Brain. It runs on company infrastructure and gives models the context, authority, persistent execution, and feedback that company decisions require.
 
 An Agent can work for hours, use the shared Company Brain, act through browsers, terminals, files, and connected systems, and deliver a judgment that people can inspect and later outcomes can test.
 
@@ -55,7 +55,7 @@ A group chat can process only messages that address the Agent, record unaddresse
 
 SignalsGateway stores a received message and its source before it wakes the Agent. It also creates traceable delivery state before an adapter sends a reply.
 
-A temporary provider failure cannot confuse “what Ankole decided to send” with “what the provider accepted.”
+A temporary provider failure cannot confuse “what OpenAnkole decided to send” with “what the provider accepted.”
 
 ### A trigger can wake an Agent or run a script
 
@@ -119,7 +119,7 @@ See [AIGateway](../ai-gateway/) and [Add an LLM Provider](../adding-a-provider/)
 
 ## Enterprise identity, access, and extensions
 
-Ankole represents people, Agents, and system services as Principals. An Identity Provider supplies Console SSO and synchronizes employees, contacts, and the organization directory.
+OpenAnkole represents people, Agents, and system services as Principals. An Identity Provider supplies Console SSO and synchronizes employees, contacts, and the organization directory.
 
 A chat channel sends and receives messages. These Providers can use different platforms.
 
@@ -149,7 +149,7 @@ RuntimeFabric, Worker process state, and stream previews are rebuildable. They s
 | **Kubernetes · recommended for enterprise deployment** | One control plane connects to one or more Worker Pods and schedules them by node or security need | PostgreSQL plus shared `ReadWriteMany` Agent Home storage |
 | **Source installation** | The development environment runs the control plane and Worker separately | PostgreSQL and a local workspace configured for development |
 
-The logical boundary is the same for every form. The instance has one control plane and can add Workers horizontally. See [Quick start](../quickstart/#1-deploy-ankole) for the complete procedures.
+The logical boundary is the same for every form. The instance has one control plane and can add Workers horizontally. See [Quick start](../quickstart/#1-deploy-openankole) for the complete procedures.
 
 ## Five technical decisions
 

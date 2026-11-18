@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 1.6.20 (2026-11-19)
+
+- The README, design docs, and website are English only. The open source project is named OpenAnkole.
+- The README and website point to Ankole.AI at https://ankole.ai/, the hosted Agent OS.
+- A request for a retired Chinese, Japanese, or Korean website URL opens the English page.
+
 ## Version 1.6.19-rc.1 (2026-10-09)
 
 - Fix the website build by escaping apostrophes in the English quickstart.

@@ -5,24 +5,24 @@ section: User guide
 order: 49
 ---
 
-Ankole represents people, Agents, and system services as principals. A permission group manages several principals together. A permission grant defines which resources a principal or group can use.
+OpenAnkole represents people, Agents, and system services as principals. A permission group manages several principals together. A permission grant defines which resources a principal or group can use.
 
-An Identity Provider usually synchronizes employees and the organization directory automatically. You do not have to create each employee or maintain department membership again in Ankole.
+An Identity Provider usually synchronizes employees and the organization directory automatically. You do not have to create each employee or maintain department membership again in OpenAnkole.
 
 ## How an Identity Provider synchronizes the organization
 
-When you enable directory sync for an Identity Provider, Ankole converts its external directory into two types of data:
+When you enable directory sync for an Identity Provider, OpenAnkole converts its external directory into two types of data:
 
 - Employees become human principals. Directory sync updates profile data such as names and avatars.
 - Departments, user groups, and similar organization units become directory permission groups. Sync also updates their memberships.
 
 If the external directory has a department hierarchy, a person in a child department also becomes a member of its parent department groups. A grant on a parent department can therefore cover people in its child departments.
 
-Ankole starts the first full sync after you save the Identity Provider. It runs another full sync every six hours by default. Providers that support incremental sync can also send people and organization changes before the next full sync.
+OpenAnkole starts the first full sync after you save the Identity Provider. It runs another full sync every six hours by default. Providers that support incremental sync can also send people and organization changes before the next full sync.
 
 To refresh the directory immediately, open **Console → Identity Providers**, select the Provider, and select **Run full sync**. Check **Access → Principals** and **Access → Permission groups** when the sync completes.
 
-The external identity system remains the source of truth for a directory group. Change departments and memberships in the company directory. Do not try to maintain these groups by hand in Ankole.
+The external identity system remains the source of truth for a directory group. Change departments and memberships in the company directory. Do not try to maintain these groups by hand in OpenAnkole.
 
 If the result does not contain an expected person or department, check the external application's directory permissions and availability scope. API access does not always give the application access to the complete organization.
 
@@ -34,7 +34,7 @@ Open **Console → Access → Principals**. The list shows the name, UID, type, 
 
 - **Human** principals come from the company directory that an Identity Provider synchronizes.
 - **Agent** principals appear when you create Agents.
-- **System** principals are created by Ankole for internal service work.
+- **System** principals are created by OpenAnkole for internal service work.
 
 Select the principal name or the trailing **View details** action to see its groups and direct grants. The principal UID, type, and state come from the identity or runtime owner and are read-only on this page. Check both groups and direct grants when you investigate access. A principal can have no direct grant but still get access through a group.
 
@@ -48,10 +48,10 @@ Each group source has a different membership owner:
 | **IM group** | Access must follow chat-group membership | Chat-channel sync |
 | **Signal source group** | Access must follow "everyone who ever talked through this routing rule" | SignalsGateway admission |
 | **Provider members group** | Access must cover everyone one Identity Provider imported (`<provider>:members:all`) | Identity Provider sync |
-| **Static group** | The team exists only in Ankole, or its small membership changes infrequently | An administrator |
-| **Computed group** | Principal attributes can identify the members reliably | A CEL expression that Ankole evaluates |
+| **Static group** | The team exists only in OpenAnkole, or its small membership changes infrequently | An administrator |
+| **Computed group** | Principal attributes can identify the members reliably | A CEL expression that OpenAnkole evaluates |
 
-Directory and IM groups appear automatically in the permission-group list. Their memberships come from the external system and are read-only in the Console. Administrators create and maintain static and computed groups in Ankole.
+Directory and IM groups appear automatically in the permission-group list. Their memberships come from the external system and are read-only in the Console. Administrators create and maintain static and computed groups in OpenAnkole.
 
 Use a directory group when the company directory already represents the target team. When a person changes teams or leaves, the next incremental or full directory sync adjusts access.
 
@@ -66,7 +66,7 @@ A new member immediately gets all grants on the group. Removing the member remov
 
 ## Create a computed group
 
-A computed group does not store a membership list and does not accept manual members. When Ankole checks access, it evaluates one CEL expression to decide if the principal belongs to the group.
+A computed group does not store a membership list and does not accept manual members. When OpenAnkole checks access, it evaluates one CEL expression to decide if the principal belongs to the group.
 
 Select **Computed** when you create the group. Enter a CEL expression in **Membership condition**. The expression must return `true` or `false` and reads the current principal through `principal`.
 
@@ -94,7 +94,7 @@ principal.type == "agent" && principal.uid.startsWith("research-")
 
 The Console previews all matching active principals while you enter the expression. Confirm the count and names before you save so that the group does not give access to more principals than you intended.
 
-You cannot change the group name or type after you save it. You can edit the membership condition of a normal computed group. Check the live preview again before you save. Ankole owns the condition of a built-in computed group, so it is read-only in the Console.
+You cannot change the group name or type after you save it. You can edit the membership condition of a normal computed group. Check the live preview again before you save. OpenAnkole owns the condition of a built-in computed group, so it is read-only in the Console.
 
 CEL cannot currently read an employee's email address, job title, or department memberships. Use a synchronized directory group for department access. Do not infer organization membership from a display name.
 
@@ -120,7 +120,7 @@ Suppose every employee in the research department must view one Agent:
 3. Add a `read` grant for the target Agent to the group.
 4. Sign in as one department member. Confirm that the member can open the target Agent but cannot open resources outside the grant.
 
-Change research-department membership in the company directory. After the next sync, Ankole updates the group membership. You do not have to change the grants on the group.
+Change research-department membership in the company directory. After the next sync, OpenAnkole updates the group membership. You do not have to change the grants on the group.
 
 A successful save is not enough evidence. Verify the result with a real member account so that you know the resource pattern, action, and membership source are correct.
 

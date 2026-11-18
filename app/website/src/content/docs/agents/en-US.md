@@ -5,7 +5,7 @@ section: User guide
 order: 13
 ---
 
-An Agent is a durable working identity inside the Ankole Agent Harness. Each Agent has a mission, owner, access, tools, model profiles, and file space.
+An Agent is a durable working identity inside the OpenAnkole Agent Harness. Each Agent has a mission, owner, access, tools, model profiles, and file space.
 
 The Agent can use Company Brain within its knowledge boundary. A signal routing rule connects it to messages and other events.
 
@@ -41,7 +41,7 @@ Open **MISSION / SOUL / DESIGN / CONFIDENTIALITY POLICY** on the Agent page:
 | `DESIGN.md` | The design system for web pages, slides, documents, charts, and other visual artifacts |
 | `ConfidentialityPolicy.md` | How the Agent chooses an audience scope when it writes knowledge to Brain |
 
-`DESIGN.md` uses the <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md format</a>. YAML frontmatter stores design tokens such as colors, type, spacing, corners, and components. The Markdown body explains the visual principles and how to apply them. Ankole includes a usable default design system. You can replace it with your company brand in **Console → Agents → DESIGN**.
+`DESIGN.md` uses the <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md format</a>. YAML frontmatter stores design tokens such as colors, type, spacing, corners, and components. The Markdown body explains the visual principles and how to apply them. OpenAnkole includes a usable default design system. You can replace it with your company brand in **Console → Agents → DESIGN**.
 
 Do not put workflows, permission boundaries, or behavior rules in `DESIGN.md`. Put them in `MISSION.md`, `SOUL.md`, `ConfidentialityPolicy.md`, or a specific Skill. `ConfidentialityPolicy.md` guides the Agent's own Brain writes; automatic learning from chat uses the conversation's audience. Start with a small set of clear documents, then add rules only when real work shows that they are necessary.
 
@@ -70,7 +70,7 @@ See [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent) for 
 
 The **Token quota** section next to the model profiles limits the tokens that this Agent can consume in a repeating period. Set the period length in days, the period start time, and the token limit. An Agent without a quota has no limit.
 
-The section shows the used tokens as a bar with their share of the limit, and the start and end time of the current period. Ankole counts the input tokens and the output tokens that the provider reports for every model call the Agent makes, including scheduled turns, Workflows, Background Agent Jobs, and the compaction those calls start. Brain model calls, embeddings, web tools, image generation, and requests that a person makes with their own token do not count.
+The section shows the used tokens as a bar with their share of the limit, and the start and end time of the current period. OpenAnkole counts the input tokens and the output tokens that the provider reports for every model call the Agent makes, including scheduled turns, Workflows, Background Agent Jobs, and the compaction those calls start. Brain model calls, embeddings, web tools, image generation, and requests that a person makes with their own token do not count.
 
 When the Agent reaches the limit, a chat message receives a reply with the used tokens, the limit, and the time the period ends, instead of an answer. A Background Agent Job of that Agent fails and does not wait for the next period. The limit is checked before each model call, so one call can end above the limit by its own usage. Nothing replays a blocked message: the user sends it again after the period ends.
 

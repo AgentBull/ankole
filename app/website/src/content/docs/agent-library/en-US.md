@@ -14,7 +14,7 @@ The decisive property, stated up front: the skills and plugins themselves are fi
 The library keeps two related but distinct things:
 
 - **A Skill** is a filesystem bundle, identified by a `SKILL.md`. Skill names are lowercase, start with a letter, and use only letters, digits, `_`, and `-`, up to 64 characters. A skill is either `builtin` (shipped with the app image, synced from `app/library/skills`) or `installed` (agent-installed under worker-visible storage). The `agent_skills` row records enablement, source kind, content hash, and sync time — it is explicitly not a file-content table.
-- **An Agent Plugin** is a standard Codex Plugin package, plus Ankole's optional `workspace-template/` initialization directory. Package bytes and versions live in the instance library; PostgreSQL stores only sparse per-agent enablement overrides. Plugin identifiers follow the same format rules as skill names.
+- **An Agent Plugin** is a standard Codex Plugin package, plus OpenAnkole's optional `workspace-template/` initialization directory. Package bytes and versions live in the instance library; PostgreSQL stores only sparse per-agent enablement overrides. Plugin identifiers follow the same format rules as skill names.
 
 The two are connected: an Agent Plugin can carry skills, and skill rows record their `agent_plugin_id` for parent-enablement and catalog presentation. But Agent Plugin membership is independent metadata — it does not change how a skill is loaded.
 

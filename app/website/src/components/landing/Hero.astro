@@ -1,7 +1,7 @@
 ---
 import { buttonVariants } from '@ankole/uikit/components/button'
 import { RiArrowRightLine, RiGithubFill } from '@remixicon/react'
-import { GITHUB_URL } from '../../consts'
+import { ANKOLE_AI_URL, GITHUB_URL } from '../../consts'
 import type { Locale } from '../../i18n/config'
 import { localePath, t } from '../../i18n/utils'
 import HeroThread from './HeroThread.astro'
@@ -57,6 +57,19 @@ const CLAIMS = ['ha', 'memory', 'research', 'license'].map(key => t(lang, `hero.
 
 				<p class="mt-8 max-w-lg text-base leading-8 text-muted-foreground sm:text-lg">
 					{t(lang, 'hero.subtitle')}
+				</p>
+
+				<p class="mt-4 max-w-lg text-sm leading-7 text-muted-foreground">
+					<a
+						href={ANKOLE_AI_URL}
+						target="_blank"
+						rel="noreferrer"
+						class="font-medium text-foreground underline decoration-brand-60 underline-offset-4 dark:decoration-brand-40"
+					>
+						{t(lang, 'hero.ankoleAi.link')}
+					</a>
+					{' '}
+					{t(lang, 'hero.ankoleAi.body')}
 				</p>
 
 				<div class="mt-10 flex flex-wrap items-center gap-3">

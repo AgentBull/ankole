@@ -1,15 +1,15 @@
 # Human Offboarding
 
 Disabling a Human Principal prevents that person from signing in and starting
-more work in Ankole. It also ends future execution of the person's existing
+more work in OpenAnkole. It also ends future execution of the person's existing
 tasks, cron schedules, and automation jobs. The Principal UID, identity links,
 work results, and audit history remain.
 
-Ankole also provides standard Back-Channel Logout and Token Introspection for
+OpenAnkole also provides standard Back-Channel Logout and Token Introspection for
 OIDC Clients. Clients own their business sessions and can apply these results
 with a delay; local disablement does not wait for them.
 
-An attempt that passed its start check before disablement can finish. Ankole
+An attempt that passed its start check before disablement can finish. OpenAnkole
 does not add a permission check before each tool call or interrupt that attempt
 because the Human status changed. A retry, a resumed attempt, or another
 scheduled run must pass a new start check.
@@ -20,7 +20,7 @@ contracts.
 
 ## Scope and Ownership
 
-The scope is one private Ankole deployment instance. Feishu and DingTalk supply
+The scope is one private OpenAnkole deployment instance. Feishu and DingTalk supply
 automatic offboarding facts. Other identity providers can use the same
 restriction operation without automatic detection.
 
@@ -41,7 +41,7 @@ keeps its existing lifecycle and public entry points. Oban can deliver durable
 follow-up work; it does not own the Human access decision. Operator settings
 belong to the owning subsystem's AppConfigure keys.
 
-Ankole does not provide an HR system, another identity model, cross-enterprise
+OpenAnkole does not provide an HR system, another identity model, cross-enterprise
 routing, automatic data deletion, or a general asset-transfer system for
 offboarding.
 
@@ -65,7 +65,7 @@ display name, email address, or phone number during offboarding or recovery.
 
 A person normally uses one login method. If one Principal has several methods,
 disablement covers all of them, including local passwords and linked provider
-accounts. Confirmed removal from the configured Ankole admission scope also
+accounts. Confirmed removal from the configured OpenAnkole admission scope also
 disables the whole Principal. There is no provider-only disabled state.
 Separate accounts with no trusted link require explicit operator review.
 
@@ -88,7 +88,7 @@ clear another.
 
 The directory read scope and the application admission scope are different
 provider facts. A smaller read scope alone is not evidence of departure or
-loss of Ankole admission. The operator must identify which verified provider
+loss of OpenAnkole admission. The operator must identify which verified provider
 scope controls admission.
 
 ## Stored Access and Directory State
@@ -185,7 +185,7 @@ person. See [AuthZ](AuthZ.md) for the existing administrator boundary.
 
 ## Reject New Authentication and Requests
 
-Ankole checks Human access at each applicable authentication or request entry:
+OpenAnkole checks Human access at each applicable authentication or request entry:
 
 | Entry | Result after disablement |
 | --- | --- |
@@ -199,14 +199,14 @@ Ankole checks Human access at each applicable authentication or request entry:
 Console and OAuth retain separate authorization contexts within the
 [Browser Sessions](BrowserSessions.md) lifecycle. Both use the persistent
 Human revocation fact. Restoring `active` must not make an old
-Cookie, Authorization Code, Refresh Token, or JWT usable again at Ankole.
+Cookie, Authorization Code, Refresh Token, or JWT usable again at OpenAnkole.
 Use an authentication generation or an equivalent durable mechanism owned by
 the authentication path. A process restart or node change cannot erase it.
 
 A request that already passed its check can complete. Do not interrupt an
 existing response stream or recheck the Human between tools within an admitted
 attempt. This does not remove existing token, Agent, resource, or turn-fence
-checks. Ankole does not guarantee reversal of an external operation, including
+checks. OpenAnkole does not guarantee reversal of an external operation, including
 one sent before `T0` that completes afterward.
 
 ## Notify OIDC Clients and Check Their Tokens
@@ -221,19 +221,19 @@ Refresh Tokens issued with `offline_access`. This is an offboarding rule;
 ordinary session logout does not define the same authorization lifetime.
 Introspection after the disable commit reports the old authorization inactive
 without waiting for notification delivery. Code exchange, refresh, UserInfo,
-and Ankole's protected requests use the same revocation fact.
+and OpenAnkole's protected requests use the same revocation fact.
 
 Notify every recorded Client session affected by the disablement. Delayed
 notifications must still address the old session after the Human is restored.
 Neither a new login nor restoration can reactivate an old authorization.
 
 The Client owns the actual removal of its session and the decision to stop its
-business requests. Ankole does not change Client-local accounts or business
-permissions. Ankole owns protocol delivery; a particular business
-application's deployment is outside Ankole.
+business requests. OpenAnkole does not change Client-local accounts or business
+permissions. OpenAnkole owns protocol delivery; a particular business
+application's deployment is outside OpenAnkole.
 
 Notification transport, retry, and Client caching can delay external logout.
-There is no strict end-to-end logout deadline. Ankole must expose delivery
+There is no strict end-to-end logout deadline. OpenAnkole must expose delivery
 failures and current token validity; it cannot report local disablement as
 proof that every Client has already blocked access.
 

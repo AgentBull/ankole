@@ -102,7 +102,7 @@ Principal and does not need a LocalPassword credential.
 SignalsGateway first commits the admitted message with a pending attachment
 projection. The adapter then calls `getFile`, downloads the bytes, writes them
 to the Agent's `user-files` lane, and updates the same entry. An unmatched
-sender cannot make Ankole download a file.
+sender cannot make OpenAnkole download a file.
 
 The official cloud Bot API cannot download files larger than 20 MB. For such a
 file, the adapter keeps the provider file metadata and a clear

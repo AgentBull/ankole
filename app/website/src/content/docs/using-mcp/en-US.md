@@ -5,7 +5,7 @@ section: Developer guide
 order: 123
 ---
 
-Ankole uses MCP behind Skills. The Skill owns domain routing and result rules. The pinned mcporter CLI owns protocol discovery and calls for the one tool that the Skill selects.
+OpenAnkole uses MCP behind Skills. The Skill owns domain routing and result rules. The pinned mcporter CLI owns protocol discovery and calls for the one tool that the Skill selects.
 
 For an Agent-specific domain integration, do not register an MCP server directly on the Agent. Enable the Skill that declares it. Disabling that Skill removes the dependency from the next execution.
 

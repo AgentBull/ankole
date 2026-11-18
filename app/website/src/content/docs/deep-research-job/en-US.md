@@ -178,9 +178,9 @@ Examine these points in the report: whether the sources support the conclusions,
 
 Ask the Agent to continue the same Job when you need more work; you do not need to describe the full background again. If the Job fails or remains queued, open its details and read the status or error. See [Background Agent Jobs](../background-jobs/) for status meanings, cancellation, and runtime settings.
 
-## References and how Ankole differs
+## References and how OpenAnkole differs
 
-The design of Ankole Deep Research agrees with the public research below, and that work also gave us ideas. Each paper reports state-of-the-art results on its own benchmark. Our question is different: what makes these principles hold inside a private enterprise deployment.
+The design of OpenAnkole Deep Research agrees with the public research below, and that work also gave us ideas. Each paper reports state-of-the-art results on its own benchmark. Our question is different: what makes these principles hold inside a private enterprise deployment.
 
 - Chen, Y., Chen, G., Sun, Y., & Zhang, K. (2026). <a href="https://arxiv.org/abs/2607.13602" target="_blank" rel="noreferrer">Analogical Deep Research: Retrieving and Integrating Historical Analogies for Foresight Analysis</a>. arXiv:2607.13602.
 - Zhu, C., Xu, B., Du, M., Wang, S., Wang, X., Mao, Z., & Zhang, Y. (2026). <a href="https://arxiv.org/abs/2602.01566" target="_blank" rel="noreferrer">FS-Researcher: Test-Time Scaling for Long-Horizon Research Tasks with File-System-Based Agents</a>. arXiv:2602.01566.
@@ -196,4 +196,4 @@ The design of Ankole Deep Research agrees with the public research below, and th
 
 **The endpoint is your confirmed purpose, not a benchmark score.** The papers optimize against benchmarks. We optimize for what one person will do with this report: the success criteria are clarified before creation, audited one by one before delivery, and each gap states its consequence; when a gap defeats the purpose, the main Agent supplies what it can and lets the Job continue. Collection follows the same rule, because enabled Skill data sources come before public search and a gap that no Skill can fill is recorded as an evidence gap. A usable enterprise report depends on whether it used authoritative data and stated honestly what it could not do, and neither item appears on a general benchmark score sheet.
 
-The Playbooks, the verification protocols, the research state file, and the delivery audit in the workspace are designed and implemented by the AgentBull Ankole team.
+The Playbooks, the verification protocols, the research state file, and the delivery audit in the workspace are designed and implemented by the AgentBull OpenAnkole team.

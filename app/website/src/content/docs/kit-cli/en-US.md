@@ -5,7 +5,7 @@ section: Reference
 order: 200
 ---
 
-`kit` is the devkit command line for Ankole. It is invoked as `bun run kit <command>` from the repository root, and it covers environment setup, local services, the development environment, database lifecycle, the activation code, logs, code generation, and repository analysis. This page is the reference for every command.
+`kit` is the devkit command line for OpenAnkole. It is invoked as `bun run kit <command>` from the repository root, and it covers environment setup, local services, the development environment, database lifecycle, the activation code, logs, code generation, and repository analysis. This page is the reference for every command.
 
 The decisive property, stated up front: `kit` is a Bun + TypeScript program in `tools/devkit/`, and the repository's `package.json` scripts wrap the common commands (`services:start`, `services:stop`, `dev`, `analyze`, and so on) so you do not have to type the full `bun run kit` form. Either form works; the scripts are aliases.
 
@@ -13,7 +13,7 @@ The decisive property, stated up front: `kit` is a Bun + TypeScript program in `
 
 | Command | What it does |
 |---|---|
-| `kit env-setup` | Install the host toolchain required for Ankole development — system build packages, Docker, Rust, the Elixir/Erlang toolchain, the pinned Bun. Add `--print` to print the installer commands without running them. |
+| `kit env-setup` | Install the host toolchain required for OpenAnkole development — system build packages, Docker, Rust, the Elixir/Erlang toolchain, the pinned Bun. Add `--print` to print the installer commands without running them. |
 | `kit is-ci` | Exit `0` if running in a CI environment, `1` otherwise. Used by scripts that branch on CI. |
 | `kit is-dev` | Exit `0` if running in a development environment, `1` otherwise. |
 
@@ -48,7 +48,7 @@ Options apply across these: `--start-services` starts Compose before the operati
 | Command | What it does |
 |---|---|
 | `kit show bootstrap-activation-code` | Print the current setup activation code. Use this when the first-visit page needs the code and the `kit dev` terminal is not visible. |
-| `kit logs pretty` | Pretty-print Ankole structured JSON log lines from stdin. Pipe a log stream to it for readable local output. |
+| `kit logs pretty` | Pretty-print OpenAnkole structured JSON log lines from stdin. Pipe a log stream to it for readable local output. |
 
 ## Code generation and analysis
 

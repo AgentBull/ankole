@@ -7,7 +7,7 @@ order: 19
 
 A Workflow lets the main Agent run a fixed, bounded program that delegates independent tasks to subagents. Use it to review many candidates, extract the same fields from a finite set of sources, compare independent judgments, or run a verification stage before synthesis.
 
-The Workflow starts from the current conversation and immediately returns a `run_id`. The conversation remains available while the tasks run. When the Workflow completes or fails, Ankole wakes the original conversation so the main Agent can read the result and continue.
+The Workflow starts from the current conversation and immediately returns a `run_id`. The conversation remains available while the tasks run. When the Workflow completes or fails, OpenAnkole wakes the original conversation so the main Agent can read the result and continue.
 
 ## Choose the right execution shape
 
@@ -80,7 +80,7 @@ Each call can make at most three complete task attempts. A successful call resol
 
 ## Require structured results
 
-An `agent()` call can declare a result schema. Ankole sends the generated `submit_result` tool with provider strict mode and validates the submitted value again in the control plane. A schema rejection leaves the task active so the subagent can correct its value.
+An `agent()` call can declare a result schema. OpenAnkole sends the generated `submit_result` tool with provider strict mode and validates the submitted value again in the control plane. A schema rejection leaves the task active so the subagent can correct its value.
 
 The schema is a closed subset of OpenAPI 3 JSON Schema, not the complete specification. A result has one non-null type: `object`, `array`, `string`, `number`, `integer`, or `boolean`. Every object, including a nested object, must declare `properties`, list every property in `required`, and set `additionalProperties: false`. Optional object fields, nullable values, unions, `$ref`, and `oneOf`/`anyOf`/`allOf` are not supported.
 

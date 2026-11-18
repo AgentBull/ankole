@@ -77,7 +77,7 @@ export function zodToJSONSchema(schema: z.ZodType): JSONObject {
 }
 ```
 
-The collected schemas — one per tool, plus the tool name and description — are sent to the model in the Responses request. When a tool owner supplies `jsonSchema`, Ankole sends that schema at its boundary instead of generating one from Zod; constraints such as `minimum` and `maximum` remain intact there. A separate native runtime owns any later projection. Deferred children remain behind Tool Search until selected.
+The collected schemas — one per tool, plus the tool name and description — are sent to the model in the Responses request. When a tool owner supplies `jsonSchema`, OpenAnkole sends that schema at its boundary instead of generating one from Zod; constraints such as `minimum` and `maximum` remain intact there. A separate native runtime owns any later projection. Deferred children remain behind Tool Search until selected.
 
 `strict: true` is also copied to the Provider tool definition. Workflow creates `submit_result` with a raw schema that wraps the task's result schema, and sends it in strict mode. Provider validation is only the first gate: the control plane validates the submitted value against the persisted schema again before it commits the result.
 

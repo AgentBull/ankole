@@ -9,7 +9,7 @@ model-visible tool registry. An enabled Skill declares the connection in
 server through the pinned `mcporter` CLI.
 
 `agents/openai.yaml` is the only registration source for Skill-backed MCP.
-Ankole does not keep an Agent-level Skill MCP registry, a persistent mcporter
+OpenAnkole does not keep an Agent-level Skill MCP registry, a persistent mcporter
 config, or a native Skill MCP projection for the main Agent or Codex.
 
 ## Ownership
@@ -101,8 +101,8 @@ Agent Computer. Agent Computer loads all MCP dependencies from that set without
 an `ankole-runtime` filter. This does not add an `automation_job` Skill runtime.
 
 Several Skills can declare the same server name only when all connection,
-description, and filter fields match. Ankole then records all source Skill
-names. If a field differs, setup fails. Ankole does not choose a winner.
+description, and filter fields match. OpenAnkole then records all source Skill
+names. If a field differs, setup fails. OpenAnkole does not choose a winner.
 
 `enabled_tools` is an exact raw-name allowlist. `disabled_tools` is an exact
 raw-name denylist. When both fields exist, Agent Computer writes the allowlist
@@ -141,7 +141,7 @@ resumed project cannot inject a native Codex MCP server.
 
 ## Model-Visible MCP Boundary
 
-Ankole does not currently ship a bundled model-visible MCP server. If a
+OpenAnkole does not currently ship a bundled model-visible MCP server. If a
 concrete capability adds one, it must align observable behavior without
 copying Codex internals:
 
@@ -151,7 +151,7 @@ copying Codex internals:
   `mcp_servers`. Agent Computer must not convert it into a dynamic tool.
 - Both paths must expose the same model-visible namespace, tools, and loading
   behavior. Each runtime keeps its own execution owner.
-- Ankole passes the standard server JSON Schema into each runtime unchanged.
+- OpenAnkole passes the standard server JSON Schema into each runtime unchanged.
   Main projects it through Responses. Background lets Codex own its native MCP
   projection. An adapter must not delete or rewrite constraints to imitate the
   other runtime's implementation details.
@@ -160,7 +160,7 @@ The model-visible identity is always the pair `{namespace, name}`. Responses
 uses a namespace container and returns the same namespace on each
 `function_call`. Durable history, Job replay, Tool Search, and execution keep
 both fields. A runtime that has one local name slot can create a reversible
-alias at that terminal boundary, but the alias is not an MCP or Ankole tool
+alias at that terminal boundary, but the alias is not an MCP or OpenAnkole tool
 identity.
 
 Codex reserves the `mcp__` prefix for native MCP. The Background dynamic-tool
@@ -225,7 +225,7 @@ removes these client-side guarantees:
 - MCP-result redaction against all WorkerEnv secret values.
 
 The last item removes a defense against a server that accidentally returns a
-secret and lets command output enter persistent history. Ankole accepts this
+secret and lets command output enter persistent history. OpenAnkole accepts this
 narrower contract for trusted, first-party MCP Skills. The secret already
 exists in the same sandbox, and the config still stores only its variable
 name. Do not use this contract for an untrusted third-party server without a

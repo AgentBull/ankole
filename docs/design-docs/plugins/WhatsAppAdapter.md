@@ -155,7 +155,7 @@ temporary media URL, downloads the bytes, writes them to the Agent's
 `user-files` lane, and updates the same entry. The webhook answer does not wait
 for the download. If the task cannot start, the webhook fails and Meta delivers
 the message again; the pending observation is already durable, so that
-redelivery fetches the file. An unmatched sender cannot make Ankole download a
+redelivery fetches the file. An unmatched sender cannot make OpenAnkole download a
 file.
 
 A redelivered message keeps a result this Agent already holds and fetches
@@ -166,8 +166,8 @@ Agent that has no path, so a second download that overlaps the first cannot lose
 the file. A copy that another Agent downloaded does not count: when a route
 moves to another Agent, that Agent fetches its own copy.
 
-The media URL expires five minutes after Ankole reads it, so the download
-follows at once. Ankole applies its own budget of 25 MB. For a larger file, the
+The media URL expires five minutes after OpenAnkole reads it, so the download
+follows at once. OpenAnkole applies its own budget of 25 MB. For a larger file, the
 adapter keeps the provider file metadata and a clear `provider_download_limit`
 restriction. It never creates a local path for such a file or claims that the
 Agent can read it.
@@ -282,7 +282,7 @@ The adapter classifies the Graph error code and the HTTP status:
   permanent.
 
 An asynchronous `failed` status that arrives after a successful send is logged
-only. The outbox row already recorded a success, so Ankole cannot repair that
+only. The outbox row already recorded a success, so OpenAnkole cannot repair that
 delivery by itself.
 
 AppConfigure encrypts the App secret, the verify token, and the access token.

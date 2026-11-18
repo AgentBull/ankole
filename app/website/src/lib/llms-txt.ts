@@ -7,8 +7,8 @@ import { blockquote, blocks, bulletList, heading } from './markdown-text'
 
 /*
  * The llms.txt format (https://llmstxt.org): an H1 name, a quoted summary, free text, and H2
- * sections of links. Each locale has its own index and full file, because one file with four
- * languages is four times as large for an agent that needs one.
+ * sections of links. Each locale has its own index and full file, so an agent reads only the
+ * language that it needs.
  */
 
 type DocEntry = CollectionEntry<'docs'>
@@ -21,6 +21,7 @@ export function llmsIndex(docs: DocEntry[], locale: Locale, site: URL): string {
     if (doc === undefined) throw new Error(`llms.txt links the docs page ${slug}, which does not exist`)
     return `[${doc.title}](${docMarkdownUrl(locale, slug, site)})`
   }
+  const otherLocales = LOCALES.filter(other => other !== locale)
 
   return `${blocks(
     heading(1, t(locale, 'site.title')),
@@ -35,12 +36,11 @@ export function llmsIndex(docs: DocEntry[], locale: Locale, site: URL): string {
         )
       )
     ),
-    heading(2, t(locale, 'llms.languages')),
-    bulletList(
-      LOCALES.filter(other => other !== locale).map(
-        other => `[${LOCALE_LABELS[other]}](${new URL(llmsIndexPath(other), site).href})`
-      )
-    ),
+    otherLocales.length > 0 &&
+      blocks(
+        heading(2, t(locale, 'llms.languages')),
+        bulletList(otherLocales.map(other => `[${LOCALE_LABELS[other]}](${new URL(llmsIndexPath(other), site).href})`))
+      ),
     // "Optional" is a fixed llms.txt section name: an agent with little context can skip it.
     heading(2, 'Optional'),
     bulletList([

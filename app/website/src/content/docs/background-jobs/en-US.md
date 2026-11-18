@@ -9,7 +9,7 @@ A Background Agent Job is for research, large file sets, document production, da
 
 If you use <a href="https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/delegation.md" target="_blank" rel="noreferrer">Hermes Agent</a> or <a href="https://docs.openclaw.ai/subagents" target="_blank" rel="noreferrer">OpenClaw</a>, the nearest comparison is a subagent: the main Agent delegates independent work to another execution context.
 
-Ankole treats each task as a recoverable, persistent computation with a complete lifecycle, not an ephemeral call. A Job resumes from its interruption point across Worker interruptions, crashes, or server restarts.
+OpenAnkole treats each task as a recoverable, persistent computation with a complete lifecycle, not an ephemeral call. A Job resumes from its interruption point across Worker interruptions, crashes, or server restarts.
 
 The main Agent can send more information. Most Jobs return questions, failure states, and final results to the original conversation. A Job can also stay silent when you do not ask for an update, so you can inspect it later.
 
@@ -58,7 +58,7 @@ State whether the Job needs a repository, document set, or installed tool. The A
 
 ## Select the model provider
 
-Every Job uses AIGateway. When the Job is created, Ankole saves the effective **Background Agent Jobs** model profile. If that profile is empty, the Agent's `heavy` profile is the fallback.
+Every Job uses AIGateway. When the Job is created, OpenAnkole saves the effective **Background Agent Jobs** model profile. If that profile is empty, the Agent's `heavy` profile is the fallback.
 
 To use a ChatGPT subscription, first create a [ChatGPT subscription provider](../chatgpt-subscription-provider/). Then open **Agents** in the Console, find **Background Agent Jobs** in the Agent's model profiles, and select that provider, an entitled model, the reasoning effort, and Fast Mode. The provider's credential pool selects and rotates accounts. The Job does not select an account.
 

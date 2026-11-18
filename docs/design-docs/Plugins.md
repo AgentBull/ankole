@@ -1,6 +1,6 @@
 # Plugins
 
-Ankole uses the word Plugin for two unrelated extension types:
+OpenAnkole uses the word Plugin for two unrelated extension types:
 
 - An Agent Plugin gives model-facing capabilities to an Agent.
 - A Control Plane Plugin adds trusted Elixir and OTP code to the control plane.
@@ -10,7 +10,7 @@ rules.
 
 ## Agent Plugins
 
-An Agent Plugin uses the standard Codex Plugin package format. Ankole adds one
+An Agent Plugin uses the standard Codex Plugin package format. OpenAnkole adds one
 optional directory, `workspace-template`, for initial Job files.
 
 ```text
@@ -45,12 +45,12 @@ template when the field is absent. A resumed Job keeps the existing files.
 Runtime package refresh does not copy the template again.
 
 The template selection does not select runtime Plugins. A Job loads only the
-Plugins in its persisted runtime projection. Ankole does not interpret template
+Plugins in its persisted runtime projection. OpenAnkole does not interpret template
 content as a separate Plugin activation contract.
 
 ### Built-in Packages
 
-Ankole includes these Agent Plugins:
+OpenAnkole includes these Agent Plugins:
 
 | ID | Member Skills | Global default |
 | --- | --- | --- |
@@ -171,12 +171,12 @@ Each Job then performs only thread-owned selection:
 1. Resolve its projected Plugin IDs and Background-eligible members against the
    current catalog.
 2. Render the ordinary members in the Job Skill index and keep all selected
-   members in the Ankole `skill_view` load set.
+   members in the OpenAnkole `skill_view` load set.
 3. Project enabled Skill-owned MCP servers separately.
 
-The Job does not pass Ankole Skill roots to Codex, use `.agents/skills`, or
+The Job does not pass OpenAnkole Skill roots to Codex, use `.agents/skills`, or
 depend on Codex `skills/list`. This keeps Plugin and Skill selection inside the
-same Ankole enablement owner for the main Agent and Background Agent Jobs.
+same OpenAnkole enablement owner for the main Agent and Background Agent Jobs.
 
 Only enabled members that permit Background Agent Jobs add MCP settings. The
 optional workspace template is copied once and does not change runtime Plugin
@@ -216,10 +216,10 @@ instance.
 
 ## Control Plane Plugins
 
-Ankole trusts the Elixir and OTP code in a Control Plane Plugin. A Plugin can
+OpenAnkole trusts the Elixir and OTP code in a Control Plane Plugin. A Plugin can
 add metadata, AppConfigure definitions, adapters, and supervised processes.
 
-Ankole does not download or load arbitrary plugin code at runtime.
+OpenAnkole does not download or load arbitrary plugin code at runtime.
 
 Implementation modules use the `Ankole.Plugins` namespace.
 The compile-time `:control_plane_plugin_modules` list names every Plugin module.

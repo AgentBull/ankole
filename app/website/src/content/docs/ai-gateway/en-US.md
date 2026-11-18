@@ -5,7 +5,7 @@ section: Developer guide
 order: 101
 ---
 
-AIGateway is the unified AI boundary of an Ankole deployment instance. External applications, enterprise systems, and SDKs call it directly over an OpenResponses-compatible API; internal agents call the same surface for their model turns. Every call resolves a model selector against the provider bindings the operator configured, and the upstream credentials never leave the control plane.
+AIGateway is the unified AI boundary of an OpenAnkole deployment instance. External applications, enterprise systems, and SDKs call it directly over an OpenResponses-compatible API; internal agents call the same surface for their model turns. Every call resolves a model selector against the provider bindings the operator configured, and the upstream credentials never leave the control plane.
 
 This page documents the real routes, request shapes, and the boundary between stateless and stateful calls. The source of truth is the control-plane router and the `Ankole.AIGateway` module; treat this page as the map, not the contract.
 

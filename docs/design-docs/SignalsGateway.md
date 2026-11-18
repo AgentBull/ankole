@@ -9,10 +9,10 @@ AIGateway separately stores model Responses and their history.
 
 One incoming message can produce four different records:
 
-- `IngressFact` describes one event in Ankole's common input format.
+- `IngressFact` describes one event in OpenAnkole's common input format.
 - The provider mirror records the latest known state of the channel and message.
 - `ActorEvent` records one item of work for an Agent session.
-- An outbox row records one operation that Ankole must send to the provider.
+- An outbox row records one operation that OpenAnkole must send to the provider.
 
 Batches combine nearby messages. Tombstones stop a removed message from
 reappearing after late provider delivery.
@@ -30,7 +30,7 @@ SignalsGateway stores these tables in PostgreSQL:
 | `actor_events` | Work that an Agent session must process |
 | `actor_event_deliveries` | Attempts to send that work to a worker |
 | `actor_session_workspaces` | Stable workspace identity for one Agent session |
-| `signal_gateway_outbox_entries` | Operations that Ankole must send to a provider |
+| `signal_gateway_outbox_entries` | Operations that OpenAnkole must send to a provider |
 
 ## Use a Different ID for Each Record
 
@@ -41,7 +41,7 @@ Each ID below identifies a different thing:
 | `source_event_id` | One provider or internal input event |
 | `source_entry_id` | One provider message, post, or comment |
 | `attachment_id` | One PostgreSQL-owned attachment key, stored in entry attachment JSON |
-| `actor_events.id` | One Ankole work item |
+| `actor_events.id` | One OpenAnkole work item |
 | `ai_message_id` | One stored AIGateway message |
 
 The following key pairs prevent duplicate records:
@@ -121,7 +121,7 @@ An ingress adapter can declare these input capabilities:
 - reaction changes
 - provider actions
 
-The adapter converts provider data to Ankole's common format before it calls
+The adapter converts provider data to OpenAnkole's common format before it calls
 SignalsGateway. SignalsGateway rejects data that PostgreSQL cannot store before
 it acknowledges the provider.
 
@@ -216,9 +216,9 @@ The callback path is
 returns the full URL once. PostgreSQL stores only its SHA-256 digest. A request
 body can contain at most 1 MiB. SignalsGateway stores only `content-type`,
 `x-hub-signature-256`, and headers whose names start with `ce-` or `x-github-`.
-It discards authentication and all other HTTP headers. Ankole redacts
+It discards authentication and all other HTTP headers. OpenAnkole redacts
 `/webhooks/v1/event-callbacks/*` in its request logs. An ingress, proxy, or CDN
-in front of Ankole must apply the same redaction to its access logs.
+in front of OpenAnkole must apply the same redaction to its access logs.
 
 SignalsGateway checks the endpoint and writes its consumer record in one
 PostgreSQL transaction before it returns success. The record is a
@@ -735,7 +735,7 @@ outbox records its retries and final result.
 
 ## Show Progress before the Final Reply
 
-A live preview can show model progress, but Ankole can lose it. It is not the
+A live preview can show model progress, but OpenAnkole can lose it. It is not the
 final reply record.
 
 Agent Computer sends progress text as an i18n key with bounded display
@@ -815,7 +815,7 @@ checkpoints for retry.
 
 SignalsGateway does these actions:
 
-- accept provider input in Ankole's common format
+- accept provider input in OpenAnkole's common format
 - store the latest known provider state
 - write ActorEvents
 - insert durable automation job runs for bound callbacks

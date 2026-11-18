@@ -1,6 +1,6 @@
 # WeComOpenAPI
 
-Thin Elixir client for WeCom (企业微信), built for Ankole's WeCom adapter.
+Thin Elixir client for WeCom (企业微信), built for OpenAnkole's WeCom adapter.
 
 It covers the two product surfaces the adapter uses:
 

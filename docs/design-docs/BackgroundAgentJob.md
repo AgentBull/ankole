@@ -250,7 +250,7 @@ Agent Computer:
 - waits for routed child Turns before it commits a successful Job
 - returns the final Codex result
 
-Codex manages its thread, collaboration, and task execution. Ankole owns Skill
+Codex manages its thread, collaboration, and task execution. OpenAnkole owns Skill
 selection and loading, and `AgentCodexRuntime` owns Plugin installation and Hook
 trust. PostgreSQL keeps the Job record that survives process failure.
 
@@ -334,7 +334,7 @@ below when replay finds no items.
 
 A stored tool-result message keeps the stable execution mechanism in metadata.
 `provider_hosted` means that the model Provider executed the tool.
-`local_dynamic` means that Codex invoked a dynamic tool implemented by Ankole.
+`local_dynamic` means that Codex invoked a dynamic tool implemented by OpenAnkole.
 The call and result keep `namespace` separate from the leaf `name`. This fact
 distinguishes tools that have the same leaf name without changing their
 identity or storing the raw app-server frame.
@@ -402,7 +402,7 @@ directory. The Job Workspace is the real process directory and Codex project
 root. It must
 exist as a directory and must not be a Git repository.
 
-Ankole does not show the model a false alias for this path. The old
+OpenAnkole does not show the model a false alias for this path. The old
 `/workspace` path is invalid, and Job creation rejects a task that contains it.
 
 A Job can see other files in the same Agent Home. Job workspaces separate
@@ -457,7 +457,7 @@ child tombstones stay closed.
 installation, Hook trust, Plugin cache changes, and Codex user-config changes.
 It installs and trusts all same-release packages before it starts the first Job
 thread, then leaves every global Plugin entry disabled. A Job never mutates
-that Agent-wide state or gives Codex a native Skill root. Ankole intersects the
+that Agent-wide state or gives Codex a native Skill root. OpenAnkole intersects the
 Job's persisted selection with the current effective catalog, renders the
 ordinary Skill index in `AGENTS.md`, and exposes full Skill content through its
 dynamic `skill_view` tool. MCP servers remain a separate projection. Job turns
@@ -627,13 +627,13 @@ Agent-installed Skill source uses this path:
 
 Before each run, Agent Computer derives the loadable Skill set by intersecting
 the frozen Job selection with the Agent's current effective Skills and the
-`ankole-runtime` rule. The Job's Ankole `skill_view` tool reads the selected
+`ankole-runtime` rule. The Job's OpenAnkole `skill_view` tool reads the selected
 source file through the same confined loader as the main Agent, adds the current
 database lesson to `SKILL.md`, and records the Skill as used. A result that
 contains Skill content states the `ankole-runtime` value of the Skill. It rejects a
 disabled Skill, a selected Skill for another runtime, and any path outside that
 Skill. Codex native project discovery, `.agents/skills`, and `skills/list` do
-not own Ankole Skills.
+not own OpenAnkole Skills.
 
 ## Prepare Agent Plugins for Each Run
 
@@ -651,7 +651,7 @@ Each Job preparation performs only thread-owned selection:
 
 1. Intersect the persisted Plugin and member selection with the current
    effective catalog.
-2. Add the Background-eligible members to the Ankole `skill_view` load set and
+2. Add the Background-eligible members to the OpenAnkole `skill_view` load set and
    the non-lazy Skill index.
 3. Project any enabled Skill-owned MCP servers separately.
 
@@ -968,7 +968,7 @@ Artifacts are ordinary Job files. They do not have a separate lifecycle.
 
 An outbound attachment must exist in the current Agent `user-files` directory.
 The caller must copy or move the file there before delivery.
-The caller must provide a structured attachment record. Ankole never searches
+The caller must provide a structured attachment record. OpenAnkole never searches
 prose for an outbound file path.
 
 ## Tests Required for Changes

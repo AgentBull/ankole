@@ -1,9 +1,7 @@
-# Ankole Helm chart
+# OpenAnkole Helm chart
 
-[简体中文](README.zh-Hans.md)
-
-This chart installs the open-source Ankole control plane and Agent Computer
-workers. It can also install the Ankole PostgreSQL 18 image. That image includes
+This chart installs the open-source OpenAnkole control plane and Agent Computer
+workers. It can also install the OpenAnkole PostgreSQL 18 image. That image includes
 `pg_search` and `vector`.
 
 ## Requirements

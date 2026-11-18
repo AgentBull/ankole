@@ -1,6 +1,6 @@
 # Logger
 
-Ankole writes one JSON object for each application event. Docker and Kubernetes
+OpenAnkole writes one JSON object for each application event. Docker and Kubernetes
 collect these lines from standard output and standard error.
 
 The format uses Google Cloud Logging severity names, but it does not call the
@@ -59,7 +59,7 @@ fields.
 
 ## Choose a Severity
 
-Ankole supports these severities:
+OpenAnkole supports these severities:
 
 | Severity | Use |
 | --- | --- |
@@ -169,7 +169,7 @@ The formatter also removes old Google special names and the legacy `httpRequest`
 Do not call the standard Logger directly in control-plane or first-party Plugin
 application code.
 
-A generic library can use the standard Logger when it cannot depend on Ankole modules. The configured formatter still writes JSON for that record.
+A generic library can use the standard Logger when it cannot depend on OpenAnkole modules. The configured formatter still writes JSON for that record.
 
 ## Read Logs During Development
 

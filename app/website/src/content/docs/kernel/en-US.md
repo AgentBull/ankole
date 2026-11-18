@@ -5,7 +5,7 @@ section: Developer guide
 order: 109
 ---
 
-Ankole runs on two host runtimes — an Elixir control plane and a Bun worker — and a few behaviors must mean the same thing on both sides. The Rust Kernel is where those shared native semantics live. This page maps the kernel against the real code in `app/kernel`.
+OpenAnkole runs on two host runtimes — an Elixir control plane and a Bun worker — and a few behaviors must mean the same thing on both sides. The Rust Kernel is where those shared native semantics live. This page maps the kernel against the real code in `app/kernel`.
 
 The decisive property, stated up front: the kernel is one Rust crate loaded by two hosts through two binding layers, not a Bun package with an Elixir adapter or an Elixir NIF with a Bun adapter. Rust owns the low-level semantics; bindings only translate host types, naming, and errors. If a behavior must be trusted by both runtimes, it belongs here as Rust first, with bindings second.
 

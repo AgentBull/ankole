@@ -1,11 +1,13 @@
 ---
 title: Introduction
-description: What the Ankole Agent Harness and Company Brain provide, and how a private deployment instance works.
+description: What the OpenAnkole Agent Harness and Company Brain provide, and how a private deployment instance works.
 section: Getting started
 order: 1
 ---
 
-**Ankole is the open source Claude Tag alternative with a Company Brain. Its enterprise Agent Harness gives Agents the context, authority, tools, and feedback required to make decisions and show their evidence.**
+**OpenAnkole is the open source Agent Harness with a Company Brain. It includes an enterprise bot that you can run in place of Claude Tag.**
+
+Ankole.AI, the hosted Agent OS, is at [https://ankole.ai/](https://ankole.ai/). Ankole.AI is closed-source SaaS. A team can change Base, Doc, and Applet while work is in progress. That is malleable software.
 
 Durable Agents use shared company knowledge, live signals, enterprise authority, Agent Computer workers, and persistent execution across company work.
 
@@ -39,7 +41,7 @@ An Agent can also use [Deep Research](../deep-research-job/) for long research a
 
 ## Decision work it supports
 
-Ankole fits consequential digital work that produces inspectable evidence and observable results.
+OpenAnkole fits consequential digital work that produces inspectable evidence and observable results.
 
 Examples include industry research with competing hypotheses, product and market selection with scenario models, and deep data analysis with reproducible methods and causal alternatives.
 
@@ -49,9 +51,9 @@ Company knowledge and signals establish context. Bounded authority lets the Agen
 
 ## Current status
 
-Ankole runs in production as a complete enterprise Agent Harness. A company can host the control plane, Agent Computer Worker, kernel, Company Brain, and operator console on its own infrastructure.
+OpenAnkole runs in production as a complete enterprise Agent Harness. A company can host the control plane, Agent Computer Worker, kernel, Company Brain, and operator console on its own infrastructure.
 
-Ankole is still defining its public API compatibility contract. Releases can include breaking changes.
+OpenAnkole is still defining its public API compatibility contract. Releases can include breaking changes.
 
 ## Next steps
 
