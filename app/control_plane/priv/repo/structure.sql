@@ -25,6 +25,13 @@ CREATE SCHEMA paradedb;
 
 
 --
+-- Name: vector; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+
+
+--
 -- Name: pg_search; Type: EXTENSION; Schema: -; Owner: -
 --
 
@@ -36,13 +43,6 @@ CREATE EXTENSION IF NOT EXISTS pg_search WITH SCHEMA paradedb;
 --
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
-
-
---
--- Name: vector; Type: EXTENSION; Schema: -; Owner: -
---
-
-CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 
 
 --
