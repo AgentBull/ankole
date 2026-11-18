@@ -11,7 +11,9 @@ import { cn } from '../lib/utils'
  * A picture of a person or a place, or its initials while there is no picture. It is 32px by default, 40px at `lg`,
  * 24px at `sm`, and 20px at `xs`, the size of a mark beside 12px text, whose initials take the 10px step. Every
  * avatar is round, a person's, an Agent's, and a group's alike. The picture, the fill behind the initials or mark, and
- * the hairline edge all take the avatar's radius, so the avatar keeps one shape.
+ * the hairline edge all take the avatar's radius, so the avatar keeps one shape. The edge blends with the picture
+ * under it. `isolate` keeps that blend inside the avatar: without it the edge blends with the whole stacking context
+ * around the avatar, such as a scrolling page, and Chrome can drop the rest of that page while it composites the blend.
  */
 function Avatar({
   className,
@@ -24,7 +26,7 @@ function Avatar({
     <AvatarPrimitive
       data-size={size}
       className={cn(
-        'group/avatar relative flex size-8 shrink-0 rounded-full select-none after:absolute after:inset-0 after:rounded-[inherit] after:border after:border-border-subtle after:mix-blend-darken data-[size=lg]:size-10 data-[size=sm]:size-6 data-[size=xs]:size-5 dark:after:mix-blend-lighten',
+        'group/avatar relative isolate flex size-8 shrink-0 rounded-full select-none after:absolute after:inset-0 after:rounded-[inherit] after:border after:border-border-subtle after:mix-blend-darken data-[size=lg]:size-10 data-[size=sm]:size-6 data-[size=xs]:size-5 dark:after:mix-blend-lighten',
         className
       )}
       {...props}

@@ -11,6 +11,9 @@
   Agent says so.
 - Browsers with WebMCP can also let their built-in assistant operate Pod
   under the same confirmation rule.
+- Fix the Jobs board going blank below the first avatar after the pointer
+  moves over a card in Chrome. An avatar's edge blends only with its own
+  picture.
 
 ## Version 2.0.0-alpha.168 (2026-11-18)
 
