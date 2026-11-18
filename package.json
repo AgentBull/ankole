@@ -46,12 +46,12 @@
     "analyze:cycles": "bun run kit analyze cycles"
   },
   "dependencies": {
-    "turbo": "^2.11.6"
+    "turbo": "^2.11.13"
   },
   "devDependencies": {
-    "@types/bun": "1.4.2",
-    "oxfmt": "^0.71.0",
-    "oxlint": "^1.86.0",
+    "@types/bun": "1.4.4",
+    "oxfmt": "^0.79.0",
+    "oxlint": "^1.94.0",
     "typescript": "^7.0.2"
   },
   "packageManager": "bun@1.4.2"
