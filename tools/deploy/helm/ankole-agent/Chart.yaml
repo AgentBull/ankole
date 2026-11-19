@@ -4,8 +4,8 @@ description: Self-hosted Ankole control plane, Agent Computer, and optional Post
 type: application
 version: 0.1.0
 appVersion: "main-latest"
-home: https://github.com/AgentBull/ankole
+home: https://github.com/AgentBull/open-ankole
 sources:
-  - https://github.com/AgentBull/ankole
+  - https://github.com/AgentBull/open-ankole
 maintainers:
   - name: AgentBull

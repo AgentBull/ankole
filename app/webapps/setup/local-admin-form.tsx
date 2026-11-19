@@ -78,10 +78,10 @@ export function LocalAdminForm({ adapter }: { adapter: IdentityAdapter }) {
   return (
     <section className="grid gap-5">
       <div className="grid gap-1">
-        <h2 className="text-sm font-semibold uppercase tracking-normal text-muted-foreground">
+        <h2 className="text-sm font-semibold uppercase tracking-normal text-fg-secondary">
           {t('setup.admin_section_title')}
         </h2>
-        <p className="text-sm leading-6 text-muted-foreground">{t('setup.admin_section_hint')}</p>
+        <p className="text-sm leading-6 text-fg-secondary">{t('setup.admin_section_hint')}</p>
       </div>
       <ErrorBlock error={mutation.error} />
       <Form className="grid gap-6" of={form} onSubmit={output => mutation.mutate(output)}>
@@ -154,7 +154,7 @@ export function LocalAdminForm({ adapter }: { adapter: IdentityAdapter }) {
           </FormField>
         </FieldGroup>
 
-        <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
+        <div className="flex flex-wrap items-center gap-3 border-t border-border-subtle/70 pt-5">
           <Button aria-busy={mutation.isPending} disabled={mutation.isPending} type="submit">
             {mutation.isPending ? t('setup.creating_admin') : t('setup.create_admin')}
             {mutation.isPending ? (

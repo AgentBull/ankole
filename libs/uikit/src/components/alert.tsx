@@ -4,16 +4,18 @@ import type * as React from 'react'
 import { cn } from '../lib/utils'
 
 const alertVariants = cva(
-  "group/alert relative grid min-h-12 w-full gap-1 border border-l-0 px-4 py-3 text-left text-sm leading-5 after:absolute after:-inset-y-px after:left-0 after:w-[3px] has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-3 *:[svg]:row-span-2 *:[svg]:mt-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-5",
+  // Columns are icon, text, and action. The icon and the action sit on the first text line, so a one-line notice with
+  // buttons stays one row; below the sm breakpoint the action wraps under the text instead.
+  "group/alert relative grid min-h-12 w-full content-center gap-x-3 gap-y-1 border border-l-0 px-4 py-3 text-left text-sm leading-5 after:absolute after:-inset-y-px after:left-0 after:w-[3px] has-[>svg]:grid-cols-[auto_1fr] sm:has-data-[slot=alert-action]:grid-cols-[1fr_auto] sm:has-data-[slot=alert-action]:pr-2 sm:has-[>svg]:has-data-[slot=alert-action]:grid-cols-[auto_1fr_auto] *:[svg]:row-start-1 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-5",
   {
     variants: {
       variant: {
         default:
-          'border-blue-60/40 bg-blue-10 text-foreground after:bg-info *:[svg]:text-info dark:border-blue-40/60 dark:bg-blue-100 dark:after:bg-blue-40 dark:*:[svg]:text-blue-40',
+          'border-info/40 bg-info-subtle/(--status-fill-alpha) text-(--alert-info-fg) after:bg-info *:[svg]:text-info',
         destructive:
-          'border-red-60/40 bg-red-10 text-foreground after:bg-destructive *:data-[slot=alert-description]:text-foreground *:[svg]:text-destructive dark:border-red-50/60 dark:bg-red-100 dark:after:bg-red-50 dark:*:[svg]:text-red-50',
+          'border-destructive/40 bg-destructive-subtle/(--status-fill-alpha) text-fg-primary after:bg-destructive *:data-[slot=alert-description]:text-fg-primary *:[svg]:text-destructive',
         warning:
-          'border-warning/40 bg-warning/10 text-foreground after:bg-warning *:[svg]:text-warning dark:border-warning/50 dark:bg-warning/10'
+          'border-warning/40 bg-warning-subtle/(--status-fill-alpha) text-warning-fg after:bg-warning *:[svg]:text-warning'
       }
     },
     defaultVariants: {
@@ -31,7 +33,7 @@ function AlertTitle({ className, ...props }: React.ComponentProps<'div'>) {
     <div
       data-slot="alert-title"
       className={cn(
-        'text-sm leading-5 font-semibold tracking-normal group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground',
+        'title-inline group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-fg-primary',
         className
       )}
       {...props}
@@ -44,7 +46,7 @@ function AlertDescription({ className, ...props }: React.ComponentProps<'div'>) 
     <div
       data-slot="alert-description"
       className={cn(
-        'text-sm leading-5 text-balance text-foreground md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4',
+        'text-sm leading-5 text-pretty text-fg-primary group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-fg-primary [&_p:not(:last-child)]:mb-4',
         className
       )}
       {...props}
@@ -53,7 +55,16 @@ function AlertDescription({ className, ...props }: React.ComponentProps<'div'>) 
 }
 
 function AlertAction({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div data-slot="alert-action" className={cn('absolute top-2.5 right-3', className)} {...props} />
+  return (
+    <div
+      data-slot="alert-action"
+      className={cn(
+        'flex flex-wrap items-center gap-1 max-sm:mt-2 max-sm:group-has-[>svg]/alert:col-start-2 sm:col-[-2/-1] sm:row-start-1 sm:-my-1',
+        className
+      )}
+      {...props}
+    />
+  )
 }
 
 export { Alert, AlertAction, AlertDescription, AlertTitle }

@@ -169,7 +169,7 @@ function SettingsList() {
           <TableCell colSpan={5} className="whitespace-normal">
             <button
               type="button"
-              className="flex w-full items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground"
+              className="flex w-full items-center gap-2 text-left text-xs text-fg-secondary hover:text-fg-primary"
               onClick={() => setManagedOpen(open => !open)}>
               {managedOpen ? <RiArrowDownSLine /> : <RiArrowRightSLine />}
               {t('console.settings.managed_group', { count: rows.managed.length })}
@@ -193,20 +193,16 @@ function SettingRow({ item }: { item: AppConfigurationItem }) {
         <div className="grid gap-1.5">
           {item.editable ? (
             <Link
-              className="break-all font-mono text-xs text-foreground hover:text-link hover:underline"
+              className="break-all font-mono text-xs text-fg-primary hover:text-link hover:underline"
               to={encodeURIComponent(item.key)}>
               {item.key}
             </Link>
           ) : (
             <span className="break-all font-mono text-xs">{item.key}</span>
           )}
-          {description ? (
-            <span className="line-clamp-2 text-xs leading-5 text-muted-foreground">{description}</span>
-          ) : null}
+          {description ? <span className="line-clamp-2 text-xs leading-5 text-fg-secondary">{description}</span> : null}
           {!item.editable && !item.encrypted ? (
-            <code className="line-clamp-2 break-all text-xs text-muted-foreground">
-              {formatJSON(item.value ?? null)}
-            </code>
+            <code className="line-clamp-2 break-all text-xs text-fg-secondary">{formatJSON(item.value ?? null)}</code>
           ) : null}
         </div>
       </TableCell>
@@ -227,11 +223,11 @@ function SettingRow({ item }: { item: AppConfigurationItem }) {
       ) : (
         <TableCell className="text-right">
           {ownerRoute ? (
-            <Link className="pr-2 text-xs text-foreground underline underline-offset-4" to={ownerRoute}>
+            <Link className="pr-2 text-xs text-fg-primary underline underline-offset-4" to={ownerRoute}>
               {t('console.settings.managed_elsewhere')}
             </Link>
           ) : (
-            <span className="pr-2 text-xs text-muted-foreground">{t('console.settings.read_only')}</span>
+            <span className="pr-2 text-xs text-fg-secondary">{t('console.settings.read_only')}</span>
           )}
         </TableCell>
       )}
@@ -247,22 +243,20 @@ function SettingGroupRow({ group }: { group: SettingGroup }) {
       <TableCell className="max-w-[440px] whitespace-normal">
         <div className="grid gap-1.5">
           <Link
-            className="text-sm font-medium text-foreground hover:text-link hover:underline"
+            className="text-sm font-medium text-fg-primary hover:text-link hover:underline"
             to={`group/${group.id}`}>
             {t(`console.settings.group_${group.id}`)}
           </Link>
-          <span className="text-xs leading-5 text-muted-foreground">
+          <span className="text-xs leading-5 text-fg-secondary">
             {t(`console.settings.group_${group.id}_description`)}
           </span>
-          <span className="font-mono text-xs text-muted-foreground">
-            {group.items.map(item => item.key).join(' · ')}
-          </span>
+          <span className="font-mono text-xs text-fg-secondary">{group.items.map(item => item.key).join(' · ')}</span>
         </div>
       </TableCell>
       <TableCell>
         <Badge variant="secondary">{t('console.settings.group_kind', { count: group.items.length })}</Badge>
       </TableCell>
-      <TableCell className="text-muted-foreground">—</TableCell>
+      <TableCell className="text-fg-secondary">—</TableCell>
       <TableCell>
         {groupOverridden(group) ? <Badge variant="success">{t('console.status.global')}</Badge> : null}
       </TableCell>
@@ -393,7 +387,7 @@ export function SettingEditorDrawer() {
 
   return (
     <>
-      <Drawer open onOpenChange={open => !open && requestClose()} swipeDirection="right">
+      <Drawer open onOpenChange={open => !open && requestClose()} side="right">
         <DrawerContent className="data-[swipe-axis=x]:[--drawer-content-width:100%] data-[swipe-axis=x]:sm:[--drawer-content-width:42rem]">
           <form
             ref={formCompleteness.formRef}
@@ -403,7 +397,7 @@ export function SettingEditorDrawer() {
             onInput={formCompleteness.refresh}
             onInvalidCapture={event => event.preventDefault()}
             onSubmit={submit}>
-            <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-24">
+            <DrawerHeader className="relative gap-3 border-b border-border-subtle p-5 pr-24">
               <div className="absolute top-3 right-3 flex items-center gap-1">
                 {item?.editable && item.overridden ? (
                   <DropdownMenu>
@@ -482,9 +476,9 @@ export function SettingEditorDrawer() {
               )}
             </div>
 
-            <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border p-4">
+            <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border-subtle p-4">
               {model.dirty.value ? (
-                <span className="mr-auto text-xs text-muted-foreground">{t('console.settings.unsaved')}</span>
+                <span className="mr-auto text-xs text-fg-secondary">{t('console.settings.unsaved')}</span>
               ) : null}
               <Button disabled={saving} type="button" variant="ghost" onClick={requestClose}>
                 {t('common.cancel')}
@@ -754,7 +748,7 @@ export function SettingGroupDrawer() {
 
   return (
     <>
-      <Drawer open onOpenChange={open => !open && requestClose()} swipeDirection="right">
+      <Drawer open onOpenChange={open => !open && requestClose()} side="right">
         <DrawerContent className="data-[swipe-axis=x]:[--drawer-content-width:100%] data-[swipe-axis=x]:sm:[--drawer-content-width:48rem]">
           <form
             ref={formCompleteness.formRef}
@@ -764,7 +758,7 @@ export function SettingGroupDrawer() {
             onInput={formCompleteness.refresh}
             onInvalidCapture={event => event.preventDefault()}
             onSubmit={submit}>
-            <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-16">
+            <DrawerHeader className="relative gap-3 border-b border-border-subtle p-5 pr-16">
               <div className="absolute top-3 right-3">
                 <Button
                   aria-label={t('common.close')}
@@ -842,10 +836,10 @@ export function SettingGroupDrawer() {
                   ) : (
                     items.map(item => (
                       <section key={item.key} className="grid gap-4">
-                        <div className="flex items-start justify-between gap-3 border-b border-border pb-2">
+                        <div className="flex items-start justify-between gap-3 border-b border-border-subtle pb-2">
                           <div className="grid gap-1">
-                            <h2 className="font-mono text-sm text-foreground">{item.key}</h2>
-                            <p className="text-xs leading-5 text-muted-foreground">{settingDescription(t, item)}</p>
+                            <h2 className="font-mono text-sm text-fg-primary">{item.key}</h2>
+                            <p className="text-xs leading-5 text-fg-secondary">{settingDescription(t, item)}</p>
                           </div>
                           {item.overridden ? (
                             <Button
@@ -875,9 +869,9 @@ export function SettingGroupDrawer() {
               )}
             </div>
 
-            <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border p-4">
+            <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border-subtle p-4">
               {dirty ? (
-                <span className="mr-auto text-xs text-muted-foreground">{t('console.settings.unsaved')}</span>
+                <span className="mr-auto text-xs text-fg-secondary">{t('console.settings.unsaved')}</span>
               ) : null}
               <Button disabled={busy} type="button" variant="ghost" onClick={requestClose}>
                 {t('common.cancel')}

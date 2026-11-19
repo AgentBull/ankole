@@ -587,8 +587,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
       assert span.status == :error
       assert span.attributes["error.type"] == "credential_pool_exhausted"
       assert span.attributes["ankole.ai_gateway.provider_status"] == 429
-      # The pinned OTLP exporter encodes Erlang boolean atoms as strings.
-      assert span.attributes["ankole.ai_gateway.retryable"] == "true"
+      assert span.attributes["ankole.ai_gateway.retryable"] == true
       assert span.attributes["ankole.ai_gateway.retry_at"] == "2026-09-28T15:12:46Z"
       assert span.attributes["ankole.ai_gateway.provider_error_code"] == "RESOURCE_EXHAUSTED"
     end

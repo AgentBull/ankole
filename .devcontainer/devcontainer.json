@@ -15,7 +15,7 @@
     "PATH": "/home/vscode/.local/share/mise/shims:/home/vscode/.local/bin:/home/vscode/.cargo/bin:/home/vscode/.bun/bin:${containerEnv:PATH}"
   },
   "postCreateCommand": "bash -lc 'bun install'",
-  "forwardPorts": [4000, 3035, 5433, 6010],
+  "forwardPorts": [4000, 3035, 5433],
   "portsAttributes": {
     "4000": {
       "label": "Phoenix control plane"
@@ -25,9 +25,6 @@
     },
     "5433": {
       "label": "Devkit PostgreSQL"
-    },
-    "6010": {
-      "label": "RuntimeFabric"
     }
   },
   "customizations": {

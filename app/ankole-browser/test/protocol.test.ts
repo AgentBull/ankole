@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
-import { BrowserDataError } from '../src/errors'
+import { errors } from 'playwright-core'
+import { BrowserDataError, browserError } from '../src/errors'
 import {
   BrowserMaterialSchema,
   BrowserRequestSchema,
@@ -117,4 +118,13 @@ test('batch items are structurally limited to page commands plus status', () => 
   expect(rejectionMessage({ name: 'batch', args: { commands: [{ name: 'click', args: {} }] } })).toBe(
     'commands[0].args.selector must be a non-empty string'
   )
+})
+
+test('Playwright timeouts reach the caller as retryable command timeouts', () => {
+  expect(browserError(new errors.TimeoutError('select deadline expired'))).toEqual({
+    code: 'timeout',
+    message: 'select deadline expired',
+    retryable: true,
+    details: {}
+  })
 })

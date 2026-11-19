@@ -17,6 +17,7 @@ services:
       POSTGRES_DB: ankole_dev
     ports:
       - "5433:5432"
+    shm_size: 1g
     volumes:
       - postgres_for_ankole_data:/var/lib/pgsql/18/data
     healthcheck:

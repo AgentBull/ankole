@@ -121,7 +121,7 @@ export function PrincipalGroupsListPage() {
         return (
           <TableRow key={group.id}>
             <TableCell className="font-mono text-xs">
-              <Link className="text-foreground hover:text-link hover:underline" to={encodeURIComponent(group.name)}>
+              <Link className="text-fg-primary hover:text-link hover:underline" to={encodeURIComponent(group.name)}>
                 {group.name}
               </Link>
             </TableCell>
@@ -249,7 +249,7 @@ export function PrincipalGroupEditorPage() {
       contentWidth={mode === 'edit' ? 'wide' : 'form'}
       supplementary={
         mode === 'edit' && loadedGroup ? (
-          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border pt-8 [&>*]:min-w-0">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border-subtle pt-8 [&>*]:min-w-0">
             <GroupMembersSection group={loadedGroup} />
             <GroupGrantsSection group={loadedGroup} />
           </div>
@@ -361,17 +361,17 @@ function ComputedMembershipPreview({ condition }: { condition: string }) {
   const shown = (fresh ? (result.members ?? []) : []).slice(0, 10)
 
   return (
-    <div className="grid gap-3 border border-border bg-muted/30 p-4" aria-live="polite">
+    <div className="grid gap-3 border border-border-subtle bg-layer-03/30 p-4" aria-live="polite">
       <p className="text-sm font-medium">{t('console.principal_groups.condition_preview_title')}</p>
       {!trimmed ? (
-        <p className="text-sm text-muted-foreground">{t('console.principal_groups.condition_preview_idle')}</p>
+        <p className="text-sm text-fg-secondary">{t('console.principal_groups.condition_preview_idle')}</p>
       ) : !fresh ? (
         <Skeleton className="h-6 w-2/3" />
       ) : result.error ? (
         <p className="text-sm break-all text-destructive">{result.error}</p>
       ) : (
         <div className="grid gap-2">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-fg-secondary">
             {t('console.principal_groups.condition_preview_matches', { count: result.members?.length ?? 0 })}
           </p>
           {shown.length > 0 ? (
@@ -379,13 +379,13 @@ function ComputedMembershipPreview({ condition }: { condition: string }) {
               {shown.map(member => (
                 <span
                   key={member.uid}
-                  className="inline-flex items-center gap-1.5 border border-border bg-card px-2 py-1 text-xs">
+                  className="inline-flex items-center gap-1.5 border border-border-subtle bg-page px-2 py-1 text-xs">
                   <MemberAvatar member={member} />
                   <span className="max-w-40 truncate">{member.display_name ?? member.uid}</span>
                 </span>
               ))}
               {(result.members?.length ?? 0) > shown.length ? (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-fg-secondary">
                   {t('console.principal_groups.condition_preview_more', {
                     count: (result.members?.length ?? 0) - shown.length
                   })}
@@ -441,7 +441,7 @@ function GroupMembersSection({ group }: { group: PrincipalGroupItem }) {
     <section className="grid gap-4">
       <div className="grid gap-1">
         <h3 className="text-lg font-semibold tracking-normal">{t('console.principal_groups.members_section_title')}</h3>
-        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+        <p className="max-w-2xl text-sm leading-6 text-fg-secondary">
           {synced
             ? t('console.principal_groups.members_synced_note')
             : group.kind === 'computed'
@@ -469,11 +469,11 @@ function GroupMembersSection({ group }: { group: PrincipalGroupItem }) {
           ) : null}
           <ErrorBlock error={members.error} />
           {!members.error && !members.isLoading && memberList.length === 0 ? (
-            <p className="border border-border bg-card p-6 text-sm text-muted-foreground">
+            <p className="border border-border-subtle bg-page p-6 text-sm text-fg-secondary">
               {t('console.principal_groups.members_empty')}
             </p>
           ) : !members.error ? (
-            <div className="overflow-x-auto border border-border bg-card">
+            <div className="overflow-x-auto border border-border-subtle bg-page">
               <Table className="min-w-[560px]" aria-busy={members.isLoading}>
                 <TableHeader>
                   <TableRow>

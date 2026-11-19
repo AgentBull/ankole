@@ -176,10 +176,10 @@ export function BrainClaimsPage() {
               <TableCell>
                 <ClaimStateBadge claim={claim} />
               </TableCell>
-              <TableCell className="text-xs text-muted-foreground">{formatConsoleDate(claim.created_at)}</TableCell>
+              <TableCell className="text-xs text-fg-secondary">{formatConsoleDate(claim.created_at)}</TableCell>
               {resolved ? (
                 <TableCell className="text-right">
-                  <span className="pr-2 text-xs text-muted-foreground">{t('console.brain.read_only')}</span>
+                  <span className="pr-2 text-xs text-fg-secondary">{t('console.brain.read_only')}</span>
                 </TableCell>
               ) : (
                 <TableCell className="text-right">
@@ -395,14 +395,14 @@ function ResolveTakeDialog({
         </DialogHeader>
         <div className="grid gap-4">
           {claim?.graded_quality ? (
-            <p className="border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <p className="border border-border-subtle bg-layer-03/30 px-3 py-2 text-xs text-fg-secondary">
               {t('console.brain.graded_reference', {
                 quality: claim.graded_quality,
                 confidence: claim.graded_confidence ?? '—'
               })}
             </p>
           ) : null}
-          <label className="grid gap-1.5 text-xs text-muted-foreground">
+          <label className="grid gap-1.5 text-xs text-fg-secondary">
             {t('console.brain.resolve_quality')}
             <Select
               value={quality}
@@ -424,7 +424,7 @@ function ResolveTakeDialog({
             </Select>
           </label>
           {outcomeRequired ? (
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
+            <label className="grid gap-1.5 text-xs text-fg-secondary">
               {t('console.brain.resolve_outcome')}
               <Select value={outcome ? 'true' : 'false'} onValueChange={value => value && setOutcome(value === 'true')}>
                 <SelectTrigger aria-label={t('console.brain.resolve_outcome')} className="w-full">
@@ -439,7 +439,7 @@ function ResolveTakeDialog({
               </Select>
             </label>
           ) : null}
-          <label className="grid gap-1.5 text-xs text-muted-foreground">
+          <label className="grid gap-1.5 text-xs text-fg-secondary">
             {t('console.brain.resolve_provenance')}
             <Input value={provenance} onChange={event => setProvenance(event.target.value)} />
           </label>

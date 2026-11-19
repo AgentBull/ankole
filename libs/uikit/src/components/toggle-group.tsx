@@ -1,8 +1,7 @@
 'use client'
 
+import { Toggle as TogglePrimitive, ToggleGroup as ToggleGroupPrimitive } from '@ui-sdk/react/toggle'
 import * as React from 'react'
-import { Toggle as TogglePrimitive } from '@base-ui/react/toggle'
-import { ToggleGroup as ToggleGroupPrimitive } from '@base-ui/react/toggle-group'
 import { type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@ankole/uikit/lib/utils'
@@ -28,21 +27,22 @@ function ToggleGroup({
   orientation = 'horizontal',
   children,
   ...props
-}: ToggleGroupPrimitive.Props &
+}: Omit<React.ComponentProps<typeof ToggleGroupPrimitive>, 'children'> &
   VariantProps<typeof toggleVariants> & {
+    children?: React.ReactNode
     spacing?: number
     orientation?: 'horizontal' | 'vertical'
   }) {
   return (
     <ToggleGroupPrimitive
-      data-slot="toggle-group"
+      orientation={orientation}
       data-variant={variant}
       data-size={size}
       data-spacing={spacing}
-      data-orientation={orientation}
       style={{ '--gap': spacing } as React.CSSProperties}
       className={cn(
-        'group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] data-[spacing=0]:data-[variant=outline]:rounded-none data-vertical:flex-col data-vertical:items-stretch',
+        // With no spacing, the group is a segmented choice: a slot that holds the chosen object.
+        'group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] data-[spacing=0]:gap-0.5 data-[spacing=0]:rounded-control data-[spacing=0]:border data-[spacing=0]:border-field-border data-[spacing=0]:bg-field data-[spacing=0]:p-0.5 data-[orientation=vertical]:flex-col data-[orientation=vertical]:items-stretch',
         className
       )}
       {...props}>
@@ -59,17 +59,16 @@ function ToggleGroupItem({
   variant = 'default',
   size = 'default',
   ...props
-}: TogglePrimitive.Props & VariantProps<typeof toggleVariants>) {
+}: React.ComponentProps<typeof TogglePrimitive> & VariantProps<typeof toggleVariants>) {
   const context = React.useContext(ToggleGroupContext)
 
   return (
     <TogglePrimitive
-      data-slot="toggle-group-item"
       data-variant={context.variant || variant}
       data-size={context.size || size}
       data-spacing={context.spacing}
       className={cn(
-        'shrink-0 group-data-[spacing=0]/toggle-group:rounded-none group-data-[spacing=0]/toggle-group:px-6 group-data-[spacing=0]/toggle-group:shadow-none focus:z-10 focus-visible:z-10 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-end]:pr-4 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-start]:pl-4 group-data-horizontal/toggle-group:data-[spacing=0]:first:rounded-none group-data-vertical/toggle-group:data-[spacing=0]:first:rounded-none group-data-horizontal/toggle-group:data-[spacing=0]:last:rounded-none group-data-vertical/toggle-group:data-[spacing=0]:last:rounded-none data-[state=on]:bg-muted data-[state=on]:text-foreground group-data-horizontal/toggle-group:data-[spacing=0]:data-[variant=outline]:border-l-0 group-data-vertical/toggle-group:data-[spacing=0]:data-[variant=outline]:border-t-0 group-data-horizontal/toggle-group:data-[spacing=0]:data-[variant=outline]:first:border-l group-data-vertical/toggle-group:data-[spacing=0]:data-[variant=outline]:first:border-t',
+        'shrink-0 focus:z-10 focus-visible:z-10 group-data-[spacing=0]/toggle-group:h-6.5 group-data-[spacing=0]/toggle-group:rounded-micro group-data-[spacing=0]/toggle-group:px-2.5 group-data-[spacing=0]/toggle-group:hover:bg-field-hover group-data-[spacing=0]/toggle-group:focus-visible:-outline-offset-2 group-data-[spacing=0]/toggle-group:data-[size=sm]:h-5.5 group-data-[spacing=0]/toggle-group:data-[size=sm]:px-2 group-data-[spacing=0]/toggle-group:aria-pressed:border-(--choice) group-data-[spacing=0]/toggle-group:aria-pressed:bg-control group-data-[spacing=0]/toggle-group:aria-pressed:shadow-control',
         toggleVariants({
           variant: context.variant || variant,
           size: context.size || size

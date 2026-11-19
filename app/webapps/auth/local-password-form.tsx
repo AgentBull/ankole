@@ -3,6 +3,7 @@ import { RiLoaderLine } from '@remixicon/react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation } from '@tanstack/react-query'
 import { useId, useState, type FormEvent } from 'react'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { ErrorBlock } from '../common/error-block'
 import { internalAPIPost } from '../common/internal-api-client'
@@ -99,7 +100,7 @@ export function LocalPasswordForm({ model }: { model: InstanceType<typeof LoginM
   )
 }
 
-function formErrorText(error: LoginFormError, t: (key: string, values?: Record<string, unknown>) => string): string {
+function formErrorText(error: LoginFormError, t: TFunction): string {
   switch (error.kind) {
     case 'invalid_credentials':
       return t('auth.invalid_credentials')

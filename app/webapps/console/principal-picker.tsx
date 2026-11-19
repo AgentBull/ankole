@@ -61,14 +61,14 @@ export function SinglePrincipalPicker({
     <Combobox<PrincipalCandidate>
       items={visible}
       value={selected}
-      inputValue={inputValue}
+      query={inputValue}
       // `visible` already matches label AND uid; the built-in filter would
       // re-filter by label only and hide uid matches.
-      filter={null}
-      itemToStringLabel={candidate => candidate.label ?? candidate.id}
-      itemToStringValue={candidate => candidate.id}
+      filter={false}
+      itemToLabel={candidate => candidate.label ?? candidate.id}
+      itemToValue={candidate => candidate.id}
       isItemEqualToValue={(candidate, current) => candidate.id === current.id}
-      onInputValueChange={setInputValue}
+      onQueryChange={setInputValue}
       onValueChange={candidate => onChange(candidate?.id ?? '')}>
       {/* The selection renders as the placeholder while the input value stays
           the filter text, so `required` must lift once a selection exists —
@@ -101,7 +101,7 @@ export function SinglePrincipalPicker({
                   {/* The id line earns its row only when it adds information;
                       a label equal to the id would repeat itself. */}
                   {candidate.label != null && candidate.label !== candidate.id ? (
-                    <span className="truncate font-mono text-xs text-muted-foreground">{candidate.id}</span>
+                    <span className="truncate font-mono text-xs text-fg-secondary">{candidate.id}</span>
                   ) : null}
                 </span>
               </ComboboxItem>

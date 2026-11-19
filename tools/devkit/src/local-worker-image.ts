@@ -16,6 +16,7 @@ const workerBaseImageLock = path.join(repoRootPath, 'app', 'agent_computer', 'ba
 
 const sharedInputRoots = [
   '.dockerignore',
+  'LICENSE',
   'app/agent_computer/Dockerfile',
   'app/agent_computer/base-image.lock',
   'app/agent_computer/matplotlibrc',

@@ -2567,12 +2567,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert stateful_context.message.status == "generating"
   end
 
-  test "websocket stateful requests reject wires that cannot replay Responses history" do
+  test "websocket stateful requests allow Claude providers" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
-               provider_id: "claude-stateful-gate",
+               provider_id: "claude-stateful-allowed",
                provider_kind: "claude",
                credential_pool: %{
                  "entries" => [%{"label" => "Default", "api_key" => "sk-claude"}]
@@ -2581,25 +2581,18 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "claude-stateful-gate",
+               provider_id: "claude-stateful-allowed",
                model: "claude-opus-4-6"
              })
 
-    assert {:error, {:stateful_wire_unsupported, "claude", :anthropic_messages}} =
+    assert {:ok, _request, stateful_context} =
              StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => "hello",
                "store" => true
              })
 
-    # The same selector stays usable for stateless requests.
-    assert {:ok, _request, nil} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
-               "model" => "primary",
-               "input" => "hello"
-             })
-
-    refute_receive {:gateway_request, _request}
+    assert stateful_context.message.status == "generating"
   end
 
   test "websocket stateful previous_response_id expands history without provider state fields" do

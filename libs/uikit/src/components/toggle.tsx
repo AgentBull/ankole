@@ -1,22 +1,28 @@
 'use client'
 
-import { Toggle as TogglePrimitive } from '@base-ui/react/toggle'
+import { Toggle as TogglePrimitive } from '@ui-sdk/react/toggle'
 import { cva, type VariantProps } from 'class-variance-authority'
+import type { ComponentProps } from 'react'
 
 import { cn } from '@ankole/uikit/lib/utils'
 
 const toggleVariants = cva(
-  "group/toggle inline-flex items-center justify-center gap-1.5 rounded-none text-xs font-semibold tracking-widest whitespace-nowrap uppercase transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 aria-pressed:bg-muted dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+  "group/toggle inline-flex items-center justify-center gap-1.5 rounded-control border border-transparent text-65 font-medium whitespace-nowrap text-fg-secondary transition-colors hover:bg-layer-hover hover:text-fg-primary focus-visible:outline-offset-1 disabled:pointer-events-none disabled:text-fg-disabled aria-invalid:border-destructive aria-pressed:bg-field aria-pressed:text-fg-primary [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default: 'bg-transparent',
-        outline: 'border border-input bg-transparent hover:bg-muted'
+        outline:
+          'border-control-edge bg-control hover:bg-control-hover aria-pressed:bg-field disabled:border-border-subtle disabled:bg-field'
       },
       size: {
-        default: 'h-10 min-w-10 px-6 has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4',
-        sm: 'h-9 min-w-9 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3',
-        lg: 'h-11 min-w-11 px-8 has-data-[icon=inline-end]:pr-5 has-data-[icon=inline-start]:pl-5'
+        default:
+          'h-control-md min-w-control-md px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
+        sm: 'h-control-sm min-w-control-sm px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+        // A shell toolbar's 32px toggle, like the `icon-lg` button: its fills tint a 24px box around the 20px icon,
+        // 4px inside the toggle's edge, and keep the control radius there.
+        'icon-lg':
+          "size-control-md min-w-control-md rounded-[calc(var(--radius-control)+var(--spacing))] bg-clip-content p-0.75 [&_svg:not([class*='size-'])]:size-5"
       }
     },
     defaultVariants: {
@@ -31,7 +37,7 @@ function Toggle({
   variant = 'default',
   size = 'default',
   ...props
-}: TogglePrimitive.Props & VariantProps<typeof toggleVariants>) {
+}: ComponentProps<typeof TogglePrimitive> & VariantProps<typeof toggleVariants>) {
   return <TogglePrimitive data-slot="toggle" className={cn(toggleVariants({ variant, size, className }))} {...props} />
 }
 

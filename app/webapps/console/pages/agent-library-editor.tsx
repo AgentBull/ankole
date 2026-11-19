@@ -100,22 +100,22 @@ export function AgentLibraryEditor({
     <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
       <div className="grid gap-1">
         <h3 className="break-words text-lg font-semibold tracking-normal">{t('console.agent_library.title')}</h3>
-        <p className="text-sm leading-6 text-muted-foreground">{t('console.agent_library.description')}</p>
-        <p className="text-xs leading-5 text-muted-foreground">{t('console.agent_library.effect_hint')}</p>
+        <p className="text-sm leading-6 text-fg-secondary">{t('console.agent_library.description')}</p>
+        <p className="text-xs leading-5 text-fg-secondary">{t('console.agent_library.effect_hint')}</p>
       </div>
 
       <ErrorBlock error={documents.error} />
       {draftStatus === 'loading' && !documents.error ? (
-        <div className="grid gap-4 border border-border bg-card p-4 md:p-5" aria-busy="true">
+        <div className="grid gap-4 border border-border-subtle bg-page p-4 md:p-5" aria-busy="true">
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-80 w-full" />
         </div>
       ) : draftStatus === 'ready' ? (
         <Tabs
-          className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 border border-border bg-card p-4 md:p-5"
+          className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 border border-border-subtle bg-page p-4 md:p-5"
           value={activeKind}
           onValueChange={value => {
-            if (isDocumentKind(value)) setActiveKind(value)
+            if (value !== null && isDocumentKind(value)) setActiveKind(value)
           }}>
           <TabsList className="w-full min-w-0 justify-start overflow-x-auto">
             {AGENT_LIBRARY_DOCUMENT_KINDS.map(kind => (
@@ -130,7 +130,7 @@ export function AgentLibraryEditor({
             return (
               <TabsContent key={kind} value={kind} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 pt-1">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-mono text-xs text-muted-foreground">{AGENT_LIBRARY_DOCUMENT_FILES[kind]}</span>
+                  <span className="font-mono text-xs text-fg-secondary">{AGENT_LIBRARY_DOCUMENT_FILES[kind]}</span>
                   {!state.editing.value ? (
                     <Button size="xs" type="button" variant="outline" onClick={() => model.beginEdit(kind)}>
                       <RiEditLine data-icon="inline-start" />
@@ -174,11 +174,11 @@ export function AgentLibraryEditor({
                     </div>
                   </>
                 ) : state.sourceContent.value ? (
-                  <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words border border-border bg-background p-4 font-mono text-xs leading-6">
+                  <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-page p-4 font-mono text-xs leading-6">
                     {state.sourceContent.value}
                   </pre>
                 ) : (
-                  <div className="border border-dashed border-border p-6 text-sm text-muted-foreground">
+                  <div className="border border-dashed border-border-subtle p-6 text-sm text-fg-secondary">
                     {t('console.agent_library.empty')}
                   </div>
                 )}

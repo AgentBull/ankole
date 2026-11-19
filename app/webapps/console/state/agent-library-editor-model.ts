@@ -135,7 +135,7 @@ export const AgentLibraryEditorModel = createModel(() => {
 
       return { hasUnsavedChanges }
     },
-    setError(kind: AgentLibraryDocumentKind, error: string, conflict = false) {
+    setError(kind: AgentLibraryDocumentKind, error: string, conflict: boolean = false) {
       batch(() => {
         documents[kind].error.value = error
         documents[kind].conflict.value = conflict

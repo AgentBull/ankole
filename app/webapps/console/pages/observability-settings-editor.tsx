@@ -51,7 +51,7 @@ export function ObservabilitySettingsEditor({
 
   return (
     <div className="grid gap-7">
-      <p className="border border-warning/50 bg-warning/5 px-4 py-3 text-xs leading-5 text-muted-foreground">
+      <p className="border border-warning/50 bg-warning/5 px-4 py-3 text-xs leading-5 text-fg-secondary">
         {t('console.settings.observability_restart_hint')}
       </p>
 
@@ -61,8 +61,8 @@ export function ObservabilitySettingsEditor({
         description={t('console.settings.observability_enabled_hint')}
         saving={saving}
         onRestore={onRestore}>
-        <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
-          <span className="text-sm text-foreground">
+        <div className="flex min-h-12 items-center justify-between border border-border-subtle bg-layer-03/30 px-4 py-3">
+          <span className="text-sm text-fg-primary">
             {draft.enabled ? t('console.status.enabled') : t('console.status.disabled')}
           </span>
           <Switch
@@ -123,14 +123,14 @@ export function ObservabilitySettingsEditor({
         {headerRows ? (
           <div className="grid gap-3">
             {headerRows.length === 0 ? (
-              <p className="border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground">
+              <p className="border border-dashed border-border-subtle px-4 py-5 text-center text-sm text-fg-secondary">
                 {t('console.settings.observability_headers_empty')}
               </p>
             ) : null}
             {headerRows.map((row, index) => (
               <div
                 key={row.id}
-                className="grid gap-2 border border-border bg-muted/20 p-3 sm:grid-cols-[1fr_1.4fr_auto]">
+                className="grid gap-2 border border-border-subtle bg-layer-03/20 p-3 sm:grid-cols-[1fr_1.4fr_auto]">
                 <Input
                   aria-label={t('console.settings.observability_header_name', { number: index + 1 })}
                   className="font-mono text-xs"
@@ -181,9 +181,9 @@ export function ObservabilitySettingsEditor({
             </Button>
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-2 border border-border bg-muted/20 px-4 py-4">
+          <div className="flex flex-wrap items-center gap-2 border border-border-subtle bg-layer-03/20 px-4 py-4">
             <Badge variant="info">{t('console.status.encrypted')}</Badge>
-            <span className="mr-auto text-xs leading-5 text-muted-foreground">
+            <span className="mr-auto text-xs leading-5 text-fg-secondary">
               {t('console.settings.observability_headers_masked')}
             </span>
             <Button disabled={headerRevealing} size="sm" type="button" variant="outline" onClick={onRevealHeaders}>

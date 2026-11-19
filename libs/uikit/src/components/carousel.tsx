@@ -3,7 +3,7 @@ import useEmblaCarousel, { type UseEmblaCarouselType } from 'embla-carousel-reac
 
 import { cn } from '@ankole/uikit/lib/utils'
 import { Button } from '@ankole/uikit/components/button'
-import { RiArrowLeftSLine, RiArrowRightSLine } from '@remixicon/react'
+import { ChevronLeftRegular, ChevronRightRegular } from '../icons'
 
 type CarouselAPI = UseEmblaCarouselType[1]
 type UseCarouselParameters = Parameters<typeof useEmblaCarousel>
@@ -96,6 +96,7 @@ function Carousel({
     api.on('select', onSelect)
 
     return () => {
+      api?.off('reInit', onSelect)
       api?.off('select', onSelect)
     }
   }, [api, onSelect])
@@ -125,11 +126,21 @@ function Carousel({
   )
 }
 
-function CarouselContent({ className, ...props }: React.ComponentProps<'div'>) {
-  const { carouselRef, orientation } = useCarousel()
+function CarouselContent({ className, fade = true, ...props }: React.ComponentProps<'div'> & { fade?: boolean }) {
+  const { carouselRef, orientation, canScrollPrev, canScrollNext } = useCarousel()
 
   return (
-    <div ref={carouselRef} className="overflow-hidden" data-slot="carousel-content">
+    <div
+      ref={carouselRef}
+      data-slot="carousel-content"
+      data-scroll-manual={fade || undefined}
+      data-scroll-more-start={(fade && canScrollPrev) || undefined}
+      data-scroll-more-end={(fade && canScrollNext) || undefined}
+      className={cn(
+        'overflow-hidden',
+        orientation === 'horizontal' ? 'scroll-bleed-y' : 'scroll-bleed-x',
+        fade && (orientation === 'horizontal' ? 'scroll-fade-x' : 'scroll-fade-y')
+      )}>
       <div className={cn('flex', orientation === 'horizontal' ? '-ml-4' : '-mt-4 flex-col', className)} {...props} />
     </div>
   )
@@ -170,7 +181,7 @@ function CarouselPrevious({
       disabled={!canScrollPrev}
       onClick={scrollPrev}
       {...props}>
-      <RiArrowLeftSLine />
+      <ChevronLeftRegular />
       <span className="sr-only">Previous slide</span>
     </Button>
   )
@@ -197,7 +208,7 @@ function CarouselNext({
       disabled={!canScrollNext}
       onClick={scrollNext}
       {...props}>
-      <RiArrowRightSLine />
+      <ChevronRightRegular />
       <span className="sr-only">Next slide</span>
     </Button>
   )

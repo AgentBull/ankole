@@ -35,6 +35,7 @@ services:
       POSTGRES_USER: ankole
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ankole
+    shm_size: 1g
     volumes:
       - postgresql_data:/var/lib/pgsql/18/data
     healthcheck:

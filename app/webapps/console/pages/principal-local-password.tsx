@@ -49,7 +49,7 @@ export function LocalPasswordSection({ principal }: { principal: PrincipalItem }
     <section className="grid gap-4">
       <div className="grid gap-1">
         <h3 className="text-lg font-semibold tracking-normal">{t('console.principals.local_password_title')}</h3>
-        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+        <p className="max-w-2xl text-sm leading-6 text-fg-secondary">
           {t('console.principals.local_password_description')}
         </p>
       </div>

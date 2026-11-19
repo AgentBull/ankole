@@ -119,16 +119,16 @@ export function ConsoleLayout() {
 
   return (
     <TooltipProvider>
-      <div className="h-screen overflow-y-scroll bg-background text-foreground [scrollbar-gutter:stable]">
+      <div className="h-screen overflow-y-scroll bg-page text-fg-primary [scrollbar-gutter:stable]">
         {/* Reaching the page content by keyboard meant tabbing past the header and
             every navigation link, on every page. The bypass sits first in the
             tab order and shows itself only while focused. */}
         <a
           href="#console-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-primary-foreground">
+          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-primary-fg">
           {t('console.aria.skip_to_content')}
         </a>
-        <header className="sticky top-0 z-30 flex h-12 items-center justify-between border-b border-border bg-background px-3 text-foreground">
+        <header className="sticky top-0 z-30 flex h-12 items-center justify-between border-b border-border-subtle bg-page px-3 text-fg-primary">
           <div className="flex min-w-0 items-center gap-3">
             <Sheet
               open={navigationOpen}
@@ -146,23 +146,23 @@ export function ConsoleLayout() {
                     variant="ghost"
                   />
                 }
-                className="hover:bg-accent hover:text-accent-foreground lg:hidden">
+                className="hover:bg-layer-hover hover:text-fg-primary lg:hidden">
                 <RiMenuLine />
               </SheetTrigger>
               <SheetContent
                 side="left"
                 showCloseButton={false}
-                className="w-[min(320px,88vw)] border-border bg-background p-0 text-foreground">
-                <SheetHeader className="flex-row items-center justify-between border-b border-border p-3">
+                className="w-[min(320px,88vw)] border-border-subtle bg-page p-0 text-fg-primary">
+                <SheetHeader className="flex-row items-center justify-between border-b border-border-subtle p-3">
                   <div className="grid min-w-0 gap-0.5">
-                    <SheetTitle className="truncate text-base text-foreground">{t('console.title')}</SheetTitle>
-                    <SheetDescription className="truncate text-muted-foreground">
+                    <SheetTitle className="truncate text-base text-fg-primary">{t('console.title')}</SheetTitle>
+                    <SheetDescription className="truncate text-fg-secondary">
                       {t('console.control_plane')}
                     </SheetDescription>
                   </div>
                   <SheetClose
                     render={<Button aria-label={t('common.close')} size="icon-sm" type="button" variant="ghost" />}
-                    className="hover:bg-accent hover:text-accent-foreground">
+                    className="hover:bg-layer-hover hover:text-fg-primary">
                     <RiCloseLine />
                   </SheetClose>
                 </SheetHeader>
@@ -174,15 +174,13 @@ export function ConsoleLayout() {
                 a link into settings rather than as the product. */}
             <Link to="/" className="flex min-w-0 items-center gap-3 hover:text-link">
               <span
-                className="grid size-8 shrink-0 place-items-center bg-primary text-sm font-semibold text-primary-foreground"
+                className="grid size-8 shrink-0 place-items-center bg-primary text-sm font-semibold text-primary-fg"
                 aria-hidden>
                 A
               </span>
               <span className="min-w-0">
                 <h1 className="truncate text-sm font-semibold tracking-normal">{t('console.title')}</h1>
-                <span className="hidden truncate text-xs text-muted-foreground sm:block">
-                  {t('console.control_plane')}
-                </span>
+                <span className="hidden truncate text-xs text-fg-secondary sm:block">{t('console.control_plane')}</span>
               </span>
             </Link>
           </div>
@@ -200,7 +198,7 @@ export function ConsoleLayout() {
                     variant="ghost"
                   />
                 }
-                className="hover:bg-accent hover:text-accent-foreground"
+                className="hover:bg-layer-hover hover:text-fg-primary"
                 onClick={() => logout.mutate()}>
                 <RiLogoutBoxRLine />
               </TooltipTrigger>
@@ -210,7 +208,7 @@ export function ConsoleLayout() {
         </header>
 
         <div className="grid grid-cols-1 min-h-[calc(100vh-3rem)] lg:grid-cols-[256px_minmax(0,1fr)]">
-          <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] flex-col border-r border-border bg-background lg:flex">
+          <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] flex-col border-r border-border-subtle bg-page lg:flex">
             <ConsoleNavigation />
           </aside>
 
@@ -234,7 +232,7 @@ function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
         {NAV_SECTIONS.map((section, index) => (
           <div key={section.label ?? 'home'} className={cn('grid content-start gap-0.5', index > 0 && 'mt-5')}>
             {section.label ? (
-              <h2 className="px-3 pb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              <h2 className="px-3 pb-1 text-xs font-semibold tracking-wide text-fg-secondary uppercase">
                 {t(section.label)}
               </h2>
             ) : null}
@@ -251,10 +249,10 @@ function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
                     cn(
                       'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                       isPending
-                        ? 'border-primary/60 bg-accent text-accent-foreground'
+                        ? 'border-primary/60 bg-layer-hover text-fg-primary'
                         : isActive || matchesArea
-                          ? 'border-primary bg-accent text-accent-foreground'
-                          : 'border-transparent text-muted-foreground fine-hover:hover:bg-accent fine-hover:hover:text-accent-foreground'
+                          ? 'border-primary bg-layer-hover text-fg-primary'
+                          : 'border-transparent text-fg-secondary fine-hover:hover:bg-layer-hover fine-hover:hover:text-fg-primary'
                     )
                   }>
                   <Icon className="size-4 shrink-0" aria-hidden />
@@ -265,7 +263,7 @@ function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         ))}
       </nav>
-      <footer className="border-t border-border px-6 py-3 text-xs text-muted-foreground">
+      <footer className="border-t border-border-subtle px-6 py-3 text-xs text-fg-secondary">
         <span className="block truncate" title={version}>
           Ankole {version}
         </span>

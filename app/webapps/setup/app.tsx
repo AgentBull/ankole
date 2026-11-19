@@ -141,7 +141,7 @@ export function SetupApp() {
   return (
     <SetupLayout>
       <section className="grid flex-1 grid-cols-1 gap-6 py-8 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <nav className="h-fit border border-border bg-background/95 p-3 backdrop-blur" aria-label={t('setup.steps')}>
+        <nav className="h-fit border border-border-subtle bg-page/95 p-3 backdrop-blur" aria-label={t('setup.steps')}>
           <ol className="flex flex-row gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
             {steps.map((item, index) => {
               const itemState = setupStepState(item.id, currentStep, authenticated, completedSteps)
@@ -156,14 +156,14 @@ export function SetupApp() {
                     onClick={() => item.id !== 'bootstrap' && setStep(item.id)}
                     className={`flex min-h-12 w-full items-center gap-3 border px-3 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-default ${
                       itemState === 'current'
-                        ? 'border-primary bg-primary/10 text-foreground'
+                        ? 'border-primary bg-primary/10 text-fg-primary'
                         : itemState === 'completed' || itemState === 'available'
-                          ? 'border-transparent text-foreground'
-                          : 'border-transparent text-muted-foreground opacity-55'
+                          ? 'border-transparent text-fg-primary'
+                          : 'border-transparent text-fg-secondary opacity-55'
                     }`}>
                     <span
                       className={`grid size-7 shrink-0 place-items-center border font-mono text-xs ${
-                        itemState === 'current' ? 'border-primary bg-primary text-primary-foreground' : 'border-border'
+                        itemState === 'current' ? 'border-primary bg-primary text-primary-fg' : 'border-border-subtle'
                       }`}>
                       {itemState === 'completed' ? (
                         <RiCheckLine aria-hidden />
@@ -175,9 +175,7 @@ export function SetupApp() {
                     </span>
                     <span className="grid min-w-0 gap-0.5">
                       <span className="truncate font-medium">{item.label}</span>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {t(`setup.step_state_${itemState}`)}
-                      </span>
+                      <span className="truncate text-xs text-fg-secondary">{t(`setup.step_state_${itemState}`)}</span>
                     </span>
                   </button>
                 </li>
@@ -248,7 +246,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
 
   return (
     <SetupPanel title={t('setup.bootstrap_title')}>
-      <p className="text-sm leading-6 text-muted-foreground">{t('setup.activation_hint')}</p>
+      <p className="text-sm leading-6 text-fg-secondary">{t('setup.activation_hint')}</p>
       <ErrorBlock error={mutation.error ?? printActivationCode.error} />
       <Form className="grid gap-6" of={form} onSubmit={output => mutation.mutate(output)}>
         <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -306,7 +304,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
           </FormField>
         </FieldGroup>
 
-        <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
+        <div className="flex flex-wrap items-center gap-3 border-t border-border-subtle/70 pt-5">
           <Button aria-busy={mutation.isPending} disabled={mutation.isPending} type="submit">
             {t('common.continue')}
             {mutation.isPending ? (
@@ -350,14 +348,16 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
 
   return (
     <SetupPanel title={t('setup.choose_plugins')}>
-      <p className="text-sm leading-6 text-muted-foreground">{t('setup.plugin_restart_note')}</p>
+      <p className="text-sm leading-6 text-fg-secondary">{t('setup.plugin_restart_note')}</p>
       <ErrorBlock error={query.error ?? mutation.error} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         {(query.data?.plugins ?? []).map(plugin => {
           const checked = selectedIDs.has(plugin.id)
 
           return (
-            <label key={plugin.id} className="flex items-start gap-3 border border-border/70 bg-card/60 px-4 py-4">
+            <label
+              key={plugin.id}
+              className="flex items-start gap-3 border border-border-subtle/70 bg-page/60 px-4 py-4">
               <Checkbox
                 checked={checked}
                 onCheckedChange={value => model.setPluginSelected(plugin.id, value === true)}
@@ -367,7 +367,7 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
                   {localizedText(plugin.displayName, i18next.language) ?? plugin.id}
                 </span>
                 {plugin.description ? (
-                  <span className="whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+                  <span className="whitespace-pre-wrap break-words text-xs leading-5 text-fg-secondary">
                     {localizedText(plugin.description, i18next.language)}
                   </span>
                 ) : null}
@@ -376,7 +376,7 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
           )
         })}
       </div>
-      <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
+      <div className="flex flex-wrap items-center gap-3 border-t border-border-subtle/70 pt-5">
         <Button disabled={!query.data || mutation.isPending} onClick={() => mutation.mutate()} type="button">
           {t('setup.save_plugins')}
           <RiArrowRightSLine data-icon="inline-end" />
@@ -457,9 +457,9 @@ function IdentityMethodStep({
 
   return (
     <SetupPanel title={t('setup.identity_provider')}>
-      <p className="text-sm leading-6 text-muted-foreground">{t('setup.identity_intro')}</p>
+      <p className="text-sm leading-6 text-fg-secondary">{t('setup.identity_intro')}</p>
       <section className="grid gap-4">
-        <h2 className="text-sm font-semibold uppercase tracking-normal text-muted-foreground">
+        <h2 className="text-sm font-semibold uppercase tracking-normal text-fg-secondary">
           {t('setup.sign_in_method')}
         </h2>
         <RadioGroup
@@ -476,12 +476,12 @@ function IdentityMethodStep({
               <label
                 key={adapter.adapterID}
                 className={`flex cursor-pointer items-start gap-3 border px-4 py-4 transition-colors ${
-                  selected ? 'border-primary bg-primary/10' : 'border-border/70 bg-card/60'
+                  selected ? 'border-primary bg-primary/10' : 'border-border-subtle/70 bg-page/60'
                 }`}>
                 <RadioGroupItem className="mt-0.5" value={adapter.adapterID} />
                 <span className="grid min-w-0 flex-1 gap-1">
                   <span className="break-words text-sm font-semibold leading-5">{label}</span>
-                  <span className="break-words text-xs leading-5 text-muted-foreground">
+                  <span className="break-words text-xs leading-5 text-fg-secondary">
                     {adapter.adapterID === 'local'
                       ? t('setup.method_local_hint')
                       : t('setup.method_sso_hint', { provider: label })}
@@ -571,7 +571,7 @@ function SSOIdentityForm({
           <Field>
             <FieldLabel htmlFor={providerIDControlID}>
               {t('setup.provider_id')}
-              <span className="ml-1 font-normal text-muted-foreground">{t('common.required')}</span>
+              <span className="ml-1 font-normal text-fg-secondary">{t('common.required')}</span>
             </FieldLabel>
             <Input
               id={providerIDControlID}
@@ -596,7 +596,7 @@ function SSOIdentityForm({
 
         <Field aria-labelledby="oidc-callback-url-label" aria-describedby="oidc-callback-url-hint">
           <FieldTitle id="oidc-callback-url-label">{t('setup.oidc_callback_url')}</FieldTitle>
-          <div className="flex min-w-0 flex-col gap-3 border border-border/70 bg-muted/30 p-3 sm:flex-row sm:items-center">
+          <div className="flex min-w-0 flex-col gap-3 border border-border-subtle/70 bg-layer-03/30 p-3 sm:flex-row sm:items-center">
             <code className="min-w-0 flex-1 break-all font-mono text-sm leading-6">
               {oidcCallbackURL(publicBaseURL, model.providerID.value)}
             </code>
@@ -625,7 +625,7 @@ function SSOIdentityForm({
         </Field>
 
         <section className="grid gap-5">
-          <h2 className="text-sm font-semibold uppercase tracking-normal text-muted-foreground">
+          <h2 className="text-sm font-semibold uppercase tracking-normal text-fg-secondary">
             {t('setup.adapter_config')}
           </h2>
           <ConfigFields
@@ -641,7 +641,7 @@ function SSOIdentityForm({
           />
         </section>
 
-        <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
+        <div className="flex flex-wrap items-center gap-3 border-t border-border-subtle/70 pt-5">
           <Button aria-busy={mutation.isPending} disabled={mutation.isPending} type="submit">
             {mutation.isPending ? t('setup.validating_and_redirecting') : t('setup.complete_identity')}
             {mutation.isPending ? (
@@ -662,7 +662,7 @@ function NoAdapters({ error }: { error: unknown }) {
 
   return (
     <SetupPanel title={t('setup.identity_provider')}>
-      <p className="text-sm leading-6 text-muted-foreground">{t('setup.no_adapters')}</p>
+      <p className="text-sm leading-6 text-fg-secondary">{t('setup.no_adapters')}</p>
       <ErrorBlock error={error} />
     </SetupPanel>
   )

@@ -69,6 +69,7 @@ defmodule Ankole.AIGateway.Compaction do
   # history back — which calls repeated work, where the tokens went, what a
   # thread forgot — and that reading stops at the first opaque capsule.
   @default_upstream false
+  @provider_history_trigger_share 0.75
   @default_config %{
     "threshold" => @default_threshold_percent,
     "max_threshold_tokens" => @default_max_threshold_tokens,
@@ -107,7 +108,7 @@ defmodule Ankole.AIGateway.Compaction do
       :native_state,
       :upstream_compaction?
     ]
-    defstruct @enforce_keys
+    defstruct @enforce_keys ++ [required?: true]
   end
 
   defmodule ManualContext do
@@ -237,12 +238,29 @@ defmodule Ankole.AIGateway.Compaction do
           |> plan_local_compact_history()
           |> preserve_visible_anchor(visible_previous_response_id)
 
-        total_tokens <= threshold.tokens ->
-          {:ok, unchanged(history, request)}
+        total_tokens > threshold.tokens ->
+          plan_compact_history(context)
+
+        provider_history_checkpoint_due?(history) ->
+          plan_provider_history_checkpoint(context)
 
         true ->
-          plan_compact_history(context)
+          {:ok, unchanged(history, request)}
       end
+    end
+  end
+
+  defp provider_history_checkpoint_due?(history) do
+    history
+    |> messages_to_items()
+    |> Ankole.AIGateway.ToolSearch.StreamLoop.provider_history_usage()
+    |> Kernel.>=(@provider_history_trigger_share)
+  end
+
+  defp plan_provider_history_checkpoint(%PlanContext{} = context) do
+    case plan_compact_history(%{context | required?: false}) do
+      {:ok, plan} -> {:ok, plan}
+      {:error, _reason} -> {:ok, unchanged(context.history, context.request)}
     end
   end
 
@@ -628,15 +646,16 @@ defmodule Ankole.AIGateway.Compaction do
              )
          },
          run_metadata: %{
-           "auto_compaction" => %{
-             "history_usage_tokens_before" => total_tokens,
-             "token_threshold" => threshold.tokens,
-             "context_length" => threshold.context_length,
-             "threshold" => threshold.threshold,
-             "max_threshold_tokens" => threshold.max_threshold_tokens,
-             "summarizer_model" => summary.model,
-             "usage" => summary.usage
-           }
+           "auto_compaction" =>
+             put_trigger(context, %{
+               "history_usage_tokens_before" => total_tokens,
+               "token_threshold" => threshold.tokens,
+               "context_length" => threshold.context_length,
+               "threshold" => threshold.threshold,
+               "max_threshold_tokens" => threshold.max_threshold_tokens,
+               "summarizer_model" => summary.model,
+               "usage" => summary.usage
+             })
          }
        }}
     else
@@ -675,15 +694,16 @@ defmodule Ankole.AIGateway.Compaction do
            )
        },
        run_metadata: %{
-         "auto_compaction" => %{
-           "source" => "upstream",
-           "history_usage_tokens_before" => total_tokens,
-           "token_threshold" => threshold.tokens,
-           "context_length" => threshold.context_length,
-           "threshold" => threshold.threshold,
-           "max_threshold_tokens" => threshold.max_threshold_tokens,
-           "usage" => upstream.usage
-         }
+         "auto_compaction" =>
+           put_trigger(context, %{
+             "source" => "upstream",
+             "history_usage_tokens_before" => total_tokens,
+             "token_threshold" => threshold.tokens,
+             "context_length" => threshold.context_length,
+             "threshold" => threshold.threshold,
+             "max_threshold_tokens" => threshold.max_threshold_tokens,
+             "usage" => upstream.usage
+           })
        }
      }}
   end
@@ -1167,6 +1187,13 @@ defmodule Ankole.AIGateway.Compaction do
       run_metadata: %{}
     }
   end
+
+  defp put_trigger(%PlanContext{required?: false}, metadata),
+    do: Map.put(metadata, "trigger", "provider_history")
+
+  defp put_trigger(%PlanContext{}, metadata), do: metadata
+
+  defp overflow_fallback(%PlanContext{required?: false}, reason), do: {:error, reason}
 
   defp overflow_fallback(%PlanContext{} = context, reason) do
     if auto_truncation?(context.request) do

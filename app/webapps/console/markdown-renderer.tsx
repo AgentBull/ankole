@@ -45,9 +45,9 @@ const COMPONENTS: Components = {
   ol: ({ children }) => <ol className="my-2 list-decimal pl-5">{children}</ol>,
   li: ({ children }) => <li className="my-1">{children}</li>,
   blockquote: ({ children }) => (
-    <blockquote className="my-2 border-l-2 border-border pl-3 text-muted-foreground">{children}</blockquote>
+    <blockquote className="my-2 border-l-2 border-border-subtle pl-3 text-fg-secondary">{children}</blockquote>
   ),
-  hr: () => <hr className="my-4 border-border" />,
+  hr: () => <hr className="my-4 border-border-subtle" />,
   h1: ({ children }) => <h1 className="mt-4 mb-2 text-base font-semibold first:mt-0">{children}</h1>,
   h2: ({ children }) => <h2 className="mt-4 mb-2 text-base font-semibold first:mt-0">{children}</h2>,
   h3: ({ children }) => <h3 className="mt-3 mb-1.5 text-sm font-semibold first:mt-0">{children}</h3>,
@@ -55,19 +55,19 @@ const COMPONENTS: Components = {
   h5: ({ children }) => <h5 className="mt-3 mb-1.5 text-sm font-semibold first:mt-0">{children}</h5>,
   h6: ({ children }) => <h6 className="mt-3 mb-1.5 text-sm font-semibold first:mt-0">{children}</h6>,
   code: ({ children, className }) => (
-    <code className={cn('bg-muted px-1 py-0.5 font-mono text-[0.8125em]', className)}>{children}</code>
+    <code className={cn('bg-layer-03 px-1 py-0.5 font-mono text-[0.8125em]', className)}>{children}</code>
   ),
   pre: ({ children }) => (
-    <pre className="my-2 max-h-96 overflow-auto border border-border bg-card p-3 font-mono text-xs leading-5 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-xs">
+    <pre className="my-2 max-h-96 overflow-auto border border-border-subtle bg-page p-3 font-mono text-xs leading-5 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-xs">
       {children}
     </pre>
   ),
   table: ({ children }) => (
-    <div className="my-3 overflow-x-auto border border-border">
+    <div className="my-3 overflow-x-auto border border-border-subtle">
       <table className="w-full border-collapse text-sm">{children}</table>
     </div>
   ),
-  thead: ({ children }) => <thead className="bg-card">{children}</thead>,
+  thead: ({ children }) => <thead className="bg-page">{children}</thead>,
   th: ({ children }) => <th className="px-3 py-2 text-left font-semibold">{children}</th>,
-  td: ({ children }) => <td className="border-t border-border px-3 py-2 align-top">{children}</td>
+  td: ({ children }) => <td className="border-t border-border-subtle px-3 py-2 align-top">{children}</td>
 }

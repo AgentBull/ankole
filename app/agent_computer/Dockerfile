@@ -9,6 +9,7 @@ WORKDIR /repo
 ENV CARGO_NET_RETRY=5
 ENV CARGO_HTTP_TIMEOUT=120
 
+COPY LICENSE ./LICENSE
 COPY package.json bun.lock ./
 COPY app/kernel/package.json app/kernel/Cargo.toml app/kernel/Cargo.lock ./app/kernel/
 COPY app/agent_computer/package.json ./app/agent_computer/package.json
@@ -54,7 +55,6 @@ FROM ${BASE_IMAGE}
 
 ARG LARK_CLI_VERSION=v1.0.93
 ARG TARGETARCH
-ARG ANKOLE_RELEASE_REVISION=development
 
 WORKDIR /repo
 
@@ -155,6 +155,9 @@ RUN set -eux; \
 WORKDIR /repo/app/agent_computer
 
 ENV NODE_ENV=production
+# Each release sets this argument. Every RUN after an ARG sees it, so declaring
+# it above the package and tool layers would rebuild them on every release.
+ARG ANKOLE_RELEASE_REVISION=development
 ENV ANKOLE_RELEASE_REVISION=${ANKOLE_RELEASE_REVISION}
 ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
 ENV LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1

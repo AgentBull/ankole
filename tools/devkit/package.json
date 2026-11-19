@@ -8,28 +8,28 @@
   "sideEffects": false,
   "scripts": {
     "bin": "bun run src/main.ts",
-    "type-check": "tsc -p tsconfig.json --noEmit",
+    "type-check": "bun check -p tsconfig.json --noEmit",
     "test": "bun test",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
   },
   "dependencies": {
     "@agentbull/active-support": "^1.6.0",
-    "@angular-devkit/core": "^22.2.0",
-    "@angular-devkit/schematics": "^22.2.0",
-    "@angular-devkit/schematics-cli": "^22.2.0",
+    "@angular-devkit/core": "^22.2.7",
+    "@angular-devkit/schematics": "^22.2.7",
+    "@angular-devkit/schematics-cli": "^22.2.7",
     "@crustjs/core": "^0.5.0",
     "@crustjs/extensions": "^0.5.0",
     "@crustjs/style": "0.3.4",
     "@crustjs/utils": "0.2.0",
     "chalk": "^6.0.1",
     "jsonc": "^3.0.0",
-    "pino-pretty": "^13.1.3"
+    "pino-pretty": "^13.2.0"
   },
   "devDependencies": {
-    "knip": "^6.38.0",
+    "knip": "^6.45.1",
     "konsistent": "1.0.0-beta.9",
-    "typescript": "6.0.3"
+    "typescript": "7.0.2"
   },
   "schematics": "./src/schematics/collection.json"
 }

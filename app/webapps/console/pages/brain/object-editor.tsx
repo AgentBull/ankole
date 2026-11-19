@@ -17,6 +17,7 @@ import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -50,7 +51,7 @@ const MARKDOC_ERROR_CODES = new Set([
   'misplaced_audience_tag'
 ])
 
-type Translate = (key: string, values?: Record<string, unknown>) => string
+type Translate = TFunction
 
 export function BrainObjectEditorPage() {
   useSignals()
@@ -270,14 +271,14 @@ export function BrainObjectEditorPage() {
         <section className="grid min-w-0 content-start gap-3" aria-label={t('console.brain.preview')}>
           <div className="grid gap-1">
             <h3 className="text-sm font-medium">{t('console.brain.preview')}</h3>
-            <p className="text-xs leading-5 text-muted-foreground">{t('console.brain.preview_hint')}</p>
+            <p className="text-xs leading-5 text-fg-secondary">{t('console.brain.preview_hint')}</p>
           </div>
-          <div className="grid min-h-[32rem] content-start gap-3 overflow-auto border border-border bg-background p-4">
+          <div className="grid min-h-[32rem] content-start gap-3 overflow-auto border border-border-subtle bg-page p-4">
             {model.preview.value.length ? (
               model.preview.value.map((segment, index) => (
                 <section
                   key={`${segment.scope}-${index}`}
-                  className="grid gap-2 border-b border-border pb-3 last:border-0">
+                  className="grid gap-2 border-b border-border-subtle pb-3 last:border-0">
                   <div>
                     <Badge variant={segment.scope === 'world' ? 'secondary' : 'outline'}>{segment.scope}</Badge>
                   </div>
@@ -285,7 +286,7 @@ export function BrainObjectEditorPage() {
                 </section>
               ))
             ) : (
-              <p className="text-sm text-muted-foreground">{t('console.brain.preview_empty')}</p>
+              <p className="text-sm text-fg-secondary">{t('console.brain.preview_empty')}</p>
             )}
           </div>
         </section>
@@ -298,7 +299,7 @@ export function BrainObjectEditorPage() {
           aria-label={t('console.brain.conflict')}>
           <div className="grid gap-1">
             <h3 className="text-sm font-medium">{t('console.brain.conflict')}</h3>
-            <p className="text-xs leading-5 text-muted-foreground">{t('console.brain.conflict_hint')}</p>
+            <p className="text-xs leading-5 text-fg-secondary">{t('console.brain.conflict_hint')}</p>
           </div>
           <div>
             <Button size="xs" type="button" variant="outline" onClick={() => void loadLatest()}>
@@ -307,8 +308,8 @@ export function BrainObjectEditorPage() {
           </div>
           {latest ? (
             <div className="grid gap-2">
-              <p className="font-mono text-xs text-muted-foreground">{latest.content_hash}</p>
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap border border-border bg-background p-3 font-mono text-xs leading-5">
+              <p className="font-mono text-xs text-fg-secondary">{latest.content_hash}</p>
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap border border-border-subtle bg-page p-3 font-mono text-xs leading-5">
                 {latest.body}
               </pre>
             </div>
@@ -353,7 +354,7 @@ export function BrainObjectEditorPage() {
 function Problems({ diagnostic }: { diagnostic?: { code: string; line?: number } }) {
   const { t } = useTranslation()
   return (
-    <section className="grid gap-2 border border-border bg-background p-4" aria-label={t('console.brain.problems')}>
+    <section className="grid gap-2 border border-border-subtle bg-page p-4" aria-label={t('console.brain.problems')}>
       <h3 className="text-sm font-medium">{t('console.brain.problems')}</h3>
       {diagnostic ? (
         <p className="font-mono text-xs text-destructive">
@@ -362,7 +363,7 @@ function Problems({ diagnostic }: { diagnostic?: { code: string; line?: number }
             : diagnostic.code}
         </p>
       ) : (
-        <p className="text-xs text-muted-foreground">{t('console.brain.no_problems')}</p>
+        <p className="text-xs text-fg-secondary">{t('console.brain.no_problems')}</p>
       )}
     </section>
   )

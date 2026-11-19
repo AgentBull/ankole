@@ -70,7 +70,7 @@ defmodule Ankole.I18n do
         {:error, %KeyError{key: full_key, term: :i18n_catalog}}
 
       {resolved, message} ->
-        Localize.Message.format(message, bindings, locale: resolved)
+        Localize.Message.format(message, bindings, locale: resolved, bidi: :none)
     end
   end
 
@@ -233,7 +233,7 @@ defmodule Ankole.I18n do
   # value. Returning the raw MF2 source preserves a visible failure without
   # crashing render paths.
   defp format_or_fallback(message, bindings, locale, full_key) do
-    case Localize.Message.format(message, bindings, locale: locale) do
+    case Localize.Message.format(message, bindings, locale: locale, bidi: :none) do
       {:ok, formatted} ->
         formatted
 

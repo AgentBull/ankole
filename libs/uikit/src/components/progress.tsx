@@ -1,5 +1,11 @@
-import { Progress as ProgressPrimitive } from '@base-ui/react/progress'
-import type { CSSProperties } from 'react'
+import {
+  Progress as ProgressPrimitive,
+  ProgressIndicator as ProgressIndicatorPrimitive,
+  ProgressLabel as ProgressLabelPrimitive,
+  ProgressTrack as ProgressTrackPrimitive,
+  ProgressValue as ProgressValuePrimitive
+} from '@ui-sdk/react/progress'
+import type { ComponentProps, ComponentPropsWithoutRef, CSSProperties, ReactNode } from 'react'
 
 import { cn } from '../lib/utils'
 
@@ -8,13 +14,20 @@ function progressFraction(value: number | null | undefined, min: number, max: nu
   return Math.min(1, Math.max(0, (value - min) / (max - min)))
 }
 
-function Progress({ className, children, max = 100, min = 0, style, value, ...props }: ProgressPrimitive.Root.Props) {
+function Progress({
+  className,
+  children,
+  max = 100,
+  min = 0,
+  style,
+  value,
+  ...props
+}: Omit<ComponentProps<typeof ProgressPrimitive>, 'children'> & { children?: ReactNode }) {
   return (
-    <ProgressPrimitive.Root
+    <ProgressPrimitive
       value={value}
       max={max}
       min={min}
-      data-slot="progress"
       style={
         {
           ...style,
@@ -27,55 +40,85 @@ function Progress({ className, children, max = 100, min = 0, style, value, ...pr
       <ProgressTrack>
         <ProgressIndicator />
       </ProgressTrack>
-    </ProgressPrimitive.Root>
+    </ProgressPrimitive>
   )
 }
 
-function ProgressTrack({ className, ...props }: ProgressPrimitive.Track.Props) {
+const slidingBar: CSSProperties = {
+  width: '100%',
+  transform: 'translateX(calc((var(--progress-fraction) - 1) * 100%))'
+}
+
+function ProgressTrack({ className, ...props }: ComponentProps<typeof ProgressTrackPrimitive>) {
   return (
-    <ProgressPrimitive.Track
+    <ProgressTrackPrimitive
       className={cn(
-        'relative flex h-2 w-full min-w-12 items-center overflow-x-hidden rounded-none bg-muted',
+        'relative flex h-1 w-full min-w-12 items-center overflow-hidden rounded-full bg-layer-03',
         className
       )}
-      data-slot="progress-track"
       {...props}
     />
   )
 }
 
-function ProgressIndicator({ className, style, ...props }: ProgressPrimitive.Indicator.Props) {
+/**
+ * The filled bar. It slides a full-width bar along the track instead of taking the width that ui-sdk writes inline,
+ * so the browser animates a transform rather than a layout change.
+ */
+function ProgressIndicator({ className, ...props }: ComponentProps<typeof ProgressIndicatorPrimitive>) {
   return (
-    <ProgressPrimitive.Indicator
-      data-slot="progress-indicator"
+    <ProgressIndicatorPrimitive
       className={cn(
-        'h-full w-full origin-left bg-primary transition-transform duration-(--duration-dialog) ease-out',
+        'h-full w-full rounded-full bg-fg-primary motion-safe:transition-transform motion-safe:duration-(--duration-dialog) motion-safe:ease-out',
         className
       )}
-      style={{ width: '100%', transform: 'scaleX(var(--progress-fraction))', ...style }}
+      render={indicator => <div {...indicator} style={{ ...indicator.style, ...slidingBar }} />}
       {...props}
     />
   )
 }
 
-function ProgressLabel({ className, ...props }: ProgressPrimitive.Label.Props) {
+function ProgressLabel({ className, ...props }: ComponentProps<typeof ProgressLabelPrimitive>) {
   return (
-    <ProgressPrimitive.Label
-      className={cn('text-sm leading-5 font-normal tracking-normal', className)}
-      data-slot="progress-label"
-      {...props}
-    />
+    <ProgressLabelPrimitive className={cn('text-sm leading-5 font-normal tracking-normal', className)} {...props} />
   )
 }
 
-function ProgressValue({ className, ...props }: ProgressPrimitive.Value.Props) {
+function ProgressValue({ className, ...props }: ComponentProps<typeof ProgressValuePrimitive>) {
   return (
-    <ProgressPrimitive.Value
-      className={cn('ml-auto text-sm leading-5 text-muted-foreground tabular-nums', className)}
-      data-slot="progress-value"
+    <ProgressValuePrimitive
+      className={cn('ml-auto text-sm leading-5 text-fg-secondary tabular-nums', className)}
       {...props}
     />
   )
 }
 
-export { Progress, ProgressIndicator, ProgressLabel, ProgressTrack, ProgressValue }
+/**
+ * Determinate progress drawn in the Spinner's geometry, for progress that has to fit an icon slot.
+ * `value` runs from 0 to 100.
+ */
+function ProgressRing({
+  value,
+  className,
+  ...props
+}: { value: number } & Omit<ComponentPropsWithoutRef<'svg'>, 'children'>) {
+  const percent = Math.round(progressFraction(value, 0, 100) * 100)
+  return (
+    <svg
+      data-slot="progress-ring"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+      viewBox="0 0 16 16"
+      fill="none"
+      strokeWidth="1.75"
+      className={cn('inline-block size-4 -rotate-90 stroke-current', className)}
+      {...props}>
+      <circle cx="8" cy="8" r="6.5" opacity="0.24" />
+      <circle cx="8" cy="8" r="6.5" pathLength="100" strokeLinecap="round" strokeDasharray={`${percent} 100`} />
+    </svg>
+  )
+}
+
+export { Progress, ProgressIndicator, ProgressLabel, ProgressRing, ProgressTrack, ProgressValue }

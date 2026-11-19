@@ -10,7 +10,7 @@ const MarkdownRenderer = lazy(() => import('./markdown-renderer'))
  */
 export function MarkdownBody({ text, className }: { text: string; className?: string }) {
   return (
-    <div className={cn('text-sm leading-6 break-words text-foreground', className)}>
+    <div className={cn('text-sm leading-6 break-words text-fg-primary', className)}>
       <Suspense fallback={<p className="whitespace-pre-wrap">{text}</p>}>
         <MarkdownRenderer text={text} />
       </Suspense>

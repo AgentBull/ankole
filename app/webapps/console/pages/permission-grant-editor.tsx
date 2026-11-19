@@ -77,7 +77,7 @@ export function PermissionGrantsSection({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="grid gap-1">
           <h3 className="text-lg font-semibold tracking-normal">{title}</h3>
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
+          <p className="max-w-2xl text-sm leading-6 text-fg-secondary">{description}</p>
         </div>
         <Link to={addTo} className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}>
           {addLabel}
@@ -85,9 +85,9 @@ export function PermissionGrantsSection({
       </div>
       <ErrorBlock error={error} />
       {!error && !isLoading && grants.length === 0 ? (
-        <p className="border border-border bg-card p-6 text-sm text-muted-foreground">{empty}</p>
+        <p className="border border-border-subtle bg-page p-6 text-sm text-fg-secondary">{empty}</p>
       ) : !error ? (
-        <div className="overflow-x-auto border border-border bg-card">
+        <div className="overflow-x-auto border border-border-subtle bg-page">
           <Table className="min-w-[720px]" aria-busy={isLoading}>
             <TableHeader>
               <TableRow>

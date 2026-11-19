@@ -19,11 +19,18 @@ export async function validateNavigationURL(value: string, material: BrowserMate
   }
   // URL hosts keep their IPv6 brackets; classification works on the bare address.
   const host = url.hostname.startsWith('[') ? url.hostname.slice(1, -1) : url.hostname
-  if (!host) throw new BrowserDataError('invalid_command', 'browser URL requires a hostname')
+  const normalizedHost = host.toLowerCase().replace(/\.+$/, '')
+  if (!host || !normalizedHost) throw new BrowserDataError('invalid_command', 'browser URL requires a hostname')
+  if (normalizedHost === 'metadata' || normalizedHost === 'metadata.google.internal') {
+    throw new BrowserDataError('invalid_command', `blocked browser navigation to metadata address: ${host}`)
+  }
+  if (material.navigation.ssrf_filter && (normalizedHost === 'localhost' || normalizedHost.endsWith('.localhost'))) {
+    throw new BrowserDataError('invalid_command', `blocked browser navigation to private address: ${host}`)
+  }
   const addresses = isIP(host)
     ? [host]
     : (
-        await lookup(host, { all: true }).catch(error => {
+        await lookup(normalizedHost, { all: true }).catch(error => {
           throw new BrowserDataError('backend_unavailable', `browser hostname resolution failed: ${host}`, {
             retryable: true,
             cause: error

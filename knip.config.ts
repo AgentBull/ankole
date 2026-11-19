@@ -40,7 +40,7 @@ const config: KnipConfig = {
       ]
     },
     'libs/uikit': {
-      entry: ['src/index.ts'],
+      entry: ['src/index.ts', 'src/components/graph.tsx', 'src/viz/*.ts', 'src/icons/index.ts'],
       project: ['src/**/*.{ts,tsx}'],
       ignore: ['src/stories/**']
     },

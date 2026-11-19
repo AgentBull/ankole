@@ -126,17 +126,17 @@ export function BrainHealthPage() {
 
           <HealthSection title={t('console.brain.health_channels')}>
             {snapshot.channels_without_member_group.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('console.brain.all_channels_have_groups')}</p>
+              <p className="text-sm text-fg-secondary">{t('console.brain.all_channels_have_groups')}</p>
             ) : (
               <div className="grid gap-2">
-                <p className="text-sm text-warning-foreground">
+                <p className="text-sm text-warning-fg">
                   {t('console.brain.channels_without_group', {
                     count: snapshot.channels_without_member_group.length
                   })}
                 </p>
                 <ul className="grid gap-1">
                   {snapshot.channels_without_member_group.map(channelID => (
-                    <li key={channelID} className="font-mono text-xs text-muted-foreground">
+                    <li key={channelID} className="font-mono text-xs text-fg-secondary">
                       {channelID}
                     </li>
                   ))}
@@ -160,7 +160,7 @@ function SkillLessonsSection({ lessons }: { lessons: BrainHealth['skill_lessons'
 
   return (
     <HealthSection title={t('console.brain.health_skill_lessons')}>
-      <p className="text-sm text-muted-foreground">{t('console.brain.skill_lessons_description')}</p>
+      <p className="text-sm text-fg-secondary">{t('console.brain.skill_lessons_description')}</p>
       <HealthItem label={t('console.brain.skill_learning')}>
         {lessons.enabled ? (
           <Badge variant="success">{t('console.status.enabled')}</Badge>
@@ -172,7 +172,7 @@ function SkillLessonsSection({ lessons }: { lessons: BrainHealth['skill_lessons'
         <span className="inline-flex flex-wrap items-baseline gap-2">
           <span>{totalActive}</span>
           {perAgent.length > 0 ? (
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="font-mono text-xs text-fg-secondary">
               {perAgent.map(([agentUID, count]) => `${agentUID}: ${count}`).join(' · ')}
             </span>
           ) : null}
@@ -200,7 +200,7 @@ function SkillLessonsSection({ lessons }: { lessons: BrainHealth['skill_lessons'
 
 function HealthSection({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <section className="grid gap-3 border border-border bg-card p-5">
+    <section className="grid gap-3 border border-border-subtle bg-page p-5">
       <h3 className="text-sm font-semibold">{title}</h3>
       {children}
     </section>
@@ -210,7 +210,7 @@ function HealthSection({ children, title }: { children: ReactNode; title: string
 function HealthItem({ children, label }: { children: ReactNode; label: string }) {
   return (
     <div className="flex flex-wrap items-baseline gap-3 text-sm">
-      <span className="min-w-56 text-muted-foreground">{label}</span>
+      <span className="min-w-56 text-fg-secondary">{label}</span>
       <span className="min-w-0">{children}</span>
     </div>
   )
@@ -224,7 +224,7 @@ function ModelStatusItem({ label, status }: { label: string; status: BrainModelS
       {status.configured ? (
         <span className="inline-flex flex-wrap items-center gap-2">
           <Badge variant="success">{t('console.brain.model_configured')}</Badge>
-          <span className="font-mono text-xs text-muted-foreground">
+          <span className="font-mono text-xs text-fg-secondary">
             {status.provider_id} · {status.model}
           </span>
           {status.provider_available === false ? (
@@ -240,7 +240,7 @@ function ModelStatusItem({ label, status }: { label: string; status: BrainModelS
       ) : status.fallback === 'ankole_browser' ? (
         <span className="inline-flex flex-wrap items-center gap-2">
           <Badge variant="success">{t('console.brain.local_browser_fallback')}</Badge>
-          <span className="font-mono text-xs text-muted-foreground">web_fetch</span>
+          <span className="font-mono text-xs text-fg-secondary">web_fetch</span>
         </span>
       ) : status.profile_error ? (
         <span className="inline-flex flex-wrap items-center gap-2">
@@ -285,7 +285,7 @@ function EmbeddingSignature({ value }: { value: unknown }) {
   if (value == null) return <Badge variant="warning">{t('console.brain.model_not_configured')}</Badge>
   if (error) return <HealthReason reason={error} />
 
-  return <code className="text-xs break-all text-muted-foreground">{formatJSON(value)}</code>
+  return <code className="text-xs break-all text-fg-secondary">{formatJSON(value)}</code>
 }
 
 function HealthReason({ reason }: { reason: string }) {

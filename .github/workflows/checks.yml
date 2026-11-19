@@ -1,0 +1,189 @@
+name: Repository checks
+
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ github.event_name == 'workflow_dispatch' || github.event.forced || steps.filter.outputs.code == 'true' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+        if: ${{ github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && !github.event.forced }}
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        id: filter
+        if: ${{ github.event_name != 'workflow_dispatch' && !github.event.forced }}
+        with:
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '**'
+              - '!*.md'
+              - '!docs/**'
+              - '!**/README*.md'
+              - '!**/SPEC.md'
+              - '!**/AGENTS.md'
+              - '!**/CLAUDE.md'
+              - '!**/CHANGELOG*.md'
+              - '!LICENSE'
+
+  bun-checks:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bunx oxlint
+      - run: bun run --filter='!@ankole/control-plane' --filter='!@ankole/kernel' lint
+      - run: bun run --filter='!@ankole/control-plane' --filter='!@ankole/kernel' fmt:check
+      - run: bun run analyze
+      - run: bun run --filter='!@ankole/control-plane' type-check
+      - run: bun run --filter @ankole/uikit test
+      - run: bun run --filter @ankole/webapps test
+      - run: bun run --filter @ankole/browser test
+      - run: bun run --filter @agentbull/devkit test
+      - run: bun run --filter @ankole/webapps build
+      - run: bun run --filter @ankole/website build
+      - name: Install Helm
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/helm.tar.gz" https://get.helm.sh/helm-v3.17.3-linux-amd64.tar.gz
+          echo "ee88b3c851ae6466a3de507f7be73fe94d54cbf2987cbaa3d1a3832ea331f2cd  $RUNNER_TEMP/helm.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/helm"
+          tar -xzf "$RUNNER_TEMP/helm.tar.gz" -C "$RUNNER_TEMP/helm"
+          echo "$RUNNER_TEMP/helm/linux-amd64" >> "$GITHUB_PATH"
+      - name: Lint Helm chart
+        run: |
+          helm lint tools/deploy/helm/ankole-agent
+          helm template test-release tools/deploy/helm/ankole-agent >/dev/null
+
+  kernel-checks:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: '29'
+          elixir-version: '1.20.4'
+      - name: Install native build packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libzmq3-dev pkg-config protobuf-compiler
+      - run: rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
+      - run: rustup default 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: app/kernel -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @ankole/kernel lint
+      - run: bun run --filter @ankole/kernel lint:prod-nif
+      - run: bun run --filter @ankole/kernel test
+
+  control-plane-checks:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: '29'
+          elixir-version: '1.20.4'
+      - name: Install native build packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libzmq3-dev pkg-config protobuf-compiler
+      - run: rustup toolchain install 1.99.1 --profile minimal && rustup default 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: app/kernel -> target
+          shared-key: control-plane-nif
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: mix-cache
+        with:
+          path: |
+            app/control_plane/deps
+            app/control_plane/_build
+          key: control-plane-mix-${{ runner.os }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/config/**') }}-${{ hashFiles('app/control_plane/mix.exs', 'app/control_plane/mix.lock', 'app/kernel/mix.exs', 'libs/*/mix.exs') }}
+          restore-keys: |
+            control-plane-mix-${{ runner.os }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/config/**') }}-
+      - run: bun install --frozen-lockfile
+      - run: mix local.hex --force && mix local.rebar --force && mix deps.get
+        working-directory: app/control_plane
+      - run: bun run --filter @ankole/control-plane lint
+      - run: mix ankole.openapi.check
+        working-directory: app/control_plane
+      - name: Verify generated browser SDKs
+        run: |
+          bun run --filter @ankole/webapps openapi:generate
+          git diff --exit-code -- app/webapps/openapi app/webapps/console/api/generated
+          test -z "$(git ls-files --others --exclude-standard -- app/webapps/console/api/generated)"
+      - run: mix deps.get
+        working-directory: libs/feishu_openapi
+      - run: bun run feishu-openapi:test
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ github.ref == 'refs/heads/main' && steps.mix-cache.outputs.cache-hit != 'true' }}
+        with:
+          path: |
+            app/control_plane/deps
+            app/control_plane/_build
+          key: ${{ steps.mix-cache.outputs.cache-primary-key }}
+
+  checks-passed:
+    name: Repository checks passed
+    needs: [changes, bun-checks, kernel-checks, control-plane-checks]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check the results
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+              echo "A required check finished with: $RESULTS" >&2
+              exit 1
+            fi
+          done

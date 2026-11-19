@@ -36,7 +36,7 @@ defmodule DingTalkOpenAPI.MixProject do
       {:torque, "~> 0.2.7"},
       {:telemetry, "~> 1.4.2"},
       {:mint_web_socket, "~> 1.0"},
-      {:plug, "~> 1.19", only: :test},
+      {:plug, "~> 1.20", only: :test},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false}
     ]
   end

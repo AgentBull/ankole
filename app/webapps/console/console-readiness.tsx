@@ -100,11 +100,11 @@ export function ConsoleReadiness() {
         side="bottom"
         sideOffset={8}
         className="w-[calc(100vw-2rem)] max-w-sm gap-0 overflow-hidden p-0">
-        <header className="border-b border-border p-4">
+        <header className="border-b border-border-subtle p-4">
           <div className="flex items-center justify-between gap-3">
             <PopoverTitle>{t('console.readiness.title')}</PopoverTitle>
             {readiness ? (
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              <span className="shrink-0 text-xs text-fg-secondary tabular-nums">
                 {readiness.completed_core_steps}/{readiness.total_core_steps}
               </span>
             ) : null}
@@ -229,7 +229,7 @@ function ReadinessContent({ readiness, close }: { readiness: ConsoleReadinessRes
   const steps = readinessSteps(t, readiness)
 
   return (
-    <ul className="divide-y divide-border">
+    <ul className="divide-y divide-border-subtle">
       {steps.map(step => (
         <ReadinessRow
           key={step.key}
@@ -266,24 +266,24 @@ function ReadinessRow({
         to={to}
         onClick={onNavigate}
         className={cn(
-          'flex min-h-12 gap-2.5 px-4 outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30',
+          'flex min-h-12 gap-2.5 px-4 outline-none hover:bg-layer-03 focus-visible:bg-layer-03 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30',
           complete ? 'items-center py-2' : 'items-start py-2.5'
         )}>
         <StatusIcon
-          className={cn('size-4 shrink-0', complete ? 'text-success' : 'mt-0.5 text-muted-foreground')}
+          className={cn('size-4 shrink-0', complete ? 'text-success' : 'mt-0.5 text-fg-secondary')}
           aria-hidden
         />
         <span className="min-w-0 flex-1">
-          <span className="block text-sm leading-5 font-medium text-foreground">{title}</span>
+          <span className="block text-sm leading-5 font-medium text-fg-primary">{title}</span>
           {!complete ? (
-            <span className="mt-0.5 block text-pretty text-xs leading-4 text-muted-foreground">{detail}</span>
+            <span className="mt-0.5 block text-pretty text-xs leading-4 text-fg-secondary">{detail}</span>
           ) : null}
           <span className="sr-only">
             {complete ? t('console.readiness.complete') : t('console.readiness.incomplete')}
           </span>
         </span>
         <RiArrowRightSLine
-          className={cn('size-4 shrink-0 text-muted-foreground', complete ? null : 'mt-0.5')}
+          className={cn('size-4 shrink-0 text-fg-secondary', complete ? null : 'mt-0.5')}
           aria-hidden
         />
       </Link>

@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -20,37 +23,60 @@
       "types": "./src/lib/*.ts",
       "import": "./src/lib/*.ts"
     },
+    "./viz/*": {
+      "types": "./src/viz/*.ts",
+      "import": "./src/viz/*.ts"
+    },
+    "./icons": {
+      "types": "./src/icons/index.ts",
+      "import": "./src/icons/index.ts"
+    },
+    "./emoji.css": "./src/assets/fonts/fluent-emoji/FluentEmojiColor.css",
     "./styles.css": "./src/styles.css"
   },
   "scripts": {
     "test": "bun test test",
-    "type-check": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit",
+    "type-check": "bun check -p tsconfig.json --noEmit",
+    "lint": "bun check -p tsconfig.json --noEmit",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check ."
   },
   "dependencies": {
     "@agentbull/active-support": "1.6.0",
-    "@base-ui/react": "1.8.0",
-    "@remixicon/react": "4.9.0",
+    "@antv/g-svg": "2.1.3",
+    "@antv/g2": "5.4.8",
+    "@antv/g6": "5.1.1",
+    "@antv/infographic": "0.2.20",
+    "@atlaskit/pragmatic-drag-and-drop": "4.0.0",
+    "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "3.2.1",
+    "@atlaskit/pragmatic-drag-and-drop-hitbox": "3.0.0",
+    "@fluentui/react-icons": "2.0.345",
+    "@tanstack/react-virtual": "3.14.26",
+    "@ui-sdk/core": "0.1.0-beta.7",
+    "@ui-sdk/react": "0.1.0-beta.7",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "^1.1.1",
+    "d3-force": "3.0.1",
     "embla-carousel-react": "^8.6.0",
+    "emoji-picker-react": "5.1.4",
     "input-otp": "1.5.0",
+    "lightweight-charts": "5.3.0",
     "next-themes": "0.4.6",
+    "saxes": "6.0.0",
     "sonner": "2.0.8",
     "tailwind-merge": "3.7.0",
-    "tailwindcss": "4.3.3",
+    "tailwindcss": "4.3.5",
     "tw-animate-css": "1.4.0"
   },
   "devDependencies": {
+    "@types/d3-force": "3.0.10",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "typescript": "7.0.2"
   },
   "peerDependencies": {
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   }
 }

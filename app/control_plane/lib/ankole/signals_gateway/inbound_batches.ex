@@ -112,7 +112,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       case mirrored_outside_open_batch?(repo, fact, batch) do
         true ->
           with {:ok, mirror_entry} <- maybe_mirror_im_entry(repo, fact, policy, type, now),
-               source_entry <- inbound_batch_entry(fact, mirror_entry, policy, type, now),
+               source_entry <- inbound_batch_entry(repo, fact, mirror_entry, policy, type, now),
                {:ok, supplement} <-
                  maybe_apply_live_attachment_supplement(
                    batch,
@@ -142,7 +142,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
 
         false ->
           with {:ok, mirror_entry} <- maybe_mirror_im_entry(repo, fact, policy, type, now),
-               source_entry <- inbound_batch_entry(fact, mirror_entry, policy, type, now),
+               source_entry <- inbound_batch_entry(repo, fact, mirror_entry, policy, type, now),
                {:ok, supplement} <-
                  maybe_apply_live_attachment_supplement(
                    batch,
@@ -1052,9 +1052,11 @@ defmodule Ankole.SignalsGateway.InboundBatches do
 
   defp batch_entry_content_signature(entry), do: entry
 
-  defp inbound_batch_entry(fact, mirror_entry, policy, type, now) do
-    attrs = Projection.receive_entry_attrs(fact, now)
-    attachments = if mirror_entry, do: mirror_entry.attachments, else: fact.attachments
+  defp inbound_batch_entry(repo, fact, mirror_entry, policy, type, now) do
+    attachments =
+      if mirror_entry, do: mirror_entry.attachments, else: unmirrored_attachments(repo, fact)
+
+    attrs = Projection.receive_entry_attrs(%{fact | attachments: attachments}, now)
     document_id = if mirror_entry, do: mirror_entry.document_id, else: attrs.document_id
     content_hash = if mirror_entry, do: mirror_entry.content_hash, else: attrs.content_hash
 
@@ -1092,6 +1094,28 @@ defmodule Ankole.SignalsGateway.InboundBatches do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  defp unmirrored_attachments(
+         repo,
+         %{attachments: [_ | _] = attachments, source_entry_id: source_entry_id} = fact
+       )
+       when is_binary(source_entry_id) do
+    case entry_snapshot(
+           repo,
+           fact.agent_uid,
+           fact.binding_name,
+           fact.signal_channel_id,
+           source_entry_id
+         ) do
+      %{"attachments" => [_ | _] = existing} ->
+        Projection.keep_materialized(fact.agent_uid, attachments, existing)
+
+      _no_observation ->
+        attachments
+    end
+  end
+
+  defp unmirrored_attachments(_repo, fact), do: fact.attachments
 
   defp batch_actor_fact(%InboundBatch{} = batch, type, now) do
     entries = batch.entries

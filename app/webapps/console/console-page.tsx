@@ -30,9 +30,7 @@ export function PageStack({ className, ...props }: ComponentProps<'div'>) {
 export function BackLink({ label, to }: { label?: string; to: string }) {
   const { t } = useTranslation()
   return (
-    <Link
-      to={to}
-      className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+    <Link to={to} className="inline-flex w-fit items-center gap-1.5 text-sm text-fg-secondary hover:text-fg-primary">
       <RiArrowLeftLine className="size-4" aria-hidden />
       {label ?? t('common.back')}
     </Link>
@@ -49,11 +47,11 @@ export function PageHeader({
   title: string
 }) {
   return (
-    <div className="flex min-w-0 flex-wrap items-end justify-between gap-4 border-b border-border pb-5">
+    <div className="flex min-w-0 flex-wrap items-end justify-between gap-4 border-b border-border-subtle pb-5">
       <DocumentTitle title={title} />
       <div className="grid min-w-0 gap-1">
-        <h2 className="text-2xl font-semibold tracking-normal text-foreground">{title}</h2>
-        {description ? <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
+        <h2 className="text-2xl font-semibold tracking-normal text-fg-primary">{title}</h2>
+        {description ? <p className="max-w-3xl text-sm leading-6 text-fg-secondary">{description}</p> : null}
       </div>
       {actions ? <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{actions}</div> : null}
     </div>

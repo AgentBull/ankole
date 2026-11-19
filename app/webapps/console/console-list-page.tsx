@@ -157,7 +157,7 @@ export function ResourceListPage({
       <ErrorBlock error={error} />
 
       {!hasError && isEmpty && !isLoading ? (
-        <Empty className="items-start border border-border bg-card p-8 text-left md:p-10">
+        <Empty className="items-start border border-border-subtle bg-page p-8 text-left md:p-10">
           <EmptyHeader className="max-w-xl items-start">
             {emptyIcon ? <EmptyMedia variant="icon">{emptyIcon}</EmptyMedia> : null}
             <EmptyTitle>
@@ -181,11 +181,11 @@ export function ResourceListPage({
         </Empty>
       ) : !hasError ? (
         <div className="grid gap-2">
-          <p className="text-xs text-muted-foreground sm:hidden">{t('console.table.scroll_hint')}</p>
+          <p className="text-xs text-fg-secondary sm:hidden">{t('console.table.scroll_hint')}</p>
           <Table
             aria-busy={isLoading}
-            className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-card [&_td:last-child]:transition-colors fine-hover:[&_tbody_tr:hover_td:last-child]:bg-accent [&_tbody_tr:has([aria-expanded=true])_td:last-child]:bg-accent [&_tbody_tr[data-state=selected]_td:last-child]:bg-muted [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-muted"
-            containerClassName="border border-border bg-card"
+            className="min-w-[640px] [&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-page [&_td:last-child]:transition-colors fine-hover:[&_tbody_tr:hover_td:last-child]:bg-layer-hover [&_tbody_tr:has([aria-expanded=true])_td:last-child]:bg-layer-hover [&_tbody_tr[data-state=selected]_td:last-child]:bg-layer-03 [&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-layer-03"
+            containerClassName="border border-border-subtle bg-page"
             containerLabel={t('console.table.region_label', { title })}>
             <TableHeader>
               <TableRow>
@@ -240,7 +240,7 @@ export function SubNav({
   items: { to: string; label: string; end?: boolean; active?: boolean }[]
 }) {
   return (
-    <nav aria-label={ariaLabel} className="-mt-1 flex min-w-0 flex-wrap gap-1 border-b border-border">
+    <nav aria-label={ariaLabel} className="-mt-1 flex min-w-0 flex-wrap gap-1 border-b border-border-subtle">
       {items.map(item => (
         <NavLink
           key={item.to}
@@ -251,8 +251,8 @@ export function SubNav({
               'relative -mb-px border-b-2 border-transparent px-4 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
               'after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-primary after:opacity-0 after:transition-opacity after:duration-(--duration-feedback) after:ease-productive',
               (item.active ?? isActive)
-                ? 'font-medium text-foreground after:opacity-100'
-                : 'text-muted-foreground fine-hover:hover:text-foreground'
+                ? 'font-medium text-fg-primary after:opacity-100'
+                : 'text-fg-secondary fine-hover:hover:text-fg-primary'
             )
           }>
           {item.label}
@@ -309,7 +309,7 @@ export function CursorPagination({
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <span aria-live="polite" className="text-xs text-muted-foreground">
+      <span aria-live="polite" className="text-xs text-fg-secondary">
         {t('console.pagination.page_results', { page, count: resultCount })}
       </span>
       <div className="flex items-center gap-2">
@@ -333,7 +333,7 @@ export function CursorPagination({
 export function ResultCount({ count }: { count: number }) {
   const { t } = useTranslation()
   return (
-    <p aria-live="polite" className="-mt-3 text-sm text-muted-foreground">
+    <p aria-live="polite" className="-mt-3 text-sm text-fg-secondary">
       {t('console.result_count', { count })}
     </p>
   )
@@ -364,9 +364,9 @@ export function ResourceSearch({
   const { t } = useTranslation()
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 border border-border bg-card p-2">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 border border-border-subtle bg-page p-2">
       <SearchField
-        className="flex-1 basis-72"
+        className="max-w-[420px] flex-1 basis-72"
         clearLabel={t('console.empty.clear_search')}
         label={label}
         maxLength={maxLength}
@@ -449,7 +449,7 @@ export function SearchField({
   return (
     <div className={cn('relative min-w-0', className)}>
       <RiSearchLine
-        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fg-secondary"
         aria-hidden
       />
       <Input
@@ -465,14 +465,14 @@ export function SearchField({
       {!value ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-10 left-10 flex items-center truncate text-sm leading-5 text-muted-foreground">
+          className="pointer-events-none absolute inset-y-0 right-10 left-10 flex items-center truncate text-sm leading-5 text-fg-placeholder">
           {placeholder ?? label}
         </span>
       ) : null}
       {value ? (
         <button
           aria-label={clearLabel ?? t('console.empty.clear_search')}
-          className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          className="absolute inset-y-0 right-0 grid w-10 place-items-center text-fg-secondary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           type="button"
           onClick={() => onChange('')}>
           <RiCloseLine />
@@ -488,7 +488,9 @@ export function SearchField({
  * the operator brings rows back or leaves.
  */
 export function ScopeBar({ children }: { children: ReactNode }) {
-  return <div className="flex min-w-0 flex-wrap items-center gap-3 border border-border bg-card p-2">{children}</div>
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-3 border border-border-subtle bg-page p-2">{children}</div>
+  )
 }
 
 /** Labeled on/off filter, such as widening a list to finished rows. */
@@ -502,7 +504,7 @@ export function FilterSwitch({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+    <label className="flex shrink-0 items-center gap-2 text-sm text-fg-secondary">
       <Switch checked={checked} onCheckedChange={onChange} />
       {label}
     </label>

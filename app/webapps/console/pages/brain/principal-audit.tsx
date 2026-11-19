@@ -35,7 +35,7 @@ export function BrainPrincipalAuditPage() {
       />
       <BrainSubNav />
 
-      <div className="max-w-md border border-border bg-card p-4">
+      <div className="max-w-md border border-border-subtle bg-page p-4">
         <LabeledField label={t('console.brain.audit_principal')}>
           <SinglePrincipalPicker
             ariaLabel={t('console.brain.audit_principal')}
@@ -58,18 +58,18 @@ export function BrainPrincipalAuditPage() {
       <ErrorBlock error={knowledge.error} />
 
       {!principalUID ? (
-        <p className="border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+        <p className="border border-dashed border-border-subtle px-4 py-6 text-sm text-fg-secondary">
           {t('console.brain.principal_audit_empty')}
         </p>
       ) : knowledge.isLoading ? (
         <Skeleton className="h-48 w-full" />
       ) : rows.length === 0 ? (
-        <p className="border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+        <p className="border border-dashed border-border-subtle px-4 py-6 text-sm text-fg-secondary">
           {t('console.brain.principal_audit_no_claims', { uid: principalUID })}
         </p>
       ) : (
         <Table
-          containerClassName="border border-border bg-card"
+          containerClassName="border border-border-subtle bg-page"
           containerLabel={t('console.brain.principal_audit_title')}>
           <TableHeader>
             <TableRow>
@@ -110,7 +110,7 @@ export function BrainPrincipalAuditPage() {
                 <TableCell>
                   <ClaimStateBadge claim={claim} />
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground">{formatConsoleDate(claim.created_at)}</TableCell>
+                <TableCell className="text-xs text-fg-secondary">{formatConsoleDate(claim.created_at)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

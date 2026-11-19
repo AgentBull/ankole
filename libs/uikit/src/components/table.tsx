@@ -14,10 +14,7 @@ function Table({ className, containerClassName, containerLabel, ...props }: Tabl
       aria-label={containerLabel}
       role={containerLabel ? 'region' : undefined}
       tabIndex={containerLabel ? 0 : undefined}
-      className={cn(
-        'relative w-full overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-        containerClassName
-      )}>
+      className={cn('relative w-full overflow-x-auto focus-visible:-outline-offset-2', containerClassName)}>
       <table
         data-slot="table"
         className={cn('w-full border-collapse caption-bottom text-sm leading-5', className)}
@@ -28,7 +25,7 @@ function Table({ className, containerClassName, containerLabel, ...props }: Tabl
 }
 
 function TableHeader({ className, ...props }: React.ComponentProps<'thead'>) {
-  return <thead data-slot="table-header" className={cn('bg-muted', className)} {...props} />
+  return <thead data-slot="table-header" className={cn(className)} {...props} />
 }
 
 function TableBody({ className, ...props }: React.ComponentProps<'tbody'>) {
@@ -39,23 +36,46 @@ function TableFooter({ className, ...props }: React.ComponentProps<'tfoot'>) {
   return (
     <tfoot
       data-slot="table-footer"
-      className={cn('border-t bg-muted font-medium [&>tr]:last:border-b-0', className)}
+      className={cn('border-t bg-layer-03 font-medium [&>tr]:last:border-b-0', className)}
       {...props}
     />
   )
 }
 
-function TableRow({ className, ...props }: React.ComponentProps<'tr'>) {
+/**
+ * A row whose object opens somewhere marks its opening control with `data-row-link`: the name link, or a
+ * button that opens a view. A click on any other part of the row follows that control, so the whole row
+ * opens the object, and the control stays the keyboard path.
+ */
+function TableRow({ className, onClick, ...props }: React.ComponentProps<'tr'>) {
   return (
     <tr
       data-slot="table-row"
       className={cn(
-        'h-12 transition-colors fine-hover:hover:bg-accent has-aria-expanded:bg-accent data-[state=selected]:bg-muted',
+        'h-8 transition-colors fine-hover:hover:bg-layer-hover has-aria-expanded:bg-layer-hover has-data-row-link:cursor-pointer data-[state=selected]:selected-surface fine-hover:[&:hover_[data-row-link]]:underline',
         className
       )}
+      onClick={event => {
+        onClick?.(event)
+        if (!event.defaultPrevented) followRowLink(event)
+      }}
       {...props}
     />
   )
+}
+
+const ROW_CONTROLS =
+  'a, button, input, select, textarea, label, summary, [role="button"], [role="checkbox"], [role="switch"], [role="menuitem"]'
+
+function followRowLink(event: React.MouseEvent<HTMLTableRowElement>) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  const row = event.currentTarget
+  // Portal events bubble through React, but do not belong to this row.
+  if (!row.contains(event.target as Node)) return
+  const control = (event.target as Element).closest(ROW_CONTROLS)
+  if (control && row.contains(control)) return
+  if (document.getSelection()?.isCollapsed === false) return
+  row.querySelector<HTMLElement>('[data-row-link]')?.click()
 }
 
 // `scope` defaults to the column, which is what every header in a data table is.
@@ -67,7 +87,7 @@ function TableHead({ className, scope = 'col', ...props }: React.ComponentProps<
       data-slot="table-head"
       scope={scope}
       className={cn(
-        'h-12 px-4 text-left align-middle text-sm leading-5 font-semibold tracking-normal whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0',
+        'h-8 border-b border-(--table-head-border) px-3 text-left align-middle text-xs leading-4 font-medium whitespace-nowrap text-fg-secondary [&:has([role=checkbox])]:pr-0',
         className
       )}
       {...props}
@@ -80,7 +100,7 @@ function TableCell({ className, ...props }: React.ComponentProps<'td'>) {
     <td
       data-slot="table-cell"
       className={cn(
-        'border-b border-border px-4 py-3 align-middle whitespace-nowrap text-muted-foreground [&:has([role=checkbox])]:pr-0',
+        'border-b border-border-subtle px-3 py-1.5 align-middle whitespace-nowrap text-fg-secondary has-data-row-link:font-medium has-data-row-link:text-fg-primary [&:has([role=checkbox])]:pr-0',
         className
       )}
       {...props}
@@ -89,9 +109,7 @@ function TableCell({ className, ...props }: React.ComponentProps<'td'>) {
 }
 
 function TableCaption({ className, ...props }: React.ComponentProps<'caption'>) {
-  return (
-    <caption data-slot="table-caption" className={cn('mt-4 text-sm text-muted-foreground', className)} {...props} />
-  )
+  return <caption data-slot="table-caption" className={cn('mt-4 text-sm text-fg-secondary', className)} {...props} />
 }
 
 export { Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow }

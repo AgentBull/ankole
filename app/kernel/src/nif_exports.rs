@@ -627,11 +627,7 @@ pub fn gen_uuid_v7() -> String {
 /// integers. `OwnedBinary` keeps the Elixir API binary-safe and matches caller
 /// expectations for decrypted and decoded payloads.
 fn binary_from_vec(bytes: Vec<u8>) -> NIFResult<OwnedBinary> {
-    let mut binary =
-        OwnedBinary::new(bytes.len()).ok_or_else(|| error_message("failed to allocate binary"))?;
-    binary.as_mut_slice().copy_from_slice(&bytes);
-
-    Ok(binary)
+    Ok(OwnedBinary::from_slice(&bytes))
 }
 
 /// Decodes a BEAM term as binary and reports the field name on failure.
@@ -714,16 +710,13 @@ fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
         } => {
             let worker_id = authenticated_worker_id.unwrap_or_default();
 
-            match encode_binary_term(env, envelope_bytes) {
-                Ok(envelope_term) => (
-                    atoms::runtime_fabric_router_received(),
-                    transport_route,
-                    worker_id,
-                    envelope_term,
-                )
-                    .encode(env),
-                Err(reason) => (atoms::runtime_fabric_router_socket_error(), reason).encode(env),
-            }
+            (
+                atoms::runtime_fabric_router_received(),
+                transport_route,
+                worker_id,
+                binary_term(env, &envelope_bytes),
+            )
+                .encode(env)
         }
         RouterEvent::DecodeFailed {
             transport_route,
@@ -761,33 +754,15 @@ fn send_universal_ai_client_event(
                 encode_json_value(env, &meta),
             )
                 .encode(env),
-            universal_ai_client::StreamEvent::Chunk { seq, kind, bytes } => {
-                match binary_term(env, bytes) {
-                    Ok(binary) => (
-                        atoms::universal_ai_client(),
-                        stream_ref,
-                        atoms::chunk(),
-                        seq,
-                        downstream_kind_atom(kind),
-                        binary,
-                    )
-                        .encode(env),
-                    Err(reason) => (
-                        atoms::universal_ai_client(),
-                        stream_ref,
-                        atoms::error(),
-                        encode_json_value(
-                            env,
-                            &serde_json::json!({
-                                "code": "chunk_encoding_failed",
-                                "stage": "beam",
-                                "message": reason
-                            }),
-                        ),
-                    )
-                        .encode(env),
-                }
-            }
+            universal_ai_client::StreamEvent::Chunk { seq, kind, bytes } => (
+                atoms::universal_ai_client(),
+                stream_ref,
+                atoms::chunk(),
+                seq,
+                downstream_kind_atom(kind),
+                binary_term(env, &bytes),
+            )
+                .encode(env),
             universal_ai_client::StreamEvent::Done(summary) => (
                 atoms::universal_ai_client(),
                 stream_ref,
@@ -816,13 +791,8 @@ fn downstream_kind_atom(kind: universal_ai_client::DownstreamKind) -> rustler::A
     }
 }
 
-fn binary_term<'a>(env: Env<'a>, bytes: Vec<u8>) -> Result<Term<'a>, String> {
-    let Some(mut binary) = OwnedBinary::new(bytes.len()) else {
-        return Err("failed to allocate universal AI client chunk binary".to_string());
-    };
-
-    binary.as_mut_slice().copy_from_slice(&bytes);
-    Ok(binary.release(env).encode(env))
+fn binary_term<'a>(env: Env<'a>, bytes: &[u8]) -> Term<'a> {
+    OwnedBinary::from_slice(bytes).release(env).encode(env)
 }
 
 fn encode_json_value<'a>(env: Env<'a>, value: &JSONValue) -> Term<'a> {
@@ -856,15 +826,6 @@ fn encode_json_value<'a>(env: Env<'a>, value: &JSONValue) -> Term<'a> {
             map
         }
     }
-}
-
-fn encode_binary_term(env: Env<'_>, bytes: Vec<u8>) -> Result<Term<'_>, String> {
-    let Some(mut binary) = OwnedBinary::new(bytes.len()) else {
-        return Err("failed to allocate runtime fabric binary frame".to_string());
-    };
-
-    binary.as_mut_slice().copy_from_slice(&bytes);
-    Ok(binary.release(env).encode(env))
 }
 
 rustler::init!("Elixir.Ankole.Kernel");

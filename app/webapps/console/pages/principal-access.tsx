@@ -38,7 +38,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
   const reasonBody = () => ({ reason: model.reason.value.trim(), operation_id: crypto.randomUUID() })
   const activeRestrictions = state?.restrictions.filter(item => !item.cleared_at) ?? []
   return (
-    <section className="grid gap-5 border-b border-border pb-6">
+    <section className="grid gap-5 border-b border-border-subtle pb-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-lg font-semibold">{t('console.human_access.title')}</h3>
         {state ? (
@@ -47,7 +47,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
           </Badge>
         ) : null}
       </div>
-      <p className="text-sm text-muted-foreground">{t('console.human_access.disable_hint')}</p>
+      <p className="text-sm text-fg-secondary">{t('console.human_access.disable_hint')}</p>
       <ErrorBlock error={access.error} />
       {access.isLoading ? <p role="status">{t('common.loading')}</p> : null}
       {state ? (
@@ -83,15 +83,13 @@ export function HumanAccessSection({ uid }: { uid: string }) {
             </>
           ) : (
             <>
-              <p className="text-sm text-muted-foreground">{t('console.human_access.restore_hint')}</p>
+              <p className="text-sm text-fg-secondary">{t('console.human_access.restore_hint')}</p>
               {activeRestrictions.map(item => (
-                <div key={item.id} className="grid gap-3 border border-border p-4 sm:grid-cols-[1fr_auto]">
+                <div key={item.id} className="grid gap-3 border border-border-subtle p-4 sm:grid-cols-[1fr_auto]">
                   <div className="grid gap-1 text-sm">
                     <span className="font-medium">{item.source}</span>
                     <span>{item.reason}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {item.recovery_verified_at ?? item.inserted_at}
-                    </span>
+                    <span className="text-xs text-fg-secondary">{item.recovery_verified_at ?? item.inserted_at}</span>
                   </div>
                   <Button
                     type="button"
@@ -106,13 +104,13 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                 </div>
               ))}
               {activeRestrictions.some(item => item.source !== 'manual') ? (
-                <p className="text-sm text-muted-foreground">{t('console.human_access.provider_check')}</p>
+                <p className="text-sm text-fg-secondary">{t('console.human_access.provider_check')}</p>
               ) : null}
-              <details className="border border-border p-4" open>
+              <details className="border border-border-subtle p-4" open>
                 <summary className="cursor-pointer text-sm font-medium">
                   {t('console.human_access.permissions')}
                 </summary>
-                <p className="my-3 text-sm text-muted-foreground">{t('console.human_access.permissions_hint')}</p>
+                <p className="my-3 text-sm text-fg-secondary">{t('console.human_access.permissions_hint')}</p>
                 <div className="grid gap-3 text-sm">
                   {state.permission_review.permissions.groups.map(group => (
                     <div key={group.id}>
@@ -127,11 +125,11 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                     </div>
                   ))}
                   {state.permission_review.permissions.grants.map(grant => (
-                    <div key={grant.id} className="border-t border-border pt-2">
+                    <div key={grant.id} className="border-t border-border-subtle pt-2">
                       <code>
                         {grant.resource_pattern} · {grant.action}
                       </code>
-                      <p className="text-xs text-muted-foreground">{grant.principal_uid ?? grant.group_id}</p>
+                      <p className="text-xs text-fg-secondary">{grant.principal_uid ?? grant.group_id}</p>
                       {grant.condition ? (
                         <pre className="overflow-auto text-xs whitespace-pre-wrap">
                           {JSON.stringify(grant.condition, null, 2)}
@@ -182,9 +180,9 @@ export function HumanAccessSection({ uid }: { uid: string }) {
               </Button>
             </>
           )}
-          <details className="border-t border-border pt-4">
+          <details className="border-t border-border-subtle pt-4">
             <summary className="cursor-pointer text-sm font-medium">{t('console.human_access.work')}</summary>
-            <p className="my-3 text-sm text-muted-foreground">{t('console.human_access.work_hint')}</p>
+            <p className="my-3 text-sm text-fg-secondary">{t('console.human_access.work_hint')}</p>
             <div className="grid gap-2 text-sm">
               {state.cleanup_jobs.map(job => (
                 <p key={job.id}>
@@ -203,25 +201,25 @@ export function HumanAccessSection({ uid }: { uid: string }) {
             </Button>
             <div className="grid gap-2">
               {state.work.map(work => (
-                <div key={`${work.kind}:${work.id}`} className="grid gap-1 border-b border-border py-2 text-sm">
+                <div key={`${work.kind}:${work.id}`} className="grid gap-1 border-b border-border-subtle py-2 text-sm">
                   <span>
                     {work.kind} · {work.status} · {work.agent_uid}
                   </span>
-                  <code className="text-xs break-all text-muted-foreground">{work.id}</code>
+                  <code className="text-xs break-all text-fg-secondary">{work.id}</code>
                 </div>
               ))}
             </div>
           </details>
-          <details className="border-t border-border pt-4">
+          <details className="border-t border-border-subtle pt-4">
             <summary className="cursor-pointer text-sm font-medium">{t('console.human_access.history')}</summary>
             <div className="mt-3 grid gap-3">
               {state.history.map(item => (
-                <div key={item.id} className="grid gap-1 border-b border-border pb-3 text-sm">
+                <div key={item.id} className="grid gap-1 border-b border-border-subtle pb-3 text-sm">
                   <span>
                     {item.action} · {item.source}
                   </span>
                   <p>{item.reason}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-fg-secondary">
                     {item.actor_uid} · {item.inserted_at}
                   </p>
                 </div>

@@ -113,7 +113,7 @@ export function AgentsListPage() {
         return (
           <TableRow key={agent.uid}>
             <TableCell className="font-mono text-xs">
-              <Link className="text-foreground hover:text-link hover:underline" to={encodeURIComponent(agent.uid)}>
+              <Link className="text-fg-primary hover:text-link hover:underline" to={encodeURIComponent(agent.uid)}>
                 {agent.uid}
               </Link>
             </TableCell>
@@ -327,7 +327,7 @@ function AgentEditor({ uid }: { uid?: string }) {
       contentWidth={mode === 'edit' ? 'wide' : 'form'}
       supplementary={
         mode === 'edit' && selectedAgent ? (
-          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border pt-8 [&>*]:min-w-0">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border-subtle pt-8 [&>*]:min-w-0">
             <AgentLibraryEditor agentUID={selectedAgent.uid} model={libraryModel} />
             <ModelProfilesEditor
               agent={selectedAgent}

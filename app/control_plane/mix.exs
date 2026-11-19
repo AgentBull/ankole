@@ -69,7 +69,25 @@ defmodule Ankole.MixProject do
   end
 
   defp releases do
-    [ankole: [steps: [:assemble, &copy_runtime_config_support/1]]]
+    [
+      ankole: [
+        steps: [
+          :assemble,
+          &remove_dependency_native_copies/1,
+          &copy_runtime_config_support/1
+        ]
+      ]
+    ]
+  end
+
+  defp remove_dependency_native_copies(%Mix.Release{} = release) do
+    release.path
+    |> Path.join("lib/ankole_kernel-*/priv/native/*")
+    |> Path.wildcard()
+    |> Enum.reject(&(Path.basename(&1) == "ankole_kernel.so"))
+    |> Enum.each(&File.rm!/1)
+
+    release
   end
 
   defp copy_runtime_config_support(%Mix.Release{} = release) do
@@ -95,35 +113,35 @@ defmodule Ankole.MixProject do
   defp deps do
     [
       {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: :dev, runtime: false},
-      {:phoenix, "~> 1.8.13"},
-      {:phoenix_pubsub, "~> 2.1"},
+      {:phoenix, "~> 1.8.16"},
+      {:phoenix_pubsub, "~> 2.4"},
       {:phoenix_ecto, "~> 4.7"},
       {:ecto_sql, "~> 3.14"},
       {:postgrex, ">= 0.22.4"},
-      {:phoenix_html, "~> 4.3"},
+      {:phoenix_html, "~> 4.4"},
       {:phoenix_live_reload, "~> 1.7.0", only: :dev},
       {:opentelemetry_api, "~> 1.5"},
       {:opentelemetry, "~> 1.7"},
-      {:opentelemetry_exporter, "~> 1.10"},
-      {:req, "~> 0.7"},
+      {:opentelemetry_exporter, "~> 1.11"},
+      {:req, "~> 0.7.5"},
       {:gen_smtp, "~> 1.3"},
-      {:codepagex, "~> 0.1.13"},
+      {:codepagex, "~> 0.3.0"},
       {:mint_web_socket, "~> 1.0"},
       {:telemetry_metrics, "~> 1.2"},
-      {:localize, "~> 1.2"},
+      {:localize, "~> 1.7"},
       {:oban, "~> 2.24"},
       {:crontab, "~> 1.2"},
       {:open_api_spex, "~> 3.22"},
       {:boruta, "2.3.8"},
-      {:toml_elixir, "~> 3.1"},
+      {:toml_elixir, "~> 3.3"},
       {:yaml_elixir, "~> 2.12"},
       {:pgvector, "~> 0.4"},
-      {:tzdata, "~> 1.1"},
+      {:tzdata, "~> 1.2"},
       {:hackney, "~> 4.7", override: true},
       {:h2, "~> 0.12", override: true},
-      {:dotenvy, "~> 1.1"},
+      {:dotenvy, "~> 1.2"},
       {:torque, "~> 0.2.7"},
-      {:llm_db, "~> 2026.8"},
+      {:llm_db, "~> 2026.11"},
       {:ankole_kernel, path: "../kernel"},
       {:feishu_openapi, path: "../../libs/feishu_openapi"},
       {:slack_openapi, path: "../../libs/slack_openapi"},

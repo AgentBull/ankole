@@ -25,7 +25,7 @@ export function InitialPasswordReveal({ actions, password }: { actions?: ReactNo
 
   return (
     <div className="grid gap-4">
-      <div className="flex min-w-0 flex-col gap-3 border border-border/70 bg-muted/30 p-4 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-col gap-3 border border-border-subtle/70 bg-layer-03/30 p-4 sm:flex-row sm:items-center">
         <code className="min-w-0 flex-1 break-all font-mono text-lg leading-7 select-all">{password}</code>
         <Button onClick={copyPassword} size="sm" type="button" variant="outline">
           {copied ? t('console.principals.password_copied') : t('console.principals.copy_password')}
@@ -36,7 +36,7 @@ export function InitialPasswordReveal({ actions, password }: { actions?: ReactNo
           )}
         </Button>
       </div>
-      <p className="text-sm leading-6 text-muted-foreground">{t('console.principals.initial_password_description')}</p>
+      <p className="text-sm leading-6 text-fg-secondary">{t('console.principals.initial_password_description')}</p>
       {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
     </div>
   )

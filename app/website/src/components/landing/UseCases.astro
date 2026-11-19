@@ -43,7 +43,7 @@ const ROW = 'gap-x-8 gap-y-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr
 		<div
 			class:list={[
 				ROW,
-				'hidden border-b border-border pb-3 font-mono text-[11px] tracking-[0.12em] text-fg-quaternary uppercase sm:grid'
+				'hidden border-b border-border-subtle pb-3 font-mono text-[11px] tracking-[0.12em] text-fg-quaternary uppercase sm:grid'
 			]}
 		>
 			<span>{columns.function}</span>
@@ -51,13 +51,13 @@ const ROW = 'gap-x-8 gap-y-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr
 			<span>{columns.metric}</span>
 		</div>
 
-		<ol class="list-none border-t border-border p-0 sm:border-t-0">
+		<ol class="list-none border-t border-border-subtle p-0 sm:border-t-0">
 			{
 				decisions.map((decision, index) => (
-					<li class="record border-b border-border">
+					<li class="record border-b border-border-subtle">
 						<Reveal step={index} class={`${ROW} py-6`}>
-							<h3 class="text-base font-semibold text-foreground">{decision.title}</h3>
-							<p class="record-quiet mt-1 text-sm leading-6 text-muted-foreground sm:mt-0">
+							<h3 class="text-base font-semibold text-fg-primary">{decision.title}</h3>
+							<p class="record-quiet mt-1 text-sm leading-6 text-fg-secondary sm:mt-0">
 								{decision.deliverable}
 							</p>
 							{/* The outcome measure is the payload, so it is the only coloured item in the row. */}
@@ -72,7 +72,7 @@ const ROW = 'gap-x-8 gap-y-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr
 
 		<Reveal>
 			<blockquote
-				class="m-0 mt-10 border-l-2 border-brand-60 pl-6 text-lg leading-8 text-foreground dark:border-brand-40"
+				class="m-0 mt-10 border-l-2 border-brand-60 pl-6 text-lg leading-8 text-fg-primary dark:border-brand-40"
 			>
 				{t(lang, 'usecases.quote')}
 			</blockquote>

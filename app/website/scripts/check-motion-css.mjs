@@ -22,19 +22,18 @@ if (/animation:[^;}]*\bview\(/.test(css)) {
   failures.push('`animation` shorthand carries view(); the declaration is invalid and will not run')
 }
 
-if (/\banimation-timeline\b/.test(css)) {
-  failures.push('a scroll timeline is back; Firefox and older Safari drop it, so the entrance dies there')
-}
-
 if (!css.includes('.js-reveal')) {
   failures.push('the js-reveal gate is gone; either entrances are dead or content hides without JavaScript')
 }
 
-// Any rule that hides a reveal target must carry the gate in every selector of its list.
-for (const match of css.matchAll(/([^{}]+)\{[^}]*opacity:\s*0[^}]*\}/g)) {
-  const selectors = match[1].split(',')
-  for (const selector of selectors) {
-    if (selector.includes('[data-reveal]') && !selector.includes('js-reveal')) {
+// Shared components have their own scroll effects. Check the declarations that style page entrances.
+for (const [, selectorList, declarations] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+  for (const selector of selectorList.split(',')) {
+    if (!/\[data-reveal(?:=["']?(?:rise|wipe)["']?)?\]/.test(selector)) continue
+    if (/\banimation-timeline\s*:/.test(declarations)) {
+      failures.push(`the entrance on \`${selector.trim()}\` depends on a scroll timeline`)
+    }
+    if (/\bopacity:\s*0(?:[;}!\s]|$)/.test(declarations) && !selector.includes('js-reveal')) {
       failures.push(`ungated hide rule: \`${selector.trim()}\` — content vanishes for readers without JavaScript`)
     }
   }

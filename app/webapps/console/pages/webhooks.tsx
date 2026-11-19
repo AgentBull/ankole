@@ -134,7 +134,7 @@ function WebhookEndpointRow({
       <TableCell>
         <div className="grid gap-1">
           <span className="font-medium">{endpoint.label}</span>
-          <span className="font-mono text-xs text-muted-foreground">{formatConsoleDate(endpoint.created_at)}</span>
+          <span className="font-mono text-xs text-fg-secondary">{formatConsoleDate(endpoint.created_at)}</span>
         </div>
       </TableCell>
       <AgentCell uid={endpoint.agent_uid} />
@@ -146,7 +146,7 @@ function WebhookEndpointRow({
       <TableCell>
         <div className="grid gap-1 font-mono text-xs">
           <span>{endpoint.binding_name}</span>
-          <span className="max-w-72 truncate text-muted-foreground">{endpoint.signal_channel_id ?? '—'}</span>
+          <span className="max-w-72 truncate text-fg-secondary">{endpoint.signal_channel_id ?? '—'}</span>
         </div>
       </TableCell>
       <TableCell>{t(`console.webhooks.mode_${endpoint.mode}`)}</TableCell>

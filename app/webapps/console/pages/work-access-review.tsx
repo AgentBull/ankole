@@ -27,13 +27,13 @@ export function WorkAccessReview() {
   const { t } = useTranslation()
   const work = useQuery(ankoleWebHumanAccessControllerUnresolvedWorkOptions())
   return (
-    <details className="border border-border p-4">
+    <details className="border border-border-subtle p-4">
       <summary className="cursor-pointer text-sm font-medium">{t('console.human_access.legacy_work')}</summary>
-      <p className="my-3 text-sm text-muted-foreground">{t('console.human_access.legacy_hint')}</p>
+      <p className="my-3 text-sm text-fg-secondary">{t('console.human_access.legacy_hint')}</p>
       <ErrorBlock error={work.error} />
       {work.isLoading ? <p role="status">{t('common.loading')}</p> : null}
       {work.data?.work.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('console.human_access.no_legacy')}</p>
+        <p className="text-sm text-fg-secondary">{t('console.human_access.no_legacy')}</p>
       ) : null}
       {work.data?.work.map(item => (
         <WorkReviewRow key={`${item.kind}:${item.id}`} work={item} />
@@ -56,7 +56,7 @@ function WorkReviewRow({ work }: { work: HumanWorkItem }) {
     onError: error => toast.error(requestErrorMessage(error))
   })
   return (
-    <div className="my-4 grid gap-3 border-t border-border pt-4">
+    <div className="my-4 grid gap-3 border-t border-border-subtle pt-4">
       <p className="text-sm">
         {work.kind} · {work.agent_uid} · {work.status}
       </p>

@@ -1,43 +1,40 @@
-import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
-import { RiCloseLine } from '@remixicon/react'
+import {
+  type DialogFinalFocus,
+  type DialogInitialFocus,
+  DialogBackdrop,
+  DialogClose as DialogClosePrimitive,
+  DialogContent as DialogContentPrimitive,
+  DialogDescription as DialogDescriptionPrimitive,
+  Dialog as DialogPrimitive,
+  DialogTitle as DialogTitlePrimitive,
+  DialogTrigger as DialogTriggerPrimitive
+} from '@ui-sdk/react/dialog'
+import { DismissRegular } from '../icons'
 import type * as React from 'react'
 import { Button } from './button'
+import { type FocusTarget, focusTarget } from '../lib/focus-target'
+import { usePopupContainer } from '../lib/popup-container'
 import { cn } from '../lib/utils'
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+function Dialog({ container, ...props }: React.ComponentProps<typeof DialogPrimitive>) {
+  return <DialogPrimitive container={usePopupContainer(container)} {...props} />
 }
 
-function DialogTrigger({ className, ...props }: DialogPrimitive.Trigger.Props) {
+function DialogTrigger({ className, ...props }: React.ComponentProps<typeof DialogTriggerPrimitive>) {
+  return <DialogTriggerPrimitive className={cn('cursor-pointer disabled:cursor-not-allowed', className)} {...props} />
+}
+
+function DialogClose({ className, ...props }: React.ComponentProps<typeof DialogClosePrimitive>) {
+  return <DialogClosePrimitive className={cn('cursor-pointer disabled:cursor-not-allowed', className)} {...props} />
+}
+
+// The kit names the overlay `dialog-overlay` instead of ui-sdk's `dialog-backdrop`, because app stylesheets select it.
+function DialogOverlay({ className, ...props }: React.ComponentProps<typeof DialogBackdrop>) {
   return (
-    <DialogPrimitive.Trigger
-      data-slot="dialog-trigger"
-      className={cn('cursor-pointer disabled:cursor-not-allowed', className)}
-      {...props}
-    />
-  )
-}
-
-function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
-}
-
-function DialogClose({ className, ...props }: DialogPrimitive.Close.Props) {
-  return (
-    <DialogPrimitive.Close
-      data-slot="dialog-close"
-      className={cn('cursor-pointer disabled:cursor-not-allowed', className)}
-      {...props}
-    />
-  )
-}
-
-function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) {
-  return (
-    <DialogPrimitive.Backdrop
-      data-slot="dialog-overlay"
+    <DialogBackdrop
+      render={<div data-slot="dialog-overlay" />}
       className={cn(
-        'fixed inset-0 isolate z-50 bg-black/60 transition-opacity duration-(--duration-dialog) ease-out data-starting-style:opacity-0 data-ending-style:opacity-0',
+        'fixed inset-0 isolate z-50 bg-scrim transition-opacity duration-(--duration-dialog) ease-out data-starting-style:opacity-0 data-ending-style:opacity-0',
         className
       )}
       {...props}
@@ -50,32 +47,43 @@ function DialogContent({
   children,
   closeLabel = 'Close',
   showCloseButton = true,
+  initialFocus,
+  finalFocus,
   ...props
-}: DialogPrimitive.Popup.Props & {
+}: Omit<React.ComponentProps<typeof DialogContentPrimitive>, 'children' | 'initialFocus' | 'finalFocus'> & {
+  children?: React.ReactNode
   closeLabel?: string
+  initialFocus?: FocusTarget<DialogInitialFocus>
+  finalFocus?: FocusTarget<DialogFinalFocus>
   showCloseButton?: boolean
 }) {
   return (
-    <DialogPortal>
+    <>
       <DialogOverlay />
-      <DialogPrimitive.Popup
-        data-slot="dialog-content"
+      <DialogContentPrimitive
+        initialFocus={focusTarget(initialFocus)}
+        finalFocus={focusTarget(finalFocus)}
         className={cn(
-          'fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 rounded-none border border-border bg-popover p-6 text-sm text-popover-foreground shadow-none outline-none transition-[opacity,scale] duration-(--duration-dialog) ease-out sm:max-w-3xl data-starting-style:opacity-0 data-starting-style:scale-[0.96] data-ending-style:opacity-0 data-ending-style:scale-[0.96]',
+          'ceramic fixed top-1/2 left-1/2 z-50 grid [--ceramic-offset:1px] max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto p-6 text-sm text-fg-primary outline-none transition-[opacity,scale] duration-(--duration-dialog) ease-out sm:max-w-3xl data-starting-style:opacity-0 data-starting-style:scale-[0.96] data-ending-style:opacity-0 data-ending-style:scale-[0.96]',
           className
         )}
         {...props}>
         {children}
         {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="dialog-close"
-            render={<Button variant="ghost" className="absolute top-0 right-0" size="icon" />}>
-            <RiCloseLine />
+          <DialogClosePrimitive
+            render={
+              <Button
+                variant="ghost"
+                className="absolute top-2 right-2 pointer-coarse:after:absolute pointer-coarse:after:-inset-1.5"
+                size="icon"
+              />
+            }>
+            <DismissRegular />
             <span className="sr-only">{closeLabel}</span>
-          </DialogPrimitive.Close>
+          </DialogClosePrimitive>
         )}
-      </DialogPrimitive.Popup>
-    </DialogPortal>
+      </DialogContentPrimitive>
+    </>
   )
 }
 
@@ -97,34 +105,27 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        '-mx-6 -mb-6 mt-2 flex flex-row items-center justify-end gap-2 border-t border-border bg-muted/30 px-6 py-4',
+        '-mx-6 -mb-6 mt-2 flex flex-row items-center justify-end gap-2 border-t border-border-subtle px-6 py-4',
         className
       )}
       {...props}>
       {showCloseButton && (
-        <DialogPrimitive.Close render={<Button variant="secondary" />}>{closeLabel}</DialogPrimitive.Close>
+        <DialogClosePrimitive render={<Button variant="outline" />}>{closeLabel}</DialogClosePrimitive>
       )}
       {children}
     </div>
   )
 }
 
-function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
-  return (
-    <DialogPrimitive.Title
-      data-slot="dialog-title"
-      className={cn('font-heading text-xl leading-7 font-normal tracking-normal normal-case', className)}
-      {...props}
-    />
-  )
+function DialogTitle({ className, ...props }: React.ComponentProps<typeof DialogTitlePrimitive>) {
+  return <DialogTitlePrimitive className={cn('title-overlay', className)} {...props} />
 }
 
-function DialogDescription({ className, ...props }: DialogPrimitive.Description.Props) {
+function DialogDescription({ className, ...props }: React.ComponentProps<typeof DialogDescriptionPrimitive>) {
   return (
-    <DialogPrimitive.Description
-      data-slot="dialog-description"
+    <DialogDescriptionPrimitive
       className={cn(
-        'mt-0.5 text-sm leading-relaxed text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
+        'mt-0.5 text-sm leading-5 text-fg-secondary *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-fg-primary',
         className
       )}
       {...props}
@@ -140,7 +141,6 @@ export {
   DialogFooter,
   DialogHeader,
   DialogOverlay,
-  DialogPortal,
   DialogTitle,
   DialogTrigger
 }

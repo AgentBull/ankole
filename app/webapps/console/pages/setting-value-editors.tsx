@@ -101,8 +101,8 @@ function BooleanSettingEditor({ onChange, value }: SettingValueEditorProps) {
   const { t } = useTranslation()
   return (
     <LabeledField label={t('console.settings.value')}>
-      <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
-        <span className="text-sm text-foreground">
+      <div className="flex min-h-12 items-center justify-between border border-border-subtle bg-layer-03/30 px-4 py-3">
+        <span className="text-sm text-fg-primary">
           {value === 'true' ? t('common.boolean_true') : t('common.boolean_false')}
         </span>
         <Switch
@@ -202,7 +202,7 @@ function SystemLocaleEditor({ onChange, value }: SettingValueEditorProps) {
           {locales.map(option => (
             <SelectItem key={option} value={option}>
               <span>{nativeLocaleLabel(option)}</span>
-              <span className="font-mono text-xs text-muted-foreground">{option}</span>
+              <span className="font-mono text-xs text-fg-secondary">{option}</span>
             </SelectItem>
           ))}
         </SelectContent>
@@ -236,8 +236,8 @@ function SystemTimeZoneEditor({ onChange, value }: SettingValueEditorProps) {
           required
         />
         {currentTime ? (
-          <div className="grid gap-1 border border-border bg-muted/20 px-4 py-3">
-            <span className="text-xs text-muted-foreground">{t('console.settings.timezone_current_time')}</span>
+          <div className="grid gap-1 border border-border-subtle bg-layer-03/20 px-4 py-3">
+            <span className="text-xs text-fg-secondary">{t('console.settings.timezone_current_time')}</span>
             <span className="font-mono text-sm tabular-nums">{currentTime}</span>
           </div>
         ) : null}
@@ -272,7 +272,7 @@ function PluginsEnabledIDsEditor({ onChange, value }: SettingValueEditorProps) {
     <div className="grid gap-4">
       <div className="grid gap-1">
         <h3 className="text-sm font-semibold">{t('console.settings.plugins_title')}</h3>
-        <p className="text-xs leading-5 text-muted-foreground">{t('console.settings.plugins_hint')}</p>
+        <p className="text-xs leading-5 text-fg-secondary">{t('console.settings.plugins_hint')}</p>
       </div>
       <ResourceSearch
         label={t('console.settings.plugin_search')}
@@ -297,7 +297,7 @@ function PluginsEnabledIDsEditor({ onChange, value }: SettingValueEditorProps) {
             <Checkbox checked onCheckedChange={checked => update(pluginID, checked === true)} />
             <span className="grid min-w-0 flex-1 gap-2">
               <span className="break-all font-mono text-sm font-semibold">{pluginID}</span>
-              <span className="text-xs leading-5 text-muted-foreground">
+              <span className="text-xs leading-5 text-fg-secondary">
                 {t('console.settings.plugin_not_discovered_hint')}
               </span>
               <Badge variant="warning">{t('console.settings.plugin_not_discovered')}</Badge>
@@ -306,7 +306,7 @@ function PluginsEnabledIDsEditor({ onChange, value }: SettingValueEditorProps) {
         ))}
       </div>
       {!catalog.isLoading && filteredPlugins.length === 0 && undiscoveredIDs.length === 0 ? (
-        <p className="border border-border bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
+        <p className="border border-border-subtle bg-layer-03/20 px-4 py-6 text-center text-sm text-fg-secondary">
           {query ? t('console.empty.no_results_title') : t('console.settings.no_plugins')}
         </p>
       ) : null}
@@ -326,15 +326,15 @@ function PluginChoiceCard({
   const { i18n, t } = useTranslation()
   const restartRequired = pluginRestartRequired(plugin.active, selected)
   return (
-    <label className="flex min-w-0 items-start gap-3 border border-border/70 bg-card/60 px-4 py-4">
+    <label className="flex min-w-0 items-start gap-3 border border-border-subtle/70 bg-page/60 px-4 py-4">
       <Checkbox checked={selected} onCheckedChange={checked => onChange(checked === true)} />
       <span className="grid min-w-0 flex-1 gap-2">
         <span className="break-words text-sm font-semibold leading-5">
           {localizedJSONText(plugin.display_name, i18n.language) || plugin.id}
         </span>
-        <span className="break-all font-mono text-[11px] text-muted-foreground">{plugin.id}</span>
+        <span className="break-all font-mono text-50 text-fg-secondary">{plugin.id}</span>
         {plugin.description ? (
-          <span className="whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+          <span className="whitespace-pre-wrap break-words text-xs leading-5 text-fg-secondary">
             {localizedJSONText(plugin.description, i18n.language)}
           </span>
         ) : null}

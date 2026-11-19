@@ -3,6 +3,7 @@ import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
+import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import { ankoleWebPrincipalControllerCreateMutation } from '../api/generated/@tanstack/react-query.gen'
@@ -13,7 +14,7 @@ import { InitialPasswordReveal } from '../initial-password-reveal'
 import { PrincipalEditorModel, type PrincipalDraftError } from '../state/principal-editor-model'
 import { useEditorDraft } from '../use-editor-draft'
 
-type Translate = (key: string, values?: Record<string, unknown>) => string
+type Translate = TFunction
 
 export function principalDraftErrorText(error: PrincipalDraftError, t: Translate): string {
   switch (error) {
@@ -71,7 +72,7 @@ export function PrincipalCreatePage() {
             )}
           </h2>
         </div>
-        <div className="grid gap-5 border border-border bg-card p-5 md:p-6">
+        <div className="grid gap-5 border border-border-subtle bg-page p-5 md:p-6">
           <InitialPasswordReveal
             password={create.data.initial_password}
             actions={
@@ -149,9 +150,7 @@ export function MustChangePasswordField({
       <Checkbox checked={checked} onCheckedChange={value => onChange(value === true)} />
       <span className="grid gap-1">
         <span className="text-sm leading-5">{t('console.principals.must_change_password')}</span>
-        <span className="text-xs leading-5 text-muted-foreground">
-          {t('console.principals.must_change_password_hint')}
-        </span>
+        <span className="text-xs leading-5 text-fg-secondary">{t('console.principals.must_change_password_hint')}</span>
       </span>
     </label>
   )

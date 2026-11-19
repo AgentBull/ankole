@@ -19,9 +19,9 @@ const home = `${base}/en-US/`
 				var parts = rest.split('/').filter(Boolean)
 				if (!parts.length || !retired[parts[0]]) return
 				parts[0] = 'en-US'
-				var target = prefix + '/' + parts.join('/')
+				var target = `${prefix}/${parts.join('/')}`
 				if (rest.endsWith('/')) target += '/'
-				location.replace(target + location.search + location.hash)
+				location.replace(`${target}${location.search}${location.hash}`)
 			})()
 		</script>
 	</head>

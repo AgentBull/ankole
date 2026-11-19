@@ -97,7 +97,7 @@ export function BrainSuggestionsPage() {
         onClearFilters={() => setStatus('pending')}
         toolbarCanRevealRows
         toolbar={
-          <div className="flex items-center gap-3 border border-border bg-card p-2">
+          <div className="flex items-center gap-3 border border-border-subtle bg-page p-2">
             <Select
               value={status}
               onValueChange={value => {
@@ -126,10 +126,10 @@ export function BrainSuggestionsPage() {
             </TableCell>
             <TableCell className="text-xs">{suggestion.target_type ?? '—'}</TableCell>
             <TableCell className="text-xs">{suggestion.evidence_count}</TableCell>
-            <TableCell className="max-w-[320px] whitespace-normal text-xs text-muted-foreground">
+            <TableCell className="max-w-[320px] whitespace-normal text-xs text-fg-secondary">
               {suggestion.rationale ?? '—'}
             </TableCell>
-            <TableCell className="text-xs text-muted-foreground">{formatConsoleDate(suggestion.created_at)}</TableCell>
+            <TableCell className="text-xs text-fg-secondary">{formatConsoleDate(suggestion.created_at)}</TableCell>
             <TableCell className="text-right">
               {status === 'pending' ? (
                 <div className="flex justify-end gap-1">
@@ -150,7 +150,7 @@ export function BrainSuggestionsPage() {
                   </Button>
                 </div>
               ) : (
-                <span className="pr-2 text-xs text-muted-foreground">{t('console.brain.read_only')}</span>
+                <span className="pr-2 text-xs text-fg-secondary">{t('console.brain.read_only')}</span>
               )}
             </TableCell>
           </TableRow>
@@ -166,7 +166,7 @@ export function BrainSuggestionsPage() {
             <DialogDescription>{t('console.brain.approve_description')}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
+            <label className="grid gap-1.5 text-xs text-fg-secondary">
               {t('console.brain.approve_primitive')}
               <Input
                 placeholder={approveTarget?.kind ?? ''}
@@ -174,7 +174,7 @@ export function BrainSuggestionsPage() {
                 onChange={event => setPrimitive(event.target.value)}
               />
             </label>
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
+            <label className="grid gap-1.5 text-xs text-fg-secondary">
               {t('console.brain.approve_slug_prefix')}
               <Input
                 className="font-mono"
@@ -183,7 +183,7 @@ export function BrainSuggestionsPage() {
                 onChange={event => setSlugPrefix(event.target.value)}
               />
             </label>
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
+            <label className="grid gap-1.5 text-xs text-fg-secondary">
               {t('console.brain.approve_target_type')}
               <Input
                 placeholder={approveTarget?.target_type ?? ''}

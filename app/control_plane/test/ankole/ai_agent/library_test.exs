@@ -99,9 +99,6 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert {:ok, _browser} = Library.skill_view(agent.uid, "browser")
 
-    assert Enum.find(skills, &(&1["skill_name"] == "jupyter-live-kernel"))["category"] ==
-             "data-science"
-
     assert Enum.find(skills, &(&1["skill_name"] == "design-md"))
 
     assert {:ok, _design_skill} = Library.skill_view(agent.uid, "design-md")

@@ -123,8 +123,8 @@ export function ProviderSettingField({
 
     return (
       <LabeledField label={label} description={description} required={setting.required}>
-        <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
-          <span className="text-sm text-foreground">{t('common.enable')}</span>
+        <div className="flex min-h-12 items-center justify-between border border-border-subtle bg-layer-03/30 px-4 py-3">
+          <span className="text-sm text-fg-primary">{t('common.enable')}</span>
           <Switch
             aria-label={label}
             checked={enabled}

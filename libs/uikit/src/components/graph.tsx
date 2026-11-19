@@ -1,0 +1,644 @@
+import { CanvasEvent, Graph, GraphEvent, NodeEvent, type IElementEvent } from '@antv/g6'
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent,
+  type ReactNode,
+  type Ref
+} from 'react'
+import { useReducedMotion } from '../hooks/use-reduced-motion'
+import { cn } from '../lib/utils'
+import { useCanvasThemePalette } from './lazy-graph'
+import {
+  INCREMENTAL_FORCE_ALPHA,
+  buildG6GraphSpec,
+  computeGraphTopology,
+  projectGraphAnchors,
+  resolveCanvasThemePalette,
+  type AnkoleCanvasThemePalette,
+  type AnkoleGraphColorRamp,
+  type AnkoleGraphCombo,
+  type AnkoleGraphEdge,
+  type AnkoleGraphLayoutMode,
+  type AnkoleGraphNode,
+  type AnkoleGraphNodeShape,
+  type AnkoleGraphRampColors,
+  type AnkoleGraphTopology,
+  type GraphViewportReader,
+  type ProjectedAnchor
+} from '../viz/graph-layout'
+
+export {
+  INCREMENTAL_FORCE_ALPHA,
+  computeGraphTopology,
+  projectGraphAnchors,
+  resolveCanvasThemePalette,
+  type AnkoleCanvasThemePalette,
+  type AnkoleGraphColorRamp,
+  type AnkoleGraphCombo,
+  type AnkoleGraphEdge,
+  type AnkoleGraphLayoutMode,
+  type AnkoleGraphNode,
+  type AnkoleGraphNodeShape,
+  type AnkoleGraphRampColors,
+  type AnkoleGraphTopology,
+  type GraphViewportReader,
+  type ProjectedAnchor
+}
+
+// The spotlight outlives a pointer leave long enough to cross the gap to a neighboring node, so moving
+// between nodes switches the spotlight directly instead of flashing the whole graph back to full opacity.
+const HOVER_CLEAR_DELAY_MS = 180
+
+// The spotlight restyles nearly every element, so it waits until the pointer rests on a node. A pointer that
+// crosses nodes on its way elsewhere, or nodes that slide under a still pointer during a pan or zoom, would
+// otherwise restyle the whole graph again and again.
+const HOVER_INTENT_DELAY_MS = 100
+
+// An animation redraws every element it touches on each frame, and a canvas holding more than a couple of
+// hundred nodes and edges cannot finish such a frame in time. A larger graph changes in one step instead.
+const ANIMATED_ELEMENT_LIMIT = 200
+
+const ZOOM_RANGE: [number, number] = [0.22, 3.5]
+// Fitting a handful of nodes would zoom to the range limit; the fit stops where labels still read at their own size.
+const READABLE_FIT_ZOOM = 1.5
+
+export interface AnkoleGraphHandle {
+  zoomIn: () => void
+  zoomOut: () => void
+  fitView: () => void
+  focusNode: (nodeId: string) => void
+}
+
+export interface AnkoleGraphProps {
+  nodes: readonly AnkoleGraphNode[]
+  edges: readonly AnkoleGraphEdge[]
+  combos?: readonly AnkoleGraphCombo[]
+  layout?: AnkoleGraphLayoutMode
+  ariaLabel: string
+  selectedNodeId?: string | null
+  highlightedNodeId?: string | null
+  focusCenterNodeId?: string | null
+  showEdgeLabels?: boolean
+  /** Each new value fits the graph into view once it has drawn; panning and zooming afterwards stay the person's. */
+  fitKey?: string | null
+  onSelectNode?: (nodeId: string | null) => void
+  onHoverNode?: (nodeId: string | null) => void
+  onNavigateNode?: (node: AnkoleGraphNode, event: MouseEvent<HTMLAnchorElement>) => void
+  topLeftOverlay?: ReactNode
+  topRightOverlay?: ReactNode
+  rightOverlay?: ReactNode
+  bottomOverlay?: ReactNode
+  emptyState?: ReactNode
+  className?: string
+  ref?: Ref<AnkoleGraphHandle>
+}
+
+export { useCanvasThemePalette }
+
+const NO_COMBOS: readonly AnkoleGraphCombo[] = []
+
+function measureStage(stage: HTMLElement): { width: number; height: number } {
+  const rect = stage.getBoundingClientRect()
+  return { width: Math.max(320, Math.round(rect.width)), height: Math.max(260, Math.round(rect.height)) }
+}
+
+function readForcePositionSnapshot(
+  graph: Graph | null,
+  previousPositions: ReadonlyMap<string, { x: number; y: number }>
+): Map<string, { x: number; y: number }> {
+  const snapshot = new Map(previousPositions)
+  if (graph && !graph.destroyed && graph.rendered) {
+    for (const id of snapshot.keys()) {
+      if (!graph.hasNode(id)) continue
+      try {
+        const pos = graph.getElementPosition(id)
+        if (Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
+          snapshot.set(id, { x: pos[0], y: pos[1] })
+        }
+      } catch {
+        // Keep last settled position if G6 has not committed the element yet.
+      }
+    }
+  }
+  return snapshot
+}
+
+export function AnkoleGraph({
+  nodes,
+  edges,
+  combos = NO_COMBOS,
+  layout = 'force',
+  ariaLabel,
+  selectedNodeId = null,
+  highlightedNodeId = null,
+  focusCenterNodeId: requestedFocusCenterNodeId = null,
+  showEdgeLabels = false,
+  fitKey = null,
+  onSelectNode,
+  onHoverNode,
+  onNavigateNode,
+  topLeftOverlay,
+  topRightOverlay,
+  rightOverlay,
+  bottomOverlay,
+  emptyState,
+  className,
+  ref
+}: AnkoleGraphProps) {
+  const palette = useCanvasThemePalette()
+  const animated = !useReducedMotion() && nodes.length + edges.length <= ANIMATED_ELEMENT_LIMIT
+  const stageRef = useRef<HTMLDivElement | null>(null)
+  const canvasHostRef = useRef<HTMLDivElement | null>(null)
+  const anchorLayerRef = useRef<HTMLDivElement | null>(null)
+  const graphRef = useRef<Graph | null>(null)
+  // The latest render or redraw, so a focus can start after the redraw that a selection triggers.
+  const pendingDrawRef = useRef<Promise<unknown>>(Promise.resolve())
+  const fittedKeyRef = useRef<string | null>(null)
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
+
+  const [stageSize, setStageSize] = useState<{ width: number; height: number }>({ width: 960, height: 560 })
+  const [internalHoverId, setInternalHoverId] = useState<string | null>(null)
+
+  const validHoverId =
+    internalHoverId !== null && nodes.some(node => node.id === internalHoverId) ? internalHoverId : null
+  const activeNodeId = highlightedNodeId ?? validHoverId ?? selectedNodeId
+  // Only the radial layout arranges itself around a focus node. Elsewhere a new focus, such as the node a click
+  // selects, restyles the graph without laying it out again.
+  const focusCenterNodeId = layout === 'radial' ? requestedFocusCenterNodeId : null
+  const previousPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+
+  // A resize keeps the drawn node positions and only resizes the canvas, so the layout reads the stage size when
+  // the graph's structure changes and does not settle the force simulation again on every resize frame.
+  const inputs = useMemo(() => {
+    const snapshot =
+      layout === 'force' ? readForcePositionSnapshot(graphRef.current, previousPositionsRef.current) : null
+    return [nodes, edges, layout, stageSize.width, stageSize.height, focusCenterNodeId, snapshot] as const
+    // A canvas resize preserves positions until the next structural change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, edges, layout, focusCenterNodeId])
+  const large = nodes.length >= 250
+  const immediate = useMemo(() => (large ? null : computeGraphTopology(...inputs)), [inputs, large])
+  const [settled, setSettled] = useState<{ inputs: typeof inputs; topology: AnkoleGraphTopology }>()
+  useEffect(() => {
+    if (!large) return
+    const worker = new Worker(new URL('../viz/graph-layout.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (event: MessageEvent<AnkoleGraphTopology>) => setSettled({ inputs, topology: event.data })
+    worker.postMessage(inputs)
+    return () => worker.terminate()
+  }, [large, inputs])
+  const topology = immediate ?? (settled?.inputs === inputs ? settled.topology : null)
+
+  useEffect(() => {
+    if (layout !== 'force' || nodes.length === 0) {
+      previousPositionsRef.current = new Map()
+      return
+    }
+    if (topology) previousPositionsRef.current = new Map(topology.initialPositions)
+  }, [layout, nodes.length, topology])
+
+  const linkableNodes = useMemo(() => nodes.filter(node => Boolean(node.href)), [nodes])
+
+  // Places every node link over its node by writing the link's style. A pan or zoom moves all links on each
+  // frame, and keeping their positions in React state rendered every link again for each of those frames.
+  // Before the canvas has drawn, the links take the coordinates the layout computed.
+  const placeAnchors = useCallback(() => {
+    const layer = anchorLayerRef.current
+    if (!layer) return
+    const graph = graphRef.current
+    const projected =
+      topology && graph && !graph.destroyed && graph.rendered
+        ? projectGraphAnchors(graph, linkableNodes, topology.radii)
+        : null
+    linkableNodes.forEach((node, index) => {
+      const anchor = layer.children[index] as HTMLElement | undefined
+      if (!anchor) return
+      const at = projected?.get(node.id)
+      const { x, y } = at ??
+        topology?.initialPositions.get(node.id) ?? { x: stageSize.width / 2, y: stageSize.height / 2 }
+      const size = at ? at.size : Math.max(24, (topology?.radii.get(node.id) ?? 10) * 2 + 8)
+      anchor.style.left = `${Math.round(x - size / 2)}px`
+      anchor.style.top = `${Math.round(y - size / 2)}px`
+      anchor.style.width = `${size}px`
+      anchor.style.height = `${size}px`
+      anchor.style.visibility = at && !at.visible ? 'hidden' : 'visible'
+    })
+  }, [linkableNodes, topology, stageSize.width, stageSize.height])
+  useLayoutEffect(placeAnchors, [placeAnchors])
+
+  const latestSyncRef = useRef(placeAnchors)
+  latestSyncRef.current = placeAnchors
+
+  // The first render lays the graph out before it draws, and a selection redraws it; the node links show
+  // before either finishes. A viewport action waits for that render or redraw, so a click is not dropped
+  // and a redraw cannot cancel its animation.
+  const afterDraw = useCallback((action: (graph: Graph) => Promise<unknown>) => {
+    void pendingDrawRef.current
+      .then(() => {
+        const graph = graphRef.current
+        if (!graph || graph.destroyed || !graph.rendered) return
+        return action(graph).then(() => latestSyncRef.current())
+      })
+      .catch(() => {})
+  }, [])
+  const fitView = useCallback(() => {
+    afterDraw(graph => {
+      graph.setZoomRange([ZOOM_RANGE[0], READABLE_FIT_ZOOM])
+      return graph.fitView({ when: 'always', direction: 'both' }, animated ? { duration: 180 } : false).finally(() => {
+        if (!graph.destroyed) graph.setZoomRange(ZOOM_RANGE)
+      })
+    })
+  }, [afterDraw, animated])
+
+  useImperativeHandle(ref, () => {
+    return {
+      zoomIn() {
+        afterDraw(graph => graph.zoomBy(1.25, animated ? { duration: 150 } : false))
+      },
+      zoomOut() {
+        afterDraw(graph => graph.zoomBy(0.8, animated ? { duration: 150 } : false))
+      },
+      fitView,
+      focusNode(nodeId: string) {
+        // The click that focuses a node usually selects it as well, and React starts that redraw after the
+        // click handler returns, so the focus waits one task before it joins the pending redraw.
+        setTimeout(() =>
+          afterDraw(async graph => {
+            if (graph.hasNode(nodeId)) await graph.focusElement(nodeId, animated ? { duration: 200 } : false)
+          })
+        )
+      }
+    }
+  }, [afterDraw, animated, fitView])
+
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage || typeof ResizeObserver === 'undefined') return
+    const updateSize = () => {
+      const { width, height } = measureStage(stage)
+      setStageSize(prev => (prev.width === width && prev.height === height ? prev : { width, height }))
+      const graph = graphRef.current
+      if (graph && !graph.destroyed && graph.rendered) {
+        graph.setSize(width, height)
+        latestSyncRef.current()
+      }
+    }
+    updateSize()
+    const observer = new ResizeObserver(updateSize)
+    observer.observe(stage)
+    return () => observer.disconnect()
+  }, [])
+
+  const graphSpec = useMemo(
+    () =>
+      topology &&
+      buildG6GraphSpec({
+        nodes,
+        edges,
+        combos,
+        layout,
+        width: stageSize.width,
+        height: stageSize.height,
+        palette,
+        topology,
+        selectedNodeId,
+        activeNodeId,
+        focusCenterNodeId,
+        showEdgeLabels,
+        interactive: true
+      }),
+    [
+      activeNodeId,
+      combos,
+      edges,
+      focusCenterNodeId,
+      layout,
+      nodes,
+      palette,
+      selectedNodeId,
+      showEdgeLabels,
+      stageSize.height,
+      stageSize.width,
+      topology
+    ]
+  )
+
+  const structureKey = useMemo(() => {
+    const nodeKey = nodes.map(node => `${node.id}:${node.comboId ?? ''}:${node.tier ?? ''}`).join('|')
+    const edgeKey = edges.map(edge => `${edge.id}:${edge.source}->${edge.target}`).join('|')
+    const comboKey = combos.map(combo => combo.id).join('|')
+    return `${layout}::${focusCenterNodeId ?? ''}::${nodeKey}::${edgeKey}::${comboKey}`
+  }, [combos, edges, focusCenterNodeId, layout, nodes])
+
+  const prevStructureKeyRef = useRef<string>('')
+  const latestOnSelectRef = useRef(onSelectNode)
+  const latestOnHoverRef = useRef(onHoverNode)
+  const latestOnNavigateRef = useRef(onNavigateNode)
+  useEffect(() => {
+    latestOnSelectRef.current = onSelectNode
+    latestOnHoverRef.current = onHoverNode
+    latestOnNavigateRef.current = onNavigateNode
+  }, [onHoverNode, onNavigateNode, onSelectNode])
+
+  // The spotlight follows the node under the pointer once the pointer has rested: on that node before the
+  // spotlight moves there, or off every node before the spotlight clears.
+  const spotlightIdRef = useRef<string | null>(null)
+  const pointerNodeIdRef = useRef<string | null>(null)
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelHoverTimer = useCallback(() => {
+    if (hoverTimerRef.current === null) return
+    clearTimeout(hoverTimerRef.current)
+    hoverTimerRef.current = null
+  }, [])
+  const settleHover = useCallback(
+    (nodeId: string | null) => {
+      pointerNodeIdRef.current = nodeId
+      cancelHoverTimer()
+      if (spotlightIdRef.current === nodeId) return
+      hoverTimerRef.current = setTimeout(
+        () => {
+          hoverTimerRef.current = null
+          spotlightIdRef.current = nodeId
+          setInternalHoverId(nodeId)
+          latestOnHoverRef.current?.(nodeId)
+        },
+        nodeId === null ? HOVER_CLEAR_DELAY_MS : HOVER_INTENT_DELAY_MS
+      )
+    },
+    [cancelHoverTimer]
+  )
+  const enterNodeHover = settleHover
+  const leaveNodeHover = useCallback(
+    (nodeId: string) => {
+      // The canvas and the link layer report enter and leave independently, so a late leave from the
+      // previous node must not undo a newer enter.
+      if (pointerNodeIdRef.current === nodeId) settleHover(null)
+    },
+    [settleHover]
+  )
+
+  useEffect(() => {
+    const host = canvasHostRef.current
+    if (!host) return
+
+    // The size effect measured the stage before this graph existed, so the canvas starts at the stage's real size.
+    const initialSize = stageRef.current ? measureStage(stageRef.current) : stageSize
+    const graph = new Graph({
+      container: host,
+      width: initialSize.width,
+      height: initialSize.height,
+      autoResize: false,
+      animation: animated,
+      zoomRange: ZOOM_RANGE,
+      autoFit: { type: 'view', options: { when: 'overflow', direction: 'both' } },
+      padding: [36, 36, 36, 36]
+    })
+
+    const handleSync = () => latestSyncRef.current()
+    const handleNodeClick = (event: IElementEvent) => {
+      const id = event.target.id
+      if (id) latestOnSelectRef.current?.(String(id))
+    }
+    const handleNodeEnter = (event: IElementEvent) => {
+      const id = event.target.id
+      if (id) enterNodeHover(String(id))
+    }
+    const handleNodeLeave = (event: IElementEvent) => {
+      const id = event.target.id
+      if (id) leaveNodeHover(String(id))
+    }
+    const handleCanvasClick = () => {
+      latestOnSelectRef.current?.(null)
+    }
+
+    // G6 gives every canvas layer `tabindex="1"`. The canvas host is hidden from assistive technology
+    // and the node links carry keyboard access, so the canvases leave the tab order.
+    graph.on(GraphEvent.AFTER_CANVAS_INIT, () => {
+      for (const canvas of host.querySelectorAll('canvas')) canvas.tabIndex = -1
+    })
+    graph.on(GraphEvent.AFTER_RENDER, handleSync)
+    graph.on(GraphEvent.AFTER_LAYOUT, handleSync)
+    graph.on(GraphEvent.AFTER_TRANSFORM, handleSync)
+    graph.on(GraphEvent.AFTER_ELEMENT_TRANSLATE, handleSync)
+    graph.on(GraphEvent.AFTER_SIZE_CHANGE, handleSync)
+    graph.on<IElementEvent>(NodeEvent.CLICK, handleNodeClick)
+    graph.on<IElementEvent>(NodeEvent.POINTER_ENTER, handleNodeEnter)
+    graph.on<IElementEvent>(NodeEvent.POINTER_LEAVE, handleNodeLeave)
+    graph.on(CanvasEvent.CLICK, handleCanvasClick)
+
+    graphRef.current = graph
+
+    return () => {
+      cancelHoverTimer()
+      prevStructureKeyRef.current = ''
+      fittedKeyRef.current = null
+      previousPositionsRef.current = new Map()
+      graphRef.current = null
+      // A render of the destroyed graph may never settle, so the next graph starts a fresh chain.
+      pendingDrawRef.current = Promise.resolve()
+      graph.destroy()
+    }
+    // Graph lifecycle binds once to the DOM container; size, theme, layout, and data update reactively below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const graph = graphRef.current
+    if (!graph || graph.destroyed) return
+
+    if (nodes.length === 0) {
+      prevStructureKeyRef.current = structureKey
+      previousPositionsRef.current = new Map()
+      void graph.clear().catch(() => {})
+      return
+    }
+
+    if (!graphSpec) return
+    const structureChanged = prevStructureKeyRef.current !== structureKey
+    prevStructureKeyRef.current = structureKey
+
+    const commitForceSnapshot = () => {
+      if (layout === 'force' && !graph.destroyed) {
+        previousPositionsRef.current = readForcePositionSnapshot(graph, previousPositionsRef.current)
+      }
+      latestSyncRef.current()
+    }
+
+    if (structureChanged) {
+      graph.setOptions({
+        animation: animated,
+        data: graphSpec.data,
+        layout: graphSpec.layoutOptions,
+        transforms: graphSpec.transforms,
+        behaviors: graphSpec.behaviors
+      })
+      const rendered = graph.render().then(commitForceSnapshot, () => {})
+      pendingDrawRef.current = Promise.all([pendingDrawRef.current, rendered])
+    } else {
+      // Style-only change (hover spotlight, selection, edge-label toggle, or theme switch): preserve settled
+      // layout coordinates and redraw elements in place without re-running the layout. The spotlight restyles
+      // nearly every element, and the motion it would get is a stroke-color fade on the focused node, so the
+      // redraw skips animation instead of building a few hundred animations on every pointer move.
+      const preservedNodes = graphSpec.data.nodes.map(node => {
+        if (graph.rendered && graph.hasNode(node.id)) {
+          try {
+            const pos = graph.getElementPosition(node.id)
+            return {
+              ...node,
+              style: {
+                ...node.style,
+                x: pos[0],
+                y: pos[1]
+              }
+            }
+          } catch {
+            return node
+          }
+        }
+        return node
+      })
+      graph.setData({
+        nodes: preservedNodes,
+        edges: graphSpec.data.edges,
+        combos: graphSpec.data.combos
+      })
+      graph.setOptions({ animation: false })
+      const drawn = graph
+        .draw()
+        .then(commitForceSnapshot, () => {})
+        .finally(() => {
+          if (!graph.destroyed) graph.setOptions({ animation: animated })
+        })
+      // A quick redraw must not stand in for a slower render that is still running.
+      pendingDrawRef.current = Promise.all([pendingDrawRef.current, drawn])
+    }
+  }, [animated, graphSpec, layout, nodes.length, structureKey])
+
+  // This effect follows the data effect, so the fit waits for the draw of the nodes that changed the key.
+  useEffect(() => {
+    if (!fitKey || fitKey === fittedKeyRef.current) return
+    fittedKeyRef.current = fitKey
+    fitView()
+  }, [fitKey, fitView])
+
+  const forwardWheelToCanvas = useCallback((event: React.WheelEvent<HTMLAnchorElement>) => {
+    const host = canvasHostRef.current
+    if (!host) return
+    const canvas =
+      Array.from(host.querySelectorAll('canvas')).find(element => element.style.pointerEvents !== 'none') ??
+      host.querySelector('canvas')
+    if (!canvas) return
+    canvas.dispatchEvent(
+      new WheelEvent('wheel', {
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        deltaZ: event.deltaZ,
+        deltaMode: event.deltaMode,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        bubbles: true,
+        cancelable: true
+      })
+    )
+  }, [])
+
+  // The links depend only on the nodes, so a spotlight change, which re-renders this component, leaves them alone.
+  const anchorLinks = useMemo(
+    () =>
+      linkableNodes.map(node => (
+        <a
+          key={node.id}
+          href={node.href}
+          aria-label={node.label}
+          title={node.subtitle ? `${node.label} · ${node.subtitle}` : node.label}
+          onPointerDown={(event: PointerEvent<HTMLAnchorElement>) => {
+            pointerDownRef.current = { x: event.clientX, y: event.clientY }
+          }}
+          onPointerEnter={() => enterNodeHover(node.id)}
+          onPointerLeave={() => leaveNodeHover(node.id)}
+          onFocus={() => {
+            enterNodeHover(node.id)
+            latestOnSelectRef.current?.(node.id)
+          }}
+          onBlur={() => leaveNodeHover(node.id)}
+          onWheel={forwardWheelToCanvas}
+          onClick={event => {
+            const start = pointerDownRef.current
+            pointerDownRef.current = null
+            if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) {
+              event.preventDefault()
+              return
+            }
+            latestOnSelectRef.current?.(node.id)
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+              return
+            }
+            if (latestOnNavigateRef.current) {
+              event.preventDefault()
+              latestOnNavigateRef.current(node, event)
+            }
+          }}
+          className="pointer-events-auto absolute rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-page"
+        />
+      )),
+    [enterNodeHover, forwardWheelToCanvas, leaveNodeHover, linkableNodes]
+  )
+
+  return (
+    <div
+      ref={stageRef}
+      className={cn(
+        'relative isolate min-h-[520px] w-full overflow-hidden rounded-control border border-border-subtle bg-page select-none overscroll-contain',
+        className
+      )}>
+      <div role="group" aria-label={ariaLabel} className="absolute inset-0">
+        <div ref={canvasHostRef} className="absolute inset-0 touch-none" aria-hidden="true" />
+
+        {/* Synchronized semantic link layer: gives keyboard users, screen readers, and native
+            browser Cmd/Ctrl+Click actions exact accessible anchors over every navigable graph node. */}
+        <div ref={anchorLayerRef} className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
+          {anchorLinks}
+        </div>
+      </div>
+
+      {nodes.length === 0 && emptyState && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center p-6">
+          <div className="pointer-events-auto">{emptyState}</div>
+        </div>
+      )}
+
+      {topLeftOverlay && (
+        <div className="pointer-events-none absolute top-3 left-3 z-20 max-h-[calc(100%-24px)] max-w-[min(280px,calc(100%-24px))] overflow-y-auto">
+          <div className="pointer-events-auto">{topLeftOverlay}</div>
+        </div>
+      )}
+
+      {topRightOverlay && (
+        <div className="pointer-events-none absolute top-3 right-3 z-20 flex items-center gap-2">
+          <div className="pointer-events-auto">{topRightOverlay}</div>
+        </div>
+      )}
+
+      {rightOverlay && (
+        <div className="pointer-events-none absolute top-14 right-3 bottom-3 z-20 flex max-w-[min(320px,calc(100%-24px))] flex-col justify-start overflow-hidden">
+          <div className="pointer-events-auto max-h-full overflow-y-auto">{rightOverlay}</div>
+        </div>
+      )}
+
+      {bottomOverlay && (
+        <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-24px)]">
+          <div className="pointer-events-auto">{bottomOverlay}</div>
+        </div>
+      )}
+    </div>
+  )
+}

@@ -67,6 +67,11 @@ function applyRunnerSafety(config: TomlTable, hostedWebSearch: boolean): void {
   features.plugins = false
   features.remote_plugin = false
 
+  // A child thread receives the parent's dynamic tools only behind this Codex
+  // feature gate. The Ankole tools are part of the Job contract for every
+  // thread, so a workspace template cannot turn the gate off.
+  features.multi_agent_v2_dynamic_tools = true
+
   const codeMode = tableAt(features, 'code_mode')
   codeMode.enabled = true
 
@@ -76,9 +81,11 @@ function applyRunnerSafety(config: TomlTable, hostedWebSearch: boolean): void {
   // its value; Ankole only supplies the default.
   if (typeof multiAgent.enabled !== 'boolean') multiAgent.enabled = true
   multiAgent.hide_spawn_agent_metadata = true
-  // Reduce model re-entry after empty waits. See https://github.com/openai/codex/issues/35259.
   multiAgent.min_wait_timeout_ms = ms('1m')
-  multiAgent.default_wait_timeout_ms = ms('2m')
+  // A child thread runs a Job subtask, which takes minutes, not seconds. A
+  // `wait_agent` call without `timeout_ms` must cover that work, or the lead
+  // starts to redo it after the wait returns early.
+  multiAgent.default_wait_timeout_ms = ms('10m')
   delete multiAgent.max_wait_timeout_ms
 }
 

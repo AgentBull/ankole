@@ -37,7 +37,7 @@ export function SessionScreen({ invalid }: { invalid: boolean }) {
 
   return (
     <main className="ak-auth-page relative">
-      <ThemeToggle className="absolute top-4 right-4 border border-border bg-background/80 backdrop-blur" />
+      <ThemeToggle className="absolute top-4 right-4 border border-border-subtle bg-page/80 backdrop-blur" />
       <Card className="ak-auth-card">
         <CardHeader>
           <div className="ak-auth-heading">
@@ -65,14 +65,14 @@ export function SessionScreen({ invalid }: { invalid: boolean }) {
                     : t('auth.logout_description')}
                 </p>
                 {details.data?.identity ? (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-fg-secondary">
                     {t('auth.current_identity', {
                       name: details.data.identity.displayName,
                       provider: details.data.identity.providerID
                     })}
                   </p>
                 ) : (
-                  <p className="text-sm text-muted-foreground">{t('auth.no_current_identity')}</p>
+                  <p className="text-sm text-fg-secondary">{t('auth.no_current_identity')}</p>
                 )}
                 <form
                   action="/oauth/logout/confirm"

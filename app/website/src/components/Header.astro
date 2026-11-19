@@ -20,15 +20,15 @@ const docsHref = localePath(lang, 'docs')
 const docsActive = pathname.startsWith(`${base}/${lang}/docs`)
 
 const navLinkClass =
-	'inline-flex h-9 items-center px-3 text-sm text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground'
-const navLinkActiveClass = 'text-foreground'
+	'inline-flex h-9 items-center px-3 text-sm text-fg-secondary no-underline transition-colors hover:bg-layer-03 hover:text-fg-primary'
+const navLinkActiveClass = 'text-fg-primary'
 ---
 
-<header class="sticky top-0 z-40 border-b border-border bg-background">
+<header class="sticky top-0 z-40 border-b border-border-subtle bg-page">
 	<div class="mx-auto flex h-14 max-w-7xl items-center gap-2 px-4 sm:px-6">
 		<a href={localePath(lang)} class="flex shrink-0 items-center gap-2 no-underline">
 			<img src={logo.src} alt="" width="24" height="24" class="size-6" />
-			<span class="text-base font-semibold tracking-tight text-foreground">{siteTitle}</span>
+			<span class="text-base font-semibold tracking-tight text-fg-primary">{siteTitle}</span>
 		</a>
 
 		<nav class="ml-6 hidden items-center gap-1 sm:flex">
@@ -49,7 +49,7 @@ const navLinkActiveClass = 'text-foreground'
 
 			<label
 				for={mobileMenuId}
-				class="inline-flex size-9 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:hidden"
+				class="inline-flex size-9 cursor-pointer items-center justify-center text-fg-secondary transition-colors hover:bg-layer-03 hover:text-fg-primary sm:hidden"
 			>
 				<span class="sr-only">{t(lang, 'nav.menu')}</span>
 				<RiMenuLine className="size-5" aria-hidden="true" />
@@ -58,7 +58,7 @@ const navLinkActiveClass = 'text-foreground'
 	</div>
 
 	<input id={mobileMenuId} type="checkbox" class="peer sr-only" />
-	<nav class="hidden border-t border-border peer-checked:block sm:hidden">
+	<nav class="hidden border-t border-border-subtle peer-checked:block sm:hidden">
 		<div class="flex flex-col px-4 py-2">
 			<a href={docsHref} class:list={[navLinkClass, docsActive && navLinkActiveClass]}>{t(lang, 'nav.docs')}</a>
 			<a href={GITHUB_URL} target="_blank" rel="noreferrer" class={navLinkClass}>

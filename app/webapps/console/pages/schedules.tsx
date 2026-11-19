@@ -190,10 +190,10 @@ export function SchedulesListPage() {
         return (
           <TableRow key={`${row.agent_uid}:${row.id}`}>
             <TableCell className="font-mono text-xs">
-              <Link className="text-foreground hover:text-link hover:underline" to={editTo}>
+              <Link className="text-fg-primary hover:text-link hover:underline" to={editTo}>
                 {row.name || row.binding_name}
               </Link>
-              <div className="text-muted-foreground">{row.binding_name}</div>
+              <div className="text-fg-secondary">{row.binding_name}</div>
             </TableCell>
             <AgentCell uid={row.agent_uid} />
             <TableCell>
@@ -203,7 +203,7 @@ export function SchedulesListPage() {
             </TableCell>
             <TableCell className="text-xs">
               <span className="font-mono">{describeSchedule(t, row.schedule)}</span>
-              {row.timezone ? <div className="text-muted-foreground">{row.timezone}</div> : null}
+              {row.timezone ? <div className="text-fg-secondary">{row.timezone}</div> : null}
             </TableCell>
             <TableCell className="text-xs">{formatConsoleDate(row.next_fire_at)}</TableCell>
             <TableCell className="text-xs">{formatConsoleDate(row.last_fire_at)}</TableCell>
@@ -348,7 +348,7 @@ export function ScheduleCheckbacksPage() {
           </TableCell>
           <TableCell className="font-mono text-xs">{row.kind}</TableCell>
           <TableCell className="text-xs">{row.binding_name || '—'}</TableCell>
-          <TableCell className="max-w-xs truncate text-xs text-muted-foreground">
+          <TableCell className="max-w-xs truncate text-xs text-fg-secondary">
             {checkbackReason(row.wake_payload)}
           </TableCell>
           <TableCell>
@@ -369,7 +369,7 @@ export function ScheduleCheckbacksPage() {
                 }
               />
             ) : (
-              <span className="text-xs text-muted-foreground">—</span>
+              <span className="text-xs text-fg-secondary">—</span>
             )}
           </TableCell>
         </TableRow>
@@ -636,9 +636,9 @@ export function ScheduleCronEditorPage() {
             <h3 className="text-sm font-medium">{t('console.schedules.run_history')}</h3>
             <ErrorBlock error={runs.error} />
             {runs.error ? null : runRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('console.schedules.no_runs')}</p>
+              <p className="text-sm text-fg-secondary">{t('console.schedules.no_runs')}</p>
             ) : (
-              <div className="border border-border">
+              <div className="border border-border-subtle">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -733,14 +733,14 @@ export function ScheduleCronEditorPage() {
                 {bindingList.map(binding => (
                   <SelectItem key={`${binding.adapter}:${binding.name}`} value={binding.name}>
                     {binding.name}
-                    <span className="text-muted-foreground"> ({binding.adapter})</span>
+                    <span className="text-fg-secondary"> ({binding.adapter})</span>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           )}
           {!editing && agentUID && !bindings.isLoading && bindingList.length === 0 ? (
-            <p className="text-xs leading-5 text-muted-foreground">
+            <p className="text-xs leading-5 text-fg-secondary">
               {t('console.schedules.binding_empty_hint')}{' '}
               <Link
                 className="text-link underline-offset-4 hover:underline"
@@ -824,7 +824,7 @@ export function ScheduleCronEditorPage() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-medium">{t('console.schedules.delivery_targets')}</h3>
-            <p className="text-xs text-muted-foreground">{t('console.schedules.delivery_targets_hint')}</p>
+            <p className="text-xs text-fg-secondary">{t('console.schedules.delivery_targets_hint')}</p>
           </div>
           <Button type="button" size="sm" variant="outline" onClick={() => model.addDeliveryTarget()}>
             {t('console.schedules.add_delivery_target')}
@@ -832,9 +832,9 @@ export function ScheduleCronEditorPage() {
         </div>
 
         {model.deliveryTargets.value.map((target, index) => (
-          <div key={index} className="flex flex-col gap-3 border border-border p-3">
+          <div key={index} className="flex flex-col gap-3 border border-border-subtle p-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-medium text-muted-foreground">
+              <span className="text-xs font-medium text-fg-secondary">
                 {t('console.schedules.delivery_target', { number: index + 1 })}
               </span>
               {index > 0 ? (
@@ -859,7 +859,7 @@ export function ScheduleCronEditorPage() {
                       {bindingList.map(binding => (
                         <SelectItem key={`${binding.adapter}:${binding.name}`} value={binding.name}>
                           {binding.name}
-                          <span className="text-muted-foreground"> ({binding.adapter})</span>
+                          <span className="text-fg-secondary"> ({binding.adapter})</span>
                         </SelectItem>
                       ))}
                     </SelectContent>

@@ -141,7 +141,7 @@ export function OIDCClientsListPage() {
         <TableRow key={client.id}>
           <TableCell>
             <Link
-              className="font-medium text-foreground hover:text-link hover:underline"
+              className="font-medium text-fg-primary hover:text-link hover:underline"
               to={encodeURIComponent(client.id)}>
               {client.name}
             </Link>
@@ -440,10 +440,10 @@ export function OIDCClientEditorPage() {
           </LabeledField>
         </div>
 
-        <label className="flex items-center justify-between gap-4 border border-border bg-muted/30 p-4">
+        <label className="flex items-center justify-between gap-4 border border-border-subtle bg-layer-03/30 p-4">
           <span className="grid gap-1">
             <span className="text-sm font-medium">{t('console.oidc_clients.enabled')}</span>
-            <span className="text-xs leading-5 text-muted-foreground">{t('console.oidc_clients.enabled_hint')}</span>
+            <span className="text-xs leading-5 text-fg-secondary">{t('console.oidc_clients.enabled_hint')}</span>
           </span>
           <Checkbox
             checked={draft.enabled}
@@ -467,7 +467,7 @@ export function OIDCClientEditorPage() {
         <LabeledField label={t('console.oidc_clients.scopes')} description={t('console.oidc_clients.scopes_hint')}>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {supportedScopes.map(scope => (
-              <label key={scope} className="flex items-start gap-3 border border-border/70 bg-card/60 p-4">
+              <label key={scope} className="flex items-start gap-3 border border-border-subtle/70 bg-page/60 p-4">
                 <Checkbox
                   checked={draft.scopes.includes(scope)}
                   disabled={scope === 'openid'}
@@ -475,7 +475,7 @@ export function OIDCClientEditorPage() {
                 />
                 <span className="grid gap-1">
                   <code className="text-xs font-semibold">{scope}</code>
-                  <span className="text-xs leading-5 text-muted-foreground">
+                  <span className="text-xs leading-5 text-fg-secondary">
                     {t(`console.oidc_clients.scope_${scope.replace('.', '_')}`)}
                   </span>
                 </span>
@@ -509,9 +509,7 @@ export function OIDCClientEditorPage() {
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="grid gap-1">
                   <h3 className="text-sm font-medium">{t('console.oidc_clients.allowed_models')}</h3>
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t('console.oidc_clients.allowed_models_hint')}
-                  </p>
+                  <p className="text-xs leading-5 text-fg-secondary">{t('console.oidc_clients.allowed_models_hint')}</p>
                 </div>
                 <Button size="sm" type="button" onClick={addModelAlias}>
                   {t('console.oidc_clients.add_model_alias')}
@@ -581,7 +579,7 @@ export function OIDCClientEditorPage() {
               ))}
 
               {draft.modelAliases.length === 0 ? (
-                <p className="border border-dashed border-border p-4 text-sm text-muted-foreground">
+                <p className="border border-dashed border-border-subtle p-4 text-sm text-fg-secondary">
                   {t('console.oidc_clients.model_aliases_empty')}
                 </p>
               ) : null}
@@ -652,14 +650,14 @@ function AllowedGroupsPicker({
   return (
     <Combobox<GroupOption, true>
       multiple
-      filter={null}
-      inputValue={inputValue}
+      filter={false}
+      query={inputValue}
       items={visible}
       value={selected}
       isItemEqualToValue={(option, current) => option.id === current.id}
-      itemToStringLabel={option => option.label}
-      itemToStringValue={option => option.id}
-      onInputValueChange={setInputValue}
+      itemToLabel={option => option.label}
+      itemToValue={option => option.id}
+      onQueryChange={setInputValue}
       onValueChange={next => {
         onChange(next.map(option => option.id))
         setInputValue('')
@@ -670,6 +668,7 @@ function AllowedGroupsPicker({
             selectedOptions.map(option => (
               <ComboboxChip
                 key={option.id}
+                value={option}
                 removeLabel={t('console.oidc_clients.remove_group', { group: option.label })}>
                 {option.label}
               </ComboboxChip>
@@ -700,9 +699,9 @@ function AllowedGroupsPicker({
               <ComboboxItem key={option.id} value={option}>
                 <span className="grid min-w-0 gap-0.5">
                   <span className="truncate">{option.label}</span>
-                  <span className="truncate font-mono text-xs text-muted-foreground">{option.name}</span>
+                  <span className="truncate font-mono text-xs text-fg-secondary">{option.name}</span>
                   {option.description ? (
-                    <span className="line-clamp-2 text-xs leading-5 text-muted-foreground">{option.description}</span>
+                    <span className="line-clamp-2 text-xs leading-5 text-fg-secondary">{option.description}</span>
                   ) : null}
                 </span>
               </ComboboxItem>
@@ -738,7 +737,9 @@ function ClientSecretDialog({ onClose, secret }: { onClose: () => void; secret?:
           <DialogTitle>{t('console.oidc_clients.secret_title')}</DialogTitle>
           <DialogDescription>{t('console.oidc_clients.secret_description')}</DialogDescription>
         </DialogHeader>
-        <code className="border border-border bg-muted/30 p-4 font-mono text-sm break-all select-all">{secret}</code>
+        <code className="border border-border-subtle bg-layer-03/30 p-4 font-mono text-sm break-all select-all">
+          {secret}
+        </code>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => void copy()}>
             {copied ? <RiCheckLine data-icon="inline-start" /> : <RiFileCopyLine data-icon="inline-start" />}

@@ -198,7 +198,7 @@ export function SignalsListPage() {
         <TableRow key={`${binding.agent_uid}:${binding.adapter}:${binding.name}`}>
           <TableCell className="font-mono text-xs">
             <Link
-              className="text-foreground hover:text-link hover:underline"
+              className="text-fg-primary hover:text-link hover:underline"
               to={editTo(binding.agent_uid, binding.adapter, binding.name, scope.agentUID)}>
               {binding.name}
             </Link>
@@ -276,11 +276,11 @@ function StoppedDeliveries({
         <h2 id="stopped-deliveries-title" className="text-base font-semibold">
           {t('console.signals.stopped_deliveries')}
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">{t('console.signals.stopped_deliveries_description')}</p>
+        <p className="mt-1 text-sm text-fg-secondary">{t('console.signals.stopped_deliveries_description')}</p>
       </div>
       <Table
         className="min-w-[800px]"
-        containerClassName="border border-border bg-card"
+        containerClassName="border border-border-subtle bg-page"
         containerLabel={t('console.signals.stopped_deliveries')}>
         <TableHeader>
           <TableRow>
@@ -323,7 +323,7 @@ function StoppedDeliveries({
                     {t('common.retry')}
                   </Button>
                 ) : (
-                  <span className="text-xs text-muted-foreground">{t('console.signals.delivery_retry_unsafe')}</span>
+                  <span className="text-xs text-fg-secondary">{t('console.signals.delivery_retry_unsafe')}</span>
                 )}
               </TableCell>
             </TableRow>

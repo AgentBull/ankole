@@ -127,7 +127,7 @@ export class BrowserSession {
       case 'scrollintoview':
       case 'drag':
       case 'upload':
-        return await this.action(command)
+        return await this.action(command, deadline)
       case 'get':
         return await this.get(command.args)
       case 'is':
@@ -175,7 +175,7 @@ export class BrowserSession {
     return { url: page.url(), title: this.registry.cachedTitle() }
   }
 
-  private async action(command: PointerActionCommand): Promise<Record<string, unknown>> {
+  private async action(command: PointerActionCommand, deadline: number): Promise<Record<string, unknown>> {
     const page = this.registry.currentPage()
     this.guard.assertRendererAvailable(command.name)
     if (command.name === 'press') {
@@ -220,9 +220,7 @@ export class BrowserSession {
             await locator.pressSequentially(command.args.text)
             break
           case 'select':
-            await locator.selectOption({ label: command.args.value }).catch(async () => {
-              await locator.selectOption(command.args.value)
-            })
+            await selectByLabelOrValue(locator, command.args.value, deadline)
             break
           case 'check':
             await locator.check()
@@ -433,7 +431,7 @@ export class BrowserSession {
               warnings: []
             }
           } catch (error) {
-            const failure = renderedFetchFailure(error)
+            const failure = browserError(error)
             results[index] = {
               url: value,
               error: failure.message,
@@ -491,7 +489,7 @@ export class BrowserSession {
         ? resolve(value)
         : resolve(this.material.artifact_root, value.replace(/^browser\/?/, ''))
       : resolve(this.material.artifact_root, `screenshots/${new Date().toISOString().replace(/[:.]/g, '-')}.png`)
-    assertInside(this.material.artifact_root, path)
+    assertInside(this.material.artifact_root, path, 'browser artifact root')
     return path
   }
 
@@ -502,7 +500,7 @@ export class BrowserSession {
   private workspacePath(value: string): string {
     const workspaceRoot = resolve(dirname(this.material.artifact_root))
     const path = isAbsolute(value) ? resolve(value) : resolve(workspaceRoot, value)
-    assertInside(workspaceRoot, path)
+    assertInside(workspaceRoot, path, 'Agent workspace')
     return path
   }
 
@@ -547,13 +545,6 @@ const RenderedFetchStableWindowMs = 600
 const RenderedFetchMaximumSettleMs = 3_000
 const RenderedFetchSampleIntervalMs = 200
 
-function renderedFetchFailure(error: unknown): ReturnType<typeof browserError> {
-  if (error instanceof Error && error.name === 'TimeoutError') {
-    return { code: 'timeout', message: error.message, retryable: true, details: {} }
-  }
-  return browserError(error)
-}
-
 async function waitForReadableText(page: Page, deadline: number): Promise<string> {
   const startedAt = Date.now()
   const settleDeadline = Math.min(deadline, startedAt + RenderedFetchMaximumSettleMs)
@@ -590,9 +581,37 @@ function unsupportedCommand(command: never): never {
   throw new BrowserDataError('invalid_command', `unsupported browser command: ${name}`)
 }
 
-function assertInside(root: string, path: string): void {
+function assertInside(root: string, path: string, boundary: string): void {
   const child = relative(resolve(root), resolve(path))
   if (child === '..' || child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(child)) {
-    throw new BrowserDataError('invalid_command', 'artifact path must stay inside browser artifact root')
+    throw new BrowserDataError('invalid_command', `file path must stay inside ${boundary}`)
   }
+}
+
+async function selectByLabelOrValue(locator: Locator, value: string, deadline: number): Promise<void> {
+  while (Date.now() < deadline) {
+    const match = await locator.evaluateHandle(
+      (element, value) => {
+        const select = element instanceof HTMLSelectElement ? element : element.closest('label')?.control
+        if (!(select instanceof HTMLSelectElement)) throw new Error('Expected a select control')
+        const options = Array.from(select.options)
+        return options.find(option => option.label === value) ?? options.find(option => option.value === value) ?? null
+      },
+      value,
+      { timeout: Math.max(1, deadline - Date.now()) }
+    )
+    try {
+      const option = match.asElement()
+      if (option) {
+        await locator.selectOption(option, { timeout: Math.max(1, deadline - Date.now()) })
+        return
+      }
+    } finally {
+      await match.dispose()
+    }
+    await Bun.sleep(Math.min(100, Math.max(0, deadline - Date.now())))
+  }
+  throw new BrowserDataError('timeout', 'select option was unavailable before the command deadline', {
+    retryable: true
+  })
 }

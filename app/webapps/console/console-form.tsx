@@ -152,7 +152,7 @@ export function ResourceEditorPage({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="grid gap-1">
             <h2 className="text-2xl font-semibold tracking-normal">{title}</h2>
-            {description ? <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
+            {description ? <p className="max-w-2xl text-sm leading-6 text-fg-secondary">{description}</p> : null}
           </div>
           {secondary}
         </div>
@@ -178,7 +178,7 @@ export function ResourceEditorPage({
             <ErrorBlock error={error} />
           </div>
         ) : null}
-        <div className="grid gap-5 border border-border bg-card p-5 md:p-6">
+        <div className="grid gap-5 border border-border-subtle bg-page p-5 md:p-6">
           {readOnly ? (
             <fieldset className="contents" disabled>
               {children}
@@ -188,7 +188,7 @@ export function ResourceEditorPage({
           )}
         </div>
         {readOnly ? null : (
-          <div className="sticky bottom-0 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-background/95 py-4 backdrop-blur">
+          <div className="sticky bottom-0 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border-subtle bg-page/95 py-4 backdrop-blur">
             <SaveButton
               aria-describedby={disabledReason ? disabledReasonID : undefined}
               disabled={saveDisabled}
@@ -199,13 +199,10 @@ export function ResourceEditorPage({
               {submitLabel ?? t('common.save')}
             </SaveButton>
             {dirty && !submitting ? (
-              <span className="text-xs text-muted-foreground">{t('common.unsaved_changes')}</span>
+              <span className="text-xs text-fg-secondary">{t('common.unsaved_changes')}</span>
             ) : null}
             {disabledReason ? (
-              <p
-                id={disabledReasonID}
-                className="basis-full text-xs leading-5 text-muted-foreground"
-                aria-live="polite">
+              <p id={disabledReasonID} className="basis-full text-xs leading-5 text-fg-secondary" aria-live="polite">
                 {disabledReason}
               </p>
             ) : null}
@@ -368,7 +365,7 @@ export function SaveButton({
 
   return (
     <Button
-      className={cn(disabled && !loading && 'disabled:bg-muted disabled:text-muted-foreground', className)}
+      className={cn(disabled && !loading && 'disabled:bg-layer-03 disabled:text-fg-secondary', className)}
       disabled={loading || disabled}
       size={size}
       {...props}>
@@ -392,12 +389,14 @@ export function FormSection({
   const titleID = useId()
 
   return (
-    <section className="grid gap-4 border-t border-border pt-5 first:border-t-0 first:pt-0" aria-labelledby={titleID}>
+    <section
+      className="grid gap-4 border-t border-border-subtle pt-5 first:border-t-0 first:pt-0"
+      aria-labelledby={titleID}>
       <div className="grid gap-1">
-        <h3 id={titleID} className="text-sm font-semibold text-foreground">
+        <h3 id={titleID} className="text-sm font-semibold text-fg-primary">
           {title}
         </h3>
-        {description ? <p className="text-xs leading-5 text-muted-foreground">{description}</p> : null}
+        {description ? <p className="text-xs leading-5 text-fg-secondary">{description}</p> : null}
       </div>
       {children}
     </section>
@@ -467,12 +466,15 @@ export function LabeledField({
     // a composite control such as Select renders for form participation. Blur
     // re-evaluates the control so a field the user leaves incomplete says so
     // at once, with a trim check because native `required` accepts blanks.
-    // Any interaction clears the message until the next blur or submit.
+    // Any interaction clears the message until the next blur or submit. Input
+    // clears it in the bubble phase: React renders a capture-phase state update
+    // before the control's own `onChange` runs, which writes the old controlled
+    // value over text that arrived without a key press, such as a paste.
     <Field
       data-invalid={shownError ? true : undefined}
       onChangeCapture={clearNativeInvalid}
       onClickCapture={clearNativeInvalid}
-      onInputCapture={clearNativeInvalid}
+      onInput={clearNativeInvalid}
       onKeyDownCapture={clearNativeInvalid}
       onBlurCapture={event => {
         const control = event.target
@@ -495,7 +497,7 @@ export function LabeledField({
           mostly optional fields, so the few required ones say the word. */}
       <FieldLabel htmlFor={controlID}>
         {label}
-        {required ? <span className="ml-1 font-normal text-muted-foreground">{t('common.required')}</span> : null}
+        {required ? <span className="ml-1 font-normal text-fg-secondary">{t('common.required')}</span> : null}
       </FieldLabel>
       {adoptable
         ? childList.map(node =>
@@ -520,7 +522,7 @@ export function ReadOnlyValue({ children, mono = false }: { children: ReactNode;
   return (
     <div
       className={cn(
-        'flex min-h-10 cursor-default items-center border-b border-input bg-muted px-4 py-2 text-sm leading-5 text-muted-foreground',
+        'flex min-h-10 cursor-default items-center border-b border-field-border bg-layer-03 px-4 py-2 text-sm leading-5 text-fg-secondary',
         mono && 'font-mono text-xs leading-5'
       )}>
       {children === null || children === undefined || children === '' ? '—' : children}

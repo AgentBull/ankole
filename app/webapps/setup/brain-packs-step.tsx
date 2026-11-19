@@ -40,7 +40,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
 
   return (
     <SetupPanel title={t('setup.choose_industry')}>
-      <p className="text-sm leading-6 text-muted-foreground">{t('setup.industry_intro')}</p>
+      <p className="text-sm leading-6 text-fg-secondary">{t('setup.industry_intro')}</p>
       <ErrorBlock error={query.error ?? mutation.error} />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         {(query.data?.packs ?? []).map(pack => {
@@ -49,7 +49,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
           return (
             <label
               key={pack.name}
-              className={`flex items-start gap-3 border border-border/70 bg-card/60 px-4 py-4 ${
+              className={`flex items-start gap-3 border border-border-subtle/70 bg-page/60 px-4 py-4 ${
                 pack.required ? 'opacity-80' : ''
               }`}>
               <Checkbox
@@ -60,15 +60,13 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
               <span className="grid min-w-0 flex-1 gap-2">
                 <span className="flex flex-wrap items-center gap-2 text-sm font-semibold leading-5">
                   <span className="break-words">{pack.name}</span>
-                  {pack.version ? (
-                    <span className="font-mono text-xs text-muted-foreground">{pack.version}</span>
-                  ) : null}
+                  {pack.version ? <span className="font-mono text-xs text-fg-secondary">{pack.version}</span> : null}
                   {pack.required ? (
-                    <span className="text-xs font-normal text-muted-foreground">{t('setup.pack_always_included')}</span>
+                    <span className="text-xs font-normal text-fg-secondary">{t('setup.pack_always_included')}</span>
                   ) : null}
                 </span>
                 {pack.description ? (
-                  <span className="whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+                  <span className="whitespace-pre-wrap break-words text-xs leading-5 text-fg-secondary">
                     {pack.description}
                   </span>
                 ) : null}
@@ -77,7 +75,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
           )
         })}
       </div>
-      <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
+      <div className="flex flex-wrap items-center gap-3 border-t border-border-subtle/70 pt-5">
         <Button disabled={!query.data || mutation.isPending} onClick={() => mutation.mutate()} type="button">
           {t('setup.save_industry')}
           <RiArrowRightSLine data-icon="inline-end" />

@@ -113,7 +113,7 @@ export function PrincipalsListPage() {
         <TableRow key={principal.uid}>
           <TableCell>
             <Link
-              className="flex items-center gap-2 text-foreground hover:text-link hover:underline"
+              className="flex items-center gap-2 text-fg-primary hover:text-link hover:underline"
               to={encodeURIComponent(principal.uid)}>
               <PrincipalAvatar principal={principal} />
               <span className="truncate">{principal.display_name ?? principal.uid}</span>
@@ -150,15 +150,15 @@ export function PrincipalDetailPage() {
     <PageStack className="mx-auto max-w-4xl">
       <div className="grid gap-3">
         <BackLink to="/access/principals" />
-        <div className="flex flex-wrap items-center gap-4 border-b border-border pb-5">
+        <div className="flex flex-wrap items-center gap-4 border-b border-border-subtle pb-5">
           {loadedPrincipal ? <PrincipalAvatar principal={loadedPrincipal} size="lg" /> : null}
           <div className="grid min-w-0 gap-1">
-            <h2 className="truncate text-2xl font-semibold tracking-normal text-foreground">
+            <h2 className="truncate text-2xl font-semibold tracking-normal text-fg-primary">
               {loadedPrincipal?.display_name ?? uid}
             </h2>
-            <p className="truncate font-mono text-xs text-muted-foreground">{uid}</p>
+            <p className="truncate font-mono text-xs text-fg-secondary">{uid}</p>
             {loadedPrincipal?.email ? (
-              <p className="truncate text-sm text-muted-foreground">{loadedPrincipal.email}</p>
+              <p className="truncate text-sm text-fg-secondary">{loadedPrincipal.email}</p>
             ) : null}
           </div>
           {loadedPrincipal ? (
@@ -227,7 +227,7 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
     <section className="grid gap-4">
       <div className="grid gap-1">
         <h3 className="text-lg font-semibold tracking-normal">{t('console.principals.groups_section_title')}</h3>
-        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+        <p className="max-w-2xl text-sm leading-6 text-fg-secondary">
           {t('console.principals.groups_section_description')}
         </p>
       </div>
@@ -247,11 +247,11 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
       />
       <ErrorBlock error={groups.error} />
       {!groups.error && !groups.isLoading && memberships.length === 0 ? (
-        <p className="border border-border bg-card p-6 text-sm text-muted-foreground">
+        <p className="border border-border-subtle bg-page p-6 text-sm text-fg-secondary">
           {t('console.principals.groups_empty')}
         </p>
       ) : !groups.error ? (
-        <div className="overflow-x-auto border border-border bg-card">
+        <div className="overflow-x-auto border border-border-subtle bg-page">
           <Table className="min-w-[560px]" aria-busy={groups.isLoading}>
             <TableHeader>
               <TableRow>
@@ -279,13 +279,11 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
                     <TableRow key={group.id}>
                       <TableCell>
                         <Link
-                          className="font-mono text-xs text-foreground hover:text-link hover:underline"
+                          className="font-mono text-xs text-fg-primary hover:text-link hover:underline"
                           to={`/access/groups/${encodeURIComponent(group.name)}`}>
                           {group.name}
                         </Link>
-                        <span className="ml-2 text-sm text-muted-foreground">
-                          {principalGroupDisplayName(t, group)}
-                        </span>
+                        <span className="ml-2 text-sm text-fg-secondary">{principalGroupDisplayName(t, group)}</span>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-1">

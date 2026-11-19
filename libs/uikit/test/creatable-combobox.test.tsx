@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { CreatableCombobox, filterCreatableComboboxOptions } from '../src/components/creatable-combobox'
+import {
+  CreatableCombobox,
+  filterCreatableComboboxOptions,
+  hasHighlightedComboboxOption,
+  resolveCreatableComboboxBlur,
+  shouldCommitCreatableComboboxEnter
+} from '../src/components/creatable-combobox'
 
 describe('CreatableCombobox', () => {
   test('renders an empty value as no selection', () => {
@@ -40,6 +46,23 @@ describe('CreatableCombobox', () => {
     expect(html).toContain('data-slot="combobox-clear"')
   })
 
+  test('disables the combobox input and trigger when disabled is true', () => {
+    const html = renderToStaticMarkup(
+      <CreatableCombobox
+        disabled
+        value=""
+        options={[{ value: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' }]}
+        placeholder="Select a provider first"
+        onValueChange={() => {}}
+      />
+    )
+
+    const inputTag = html.match(/<input[^>]*role="combobox"[^>]*>/)?.[0]
+    const triggerTag = html.match(/<button[^>]*aria-label="Open options"[^>]*>/)?.[0]
+    expect(inputTag).toContain('disabled=""')
+    expect(triggerTag).toContain('disabled=""')
+  })
+
   test('treats the selected label as display text instead of an active filter', () => {
     const options = [
       { value: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' },
@@ -48,6 +71,103 @@ describe('CreatableCombobox', () => {
 
     expect(filterCreatableComboboxOptions(options, 'GPT-5.6-Sol', options[0])).toEqual(options)
     expect(filterCreatableComboboxOptions(options, '5.5', options[0])).toEqual([options[1]])
+  })
+
+  test('detects when a popup option is highlighted so Enter does not intercept option selection', () => {
+    const highlightedItem = {
+      hasAttribute: (name: string) => name === 'data-highlighted',
+      querySelector: () => null
+    }
+    const listboxWithHighlight = {
+      hasAttribute: () => false,
+      querySelector: (selector: string) => (selector === '[data-highlighted]' ? highlightedItem : null)
+    }
+
+    expect(
+      hasHighlightedComboboxOption({
+        getAttribute: name => (name === 'aria-activedescendant' ? 'opt-1' : null),
+        ownerDocument: { getElementById: id => (id === 'opt-1' ? highlightedItem : null) }
+      })
+    ).toBe(true)
+
+    expect(
+      hasHighlightedComboboxOption({
+        getAttribute: name => (name === 'aria-controls' ? 'listbox-1' : null),
+        ownerDocument: { getElementById: id => (id === 'listbox-1' ? listboxWithHighlight : null) }
+      })
+    ).toBe(true)
+
+    expect(
+      hasHighlightedComboboxOption({
+        getAttribute: () => null,
+        ownerDocument: { getElementById: () => null }
+      })
+    ).toBe(false)
+  })
+
+  test('ignores IME-confirming Enter including Safari keyCode 229 ordering', () => {
+    const idleInput = {
+      getAttribute: () => null,
+      ownerDocument: { getElementById: () => null }
+    }
+
+    expect(
+      shouldCommitCreatableComboboxEnter({
+        key: 'Enter',
+        defaultPrevented: false,
+        nativeEvent: { isComposing: true, keyCode: 13 },
+        currentTarget: idleInput
+      })
+    ).toBe(false)
+
+    expect(
+      shouldCommitCreatableComboboxEnter({
+        key: 'Enter',
+        defaultPrevented: false,
+        nativeEvent: { isComposing: false, keyCode: 229 },
+        currentTarget: idleInput
+      })
+    ).toBe(false)
+
+    expect(
+      shouldCommitCreatableComboboxEnter({
+        key: 'Enter',
+        defaultPrevented: false,
+        nativeEvent: { isComposing: false, keyCode: 13 },
+        currentTarget: idleInput
+      })
+    ).toBe(true)
+  })
+
+  test('syncs cleared input on blur and restores display text cleanly', () => {
+    const options = [{ value: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' }]
+
+    expect(
+      resolveCreatableComboboxBlur({
+        currentValue: 'gpt-5.6-sol',
+        inputValue: '   ',
+        options,
+        selected: options[0]!
+      })
+    ).toEqual({ inputValue: 'GPT-5.6-Sol', nextValue: '' })
+
+    expect(
+      resolveCreatableComboboxBlur({
+        currentValue: '',
+        inputValue: '   ',
+        options,
+        selected: null
+      })
+    ).toEqual({ inputValue: '', nextValue: undefined })
+
+    expect(
+      resolveCreatableComboboxBlur({
+        currentValue: 'gpt-5.6-sol',
+        inputValue: '  gpt-5.6-sol  ',
+        options,
+        selected: options[0]!
+      })
+    ).toEqual({ inputValue: 'GPT-5.6-Sol', nextValue: undefined })
   })
 })
 

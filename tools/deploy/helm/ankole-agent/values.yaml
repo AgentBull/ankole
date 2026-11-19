@@ -118,6 +118,7 @@ postgresql:
     database: ankole
   port: 5432
   maxConnections: 300
+  sharedMemorySize: 1Gi
   persistence:
     enabled: true
     existingClaim: ""

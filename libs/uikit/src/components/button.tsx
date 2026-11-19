@@ -1,35 +1,58 @@
-import { Button as ButtonPrimitive } from '@base-ui/react/button'
+import { Button as ButtonPrimitive } from '@ui-sdk/react/button'
+import { renderElement } from '@ui-sdk/react/primitive'
 import { cva, type VariantProps } from 'class-variance-authority'
+import { Children, isValidElement, type ComponentProps, type MouseEvent, type ReactNode } from 'react'
 
 import { cn } from '@ankole/uikit/lib/utils'
+import { Spinner } from './spinner'
 
-const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-none border border-transparent bg-clip-padding text-xs font-semibold tracking-widest whitespace-nowrap uppercase transition-[background-color,border-color,color,box-shadow,transform] outline-none select-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+const buttonVariantClasses = cva(
+  "group/button inline-flex shrink-0 items-center justify-center gap-2 rounded-control border border-transparent bg-clip-padding text-65 leading-none font-medium whitespace-nowrap transition-[background-color,border-color,color] duration-(--duration-feedback) ease-productive select-none focus-visible:outline-offset-1 disabled:pointer-events-none aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:bg-primary/80',
+        // The one solid button of a view: a flat brand-60 fill. Disabled, it keeps a faint brand fill so it still reads
+        // as the primary action that cannot be pressed now.
+        default:
+          'border-primary bg-primary text-primary-fg hover:border-primary-hover hover:bg-primary-hover active:border-primary-active active:bg-primary-active disabled:border-primary-disabled disabled:bg-primary-disabled disabled:text-primary-disabled-fg',
+        // The normal button is a paper object inside one even edge. Pressed, it sinks into a slot. Disabled, it keeps
+        // its outline and drops its fill, so it still reads as a button rather than an empty field.
         outline:
-          'border-border bg-transparent hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-input/30',
-        secondary:
-          'bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground',
+          'border-control-edge bg-control text-fg-primary hover:bg-control-hover active:bg-field aria-expanded:bg-field disabled:border-border-subtle disabled:bg-transparent disabled:text-fg-disabled',
         ghost:
-          'hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50',
+          'text-fg-secondary hover:bg-layer-hover hover:text-fg-primary active:bg-layer-pressed aria-expanded:bg-layer-hover aria-expanded:text-fg-primary disabled:text-fg-disabled',
+        // The confirmation of an action that cannot be undone: a flat destructive fill that darkens like the primary
+        // button under the pointer and when pressed.
         destructive:
-          'bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40',
-        link: 'text-primary underline underline-offset-4 hover:underline'
+          'border-destructive-solid bg-destructive-solid text-white hover:border-destructive-solid-hover hover:bg-destructive-solid-hover active:border-destructive-solid-active active:bg-destructive-solid-active disabled:border-border-subtle disabled:bg-transparent disabled:text-fg-disabled',
+        link: 'link border-0 disabled:text-fg-disabled disabled:decoration-border-subtle'
       },
       size: {
-        default: 'h-10 gap-1.5 px-6 has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4',
-        xs: "h-7 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3",
-        sm: 'h-9 gap-1 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3',
-        lg: 'h-11 gap-1.5 px-8 has-data-[icon=inline-end]:pr-5 has-data-[icon=inline-start]:pl-5',
-        icon: 'size-10',
-        'icon-xs': "size-7 [&_svg:not([class*='size-'])]:size-3",
-        'icon-sm': 'size-9',
-        'icon-lg': 'size-11'
+        // 32px by default, 28px in rows, 24px inside another control. A shell toolbar, such as the top bar or the
+        // composer's tools, takes 32px controls: an icon button that centres a 20px icon in a 24px box, and a
+        // label of 12px text with a 12px arrow. The action row under content, such as a chat message's, takes the same
+        // 32px icon buttons. `icon-lg` keeps its name for the shell toolbar and draws the same button as `icon-md`.
+        default: 'h-control-md px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5',
+        sm: 'h-control-sm gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
+        xs: "h-control-xs gap-1 px-2 text-50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        icon: 'size-control-md',
+        'icon-md': "size-control-md p-0.75 [&_svg:not([class*='size-'])]:size-5",
+        'icon-sm': 'size-control-sm',
+        'icon-xs': "size-control-xs [&_svg:not([class*='size-'])]:size-3.5",
+        'icon-lg': "size-control-md p-0.75 [&_svg:not([class*='size-'])]:size-5",
+        toolbar: "h-control-md gap-1 px-1.75 py-0.75 text-50 font-normal [&_svg:not([class*='size-'])]:size-3"
       }
     },
+    compoundVariants: [
+      // A ghost toolbar or action-row control tints a 24px box around its icon or label. The fill clips to the
+      // content box, 4px inside the button's top and bottom edges (its 1px border and 3px of padding), and the outer
+      // radius adds those 4px, so the tinted box keeps the control radius.
+      {
+        variant: 'ghost',
+        size: ['icon-lg', 'icon-md', 'toolbar'],
+        className: 'bg-clip-content rounded-[calc(var(--radius-control)+var(--spacing))]'
+      }
+    ],
     defaultVariants: {
       variant: 'default',
       size: 'default'
@@ -37,25 +60,116 @@ const buttonVariants = cva(
   }
 )
 
+/**
+ * The classes of a button, for an element that looks like one, such as a link. A size or variant that replaces a
+ * base class, like the toolbar sizes' content-box fill and radius or their 12px label, removes the base class from
+ * the result, so a caller that styles its own element gets the same button as `Button`.
+ */
+function buttonVariants(props?: Parameters<typeof buttonVariantClasses>[0]) {
+  return cn(buttonVariantClasses(props))
+}
+
+/** An icon child: an element with no content of its own that the caller hid from assistive technology. */
+function isIcon(child: ReactNode, loading: boolean) {
+  if (!isValidElement<Record<string, unknown>>(child) || child.props.children != null) return false
+  const hidden = child.props['aria-hidden']
+  return loading || hidden === true || hidden === 'true' || child.props['data-icon'] !== undefined
+}
+
+// What ui-sdk's agent bridge tells a person about a destructive button, so the step waits for their approval.
+const destructiveAgentConfirm = 'Makes a change that cannot be undone.'
+
+function ignoreClick(event: MouseEvent) {
+  event.preventDefault()
+}
+
+/**
+ * The action control.
+ *
+ * `loading` marks an action that is running: the button reports `aria-busy`, ignores clicks, and stays focusable,
+ * so keyboard focus does not jump while the work finishes. A busy button keeps its width: a leading icon turns
+ * into the spinner, a text label shimmers, and nothing is added beside them. Setting `aria-busy` alone gives the
+ * same look and leaves click handling to the caller.
+ *
+ * A destructive button carries `data-agent-confirm`, so an Agent's press waits for the person. A caller can pass its
+ * own sentence, or `false` to let Agents press it without asking.
+ */
 function Button({
   className,
+  children,
+  'aria-busy': busy,
+  'data-slot': slot = 'button',
+  loading = false,
   incomplete = false,
   variant = 'default',
   size = 'default',
+  'data-agent-confirm': agentConfirm = variant === 'destructive' && destructiveAgentConfirm,
+  onClick,
+  render,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { incomplete?: boolean }) {
+}: Omit<ComponentProps<typeof ButtonPrimitive>, 'children'> &
+  VariantProps<typeof buttonVariants> & {
+    children?: ReactNode
+    'data-agent-confirm'?: string | false
+    'data-slot'?: string
+    incomplete?: boolean
+    loading?: boolean
+  }) {
+  const isBusy = loading || busy === true || busy === 'true'
+  const items = isBusy ? Children.toArray(children) : []
+  const firstText = items.findIndex(child => typeof child === 'string' && child.trim())
+  const firstIcon = items.findIndex(child => isIcon(child, loading))
+  const spinnerAt = firstIcon !== -1 && (firstText === -1 || firstIcon < firstText) ? firstIcon : -1
+
   return (
     <ButtonPrimitive
+      aria-busy={loading ? true : busy}
+      data-agent-confirm={agentConfirm === false ? undefined : agentConfirm}
       data-incomplete={incomplete || undefined}
-      data-slot="button"
+      data-loading={loading || undefined}
+      onClick={loading ? ignoreClick : onClick}
+      // ui-sdk names every button `data-slot="button"`. A caller's own slot, such as a popup trigger's or an input
+      // group's send button, replaces that name, so the styles keyed on the caller's slot still find the element.
+      render={(part, state) => renderElement('button', { ...part, 'data-slot': slot }, render, state)}
       className={cn(
         buttonVariants({ variant, size }),
-        incomplete && 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-muted-foreground',
+        'motion-safe:button-press',
+        incomplete &&
+          'border-border-subtle border-b-border-subtle bg-layer-03 text-fg-secondary hover:border-border-subtle hover:bg-layer-03/80 hover:text-fg-secondary',
         className
       )}
-      {...props}
-    />
+      {...props}>
+      {isBusy
+        ? items.map((child, index) =>
+            index === spinnerAt && isValidElement<{ className?: string; 'data-icon'?: string }>(child) ? (
+              // The button already reports `aria-busy`, so its spinner is decoration and not a second status.
+              <Spinner
+                key="spinner"
+                aria-hidden
+                aria-label={undefined}
+                role="presentation"
+                className={child.props.className}
+                data-icon={child.props['data-icon']}
+              />
+            ) : typeof child === 'string' && child.trim() ? (
+              <span
+                key={index}
+                data-busy-label={child}
+                className={cn(
+                  "relative motion-safe:text-current/55 group-disabled/button:text-current group-aria-disabled/button:text-current forced-colors:text-current motion-safe:after:pointer-events-none motion-safe:after:absolute motion-safe:after:inset-0 motion-safe:after:bg-[linear-gradient(90deg,transparent_38%,var(--button-shine)_50%,transparent_62%)] motion-safe:after:bg-size-[300%_100%] motion-safe:after:bg-position-[100%_0] motion-safe:after:bg-clip-text motion-safe:after:bg-no-repeat motion-safe:after:text-transparent motion-safe:after:animate-button-shimmer motion-safe:after:content-[attr(data-busy-label)/''] forced-colors:after:hidden",
+                  variant === 'default'
+                    ? '[--button-shine:rgb(255_255_255/0.95)]'
+                    : '[--button-shine:rgb(255_255_255/0.82)]'
+                )}>
+                {child}
+              </span>
+            ) : (
+              child
+            )
+          )
+        : children}
+    </ButtonPrimitive>
   )
 }
 
-export { Button, buttonVariants }
+export { Button, buttonVariants, destructiveAgentConfirm }

@@ -111,16 +111,16 @@ export function WorkersListPage() {
           <TableCell className="font-mono text-xs">
             <Link
               to={`${encodeURIComponent(worker.worker_id)}/files`}
-              className="text-foreground hover:text-link hover:underline">
+              className="text-fg-primary hover:text-link hover:underline">
               {worker.worker_id}
             </Link>
           </TableCell>
           <TableCell>
             <StatusIndicator tone={statusTone(worker.status)}>{t(`console.status.${worker.status}`)}</StatusIndicator>
           </TableCell>
-          <TableCell className="text-xs text-muted-foreground">{worker.version}</TableCell>
+          <TableCell className="text-xs text-fg-secondary">{worker.version}</TableCell>
           <TableCell>{formatLoad(worker)}</TableCell>
-          <TableCell className="text-xs text-muted-foreground">
+          <TableCell className="text-xs text-fg-secondary">
             {formatConsoleDate(worker.last_worker_heartbeat_at)}
           </TableCell>
           <RowViewAction
@@ -149,8 +149,8 @@ function WorkerStartGuide({ documentationLocale }: { documentationLocale?: strin
         target="_blank">
         {t('console.workers.deployment_guide')}
       </a>
-      <p className="text-pretty text-xs text-muted-foreground">{t('console.workers.deployment_options')}</p>
-      <p className="text-pretty text-xs text-muted-foreground">{t('console.workers.ready_hint')}</p>
+      <p className="text-pretty text-xs text-fg-secondary">{t('console.workers.deployment_options')}</p>
+      <p className="text-pretty text-xs text-fg-secondary">{t('console.workers.ready_hint')}</p>
     </div>
   )
 }
@@ -316,7 +316,7 @@ export function WorkerFilesPage() {
         value={query}
         onChange={setQuery}
       />
-      {truncated ? <p className="text-xs text-muted-foreground">{t('console.worker_files.truncated')}</p> : null}
+      {truncated ? <p className="text-xs text-fg-secondary">{t('console.worker_files.truncated')}</p> : null}
     </div>
   )
 
@@ -405,27 +405,27 @@ function Breadcrumbs({
   return (
     <nav aria-label={t('console.worker_files.breadcrumbs')} className="flex flex-wrap items-center gap-1 text-sm">
       <AgentSelect agents={agents} value={agentUID} onValueChange={onAgentChange} t={t} />
-      <span className="text-muted-foreground">/</span>
+      <span className="text-fg-secondary">/</span>
       <RootSelect root={root} onRootChange={onRootChange} t={t} />
       {segments.length === 0 ? null : (
         <>
-          <span className="text-muted-foreground">/</span>
+          <span className="text-fg-secondary">/</span>
           {segments.map((segment, index) => {
             const prefix = [rootPath, ...segments.slice(0, index + 1)].join('/')
             const isLast = index === segments.length - 1
             return (
               <span key={prefix} className="flex items-center gap-1">
                 {isLast ? (
-                  <span className="text-foreground">{segment}</span>
+                  <span className="text-fg-primary">{segment}</span>
                 ) : (
                   <button
                     type="button"
-                    className="text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+                    className="text-fg-secondary outline-none hover:text-fg-primary focus-visible:ring-2 focus-visible:ring-ring/40"
                     onClick={() => onNavigate(prefix)}>
                     {segment}
                   </button>
                 )}
-                {!isLast ? <span className="text-muted-foreground">/</span> : null}
+                {!isLast ? <span className="text-fg-secondary">/</span> : null}
               </span>
             )
           })}
@@ -552,11 +552,11 @@ function FileRow({
       <TableCell>
         <div className="flex items-center gap-2">
           {entry.kind === 'file' ? (
-            <RiFileLine className="size-4 text-muted-foreground" aria-hidden />
+            <RiFileLine className="size-4 text-fg-secondary" aria-hidden />
           ) : entry.kind === 'directory' ? (
-            <RiFolder3Line className="size-4 text-muted-foreground" aria-hidden />
+            <RiFolder3Line className="size-4 text-fg-secondary" aria-hidden />
           ) : (
-            <RiLinksLine className="size-4 text-muted-foreground" aria-hidden />
+            <RiLinksLine className="size-4 text-fg-secondary" aria-hidden />
           )}
           {isDir ? (
             <button
@@ -571,11 +571,11 @@ function FileRow({
           )}
         </div>
       </TableCell>
-      <TableCell className="text-xs text-muted-foreground">{t(`console.worker_files.kind_${entry.kind}`)}</TableCell>
-      <TableCell className="text-xs text-muted-foreground">
+      <TableCell className="text-xs text-fg-secondary">{t(`console.worker_files.kind_${entry.kind}`)}</TableCell>
+      <TableCell className="text-xs text-fg-secondary">
         {entry.kind === 'file' ? formatBytes(entry.size) : '–'}
       </TableCell>
-      <TableCell className="text-xs text-muted-foreground">
+      <TableCell className="text-xs text-fg-secondary">
         {formatConsoleDate(isoFromUnixMs(entry.modified_unix_ms))}
       </TableCell>
       <TableCell className="text-right">
@@ -705,11 +705,11 @@ function UploadDialog({
               onChange={event => setFiles(event.target.files ? Array.from(event.target.files) : [])}
             />
             <label className="grid gap-1 text-sm">
-              <span className="text-muted-foreground">{t('console.worker_files.upload_subdirectory')}</span>
+              <span className="text-fg-secondary">{t('console.worker_files.upload_subdirectory')}</span>
               <Input placeholder="docs/" value={subdir} onChange={event => setSubdir(event.target.value)} />
             </label>
             {files.length > 0 ? (
-              <ul className="grid gap-1 text-xs text-muted-foreground">
+              <ul className="grid gap-1 text-xs text-fg-secondary">
                 {files.map(file => (
                   <li key={file.name}>{joinPath(currentPath, subdir.trim(), file.name)}</li>
                 ))}
@@ -773,7 +773,7 @@ function RenameDialog({
             onOpenChange(false)
           }}>
           <label className="grid gap-1 text-sm">
-            <span className="text-muted-foreground">{t('console.worker_files.new_name')}</span>
+            <span className="text-fg-secondary">{t('console.worker_files.new_name')}</span>
             <Input required value={value} onChange={event => setValue(event.target.value)} />
           </label>
           <DialogFooter>

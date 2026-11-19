@@ -3,24 +3,10 @@ name: Publish RuntimeFabric image pair
 on:
   push:
     branches: [main]
-    # Rebuild the release images only when something that reaches them changes.
-    # `paths-ignore` skips the run only when every changed file matches, so a commit
-    # touching both the website and the runtime still builds — the safe direction for
-    # images tagged by commit. `CHANGELOG.md` has to be here: the repository requires a
-    # version entry in every commit, so leaving it out would match every push and make
-    # the filter useless. None of these paths is copied by app/control_plane/Dockerfile
-    # or app/agent_computer/Dockerfile; app/library, libs, and plugins are, and are not
-    # listed.
-    paths-ignore:
-      - 'app/website/**'
-      - 'docs/**'
-      - 'CHANGELOG.md'
-      - '.github/workflows/website-pages.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: runtime-images-${{ github.ref }}
@@ -35,11 +21,89 @@ env:
   STAGING_TAG: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
+  checks:
+    name: Repository checks
+    uses: ./.github/workflows/checks.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  release_gate:
+    name: Admit the checked revision
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      admitted: ${{ steps.decide.outputs.admitted }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ env.RELEASE_REVISION }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+
+      - name: Decide whether the revision has a release to publish
+        id: decide
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" != "push" ]]; then
+            echo "admitted=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          release_version="$(
+            bun tools/devkit/src/changelog-release.ts \
+              extract CHANGELOG.md "${RUNNER_TEMP}/release-notes.md"
+          )"
+          release_tag="v${release_version}"
+
+          if ! git fetch --quiet origin "refs/tags/${release_tag}:refs/tags/${release_tag}"; then
+            echo "Version ${release_version} has no Git tag yet"
+            echo "admitted=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          tag_sha="$(git rev-parse "${release_tag}^{commit}")"
+          if [[ "${tag_sha}" == "${RELEASE_REVISION}" ]]; then
+            echo "Version ${release_version} is tagged at this revision"
+            echo "admitted=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          runtime_changes="$(
+            git diff --name-only "${tag_sha}" "${RELEASE_REVISION}" \
+              | grep -Ev '^([^/]+\.md|app/website/.*|docs/.*|\.github/.*)$' || true
+          )"
+          if [[ -n "${runtime_changes}" ]]; then
+            echo "CHANGELOG.md still names ${release_version}, released from ${tag_sha}, but these files changed since:" >&2
+            echo "${runtime_changes}" >&2
+            exit 1
+          fi
+
+          echo "Only documentation or CI configuration changed since ${release_tag}; there is nothing to release"
+          echo "admitted=false" >> "${GITHUB_OUTPUT}"
+
   inspect_existing:
     name: Inspect immutable release tags
-    runs-on: ubuntu-latest
+    needs: release_gate
+    if: ${{ needs.release_gate.outputs.admitted == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
     outputs:
       base_exists: ${{ steps.inspect.outputs.base_exists }}
+      base_recipe: ${{ steps.inspect.outputs.base_recipe }}
+      reused_base_digest: ${{ steps.inspect.outputs.reused_base_digest }}
       control_plane_exists: ${{ steps.inspect.outputs.control_plane_exists }}
       worker_exists: ${{ steps.inspect.outputs.worker_exists }}
       protocol_version: ${{ steps.protocol.outputs.value }}
@@ -49,12 +113,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.4.1
+          bun-version: 1.4.4
 
       - name: Read Ankole release version
         id: version
@@ -88,11 +155,8 @@ jobs:
 
           echo "value=${protocol_version}" >> "${GITHUB_OUTPUT}"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -103,6 +167,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          recipe_from_files() {
+            {
+              sha256sum < app/agent_computer/Dockerfile.base | awk '{print $1}'
+              sha256sum < app/agent_computer/scripts/pdf-inspector-1.25.2-tables.patch | awk '{print $1}'
+            } | sha256sum | awk '{print $1}'
+          }
+
+          multiarch_digest() {
+            local ref="$1"
+            local metadata digest
+            metadata="$(docker buildx imagetools inspect "${ref}" --format '{{json .}}' 2>/dev/null)" || return 1
+            digest="$(jq -r '
+              if (.image["linux/amd64"] != null and .image["linux/arm64"] != null) then
+                (.manifest.digest // empty)
+              else
+                empty
+              end
+            ' <<<"${metadata}")"
+            [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+            printf '%s\n' "${digest}"
+          }
 
           inspect_ref() {
             local output_name="$1"
@@ -118,7 +204,27 @@ jobs:
             fi
           }
 
-          inspect_ref base_exists "${BASE_IMAGE}"
+          base_recipe="$(recipe_from_files)"
+          echo "base_recipe=${base_recipe}" >> "${GITHUB_OUTPUT}"
+
+          reused_base_digest=""
+          if digest="$(multiarch_digest "${BASE_IMAGE}:${RELEASE_REVISION}")"; then
+            reused_base_digest="${digest}"
+            echo "Reusing existing immutable OS base ${BASE_IMAGE}:${RELEASE_REVISION} (${digest})"
+          elif digest="$(multiarch_digest "${BASE_IMAGE}:recipe-${base_recipe}")"; then
+            reused_base_digest="${digest}"
+            echo "Reusing OS base recipe ${BASE_IMAGE}:recipe-${base_recipe} (${digest})"
+          fi
+
+          if [[ -n "${reused_base_digest}" ]]; then
+            echo "base_exists=true" >> "${GITHUB_OUTPUT}"
+            echo "reused_base_digest=${reused_base_digest}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "base_exists=false" >> "${GITHUB_OUTPUT}"
+            echo "reused_base_digest=" >> "${GITHUB_OUTPUT}"
+            echo "OS base recipe ${base_recipe} is not published yet; building ${BASE_IMAGE}"
+          fi
+
           inspect_ref control_plane_exists "${CONTROL_PLANE_IMAGE}"
           inspect_ref worker_exists "${WORKER_IMAGE}"
 
@@ -127,33 +233,41 @@ jobs:
     needs: inspect_existing
     if: ${{ needs.inspect_existing.outputs.base_exists != 'true' }}
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ${{ vars.ANKOLE_RELEASE_AMD64_RUNNER || 'ubuntu-24.04' }}
           - arch: arm64
             platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            runner: ${{ vars.ANKOLE_RELEASE_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          cleanup: false
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push staged OS base image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: app/agent_computer/Dockerfile.base
@@ -173,16 +287,16 @@ jobs:
       - inspect_existing
       - build_base
     if: ${{ always() && needs.inspect_existing.result == 'success' && (needs.inspect_existing.outputs.base_exists == 'true' || needs.build_base.result == 'success') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
     outputs:
       digest: ${{ steps.resolve.outputs.digest }}
 
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -191,13 +305,53 @@ jobs:
       - name: Publish immutable multi-platform OS base manifest
         if: ${{ needs.inspect_existing.outputs.base_exists != 'true' }}
         shell: bash
+        env:
+          BASE_RECIPE: ${{ needs.inspect_existing.outputs.base_recipe }}
         run: |
           set -euo pipefail
 
           docker buildx imagetools create \
             --tag "${BASE_IMAGE}:${RELEASE_REVISION}" \
+            --tag "${BASE_IMAGE}:recipe-${BASE_RECIPE}" \
             "${BASE_IMAGE}:${STAGING_TAG}-base-amd64" \
             "${BASE_IMAGE}:${STAGING_TAG}-base-arm64"
+
+      - name: Alias reused multi-platform OS base manifest
+        if: ${{ needs.inspect_existing.outputs.base_exists == 'true' }}
+        shell: bash
+        env:
+          BASE_RECIPE: ${{ needs.inspect_existing.outputs.base_recipe }}
+          REUSED_BASE_DIGEST: ${{ needs.inspect_existing.outputs.reused_base_digest }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${REUSED_BASE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Reused OS base digest is invalid: ${REUSED_BASE_DIGEST}" >&2
+            exit 1
+          fi
+
+          ensure_base_tag() {
+            local target_ref="$1"
+            local existing_metadata existing_digest
+            if existing_metadata="$(docker buildx imagetools inspect "${target_ref}" --format '{{json .}}' 2>/dev/null)"; then
+              existing_digest="$(jq -r '.manifest.digest // empty' <<<"${existing_metadata}")"
+              if [[ "${existing_digest}" == "${REUSED_BASE_DIGEST}" ]]; then
+                echo "Tag ${target_ref} already points to ${REUSED_BASE_DIGEST}"
+                return 0
+              fi
+              if [[ "${target_ref}" == "${BASE_IMAGE}:${RELEASE_REVISION}" ]]; then
+                echo "Immutable base tag ${target_ref} already points to ${existing_digest}, not ${REUSED_BASE_DIGEST}" >&2
+                exit 1
+              fi
+            fi
+
+            docker buildx imagetools create \
+              --tag "${target_ref}" \
+              "${BASE_IMAGE}@${REUSED_BASE_DIGEST}"
+          }
+
+          ensure_base_tag "${BASE_IMAGE}:${RELEASE_REVISION}"
+          ensure_base_tag "${BASE_IMAGE}:recipe-${BASE_RECIPE}"
 
       - name: Resolve OS base digest
         id: resolve
@@ -219,33 +373,41 @@ jobs:
     needs: inspect_existing
     if: ${{ needs.inspect_existing.outputs.control_plane_exists != 'true' }}
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ${{ vars.ANKOLE_RELEASE_AMD64_RUNNER || 'ubuntu-24.04' }}
           - arch: arm64
             platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            runner: ${{ vars.ANKOLE_RELEASE_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          cleanup: false
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push staged control-plane image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: app/control_plane/Dockerfile
@@ -268,17 +430,18 @@ jobs:
   publish_control_plane:
     name: Publish immutable control-plane image
     needs:
+      - checks
       - inspect_existing
       - build_control_plane
-    if: ${{ always() && needs.inspect_existing.result == 'success' && (needs.inspect_existing.outputs.control_plane_exists == 'true' || needs.build_control_plane.result == 'success') }}
-    runs-on: ubuntu-latest
+    if: ${{ always() && needs.checks.result == 'success' && needs.inspect_existing.result == 'success' && (needs.inspect_existing.outputs.control_plane_exists == 'true' || needs.build_control_plane.result == 'success') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
 
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -303,35 +466,43 @@ jobs:
     needs:
       - inspect_existing
       - publish_base
-    if: ${{ needs.inspect_existing.outputs.worker_exists != 'true' }}
+    if: ${{ !cancelled() && needs.inspect_existing.result == 'success' && needs.publish_base.result == 'success' && needs.inspect_existing.outputs.worker_exists != 'true' }}
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
             platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ${{ vars.ANKOLE_RELEASE_AMD64_RUNNER || 'ubuntu-24.04' }}
           - arch: arm64
             platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            runner: ${{ vars.ANKOLE_RELEASE_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          cleanup: false
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push staged worker image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: app/agent_computer/Dockerfile
@@ -353,17 +524,18 @@ jobs:
   publish_worker:
     name: Publish immutable Agent Computer worker image
     needs:
+      - checks
       - inspect_existing
       - build_worker
-    if: ${{ always() && needs.inspect_existing.result == 'success' && (needs.inspect_existing.outputs.worker_exists == 'true' || needs.build_worker.result == 'success') }}
-    runs-on: ubuntu-latest
+    if: ${{ always() && needs.checks.result == 'success' && needs.inspect_existing.result == 'success' && (needs.inspect_existing.outputs.worker_exists == 'true' || needs.build_worker.result == 'success') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
 
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -389,22 +561,26 @@ jobs:
       - inspect_existing
       - publish_control_plane
       - publish_worker
-    runs-on: ubuntu-latest
+    if: ${{ !cancelled() && needs.inspect_existing.result == 'success' && needs.publish_control_plane.result == 'success' && needs.publish_worker.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.4.1
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+          bun-version: 1.4.4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -424,13 +600,15 @@ jobs:
 
       - name: Verify pair labels and render digest-pinned rollout values
         shell: bash
+        env:
+          PROTOCOL_VERSION: ${{ needs.inspect_existing.outputs.protocol_version }}
         run: |
           set -euo pipefail
 
           pair_dir="${RUNNER_TEMP}/runtime-image-pair"
           bun tools/devkit/src/runtime-image-pair.ts verify \
             --revision "${RELEASE_REVISION}" \
-            --protocol-version "${{ needs.inspect_existing.outputs.protocol_version }}" \
+            --protocol-version "${PROTOCOL_VERSION}" \
             --control-plane-ref "${CONTROL_PLANE_IMAGE}:${RELEASE_REVISION}" \
             --control-plane-metadata "${RUNNER_TEMP}/control-plane-image.json" \
             --worker-ref "${WORKER_IMAGE}:${RELEASE_REVISION}" \
@@ -440,7 +618,7 @@ jobs:
             --worker-values-output "${pair_dir}/runtime-pair-worker.values.yaml"
 
       - name: Upload verified pair rollout artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: runtime-image-pair-${{ env.RELEASE_REVISION }}
           path: ${{ runner.temp }}/runtime-image-pair
@@ -475,15 +653,11 @@ jobs:
     needs:
       - inspect_existing
       - verify_pair
-    # A manual dispatch on main publishes too: a changelog-only release
-    # promotion cannot arrive as a qualifying push because CHANGELOG.md is
-    # paths-ignored, and the immutable-version check still rejects any
-    # attempt to re-release an existing version.
-    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
+    if: ${{ !cancelled() && needs.inspect_existing.result == 'success' && needs.verify_pair.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
     permissions:
       contents: write
       packages: write
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_VERSION: ${{ needs.inspect_existing.outputs.release_version }}
@@ -492,18 +666,18 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.4.1
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+          bun-version: 1.4.4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -533,8 +707,8 @@ jobs:
           tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq '.sha' 2>/dev/null)" || tag_sha=""
           if [[ -n "${tag_sha}" ]]; then
             tag_exists=true
-            if [[ "${tag_sha}" != "${GITHUB_SHA}" ]]; then
-              echo "Git tag ${RELEASE_TAG} already points to ${tag_sha}, not ${GITHUB_SHA}" >&2
+            if [[ "${tag_sha}" != "${RELEASE_REVISION}" ]]; then
+              echo "Git tag ${RELEASE_TAG} already points to ${tag_sha}, not ${RELEASE_REVISION}" >&2
               exit 1
             fi
           fi
@@ -564,6 +738,21 @@ jobs:
 
           echo "tag_exists=${tag_exists}" >> "${GITHUB_OUTPUT}"
           echo "release_exists=${release_exists}" >> "${GITHUB_OUTPUT}"
+
+      - name: Reserve the Git tag
+        if: ${{ steps.existing.outputs.tag_exists != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+            --raw-field "ref=refs/tags/${RELEASE_TAG}" \
+            --raw-field "sha=${RELEASE_REVISION}" \
+            --silent; then
+            echo "Could not create Git tag ${RELEASE_TAG} at ${RELEASE_REVISION}, so nothing is published under ${RELEASE_VERSION}." >&2
+            echo "GitHub answers HTTP 403 when the workflow files of this revision differ from the tip of the default branch." >&2
+            exit 1
+          fi
 
       - name: Publish immutable version image tags
         shell: bash
@@ -613,18 +802,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          tag_option=(--target "${GITHUB_SHA}")
-          if [[ "${{ steps.existing.outputs.tag_exists }}" == "true" ]]; then
-            tag_option=(--verify-tag)
-          fi
-
           channel_option=(--latest)
           if [[ "${RELEASE_IS_PRERELEASE}" == "true" ]]; then
             channel_option=(--prerelease)
           fi
 
           gh release create "${RELEASE_TAG}" \
-            "${tag_option[@]}" \
+            --verify-tag \
             --title "Version ${RELEASE_VERSION}" \
             --notes-file "${RUNNER_TEMP}/release-notes.md" \
             "${channel_option[@]}"

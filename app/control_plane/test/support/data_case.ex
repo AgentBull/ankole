@@ -43,7 +43,11 @@ defmodule Ankole.DataCase do
       |> maybe_put_ownership_timeout(tags[:ownership_timeout])
 
     pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Ankole.Repo, opts)
-    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+
+    on_exit(fn ->
+      Ecto.Adapters.SQL.Sandbox.stop_owner(pid)
+      Ankole.AppConfigure.Cache.clear_for_test()
+    end)
   end
 
   defp maybe_put_ownership_timeout(opts, timeout) when is_integer(timeout) and timeout > 0,

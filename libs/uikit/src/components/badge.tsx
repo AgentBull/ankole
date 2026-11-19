@@ -1,56 +1,66 @@
-import { mergeProps } from '@base-ui/react/merge-props'
-import { useRender } from '@base-ui/react/use-render'
+import { mergeProps, renderElement, type RenderProp } from '@ui-sdk/react/primitive'
 import { cva, type VariantProps } from 'class-variance-authority'
+import type * as React from 'react'
 
 import { cn } from '../lib/utils'
 
 const badgeVariants = cva(
-  'group/badge inline-flex h-6 min-w-8 max-w-52 shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 text-xs leading-none font-normal tracking-normal whitespace-nowrap normal-case transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3.5!',
+  'group/badge inline-flex max-w-52 shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent leading-none font-normal tracking-normal whitespace-nowrap normal-case transition-colors aria-invalid:border-destructive [&>svg]:pointer-events-none [&>svg]:size-3.5!',
   {
     variants: {
+      // `sm` fits inside a 28px navigation row or tab, so a count or a short state sits beside a label.
+      size: {
+        default: 'h-6 min-w-8 px-2 text-xs',
+        sm: 'h-4 min-w-4 px-1.5 text-50 tabular-nums'
+      },
       variant: {
-        default:
-          'bg-brand-20 text-brand-70 hover:bg-brand-30 [a]:hover:text-brand-80 dark:bg-brand-80 dark:text-brand-20 dark:hover:bg-brand-70',
-        info: 'bg-blue-20 text-blue-70 hover:bg-blue-30 [a]:hover:text-blue-80 dark:bg-blue-80 dark:text-blue-20 dark:hover:bg-blue-70',
+        // A status badge lays its status background at `--status-fill-alpha` and writes its label in the dark step of
+        // the same hue (`--badge-*-fg`); the dark theme keeps the full background and ink text.
+        info: 'bg-badge-blue/(--status-fill-alpha) text-(--badge-blue-fg) hover:bg-badge-blue-hover [a]:hover:text-(--badge-blue-fg)',
         success:
-          'bg-green-20 text-green-70 hover:bg-green-30 [a]:hover:text-green-80 dark:bg-green-80 dark:text-green-20 dark:hover:bg-green-70',
+          'bg-badge-green/(--status-fill-alpha) text-(--badge-green-fg) hover:bg-badge-green-hover [a]:hover:text-(--badge-green-fg)',
         warning:
-          'bg-yellow-20 text-yellow-80 hover:bg-yellow-30 [a]:hover:text-yellow-90 dark:bg-yellow-80 dark:text-yellow-20 dark:hover:bg-yellow-70',
+          'bg-badge-yellow/(--status-fill-alpha) text-(--badge-yellow-fg) hover:bg-badge-yellow-hover [a]:hover:text-(--badge-yellow-fg)',
+        // A count that asks for attention, such as unread items on a navigation tab: brand-60 with a white figure.
+        primary: 'bg-primary px-1 text-primary-fg',
         secondary:
-          'bg-gray-20 text-gray-100 hover:bg-gray-30 [a]:hover:text-gray-100 dark:bg-gray-70 dark:text-gray-10 dark:hover:bg-gray-60',
+          'bg-layer-03 text-fg-primary hover:bg-(--badge-secondary-hover) [a]:hover:text-fg-primary [&>svg]:text-fg-secondary',
         destructive:
-          'bg-red-20 text-red-70 hover:bg-red-30 focus-visible:ring-destructive/20 [a]:hover:text-red-80 dark:bg-red-80 dark:text-red-20 dark:hover:bg-red-70 dark:focus-visible:ring-destructive/40',
-        outline: 'border-gray-40 bg-transparent text-foreground hover:bg-muted [a]:hover:text-foreground',
-        ghost: 'bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
-        link: 'h-auto min-w-0 max-w-none rounded-none bg-transparent px-0 text-primary underline-offset-4 hover:underline'
+          'bg-badge-red/(--status-fill-alpha) text-(--badge-red-fg) hover:bg-badge-red-hover [a]:hover:text-(--badge-red-fg)',
+        // An outline badge, such as a version, draws the strong overlay border around secondary text.
+        outline:
+          'border-border-overlay-strong bg-transparent text-fg-secondary hover:bg-layer-03 [a]:hover:text-fg-primary',
+        ghost: 'bg-transparent text-fg-secondary hover:bg-layer-03 hover:text-fg-primary',
+        link: 'link h-auto min-w-0 max-w-none rounded-none bg-transparent px-0'
       }
     },
     defaultVariants: {
-      variant: 'default'
+      variant: 'secondary',
+      size: 'default'
     }
   }
 )
 
 function Badge({
   className,
-  variant = 'default',
+  variant = 'secondary',
+  size = 'default',
   render,
   ...props
-}: useRender.ComponentProps<'span'> & VariantProps<typeof badgeVariants>) {
-  return useRender({
-    defaultTagName: 'span',
-    props: mergeProps<'span'>(
+}: React.ComponentProps<'span'> & { render?: RenderProp } & VariantProps<typeof badgeVariants>) {
+  return renderElement(
+    'span',
+    mergeProps(
       {
-        className: cn(badgeVariants({ variant }), className)
+        'data-slot': 'badge',
+        'data-variant': variant,
+        'data-size': size,
+        className: cn(badgeVariants({ variant, size }), className)
       },
       props
     ),
-    render,
-    state: {
-      slot: 'badge',
-      variant
-    }
-  })
+    render
+  )
 }
 
 export { Badge, badgeVariants }

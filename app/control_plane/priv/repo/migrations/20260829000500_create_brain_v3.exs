@@ -11,7 +11,7 @@ defmodule Ankole.Repo.Migrations.CreateBrainV3 do
     rename_origin_metadata()
     drop_brain_v2()
 
-    execute("CREATE EXTENSION pg_trgm")
+    execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 
     create_schema_pack_tables()
     create_sources()

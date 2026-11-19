@@ -55,7 +55,7 @@ export function WorkerEnvPlaintextWarning({ compact = false }: { compact?: boole
   const { t } = useTranslation()
   if (compact) {
     return (
-      <p className="text-xs leading-5 text-yellow-80 dark:text-yellow-30" role="note">
+      <p className="text-xs leading-5 text-warning-fg" role="note">
         {t('console.worker_envs.plaintext_warning_description')}
       </p>
     )
@@ -159,11 +159,11 @@ export function WorkerEnvsListPage() {
       {items.map(item => (
         <TableRow key={item.name}>
           <TableCell className="max-w-[280px] font-mono text-xs break-all whitespace-normal">
-            <Link className="text-foreground hover:text-link hover:underline" to={encodeURIComponent(item.name)}>
+            <Link className="text-fg-primary hover:text-link hover:underline" to={encodeURIComponent(item.name)}>
               {item.name}
             </Link>
           </TableCell>
-          <TableCell className="max-w-[320px] truncate font-mono text-xs text-muted-foreground">
+          <TableCell className="max-w-[320px] truncate font-mono text-xs text-fg-secondary">
             {workerEnvValueText(item)}
           </TableCell>
           <TableCell>
@@ -381,7 +381,7 @@ export function WorkerEnvEditorPage() {
             <WorkerEnvSourceBadge source={item.source} />
             {item.secret ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
             {item.declared_key ? (
-              <span className="font-mono text-xs text-muted-foreground">{item.declared_key}</span>
+              <span className="font-mono text-xs text-fg-secondary">{item.declared_key}</span>
             ) : null}
           </div>
         ) : null}
@@ -467,7 +467,7 @@ export function WorkerEnvEditorPage() {
             </LabeledField>
             <Field
               orientation="horizontal"
-              className="items-center justify-between border border-border bg-muted/30 p-4">
+              className="items-center justify-between border border-border-subtle bg-layer-03/30 p-4">
               <div className="grid gap-1 pr-4">
                 <FieldLabel htmlFor="worker-env-secret">{t('console.worker_envs.secret_storage')}</FieldLabel>
                 <FieldDescription id="worker-env-secret-hint">{t('console.worker_envs.secret_hint')}</FieldDescription>

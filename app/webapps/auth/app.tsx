@@ -61,7 +61,7 @@ function LoginApp() {
 
   return (
     <main className="ak-auth-page relative">
-      <ThemeToggle className="absolute top-4 right-4 border border-border bg-background/80 backdrop-blur" />
+      <ThemeToggle className="absolute top-4 right-4 border border-border-subtle bg-page/80 backdrop-blur" />
       <Card className="ak-auth-card">
         <CardHeader>
           <div className="ak-auth-heading">
@@ -75,7 +75,7 @@ function LoginApp() {
         </CardHeader>
         <CardContent>
           {providers.data?.identity ? (
-            <p className="mb-4 text-sm text-muted-foreground">
+            <p className="mb-4 text-sm text-fg-secondary">
               {t('auth.current_identity', {
                 name: providers.data.identity.displayName,
                 provider: providers.data.identity.providerID

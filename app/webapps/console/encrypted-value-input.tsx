@@ -82,7 +82,7 @@ export function EncryptedValueInput({
       />
       <button
         aria-label={label}
-        className="absolute inset-y-0 right-0 grid w-10 place-items-center text-muted-foreground hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+        className="absolute inset-y-0 right-0 grid w-10 place-items-center text-fg-secondary hover:text-fg-primary disabled:cursor-wait disabled:opacity-60"
         disabled={revealing}
         title={label}
         type="button"

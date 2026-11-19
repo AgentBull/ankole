@@ -1,0 +1,930 @@
+import { describe, expect, test } from 'bun:test'
+import { renderToStaticMarkup } from 'react-dom/server'
+import {
+  AnkoleChart,
+  AnkoleFinancialChart,
+  AnkoleGraph,
+  AnkoleInfographic,
+  AnkoleSparkline,
+  AnkoleStatCard,
+  AnkoleYieldCurveChart,
+  assignSeriesColors,
+  buildPeleCssVarsString,
+  pickReadableDataLabelInk,
+  resolveSelectOptionColor,
+  resolveSelectOptionStrokeColor,
+  resolveVizTheme,
+  sanitizeDownloadStem,
+  type DonutCenterLabel
+} from '../src/index'
+import { finalizeExportedSvg, isPrintSafeSvg, materializePeleSvg } from '../src/viz/svg-export'
+import {
+  colorizeVolumePoints,
+  mapPriceScaleMode,
+  normalizeFinancialMainData,
+  normalizeFinancialSingleSeries
+} from '../src/viz/financial'
+import {
+  BUILTIN_INFOGRAPHIC_TEMPLATES,
+  buildOfflineIconSymbolSvg,
+  offlineInfographicResourceLoader,
+  validateInfographicSyntax
+} from '../src/viz/infographic'
+import { describeStatChart, resolveStatTrend } from '../src/viz/stat-summary'
+import { prepareStatisticalChartSpec, type StatisticalChartType } from '../src/viz/statistical'
+
+describe('Theme tokens & pure viz theme utilities (`viz/theme.ts`)', () => {
+  test('resolves light/dark palettes, monotonic sequential ramps, zero-anchored diverging scales, and cn convention swap', () => {
+    const srgbLuminance = (hex: string): number => {
+      const ch = [hex.slice(1, 3), hex.slice(3, 5), hex.slice(5, 7)].map(p => {
+        const c = Number.parseInt(p, 16) / 255
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!
+    }
+
+    const lightIntl = resolveVizTheme(null, { theme: 'light', marketConvention: 'intl' })
+    const lightCn = resolveVizTheme(null, { theme: 'light', marketConvention: 'cn' })
+    expect(lightIntl.isDark).toBe(false)
+    expect(lightIntl.up).toBe('#19875c')
+    expect(lightIntl.down).toBe('#c1384b')
+    expect(lightCn.up).toBe('#c1384b')
+    expect(lightCn.down).toBe('#19875c')
+    expect(lightCn.upSubtle).toBe(lightIntl.downSubtle)
+    expect(lightCn.downForeground).toBe(lightIntl.upForeground)
+    expect(lightIntl.totalColor).toBe('#3f5368')
+    expect(lightIntl.categoricalStrokes[0]).toBe('#0c58b4')
+    expect(lightIntl.diverging[3]).toBe('#f4f4f2')
+    expect(lightCn.diverging[3]).toBe('#f4f4f2')
+    expect(lightCn.diverging[0]).toBe(lightIntl.diverging[6])
+    expect(lightCn.diverging[6]).toBe(lightIntl.diverging[0])
+
+    // Light mode sequential: dark-is-more on matte paper (strictly decreasing luminance)
+    for (let i = 1; i < lightIntl.sequential.length; i += 1) {
+      expect(srgbLuminance(lightIntl.sequential[i]!)).toBeLessThan(srgbLuminance(lightIntl.sequential[i - 1]!))
+    }
+
+    const darkIntl = resolveVizTheme(null, {
+      theme: 'dark',
+      marketConvention: 'intl',
+      tokenOverrides: { '--chart-1': '#123456' }
+    })
+    expect(darkIntl.isDark).toBe(true)
+    expect(darkIntl.up).toBe('#43c291')
+    expect(darkIntl.down).toBe('#eb6b7d')
+    expect(darkIntl.categorical[0]).toBe('#123456')
+    expect(darkIntl.categoricalStrokes[0]).toBe('#123456')
+    expect(darkIntl.categoricalStrokes[1]).toBe('#3dd3c0')
+    expect(darkIntl.otherColor).not.toBe(darkIntl.emptyColor)
+    expect(darkIntl.diverging[3]).toBe('#232526')
+
+    // Dark mode sequential: light-is-more on graphite (strictly increasing luminance)
+    for (let i = 1; i < darkIntl.sequential.length; i += 1) {
+      expect(srgbLuminance(darkIntl.sequential[i]!)).toBeGreaterThan(srgbLuminance(darkIntl.sequential[i - 1]!))
+    }
+
+    expect(pickReadableDataLabelInk('#2864b9')).toBe('#ffffff')
+    expect(pickReadableDataLabelInk('#b3395a')).toBe('#ffffff')
+    expect(pickReadableDataLabelInk('#ecb457')).toBe('#18191a')
+    expect(pickReadableDataLabelInk('#51c6b5')).toBe('#18191a')
+    expect(pickReadableDataLabelInk('#dcf3ff')).toBe('#18191a')
+  })
+
+  test('assigns series fill and stroke colors strictly in rank order (never hashing) while honoring optionColor, Other, and Empty', () => {
+    const palette = resolveVizTheme(null, { theme: 'light' })
+
+    const orderA = assignSeriesColors(
+      [
+        { key: 'North America' },
+        { key: 'APAC' },
+        { key: 'Priority', optionColor: 'teal' },
+        { key: 'Other', isOther: true },
+        { key: 'Empty', isEmpty: true }
+      ],
+      palette
+    )
+    const orderB = assignSeriesColors([{ key: 'APAC' }, { key: 'North America' }], palette)
+    const strokeOrder = assignSeriesColors(
+      [{ key: 'North America' }, { key: 'Priority', optionColor: 'teal' }],
+      palette,
+      { variant: 'stroke' }
+    )
+
+    expect(orderA.get('North America')).toBe(palette.categorical[0])
+    expect(orderA.get('APAC')).toBe(palette.categorical[1])
+    // Rank-order proof: when APAC ranks #1, it receives slot 0 rather than a hash-derived slot.
+    expect(orderB.get('APAC')).toBe(palette.categorical[0])
+    expect(orderB.get('North America')).toBe(palette.categorical[1])
+
+    expect(orderA.get('Priority')).toBe(resolveSelectOptionColor('teal', false))
+    expect(strokeOrder.get('North America')).toBe(palette.categoricalStrokes[0])
+    expect(strokeOrder.get('Priority')).toBe(resolveSelectOptionStrokeColor('teal', false))
+    expect(orderA.get('Other')).toBe(palette.otherColor)
+    expect(orderA.get('Empty')).toBe(palette.emptyColor)
+
+    const eightSeries = assignSeriesColors(
+      Array.from({ length: 8 }, (_, idx) => ({ key: `Series ${idx + 1}` })),
+      palette
+    )
+    for (const color of eightSeries.values()) {
+      expect(color).not.toBe(palette.otherColor)
+      expect(color).not.toBe(palette.emptyColor)
+    }
+  })
+
+  test('validates Print-Safe SVGs and sanitizes CSS variables, xmlns, and CJK viewBox padding', () => {
+    const palette = resolveVizTheme(null, { theme: 'light' })
+
+    expect(
+      isPrintSafeSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><rect fill="#0f62fe"/></svg>')
+    ).toBe(true)
+    expect(
+      isPrintSafeSvg(
+        '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject width="50" height="20"><div>bad</div></foreignObject></svg>'
+      )
+    ).toBe(false)
+    expect(isPrintSafeSvg('<svg xmlns="http://www.w3.org/2000/svg"><rect fill="var(--chart-1)"/></svg>')).toBe(false)
+    expect(
+      isPrintSafeSvg('<svg xmlns="http://www.w3.org/2000/svg"><image href="https://cdn.example.com/logo.png"/></svg>')
+    ).toBe(false)
+
+    const dirty = '<svg viewBox="0 0 200 100"><rect fill="var(--chart-1)" stroke="var(--border)"/></svg>'
+    const finalizedDirty = finalizeExportedSvg(dirty, palette, { safetyPaddingPx: 10 })
+    expect(finalizedDirty.isPrintSafe).toBe(true)
+    expect(isPrintSafeSvg(finalizedDirty.svg)).toBe(true)
+    expect(finalizedDirty.svg).toContain('xmlns="http://www.w3.org/2000/svg"')
+    expect(finalizedDirty.svg).toContain('viewBox="-10 -10 220 120"')
+    expect(finalizedDirty.svg).toContain(palette.categorical[0])
+    expect(finalizedDirty.width).toBe(220)
+    expect(finalizedDirty.height).toBe(120)
+  })
+})
+
+describe('Statistical & financial pure spec builders', () => {
+  test('falls back from percent to stacked on negative values, guards zero-sum buckets, and supports all 21 chart types', () => {
+    const palette = resolveVizTheme(null, { theme: 'light' })
+
+    const fallback = prepareStatisticalChartSpec(
+      {
+        type: 'column',
+        stackMode: 'percent',
+        xField: 'quarter',
+        yField: 'pnl',
+        seriesField: 'segment',
+        data: [
+          { quarter: '2026-Q1', segment: 'Core', pnl: 120 },
+          { quarter: '2026-Q1', segment: 'Labs', pnl: -30 }
+        ],
+        referenceLines: [{ value: 0, label: 'Breakeven' }]
+      },
+      palette
+    )
+    expect(fallback.percentFallbackReason).toBe('negative_values')
+    expect(fallback.effectiveStackMode).toBe('stacked')
+
+    const zeroBucket = prepareStatisticalChartSpec(
+      {
+        type: 'area',
+        stackMode: 'percent',
+        xField: 'month',
+        yField: 'rev',
+        seriesField: 'tier',
+        data: [
+          { month: '2026-01', tier: 'Pro', rev: 0 },
+          { month: '2026-01', tier: 'Free', rev: 0 },
+          { month: '2026-02', tier: 'Pro', rev: 60 },
+          { month: '2026-02', tier: 'Free', rev: 40 }
+        ]
+      },
+      palette
+    )
+    expect(zeroBucket.percentFallbackReason).toBeUndefined()
+    expect(zeroBucket.effectiveStackMode).toBe('percent')
+    const serialized = JSON.stringify(zeroBucket.g2Spec)
+    expect(serialized).not.toContain('NaN')
+
+    const allTypes: StatisticalChartType[] = [
+      'column',
+      'bar',
+      'line',
+      'area',
+      'combo',
+      'pie',
+      'donut',
+      'funnel',
+      'scatter',
+      'histogram',
+      'boxplot',
+      'heatmap',
+      'radar',
+      'waterfall',
+      'gauge',
+      'treemap',
+      'sunburst',
+      'sankey',
+      'wordcloud',
+      'quantile_band',
+      'stat'
+    ]
+    for (const chartType of allTypes) {
+      const built = prepareStatisticalChartSpec(
+        {
+          type: chartType,
+          data: [
+            { category: 'A', series: 'S1', value: 10, secondaryValue: 4, source: 'A', target: 'B', text: 'Alpha' },
+            { category: 'B', series: 'S2', value: 25, secondaryValue: 8, source: 'B', target: 'C', text: 'Beta' }
+          ]
+        },
+        palette
+      )
+      expect(built.g2Spec).toBeDefined()
+    }
+  })
+
+  test('colors volume bars automatically by candle direction and marketConvention', () => {
+    const intlPalette = resolveVizTheme(null, { theme: 'light', marketConvention: 'intl' })
+    const cnPalette = resolveVizTheme(null, { theme: 'light', marketConvention: 'cn' })
+    const candles = [
+      { time: '2026-01-02', open: 100, high: 110, low: 98, close: 108 },
+      { time: '2026-01-03', open: 108, high: 109, low: 95, close: 97 }
+    ]
+    const volume = [
+      { time: '2026-01-02', value: 1500 },
+      { time: '2026-01-03', value: 2100 },
+      { time: '2026-01-03', value: 500, color: '#112233' }
+    ]
+
+    const intlColored = colorizeVolumePoints(volume, candles, intlPalette)
+    expect(intlColored[0]?.color).toBe('#19875c')
+    expect(intlColored[1]?.color).toBe('#c1384b')
+    expect(intlColored[2]?.color).toBe('#112233')
+
+    const cnColored = colorizeVolumePoints(volume, candles, cnPalette)
+    expect(cnColored[0]?.color).toBe('#c1384b')
+    expect(cnColored[1]?.color).toBe('#19875c')
+    expect(mapPriceScaleMode('logarithmic')).toBe(1)
+  })
+
+  test('enforces 1D uniform Cobalt focus with neutral Other/Empty, zero-anchored diverging heatmaps, IBCS waterfall totals, and dynamic funnel label contrast', () => {
+    const lightPalette = resolveVizTheme(null, { theme: 'light' })
+    const darkPalette = resolveVizTheme(null, { theme: 'dark' })
+
+    // 1D bar/column without optionColor keeps uniform primary Cobalt on normal categories (no rainbow circus)
+    const oneDimRanking = prepareStatisticalChartSpec(
+      {
+        type: 'column',
+        xField: 'customer',
+        yField: 'arr',
+        seriesMeta: [
+          { key: 'Acme', isOther: false, isEmpty: false },
+          { key: 'Globex', isOther: false, isEmpty: false },
+          { key: 'Other', isOther: true, isEmpty: false },
+          { key: 'Empty', isOther: false, isEmpty: true }
+        ],
+        data: [
+          { customer: 'Acme', arr: 500 },
+          { customer: 'Globex', arr: 320 },
+          { customer: 'Other', arr: 120, __isOther: true },
+          { customer: 'Empty', arr: 40 }
+        ]
+      },
+      lightPalette
+    )
+    const oneDimScale = (oneDimRanking.g2Spec as { scale?: { color?: { domain: string[]; range: string[] } } }).scale
+      ?.color
+    expect(oneDimScale).toEqual({
+      domain: ['Acme', 'Globex', 'Other', 'Empty'],
+      range: [
+        lightPalette.categorical[0],
+        lightPalette.categorical[0],
+        lightPalette.otherColor,
+        lightPalette.emptyColor
+      ]
+    })
+    expect((oneDimRanking.g2Spec as { legend?: unknown }).legend).toBe(false)
+
+    // Mixed negative-and-positive heatmap anchors 0 strictly to neutral surface midpoint
+    const mixedHeatmap = prepareStatisticalChartSpec(
+      {
+        type: 'heatmap',
+        xField: 'sector',
+        yField: 'quarter',
+        valueField: 'mom',
+        showDataLabels: true,
+        data: [
+          { sector: 'Cloud', quarter: 'Q1', mom: -12 },
+          { sector: 'Cloud', quarter: 'Q2', mom: 0 },
+          { sector: 'AI', quarter: 'Q2', mom: 36 }
+        ]
+      },
+      darkPalette
+    )
+    const hmScale = (mixedHeatmap.g2Spec as { scale?: { color?: { type: string; domain: number[]; range: string[] } } })
+      .scale?.color
+    expect(hmScale?.type).toBe('linear')
+    expect(hmScale?.domain[3]).toBe(0)
+    expect(hmScale?.domain[0]).toBe(-36)
+    expect(hmScale?.domain[6]).toBe(36)
+    expect(hmScale?.range).toEqual([...darkPalette.diverging])
+
+    // Waterfall separates total bars into neutral slate totalColor rather than categorical slot 3
+    const wfPrepared = prepareStatisticalChartSpec(
+      {
+        type: 'waterfall',
+        xField: 'step',
+        yField: 'delta',
+        data: [
+          { step: 'Q1 ARR', delta: 100 },
+          { step: 'Churn', delta: -15 },
+          { step: 'Ending ARR', delta: 85, isTotal: true }
+        ]
+      },
+      lightPalette
+    )
+    const wfScale = (wfPrepared.g2Spec as { scale?: { color?: { domain: string[]; range: string[] } } }).scale?.color
+    expect(wfScale?.range).toEqual([lightPalette.up, lightPalette.down, lightPalette.totalColor])
+
+    // Funnel inside labels dynamically choose high-contrast ink over dark vs bright stage fills
+    const funnelDark = prepareStatisticalChartSpec(
+      {
+        type: 'funnel',
+        xField: 'stage',
+        valueField: 'leads',
+        showDataLabels: true,
+        data: [
+          { stage: 'Visited', leads: 1000 },
+          { stage: 'Activated', leads: 420 }
+        ]
+      },
+      darkPalette
+    )
+    const funnelLabelFill = (
+      funnelDark.g2Spec as {
+        labels?: { style?: { fill?: (d: Record<string, unknown>) => string } }[]
+      }
+    ).labels?.[0]?.style?.fill
+    expect(typeof funnelLabelFill).toBe('function')
+    expect(funnelLabelFill?.({ stage: 'Visited', leads: 1000 })).toBe('#18191a')
+  })
+
+  test('builds semantic formatted tooltips, data labels, smooth curves, and donut center total without internal key leaks', () => {
+    const palette = resolveVizTheme(null, { theme: 'light' })
+
+    const percentPrepared = prepareStatisticalChartSpec(
+      {
+        type: 'column',
+        stackMode: 'percent',
+        xField: 'x',
+        yField: 'y',
+        seriesField: 'series',
+        yTitle: 'SUM(Revenue)',
+        formattedYField: '__formattedY',
+        showDataLabels: true,
+        data: [
+          { x: 'Q1', series: 'Enterprise', y: 1200, __formattedY: '$1,200.00' },
+          { x: 'Q1', series: 'Self-Serve', y: 800, __formattedY: '$800.00' }
+        ]
+      },
+      palette
+    )
+
+    const g2Col = percentPrepared.g2Spec as Record<string, unknown>
+    const colData = g2Col.data as Record<string, unknown>[]
+    const colTooltip = g2Col.tooltip as {
+      title: (d: Record<string, unknown>) => string
+      items: ((d: Record<string, unknown>) => { name: string; value: string })[]
+    }
+    expect(colTooltip.title(colData[0]!)).toBe('Q1')
+    expect(colTooltip.items[0]!(colData[0]!)).toEqual({
+      name: 'Enterprise',
+      value: '$1,200.00 (60%)'
+    })
+    const colLabels = g2Col.labels as { text: (d: Record<string, unknown>) => string }[]
+    expect(colLabels[0]!.text(colData[0]!)).toBe('60%')
+
+    const smoothLine = prepareStatisticalChartSpec(
+      {
+        type: 'line',
+        smooth: true,
+        xField: 'x',
+        yField: 'y',
+        yTitle: 'Orders',
+        formattedYField: '__formattedY',
+        data: [{ x: '2026-01', y: 42, __formattedY: '42' }]
+      },
+      palette
+    )
+    expect((smoothLine.g2Spec as { encode?: { shape?: string } }).encode?.shape).toBe('smooth')
+
+    const centerLabel: DonutCenterLabel = { value: '$2,000.00', title: 'SUM(Revenue)' }
+    const donutPrepared = prepareStatisticalChartSpec(
+      {
+        type: 'donut',
+        xField: 'x',
+        valueField: 'y',
+        yTitle: 'SUM(Revenue)',
+        formattedYField: '__formattedY',
+        donutCenterLabel: centerLabel,
+        data: [
+          { x: 'East', y: 1500, __formattedY: '$1,500.00' },
+          { x: 'West', y: 500, __formattedY: '$500.00' }
+        ]
+      },
+      palette
+    )
+    const donutSpec = donutPrepared.g2Spec as { type?: string; children?: Record<string, unknown>[] }
+    expect(donutSpec.type).toBe('view')
+    expect(donutSpec.children?.length).toBe(3)
+    const intervalChild = donutSpec.children?.[0] as {
+      data: Record<string, unknown>[]
+      tooltip: { items: ((d: Record<string, unknown>) => { name: string; value: string })[] }
+    }
+    expect(intervalChild.tooltip.items[0]!(intervalChild.data[0]!)).toEqual({
+      name: 'SUM(Revenue)',
+      value: '$1,500.00 (75%)'
+    })
+    expect((donutSpec.children?.[1] as { style?: { text?: string } })?.style?.text).toBe('$2,000.00')
+    expect((donutSpec.children?.[2] as { style?: { text?: string } })?.style?.text).toBe('SUM(Revenue)')
+
+    for (const mode of ['light', 'dark'] as const) {
+      const modePalette = resolveVizTheme(null, { theme: mode })
+      const piePrepared = prepareStatisticalChartSpec(
+        {
+          type: 'pie',
+          xField: 'x',
+          valueField: 'y',
+          data: [
+            { x: '進行中', y: 5 },
+            { x: '已完成', y: 3 }
+          ]
+        },
+        modePalette
+      )
+      const g2Theme = (piePrepared.g2Spec as { theme?: Record<string, Record<string, unknown>> }).theme
+      expect(Array.isArray(g2Theme?.legendCategory?.itemSpacing)).toBe(true)
+      expect(typeof g2Theme?.legendCategory?.itemMarkerSize).toBe('number')
+      expect(typeof g2Theme?.axis?.labelSpacing).toBe('number')
+    }
+
+    const colAxis = (percentPrepared.g2Spec as { axis?: { x?: { title?: unknown }; y?: { title?: unknown } } }).axis
+    expect(colAxis?.x?.title).toBe(false)
+    expect(colAxis?.y?.title).toBe('SUM(Revenue)')
+
+    const sunburstPrepared = prepareStatisticalChartSpec(
+      {
+        type: 'sunburst',
+        xField: 'x',
+        valueField: 'y',
+        data: [
+          { x: 'Core', y: 60 },
+          { x: 'Edge', y: 40 }
+        ]
+      },
+      palette
+    )
+    expect(Array.isArray((sunburstPrepared.g2Spec as { data?: unknown }).data)).toBe(true)
+  })
+
+  test('renders metric cards and quantile bands from the same theme tokens, trend conventions, and accessibility contract', () => {
+    const intlPalette = resolveVizTheme(null, { theme: 'light', marketConvention: 'intl' })
+    const cnPalette = resolveVizTheme(null, { theme: 'light', marketConvention: 'cn' })
+
+    const stat = prepareStatisticalChartSpec(
+      {
+        type: 'stat',
+        title: 'Median latency',
+        subtitle: 'vs. previous period',
+        unit: 'ms',
+        valueField: 'p50',
+        comparisonField: 'delta',
+        data: [{ p50: 182, delta: '+12.4%' }]
+      },
+      intlPalette
+    )
+    const statSpec = stat.g2Spec as {
+      type?: string
+      padding?: number
+      title?: unknown
+      legend?: unknown
+      children?: { style?: Record<string, unknown> }[]
+    }
+    expect(statSpec.type).toBe('view')
+    expect(statSpec.padding).toBe(0)
+    expect(statSpec.title).toBeUndefined()
+    expect(statSpec.legend).toBe(false)
+    expect((statSpec.children ?? []).map(child => String(child.style?.text))).toEqual([
+      'Median latency',
+      'vs. previous period',
+      '182',
+      'ms',
+      '▲ +12.4%'
+    ])
+    expect(statSpec.children?.at(-1)?.style?.fill).toBe(intlPalette.upForeground)
+
+    const explicitDown = prepareStatisticalChartSpec(
+      {
+        type: 'stat',
+        valueField: 'p50',
+        formattedValueField: 'p50Text',
+        comparisonField: 'delta',
+        trendField: 'trend',
+        data: [{ p50: 182, p50Text: '182 ms', delta: '+12.4%', trend: 'down' }]
+      },
+      intlPalette
+    )
+    const downTexts = (explicitDown.g2Spec as { children?: { style?: Record<string, unknown> }[] }).children ?? []
+    expect(String(downTexts.at(-1)?.style?.text)).toBe('▼ +12.4%')
+    expect(downTexts.at(-1)?.style?.fill).toBe(intlPalette.downForeground)
+
+    // The palette already follows the market convention, so a positive `cn` delta uses the red ramp.
+    const cnStat = prepareStatisticalChartSpec(
+      {
+        type: 'stat',
+        valueField: 'value',
+        comparisonField: 'delta',
+        data: [{ value: 1, delta: '+1.0%' }]
+      },
+      cnPalette
+    )
+    const cnTexts = (cnStat.g2Spec as { children?: { style?: Record<string, unknown> }[] }).children ?? []
+    expect(cnTexts.at(-1)?.style?.fill).toBe(cnPalette.upForeground)
+    expect(cnPalette.upForeground).toBe(intlPalette.downForeground)
+
+    expect(resolveStatTrend(undefined, '+3')).toBe('up')
+    expect(resolveStatTrend(undefined, '−3')).toBe('down')
+    expect(resolveStatTrend(undefined, '12.4%')).toBe('up')
+    expect(resolveStatTrend(undefined, '-12.4%')).toBe('down')
+    expect(resolveStatTrend(undefined, '1,204')).toBe('up')
+    expect(resolveStatTrend('neutral', '+3')).toBe('neutral')
+    expect(resolveStatTrend(undefined, undefined)).toBe('neutral')
+
+    expect(
+      describeStatChart({
+        type: 'stat',
+        title: 'Median latency',
+        subtitle: 'vs. previous period',
+        unit: 'ms',
+        valueField: 'p50',
+        comparisonField: 'delta',
+        data: [{ p50: 182, delta: '+12.4%' }]
+      })
+    ).toBe('Median latency: 182 ms, ▲ +12.4% (vs. previous period)')
+    expect(describeStatChart({ type: 'stat', data: { value: 7 } })).toBe('7')
+    expect(
+      describeStatChart({
+        type: 'stat',
+        title: 'Requests',
+        subtitle: 'Last 24 hours',
+        data: { value: 7 }
+      })
+    ).toBe('Requests: 7 (Last 24 hours)')
+
+    const band = prepareStatisticalChartSpec(
+      {
+        type: 'quantile_band',
+        xField: 'bucket',
+        yField: 'p50',
+        bandLowField: 'p5',
+        bandHighField: 'p95',
+        bandLabel: 'p5–p95',
+        data: [
+          { bucket: '10:00', p50: 120, p5: 80, p95: 190 },
+          { bucket: '11:00', p50: 140, p5: 95, p95: 210 }
+        ]
+      },
+      intlPalette
+    )
+    const bandSpec = band.g2Spec as {
+      type?: string
+      data?: unknown
+      children?: Record<string, unknown>[]
+    }
+    expect(bandSpec.type).toBe('view')
+    expect(Array.isArray(bandSpec.data)).toBe(true)
+
+    const [areaMark, lineMark] = bandSpec.children ?? []
+    expect(areaMark?.type).toBe('area')
+    expect(areaMark?.encode).toEqual({ x: 'bucket', y: 'p95', y1: 'p5' })
+    const areaStyle = areaMark?.style as { fill?: string } | undefined
+    expect(areaStyle?.fill).toBe(intlPalette.categorical[0])
+    expect(areaMark?.tooltip).toBe(false)
+
+    const smoothBand = prepareStatisticalChartSpec(
+      {
+        type: 'quantile_band',
+        smooth: true,
+        xField: 'bucket',
+        yField: 'p50',
+        bandLowField: 'p5',
+        bandHighField: 'p95',
+        data: [{ bucket: '10:00', p50: 120, p5: 80, p95: 190 }]
+      },
+      intlPalette
+    )
+    const smoothArea = (smoothBand.g2Spec as { children?: Record<string, unknown>[] }).children?.[0]
+    expect(smoothArea?.encode).toEqual({ x: 'bucket', y: 'p95', y1: 'p5', shape: 'smooth' })
+
+    expect(lineMark?.type).toBe('line')
+    expect(lineMark?.encode).toMatchObject({ x: 'bucket', y: 'p50' })
+    const tooltip = lineMark?.tooltip as {
+      items: ((d: Record<string, unknown>) => { name: string; value: string })[]
+    }
+    expect(tooltip.items[0]!({ bucket: '10:00', p5: 80, p50: 120, p95: 190 })).toEqual({
+      name: 'p5–p95',
+      value: '80 – 190'
+    })
+    expect(tooltip.items[1]!({ bucket: '10:00', p5: 80, p50: 120, p95: 190 })).toEqual({
+      name: 'p50',
+      value: '120'
+    })
+
+    const lineOnly = prepareStatisticalChartSpec(
+      { type: 'quantile_band', xField: 'bucket', yField: 'p50', data: [{ bucket: '10:00', p50: 120 }] },
+      intlPalette
+    )
+    const lineOnlyChildren = (lineOnly.g2Spec as { children?: Record<string, unknown>[] }).children ?? []
+    expect(lineOnlyChildren.map(child => child.type)).toEqual(['line'])
+  })
+})
+
+describe('Infographic syntax validation & offline icon symbol loader (`viz/infographic.ts`)', () => {
+  test('validates built-in infographic templates and rejects empty or malformed syntax', () => {
+    expect(BUILTIN_INFOGRAPHIC_TEMPLATES).toContain('list-row-simple-horizontal-arrow')
+    expect(BUILTIN_INFOGRAPHIC_TEMPLATES).toContain('sequence-timeline-simple')
+    expect(BUILTIN_INFOGRAPHIC_TEMPLATES).toContain('compare-swot')
+    expect(BUILTIN_INFOGRAPHIC_TEMPLATES).toContain('compare-hierarchy-left-right-circle-node-pill-badge')
+
+    const validDsl = [
+      'infographic sequence-timeline-simple',
+      'data',
+      '  title Product Roadmap',
+      '  items',
+      '    - label Wave 1',
+      '      desc Core Viz Engine',
+      '      icon rocket'
+    ].join('\n')
+    expect(validateInfographicSyntax(validDsl)).toEqual({ ok: true })
+
+    expect(validateInfographicSyntax('   ').ok).toBe(false)
+    expect(validateInfographicSyntax('just_a_random_word').ok).toBe(false)
+    expect(validateInfographicSyntax('infographic nonexistent-template-xyz\ndata\n  title Test').ok).toBe(false)
+  })
+
+  test('resolves semantic and unknown icons into <symbol viewBox="0 0 24 24"> with zero fetch calls', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (() => {
+      throw new Error('External network fetch is forbidden in offline infographic loader!')
+    }) as unknown as typeof fetch
+
+    try {
+      for (const keyword of ['check', 'star', 'rocket', 'database', 'warning', 'unknown-custom-glyph-99']) {
+        const svg = buildOfflineIconSymbolSvg(keyword)
+        expect(svg).toContain('<symbol')
+        expect(svg).toContain('viewBox="0 0 24 24"')
+        expect(isPrintSafeSvg(`<svg xmlns="http://www.w3.org/2000/svg"><defs>${svg}</defs></svg>`)).toBe(true)
+
+        const symbolEl = await offlineInfographicResourceLoader({ data: keyword })
+        expect(symbolEl.tagName.toLowerCase()).toBe('symbol')
+        expect(symbolEl.getAttribute('viewBox')).toBe('0 0 24 24')
+      }
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
+describe('Thin lazy React visualization wrappers', () => {
+  test('renders AnkoleStatCard and AnkoleSparkline with tabular-nums, directional glyphs, and cn market swap', () => {
+    const intlHtml = renderToStaticMarkup(
+      <AnkoleStatCard
+        label="Quarterly ARR"
+        value="$4,820,000"
+        delta="+14.2%"
+        baseline="vs. Q4 2025"
+        caption="Audited billing ledger"
+        sparklineValues={[380, 410, 405, 455, 482]}
+      />
+    )
+    expect(intlHtml).toContain('tabular-nums')
+    expect(intlHtml).toContain('▲')
+    expect(intlHtml).toContain('var(--chart-up)')
+    expect(intlHtml).toContain('role="img"')
+    expect(intlHtml).toContain('vs. Q4 2025')
+    expect(intlHtml).toContain('Audited billing ledger')
+
+    const cnHtml = renderToStaticMarkup(
+      <AnkoleStatCard
+        label="CSI 300"
+        value="3,980.15"
+        delta="+1.85%"
+        sparklineValues={[3900, 3940, 3980]}
+        marketConvention="cn"
+      />
+    )
+    expect(cnHtml).toContain('▲')
+    expect(cnHtml).toContain('var(--chart-down-fg)')
+    expect(cnHtml).toContain('var(--chart-down)')
+
+    const downSpark = renderToStaticMarkup(<AnkoleSparkline values={[100, 92, 85]} marketConvention="intl" />)
+    expect(downSpark).toContain('data-trend="down"')
+    expect(downSpark).toContain('var(--chart-down)')
+  })
+
+  test('renders semantic <figure>, accessible summary tables, and percent fallback notices across lazy wrappers', () => {
+    const chartHtml = renderToStaticMarkup(
+      <AnkoleChart
+        defaultTableOpen
+        allowExport
+        caption="Segment contribution"
+        spec={{
+          type: 'column',
+          title: 'Operating Margin',
+          stackMode: 'percent',
+          yField: 'margin',
+          data: [
+            { segment: 'Cloud', margin: 45 },
+            { segment: 'Hardware', margin: -8 }
+          ]
+        }}
+      />
+    )
+    expect(chartHtml).toContain('<figure')
+    expect(chartHtml).toContain('ankole-viz-figure')
+    expect(chartHtml).toContain('negative values')
+    expect(chartHtml).toContain('<caption class="sr-only">Operating Margin</caption>')
+    expect(chartHtml).toContain('data-slot="chart-export-png"')
+    expect(chartHtml).toContain('data-slot="chart-export-svg"')
+    expect(chartHtml).toContain('<th scope="col"')
+    expect(chartHtml).toContain('Segment contribution')
+
+    const statHtml = renderToStaticMarkup(
+      <AnkoleChart
+        spec={{
+          type: 'stat',
+          title: 'Median latency',
+          subtitle: 'vs. previous period',
+          unit: 'ms',
+          valueField: 'p50',
+          comparisonField: 'delta',
+          data: [{ p50: 182, delta: '+12.4%' }]
+        }}
+      />
+    )
+    expect(statHtml).toContain('aria-label="Median latency: 182 ms, ▲ +12.4% (vs. previous period)"')
+
+    const finHtml = renderToStaticMarkup(
+      <AnkoleFinancialChart
+        title="AAPL Daily"
+        defaultTableOpen
+        spec={{
+          data: [{ time: '2026-01-02', open: 180, high: 185, low: 179, close: 184 }]
+        }}
+      />
+    )
+    expect(finHtml).toContain('ankole-viz-figure')
+    expect(finHtml).toContain('<th scope="col"')
+    expect(finHtml).toContain('184')
+
+    const infoHtml = renderToStaticMarkup(
+      <AnkoleInfographic
+        title="Release Flow"
+        defaultOutlineOpen
+        source={'infographic list-row-simple-horizontal-arrow\ndata\n  items\n    - label Plan\n    - label Ship'}
+      />
+    )
+    expect(infoHtml).toContain('ankole-viz-figure')
+    expect(infoHtml).toContain('Release Flow')
+    expect(infoHtml).toContain('Plan')
+
+    const graphHtml = renderToStaticMarkup(
+      <AnkoleGraph ariaLabel="Entity Graph" nodes={[{ id: 'n1', label: 'Node 1' }]} edges={[]} />
+    )
+    expect(graphHtml).toBeDefined()
+
+    const yieldHtml = renderToStaticMarkup(
+      <AnkoleYieldCurveChart
+        title="UST Curve"
+        spec={{
+          data: [
+            { time: 1, value: 4.15 },
+            { time: 10, value: 4.35 }
+          ]
+        }}
+      />
+    )
+    expect(yieldHtml).toContain('Yield curve chart')
+  })
+
+  test('materializes Pele CSS variables, cascaded rx styles, and dimensions into print-safe standalone SVG', () => {
+    const palette = resolveVizTheme(null, { theme: 'dark' })
+    const rawSvg =
+      '<svg viewBox="0 0 200 100" style="--_bg:var(--pele-bg);--_fg:var(--pele-fg);--_r:var(--pele-radius,4px);--_a:var(--pele-surface-alt);color:var(--_fg)"><title>var(--_fg) style="rx:12px"</title><rect id="default-r" x="4" y="4" width="120" height="40" style="rx:var(--_r);fill:#ff0" stroke="color-mix(in srgb,var(--_a) 50%,var(--_bg))"/><rect id="override-r" x="4" y="50" width="120" height="40" style="rx:var(--_r);rx:12px;fill:#0ff !important;fill:#f0f"/><rect id="attr-override" x="130" y="4" width="40" height="40" rx="4" style="rx:0px"/><text aria-label="var(--_bg)">var(--pele-accent)</text></svg>'
+    const materialized = materializePeleSvg(rawSvg, palette, {
+      extraTokens: { '--pele-radius': '6px' }
+    })
+    expect(materialized.isPrintSafe).toBe(true)
+    expect(isPrintSafeSvg(materialized.svg)).toBe(true)
+    expect(materialized.svg).toContain('id="default-r"')
+    expect(materialized.svg).toContain('rx="6"')
+    // Later `rx:12px` declaration in the same style block must win over earlier `rx:var(--_r)`.
+    expect(materialized.svg).toContain(
+      'id="override-r" x="4" y="50" width="120" height="40" style="fill:#0ff !important" rx="12"'
+    )
+    // Inline CSS `rx:0px` overrides presentation attribute `rx="4"`.
+    expect(materialized.svg).toContain('id="attr-override" x="130" y="4" width="40" height="40" rx="0"')
+    expect(materialized.svg).toContain('style="fill:#ff0"')
+    expect(materialized.svg).toContain(`color-mix(in srgb,${palette.layer02} 50%,${palette.background})`)
+    // Prose inside <title>, <text>, and aria-* metadata must never be rewritten as CSS.
+    expect(materialized.svg).toContain('<title>var(--_fg) style="rx:12px"</title>')
+    expect(materialized.svg).toContain('<text aria-label="var(--_bg)">var(--pele-accent)</text>')
+    expect(materialized.width).toBe(216)
+    expect(materialized.height).toBe(116)
+    expect(buildPeleCssVarsString(palette)).toContain(`--pele-bg:${palette.background}`)
+  })
+
+  test('resolves cyclic and stylesheet custom properties, enforces structural Print-Safe rules, and scales linearly on adversarial inputs', () => {
+    const palette = resolveVizTheme(null, { theme: 'light' })
+
+    // Cyclic custom properties fall back cleanly without infinite recursion; rgba(...) fallbacks stay intact.
+    const cyclicSvg =
+      '<svg viewBox="0 0 100 60" style="--a:var(--b);--b:var(--a)"><defs><style>:root { --custom-stroke: var(--chart-2); }</style></defs><rect width="80" height="40" fill="var(--a, rgba(15, 98, 254, 0.25))" stroke="var(--custom-stroke)"/></svg>'
+    const finalized = finalizeExportedSvg(cyclicSvg, palette, {
+      safetyPaddingPx: 8,
+      cardFrame: true,
+      stripCustomProperties: true
+    })
+    expect(finalized.isPrintSafe).toBe(true)
+    expect(finalized.svg).toContain('fill="rgba(15, 98, 254, 0.25)"')
+    expect(finalized.svg).toContain(`stroke="${palette.categorical[1]}"`)
+    expect(finalized.svg).toContain('viewBox="-20 -20 140 100"')
+    expect(finalized.width).toBe(140)
+    expect(finalized.height).toBe(100)
+
+    // Prose text and aria-* attributes containing URLs or var(--...) do not trigger false rejections.
+    expect(
+      isPrintSafeSvg(
+        '<svg xmlns="http://www.w3.org/2000/svg" aria-label="url(https://cdn.example.com/a.png) var(--chart-1)"><text>url(https://cdn.example.com/a.png) var(--chart-1)</text><use xlink:href="#icon"/></svg>'
+      )
+    ).toBe(true)
+
+    // External URLs across CSS url(), @import, xlink:href, <?xml-stylesheet?>, and <script> are rejected.
+    expect(
+      isPrintSafeSvg(
+        '<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill: url( \'https://evil.example/a.png\' )"/></svg>'
+      )
+    ).toBe(false)
+    expect(
+      isPrintSafeSvg(
+        '<svg xmlns="http://www.w3.org/2000/svg"><style>@import "https://evil.example/a.css";</style></svg>'
+      )
+    ).toBe(false)
+    expect(
+      isPrintSafeSvg('<svg xmlns="http://www.w3.org/2000/svg"><use xlink:href="//evil.example/sprite.svg#x"/></svg>')
+    ).toBe(false)
+    expect(
+      isPrintSafeSvg(
+        '<?xml-stylesheet type="text/css" href="https://evil.example/a.css"?><svg xmlns="http://www.w3.org/2000/svg"/>'
+      )
+    ).toBe(false)
+    expect(isPrintSafeSvg('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')).toBe(false)
+
+    // Linear-time scaling on all security-review PoC inputs (#49, #53, #54, #71, #72).
+    const start = performance.now()
+    expect(sanitizeDownloadStem(`x${'-'.repeat(32_000)}x`)).toBe(`x${'-'.repeat(32_000)}x`)
+    expect(sanitizeDownloadStem(`${'!'.repeat(16_000)}季度报告 2026${'!'.repeat(16_000)}`)).toBe('季度报告-2026')
+    expect(sanitizeDownloadStem('---')).toBe('ankole-chart')
+
+    const longUrlTextSvg = `<svg xmlns="http://www.w3.org/2000/svg" aria-label="url(${' '.repeat(32_000)}x"><text>url(${' '.repeat(32_000)}x</text></svg>`
+    expect(isPrintSafeSvg(longUrlTextSvg)).toBe(true)
+
+    const longTitleAndStyleSvg = `<svg viewBox="0 0 100 50" style="${'var(--x, '.repeat(4_000)}#112233"><title>var(--x, ${' '.repeat(32_000)}! style=&quot;rx:${'1'.repeat(32_000)}!</title><rect width="10" height="10" fill="var(--_bg)" stroke="${'var(--x, '.repeat(2_000)}#224466${')'.repeat(2_000)}"/></svg>`
+    const advMaterialized = materializePeleSvg(longTitleAndStyleSvg, palette)
+    expect(advMaterialized.svg).toContain(palette.background)
+    expect(advMaterialized.svg).toContain('stroke="#224466"')
+    expect(performance.now() - start).toBeLessThan(500)
+  })
+
+  test('normalizes financial series points by sorting ascending, deduplicating timestamps, clamping OHLC, and dropping NaN', () => {
+    const normalizedOhlc = normalizeFinancialMainData([
+      { time: '2026-01-03', open: 102, high: 99, low: 105, close: 101 },
+      { time: '2026-01-02', open: 100, high: 103, low: 98, close: 102 },
+      { time: '2026-01-02', open: 100, high: 106, low: 97, close: 104 },
+      { time: '2026-01-04', open: Number.NaN, high: 110, low: 95, close: 100 }
+    ])
+    expect(normalizedOhlc).toEqual([
+      { time: '2026-01-02', open: 100, high: 106, low: 97, close: 104 },
+      { time: '2026-01-03', open: 102, high: 105, low: 99, close: 101 }
+    ])
+
+    const normalizedSingle = normalizeFinancialSingleSeries([
+      { time: 30, value: 4.5 },
+      { time: 2, value: 4.0 },
+      { time: 2, value: 4.12 },
+      { time: 5, value: Number.POSITIVE_INFINITY }
+    ])
+    expect(normalizedSingle).toEqual([
+      { time: 2, value: 4.12 },
+      { time: 30, value: 4.5 }
+    ])
+  })
+})

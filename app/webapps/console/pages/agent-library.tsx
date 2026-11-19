@@ -223,7 +223,7 @@ export function AgentPluginDetailPage() {
 
   return (
     <PageStack>
-      <header className="grid min-w-0 grid-cols-1 gap-4 border-b border-border pb-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+      <header className="grid min-w-0 grid-cols-1 gap-4 border-b border-border-subtle pb-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="grid gap-3">
           <BackLink
             to={agentLibraryScopeQuery('/agent-library', scope)}
@@ -233,7 +233,7 @@ export function AgentPluginDetailPage() {
             <h2 className="text-2xl font-semibold tracking-normal">
               {plugin ? humanizeAgentPluginID(plugin.id) : pluginID}
             </h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-fg-secondary">
               {plugin?.description ?? t('console.agent_library_capabilities.plugin_not_found')}
             </p>
           </div>
@@ -284,7 +284,7 @@ export function AgentPluginDetailPage() {
           <section className="grid gap-3">
             <div>
               <h3 className="text-lg font-semibold">{t('console.agent_library_capabilities.plugin_skills')}</h3>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-fg-secondary">
                 {t('console.agent_library_capabilities.plugin_skills_description')}
               </p>
             </div>
@@ -397,8 +397,8 @@ function AgentPluginCard({
           )}
         </CardAction>
       </CardHeader>
-      <CardContent className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-        <span className="text-xs text-muted-foreground">
+      <CardContent className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-4">
+        <span className="text-xs text-fg-secondary">
           {t('console.agent_library_capabilities.skill_count', { count: plugin.skills.length })}
         </span>
         {/* A styled link, not a Button rendering a link: this control navigates,
@@ -459,7 +459,7 @@ function SkillCard({
           )}
         </CardAction>
       </CardHeader>
-      <CardContent className="mt-auto grid gap-4 border-t border-border pt-4">
+      <CardContent className="mt-auto grid gap-4 border-t border-border-subtle pt-4">
         <div className="flex flex-wrap gap-2">
           {skill.source_kind === 'installed' ? (
             <Badge variant="secondary">{t('console.agent_library_capabilities.agent_private')}</Badge>
@@ -498,7 +498,7 @@ function SkillLessons({
   const adding = draft !== undefined
 
   return (
-    <section className="grid gap-2 border-t border-border pt-4">
+    <section className="grid gap-2 border-t border-border-subtle pt-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 className="text-sm font-medium">{t('console.agent_library_capabilities.lessons')}</h4>
         {writable && !adding ? (
@@ -509,7 +509,7 @@ function SkillLessons({
       </div>
 
       {active.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{t('console.agent_library_capabilities.lessons_empty')}</p>
+        <p className="text-xs text-fg-secondary">{t('console.agent_library_capabilities.lessons_empty')}</p>
       ) : (
         <ul className="grid gap-2">
           {active.map(lesson => (
@@ -563,12 +563,12 @@ function SkillLessons({
       ) : null}
 
       {!writable && (active.length > 0 || retired.length > 0) ? (
-        <p className="text-xs text-muted-foreground">{t('console.agent_library_capabilities.lessons_disabled_hint')}</p>
+        <p className="text-xs text-fg-secondary">{t('console.agent_library_capabilities.lessons_disabled_hint')}</p>
       ) : null}
 
       {retired.length > 0 ? (
         <details>
-          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+          <summary className="cursor-pointer text-xs font-medium text-fg-secondary">
             {t('console.agent_library_capabilities.lessons_retired_section', { count: retired.length })}
           </summary>
           <ul className="mt-2 grid gap-2">
@@ -586,12 +586,12 @@ function SkillLessons({
 function SkillLessonRow({ children, lesson }: { children?: React.ReactNode; lesson: AgentSkillLessonItem }) {
   const { t } = useTranslation()
   return (
-    <li className="grid gap-2 border border-border bg-muted p-3">
+    <li className="grid gap-2 border border-border-subtle bg-layer-03 p-3">
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 flex-1 whitespace-pre-wrap text-xs leading-5">{lesson.content}</p>
         {children}
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-secondary">
         <Badge variant={lesson.author_kind === 'human' ? 'secondary' : 'info'}>
           {lesson.author_kind === 'human'
             ? t('console.agent_library_capabilities.lessons_author_human')
@@ -676,7 +676,7 @@ function ControlPlanePluginCard({
           />
         </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-wrap gap-2 border-t border-border pt-4">
+      <CardContent className="flex flex-wrap gap-2 border-t border-border-subtle pt-4">
         <Badge variant={plugin.active ? 'success' : 'outline'}>
           {plugin.active
             ? t('console.agent_library_capabilities.active_now')
@@ -752,7 +752,7 @@ function AgentOverrideControl({
           <SelectItem value="disabled">{t('console.agent_library_capabilities.disabled')}</SelectItem>
         </SelectContent>
       </Select>
-      <span className="text-xs text-muted-foreground">
+      <span className="text-xs text-fg-secondary">
         {t('console.agent_library_capabilities.effective_state', {
           state: effective
             ? t('console.agent_library_capabilities.enabled')
@@ -803,7 +803,7 @@ function CapabilityGrid({
   if (loading) return <LoadingCards />
   if (empty) {
     return (
-      <Empty className="items-start border border-border bg-card p-8 text-left md:p-10">
+      <Empty className="items-start border border-border-subtle bg-page p-8 text-left md:p-10">
         <EmptyHeader className="max-w-xl items-start">
           <EmptyTitle>{isFiltered ? t('console.empty.no_results_title') : t('console.empty.title')}</EmptyTitle>
           {isFiltered || emptyDescription ? (

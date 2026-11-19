@@ -244,6 +244,10 @@ defmodule Ankole.WorkerFilesTest do
 
       owner =
         spawn(fn ->
+          receive do
+            :start -> :ok
+          end
+
           {:ok, session} =
             Relay.open(%{
               direction: :pull,
@@ -262,6 +266,9 @@ defmodule Ankole.WorkerFilesTest do
             :stop -> :ok
           end
         end)
+
+      Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), owner)
+      send(owner, :start)
 
       assert_receive {:opened, transfer_id}
       assert [{_pid, _value}] = Registry.lookup(Ankole.WorkerFiles.RelayRegistry, transfer_id)

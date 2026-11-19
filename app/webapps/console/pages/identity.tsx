@@ -96,7 +96,7 @@ export function IdentityProvidersListPage() {
         <TableRow key={provider.provider_id}>
           <TableCell className="font-mono text-xs">
             <Link
-              className="text-foreground hover:text-link hover:underline"
+              className="text-fg-primary hover:text-link hover:underline"
               to={encodeURIComponent(provider.provider_id)}>
               {provider.provider_id}
             </Link>
@@ -304,10 +304,10 @@ export function IdentityProviderEditorPage() {
         </LabeledField>
       </div>
 
-      <label className="flex items-center justify-between gap-4 border border-border bg-muted/30 p-4">
+      <label className="flex items-center justify-between gap-4 border border-border-subtle bg-layer-03/30 p-4">
         <span className="grid gap-1">
           <span className="text-sm font-medium">{t('console.identity.enabled')}</span>
-          <span className="text-xs text-muted-foreground">{t('console.identity.enabled_hint')}</span>
+          <span className="text-xs text-fg-secondary">{t('console.identity.enabled_hint')}</span>
         </span>
         <Checkbox checked={model.enabled.value} onCheckedChange={checked => (model.enabled.value = checked === true)} />
       </label>

@@ -140,7 +140,7 @@ function BrainObjectsList() {
                   key={candidate}
                   size="xs"
                   type="button"
-                  variant={prefix === candidate ? 'secondary' : 'ghost'}
+                  variant={prefix === candidate ? 'outline' : 'ghost'}
                   className="font-mono"
                   onClick={() => setPrefix(current => (current === candidate ? '' : candidate))}>
                   {candidate}
@@ -154,7 +154,7 @@ function BrainObjectsList() {
       {rows.map(object => (
         <TableRow key={object.slug}>
           <TableCell className="font-mono text-xs">
-            <Link className="text-foreground hover:text-link hover:underline" to={brainObjectPath(object.slug)}>
+            <Link className="text-fg-primary hover:text-link hover:underline" to={brainObjectPath(object.slug)}>
               {object.slug}
             </Link>
           </TableCell>
@@ -162,7 +162,7 @@ function BrainObjectsList() {
             <Badge variant="secondary">{object.subtype ? `${object.type}/${object.subtype}` : object.type}</Badge>
           </TableCell>
           <TableCell className="max-w-[360px] truncate">{object.title}</TableCell>
-          <TableCell className="text-xs text-muted-foreground">{formatConsoleDate(object.updated_at)}</TableCell>
+          <TableCell className="text-xs text-fg-secondary">{formatConsoleDate(object.updated_at)}</TableCell>
           <TableCell>
             <div className="flex flex-wrap gap-1">
               {object.library_managed ? <Badge variant="outline">{t('console.brain.source_managed')}</Badge> : null}
@@ -250,9 +250,9 @@ export function BrainObjectDrawer() {
 
   return (
     <>
-      <Drawer open onOpenChange={open => !open && requestClose()} swipeDirection="right">
+      <Drawer open onOpenChange={open => !open && requestClose()} side="right">
         <DrawerContent className="data-[swipe-axis=x]:[--drawer-content-width:100%] data-[swipe-axis=x]:sm:[--drawer-content-width:52rem]">
-          <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-16">
+          <DrawerHeader className="relative gap-3 border-b border-border-subtle p-5 pr-16">
             <div className="absolute top-3 right-3">
               <Button
                 aria-label={t('common.close')}
@@ -284,7 +284,7 @@ export function BrainObjectDrawer() {
             <DrawerDescription className="text-left break-all font-mono text-xs">{slug}</DrawerDescription>
             {page?.edit_block_reason === 'library_managed' ? (
               <div className="grid gap-2">
-                <p className="text-xs text-muted-foreground">{t('console.brain.library_managed_hint')}</p>
+                <p className="text-xs text-fg-secondary">{t('console.brain.library_managed_hint')}</p>
                 <div>
                   <Button size="xs" type="button" variant="outline" onClick={() => setForkOpen(true)}>
                     {t('console.brain.fork_object')}
@@ -294,7 +294,7 @@ export function BrainObjectDrawer() {
             ) : null}
             {page?.edit_block_reason === 'agent_skills_managed' ? (
               <div className="grid gap-2">
-                <p className="text-xs text-muted-foreground">{t('console.brain.library_skill_managed_hint')}</p>
+                <p className="text-xs text-fg-secondary">{t('console.brain.library_skill_managed_hint')}</p>
                 <div>
                   <Link className={cn(buttonVariants({ size: 'xs', variant: 'outline' }))} to="/agent-library">
                     {t('console.brain.manage_skill_in_library')}
@@ -304,7 +304,7 @@ export function BrainObjectDrawer() {
             ) : null}
             {page?.edit_block_reason === 'source_managed' ? (
               <div className="grid gap-2">
-                <p className="text-xs text-muted-foreground">{t('console.brain.source_managed_hint')}</p>
+                <p className="text-xs text-fg-secondary">{t('console.brain.source_managed_hint')}</p>
                 <div>
                   <Link className={cn(buttonVariants({ size: 'xs', variant: 'outline' }))} to="/brain/sources">
                     {t('console.brain.open_sources')}
@@ -361,7 +361,7 @@ export function BrainObjectDrawer() {
                             {candidate.slug}
                           </Link>
                           {candidate.title ? (
-                            <span className="ml-2 text-xs text-muted-foreground">{candidate.title}</span>
+                            <span className="ml-2 text-xs text-fg-secondary">{candidate.title}</span>
                           ) : null}
                         </li>
                       ))}
@@ -372,7 +372,7 @@ export function BrainObjectDrawer() {
                 {page ? (
                   <>
                     <DrawerSection title={t('console.brain.document')}>
-                      <div className="border border-border bg-background p-4">
+                      <div className="border border-border-subtle bg-page p-4">
                         <MarkdownBody text={page.rendered} />
                       </div>
                     </DrawerSection>
@@ -393,7 +393,7 @@ export function BrainObjectDrawer() {
                             <TableCell className="max-w-[320px] whitespace-normal text-xs">{fact.claim}</TableCell>
                             <TableCell className="text-xs">{fact.kind ?? '—'}</TableCell>
                             <TableCell className="font-mono text-xs">{fact.holder ?? '—'}</TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
+                            <TableCell className="text-xs text-fg-secondary">
                               {formatConsoleDate(fact.valid_from)}
                               {fact.valid_until ? ` → ${formatConsoleDate(fact.valid_until)}` : ''}
                               {fact.expired_at ? ` (${t('console.brain.expired')})` : ''}
@@ -510,7 +510,7 @@ export function BrainObjectDrawer() {
                             <TableRow key={version.id}>
                               <TableCell className="text-xs">{formatConsoleDate(version.snapshot_at)}</TableCell>
                               <TableCell className="font-mono text-xs">{version.author_uid ?? '—'}</TableCell>
-                              <TableCell className="max-w-[280px] truncate text-xs text-muted-foreground">
+                              <TableCell className="max-w-[280px] truncate text-xs text-fg-secondary">
                                 {version.body}
                               </TableCell>
                               <TableCell className="text-right">
@@ -612,7 +612,7 @@ export function BrainObjectDrawer() {
 function DrawerSection({ children, title }: { children: ReactNode; title: string }) {
   return (
     <section className="grid gap-3">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      <h3 className="text-sm font-semibold text-fg-primary">{title}</h3>
       {children}
     </section>
   )
@@ -630,11 +630,11 @@ function CompactTable({
   rowCount: number
 }) {
   if (rowCount === 0) {
-    return <p className="border border-dashed border-border px-4 py-4 text-xs text-muted-foreground">{empty}</p>
+    return <p className="border border-dashed border-border-subtle px-4 py-4 text-xs text-fg-secondary">{empty}</p>
   }
 
   return (
-    <Table containerClassName="border border-border bg-card">
+    <Table containerClassName="border border-border-subtle bg-page">
       <TableHeader>
         <TableRow>
           {columns.map((column, index) => (
@@ -657,10 +657,10 @@ function LinkList({
   title: string
 }) {
   return (
-    <div className="grid content-start gap-2 border border-border bg-card p-3">
-      <h4 className="text-xs font-semibold text-muted-foreground">{title}</h4>
+    <div className="grid content-start gap-2 border border-border-subtle bg-page p-3">
+      <h4 className="text-xs font-semibold text-fg-secondary">{title}</h4>
       {links.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{empty}</p>
+        <p className="text-xs text-fg-secondary">{empty}</p>
       ) : (
         <ul className="grid gap-1.5">
           {links.map((link, index) => (
@@ -671,7 +671,7 @@ function LinkList({
                 to={brainObjectPath(link.slug)}>
                 {link.slug}
               </Link>
-              {link.context ? <span className="text-xs text-muted-foreground">{link.context}</span> : null}
+              {link.context ? <span className="text-xs text-fg-secondary">{link.context}</span> : null}
             </li>
           ))}
         </ul>

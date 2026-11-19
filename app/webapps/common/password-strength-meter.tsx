@@ -58,16 +58,16 @@ export function PasswordStrengthMeter({ className, password }: { className?: str
               key={index}
               className={cn(
                 'h-1 flex-1',
-                level && index < segmentCount[level] ? segmentTone[level] : 'bg-muted-foreground/25'
+                level && index < segmentCount[level] ? segmentTone[level] : 'bg-fg-secondary/25'
               )}
             />
           ))}
         </div>
-        <span aria-live="polite" className="text-xs leading-4 text-muted-foreground">
+        <span aria-live="polite" className="text-xs leading-4 text-fg-secondary">
           {level ? `${t('common.password_strength_label')}: ${t(`common.password_strength_${level}`)}` : null}
         </span>
       </div>
-      <p className="text-xs leading-4 text-muted-foreground">{t('common.password_strength_hint')}</p>
+      <p className="text-xs leading-4 text-fg-secondary">{t('common.password_strength_hint')}</p>
     </div>
   )
 }

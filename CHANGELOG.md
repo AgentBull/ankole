@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 1.7.0 (2026-11-19)
+
+- Console, Setup, Sign-In, and the documentation website now use the updated UIKit component library and Ceramic & Paper design tokens, clear browser validation errors when pasting into form fields, and keep search inputs usable when a filtered list has no results.
+- Claude providers can now answer stateful conversations, consecutive Anthropic tool results are merged into one message, required tool choice is preserved when thinking is off, streamed OpenAI-compatible reasoning fragments join cleanly, byte-heavy histories checkpoint before hitting the hosted-tool loop limit, stateless HTTP Responses requests omit `store`, panicking model streams fail the response cleanly instead of hanging, and Codex background jobs enable dynamic tools with a 10-minute wait timeout and fresh per-item output buffers.
+- Web URL and browser navigation checks block trailing-dot localhost and cloud metadata hostnames, browser timeouts report retryable errors, `<select>` steps match exact option values or labels, Feishu and Lark group messages that do not trigger a reply still retain their attachments for later replies, Feishu and Lark long connections warn when a chat message arrives without a binding, `pdf-inspector` preserves table headers in extracted PDFs, and baseline database migrations run cleanly when `paradedb` or `pg_trgm` is pre-installed.
+- Runtime and build dependencies are updated across Bun 1.4.4, React 19.3, Vite 8.3, Astro 7.4, Playwright 1.65, Phoenix 1.8.16, Ecto 3.14.3, Localize 1.8 (without bidi isolate markers in interpolated messages), Elixir and Rust packages, `postgres-for-ankole` (`pg_search` 0.26.4 with 1 GiB shared memory in Docker Compose and Helm and safe Kubernetes resource name truncation), and pinned GitHub Actions check and release workflows.
+
 ## Version 1.6.20 (2026-11-19)
 
 - The README, design docs, and website are English only. The open source project is named OpenAnkole.

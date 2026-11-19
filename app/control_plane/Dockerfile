@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.20
 
 ARG ELIXIR_IMAGE=elixir:1.20.4-otp-29-slim
-ARG BUN_IMAGE=oven/bun:1.4.2
+ARG BUN_IMAGE=oven/bun:1.4.4
 ARG RUNNER_IMAGE=debian:trixie-slim
 
 FROM ${BUN_IMAGE} AS bun
@@ -13,7 +13,7 @@ WORKDIR /repo
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
-ARG RUST_TOOLCHAIN=1.98.1
+ARG RUST_TOOLCHAIN=1.99.1
 
 ENV MIX_ENV=prod
 ENV RUSTFLAGS="--cfg reqwest_unstable"
@@ -47,12 +47,14 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 RUN mix local.hex --force \
   && mix local.rebar --force
 
+COPY LICENSE ./LICENSE
 COPY package.json bun.lock ./
 COPY app/agent_computer/package.json ./app/agent_computer/package.json
 COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
 COPY app/control_plane/package.json ./app/control_plane/package.json
 COPY app/kernel/package.json ./app/kernel/package.json
 COPY app/webapps/package.json ./app/webapps/package.json
+COPY app/website/package.json ./app/website/package.json
 COPY libs/feishu_openapi/package.json ./libs/feishu_openapi/package.json
 COPY libs/uikit/package.json ./libs/uikit/package.json
 COPY tools/devkit/package.json ./tools/devkit/package.json
@@ -115,9 +117,6 @@ FROM ${RUNNER_IMAGE}
 
 WORKDIR /app
 
-ARG ANKOLE_VERSION=development
-ARG ANKOLE_RELEASE_REVISION=development
-ARG ANKOLE_AGENT_COMPUTER_IMAGE=""
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
@@ -155,6 +154,9 @@ ENV LC_ALL=en_US.UTF-8
 ENV MIX_ENV=prod
 ENV PHX_SERVER=true
 ENV PORT=4000
+ARG ANKOLE_VERSION=development
+ARG ANKOLE_RELEASE_REVISION=development
+ARG ANKOLE_AGENT_COMPUTER_IMAGE=""
 ENV ANKOLE_VERSION=${ANKOLE_VERSION}
 ENV ANKOLE_RELEASE_REVISION=${ANKOLE_RELEASE_REVISION}
 ENV ANKOLE_AGENT_COMPUTER_IMAGE=${ANKOLE_AGENT_COMPUTER_IMAGE}

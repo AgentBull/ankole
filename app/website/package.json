@@ -8,35 +8,34 @@
     "build": "astro build && bun run scripts/check-motion-css.mjs && bun run scripts/check-internal-links.mjs",
     "preview": "astro preview",
     "type-check": "astro check",
-    "lint": "oxlint . --ignore-pattern '.astro/**' --ignore-pattern 'dist/**'",
+    "lint": "bun --bun oxlint . --ignore-pattern '.astro/**' --ignore-pattern 'dist/**'",
     "fmt": "oxfmt .",
     "fmt:check": "oxfmt --check ."
   },
   "dependencies": {
     "@ankole/uikit": "workspace:*",
-    "@astrojs/check": "^0.9.10",
-    "@astrojs/mdx": "^8.0.2",
-    "@astrojs/react": "^7.0.0",
-    "@astrojs/sitemap": "^3.7.4",
     "@remixicon/react": "4.9.0",
     "@tailwindcss/typography": "^0.5.20",
-    "@tailwindcss/vite": "^4.3.3",
-    "astro": "^7.3.5",
-    "intl-messageformat": "^12.1.2",
-    "motion": "^13.4.4",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
+    "astro": "^7.4.12",
+    "intl-messageformat": "^12.1.5",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "remark-gfm": "^4.0.1",
     "remark-mdx": "^3.1.1",
     "remark-parse": "^11.0.0",
-    "sharp": "^0.35.5",
-    "tailwindcss": "^4.3.3",
+    "tailwindcss": "^4.3.5",
     "unified": "^11.0.5"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.12",
+    "@astrojs/mdx": "^8.1.6",
+    "@astrojs/react": "^7.1.9",
+    "@astrojs/sitemap": "^3.7.5",
+    "@tailwindcss/vite": "^4.3.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "sharp": "^0.35.5",
     "typescript": "6.0.3",
-    "vite": "^8.3.1"
+    "vite": "^8.3.8"
   }
 }

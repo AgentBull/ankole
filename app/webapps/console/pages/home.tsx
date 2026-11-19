@@ -155,7 +155,7 @@ export function HomePage() {
 
       {alerts.length > 0 ? (
         <section className="grid gap-3" aria-label={t('console.home.attention')}>
-          <h3 className="text-sm font-semibold text-foreground">{t('console.home.attention')}</h3>
+          <h3 className="text-sm font-semibold text-fg-primary">{t('console.home.attention')}</h3>
           {alerts.map(alert => (
             <AlertRow key={alert.title} alert={alert} />
           ))}
@@ -217,12 +217,12 @@ export function HomePage() {
                 <li key={job.id}>
                   <Link
                     to={`/background-agent-jobs?job=${job.id}`}
-                    className="grid gap-1 border-b border-border px-4 py-3 last:border-b-0 hover:bg-accent">
+                    className="grid gap-1 border-b border-border-subtle px-4 py-3 last:border-b-0 hover:bg-layer-hover">
                     <div className="flex min-w-0 items-start justify-between gap-3">
-                      <span className="min-w-0 truncate text-sm text-foreground">{job.title ?? `#${job.id}`}</span>
+                      <span className="min-w-0 truncate text-sm text-fg-primary">{job.title ?? `#${job.id}`}</span>
                       <JobStatus status={job.status} />
                     </div>
-                    <span className="truncate font-mono text-xs text-muted-foreground">
+                    <span className="truncate font-mono text-xs text-fg-secondary">
                       {job.agent_uid} · {formatConsoleDate(job.inserted_at)}
                     </span>
                   </Link>
@@ -250,16 +250,16 @@ export function HomePage() {
                   <li key={conversation.id}>
                     <Link
                       to={`/conversations/${encodeURIComponent(conversation.id)}`}
-                      className="grid gap-1 border-b border-border px-4 py-3 last:border-b-0 hover:bg-accent">
+                      className="grid gap-1 border-b border-border-subtle px-4 py-3 last:border-b-0 hover:bg-layer-hover">
                       <div className="flex min-w-0 items-start justify-between gap-3">
-                        <span className="min-w-0 truncate text-sm text-foreground" title={displayName}>
+                        <span className="min-w-0 truncate text-sm text-fg-primary" title={displayName}>
                           {displayName}
                         </span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
+                        <span className="shrink-0 text-xs text-fg-secondary">
                           {t('console.home.message_count', { count: conversation.message_count })}
                         </span>
                       </div>
-                      <span className="truncate font-mono text-xs text-muted-foreground">
+                      <span className="truncate font-mono text-xs text-fg-secondary">
                         {conversation.subject_uid} · {formatConsoleDate(conversation.updated_at)}
                       </span>
                     </Link>
@@ -273,7 +273,7 @@ export function HomePage() {
 
       {nextSteps.length > 0 ? (
         <section className="grid gap-3" aria-label={t('console.home.next_steps')}>
-          <h3 className="text-sm font-semibold text-foreground">{t('console.home.next_steps')}</h3>
+          <h3 className="text-sm font-semibold text-fg-primary">{t('console.home.next_steps')}</h3>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             {nextSteps.map(step => (
               <NextStep
@@ -305,7 +305,7 @@ export function NotFoundPage() {
   return (
     <PageStack className="mx-auto max-w-2xl py-10">
       <PageHeader title={t('console.not_found.title')} description={t('console.not_found.description')} />
-      <p className="font-mono text-sm break-all text-muted-foreground">{pathname}</p>
+      <p className="font-mono text-sm break-all text-fg-secondary">{pathname}</p>
       <Link to="/" className={cn(buttonVariants({ size: 'sm' }), 'w-fit')}>
         {t('console.not_found.action')}
       </Link>
@@ -337,7 +337,7 @@ export function RouteErrorPage() {
   return (
     <PageStack className="mx-auto max-w-2xl py-10">
       <PageHeader title={t('console.route_error.title')} description={t('console.route_error.description')} />
-      {detail ? <p className="font-mono text-sm break-all text-muted-foreground">{detail}</p> : null}
+      {detail ? <p className="font-mono text-sm break-all text-fg-secondary">{detail}</p> : null}
       <div className="flex flex-wrap gap-3">
         <Button size="sm" type="button" onClick={() => window.location.reload()}>
           {t('common.retry')}
@@ -362,7 +362,7 @@ function AlertRow({ alert }: { alert: Alert }) {
   return (
     <div
       className={cn(
-        'flex flex-wrap items-start justify-between gap-4 border border-l-4 border-border bg-card p-4',
+        'flex flex-wrap items-start justify-between gap-4 border border-l-4 border-border-subtle bg-page p-4',
         alert.tone === 'danger' ? 'border-l-destructive' : 'border-l-warning'
       )}>
       <div className="flex min-w-0 gap-3">
@@ -371,8 +371,8 @@ function AlertRow({ alert }: { alert: Alert }) {
           aria-hidden
         />
         <div className="grid min-w-0 gap-1">
-          <p className="text-sm font-semibold text-foreground">{alert.title}</p>
-          <p className="text-sm leading-6 text-muted-foreground">{alert.description}</p>
+          <p className="text-sm font-semibold text-fg-primary">{alert.title}</p>
+          <p className="text-sm leading-6 text-fg-secondary">{alert.description}</p>
         </div>
       </div>
       <Link to={alert.to} className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}>
@@ -403,19 +403,19 @@ function MetricTile({
   return (
     <Link
       to={to}
-      className="grid gap-3 border border-border bg-card p-4 transition-colors fine-hover:hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-      <span className="flex items-center gap-2 text-sm text-muted-foreground">
+      className="grid gap-3 border border-border-subtle bg-page p-4 transition-colors fine-hover:hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+      <span className="flex items-center gap-2 text-sm text-fg-secondary">
         <Icon className="size-4 shrink-0" aria-hidden />
         {label}
       </span>
       {unavailable ? (
-        <span className="text-3xl font-semibold tabular-nums text-muted-foreground">—</span>
+        <span className="text-3xl font-semibold tabular-nums text-fg-secondary">—</span>
       ) : loading ? (
         <Skeleton className="h-9 w-16" />
       ) : (
-        <span className="text-3xl font-semibold tabular-nums text-foreground">{value}</span>
+        <span className="text-3xl font-semibold tabular-nums text-fg-primary">{value}</span>
       )}
-      <span className="text-xs text-muted-foreground">{detail}</span>
+      <span className="text-xs text-fg-secondary">{detail}</span>
     </Link>
   )
 }
@@ -434,17 +434,17 @@ function Panel({
   to: string
 }) {
   return (
-    <section className="grid min-w-0 content-start border border-border bg-card">
-      <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+    <section className="grid min-w-0 content-start border border-border-subtle bg-page">
+      <header className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-fg-primary">
+          <Icon className="size-4 shrink-0 text-fg-secondary" aria-hidden />
           {title}
         </h3>
         {/* Both panels say "View all"; the panel title is what tells them apart. */}
         <Link
           to={to}
           aria-label={`${linkLabel} — ${title}`}
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-link">
+          className="flex items-center gap-1 text-sm text-fg-secondary hover:text-link">
           {linkLabel}
           <RiArrowRightLine className="size-4" aria-hidden />
         </Link>
@@ -455,7 +455,7 @@ function Panel({
 }
 
 function PanelEmpty({ children }: { children: ReactNode }) {
-  return <p className="px-4 py-6 text-sm text-muted-foreground">{children}</p>
+  return <p className="px-4 py-6 text-sm text-fg-secondary">{children}</p>
 }
 
 function RowSkeletons() {
@@ -482,12 +482,12 @@ function NextStep({
   return (
     <Link
       to={to}
-      className="grid content-start gap-2 border border-border bg-card p-4 transition-colors fine-hover:hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-      <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-        <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      className="grid content-start gap-2 border border-border-subtle bg-page p-4 transition-colors fine-hover:hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+      <span className="flex items-center gap-2 text-sm font-semibold text-fg-primary">
+        <Icon className="size-4 shrink-0 text-fg-secondary" aria-hidden />
         {title}
       </span>
-      <span className="text-sm leading-6 text-muted-foreground">{description}</span>
+      <span className="text-sm leading-6 text-fg-secondary">{description}</span>
     </Link>
   )
 }

@@ -247,6 +247,23 @@ defmodule Ankole.SignalsGateway.Projection do
   defp put_attachment_id(_repo, _agent_uid, attachment, _index, _existing_attachments),
     do: attachment
 
+  @doc """
+  Preserves materialized attachment paths from an earlier observation of the
+  same unmirrored inbound batch entry on provider redelivery.
+  """
+  @spec keep_materialized(String.t(), [map()], [map()]) :: [map()]
+  def keep_materialized(agent_uid, attachments, existing) do
+    attachments
+    |> Enum.with_index()
+    |> Enum.map(fn {attachment, index} ->
+      stored = matching_existing_attachment(attachment, index, existing)
+
+      if materialized_attachment?(agent_uid, stored) and not materialized_path?(attachment),
+        do: stored,
+        else: attachment
+    end)
+  end
+
   defp matching_existing_attachment(attachment, index, existing_attachments) do
     case attachment_identity(attachment) do
       nil ->

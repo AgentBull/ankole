@@ -9,16 +9,20 @@ use crate::common::{KernelError, KernelResult};
 pub fn jwt_sign(claims_json: &str, key: &[u8], header_json: &str) -> KernelResult<String> {
     let claims = decode_json_object(claims_json, "claims")?;
     let header = jwt_header_from_json(header_json)?;
+    let encoding_key = EncodingKey::from_secret(key)
+        .map_err(|error| KernelError::new(format!("invalid jwt secret: {error}")))?;
 
-    encode(&header, &claims, &EncodingKey::from_secret(key))
+    encode(&header, &claims, &encoding_key)
         .map_err(|error| KernelError::new(format!("jwt sign failed: {error}")))
 }
 
 /// Verifies a JWT and returns its decoded claims as a JSON object string.
 pub fn jwt_verify(token: &str, key: &[u8], validation_json: &str) -> KernelResult<String> {
     let validation = jwt_validation_from_json(validation_json)?;
+    let decoding_key = DecodingKey::from_secret(key)
+        .map_err(|error| KernelError::new(format!("invalid jwt secret: {error}")))?;
 
-    decode::<Value>(token, &DecodingKey::from_secret(key), &validation)
+    decode::<Value>(token, &decoding_key, &validation)
         .map_err(|error| KernelError::new(format!("jwt verify failed: {error}")))
         .and_then(encode_claims)
 }
@@ -59,11 +63,11 @@ pub fn jwt_verify_jwk(token: &str, jwk_json: &str, validation_json: &str) -> Ker
 fn decoding_key_from_rsa_jwk(input: &str) -> KernelResult<DecodingKey> {
     let value = decode_json_object(input, "jwk")?;
 
-    match string_field(&value, &["kty"]).as_deref() {
+    match string_field(&value, &["kty"])?.as_deref() {
         Some("RSA") => {
-            let modulus = string_field(&value, &["n"])
+            let modulus = string_field(&value, &["n"])?
                 .ok_or_else(|| KernelError::new("jwk must contain an n component"))?;
-            let exponent = string_field(&value, &["e"])
+            let exponent = string_field(&value, &["e"])?
                 .ok_or_else(|| KernelError::new("jwk must contain an e component"))?;
 
             DecodingKey::from_rsa_components(&modulus, &exponent)
@@ -98,21 +102,21 @@ fn header_from_json(
     default_algorithm: Algorithm,
 ) -> KernelResult<Header> {
     let value = decode_json_object(input, "header")?;
-    let algorithm = string_field(&value, &["algorithm", "alg"])
+    let algorithm = string_field(&value, &["algorithm", "alg"])?
         .as_deref()
         .map(parse_algorithm)
         .transpose()?
         .unwrap_or(default_algorithm);
 
     let mut header = Header::new(algorithm);
-    header.typ = string_field(&value, &["type", "typ"]).or_else(|| Some("JWT".to_string()));
-    header.cty = string_field(&value, &["content_type", "cty"]);
-    header.kid = string_field(&value, &["key_id", "kid"]);
-    header.jku = string_field(&value, &["json_key_url", "jku"]);
-    header.x5u = string_field(&value, &["x5_url", "x5u"]);
+    header.typ = string_field(&value, &["type", "typ"])?.or_else(|| Some("JWT".to_string()));
+    header.cty = string_field(&value, &["content_type", "cty"])?;
+    header.kid = string_field(&value, &["key_id", "kid"])?;
+    header.jku = string_field(&value, &["json_key_url", "jku"])?;
+    header.x5u = string_field(&value, &["x5_url", "x5u"])?;
     header.x5c = string_array_field(&value, &["x5_cert_chain", "x5c"])?;
-    header.x5t = string_field(&value, &["x5_cert_thumbprint", "x5t"]);
-    header.x5t_s256 = string_field(&value, &["x5t_s256_cert_thumbprint", "x5t#S256"]);
+    header.x5t = string_field(&value, &["x5_cert_thumbprint", "x5t"])?;
+    header.x5t_s256 = string_field(&value, &["x5t_s256_cert_thumbprint", "x5t#S256"])?;
 
     Ok(header)
 }
@@ -160,7 +164,7 @@ fn validation_from_json(
         validation.validate_nbf = validate_nbf;
     }
 
-    if let Some(subject) = string_field(&value, &["sub", "subject"]) {
+    if let Some(subject) = string_field(&value, &["sub", "subject"])? {
         validation.sub = Some(subject);
     }
 
@@ -187,7 +191,7 @@ fn algorithms_field(
             })
             .collect(),
         Some(_) => Err(KernelError::new("algorithms must be an array")),
-        None => string_field(value, &["algorithm", "alg"])
+        None => string_field(value, &["algorithm", "alg"])?
             .map(|algorithm| parse_algorithm(&algorithm).map(|algorithm| vec![algorithm]))
             .unwrap_or_else(|| Ok(vec![default_algorithm])),
     }
@@ -227,11 +231,15 @@ fn encode_json(value: Value) -> KernelResult<String> {
         .map_err(|error| KernelError::new(format!("failed to encode JSON: {error}")))
 }
 
-fn string_field(value: &Value, names: &[&str]) -> Option<String> {
-    names.iter().find_map(|name| match value.get(*name) {
-        Some(Value::String(value)) => Some(value.clone()),
-        _ => None,
-    })
+fn string_field(value: &Value, names: &[&str]) -> KernelResult<Option<String>> {
+    for name in names {
+        match value.get(*name) {
+            Some(Value::String(value)) => return Ok(Some(value.clone())),
+            Some(_) => return Err(KernelError::new(format!("{name} must be a string"))),
+            None => {}
+        }
+    }
+    Ok(None)
 }
 
 fn string_array_field(value: &Value, names: &[&str]) -> KernelResult<Option<Vec<String>>> {
@@ -273,5 +281,20 @@ fn u64_field(value: &Value, name: &str) -> KernelResult<Option<u64>> {
             .ok_or_else(|| KernelError::new(format!("{name} must be a non-negative integer"))),
         Some(_) => Err(KernelError::new(format!("{name} must be an integer"))),
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn string_fields_reject_values_with_the_wrong_type() {
+        assert!(jwt_validation_from_json(r#"{"sub":123}"#).is_err());
+        assert!(jwt_header_from_json(r#"{"algorithm":123}"#).is_err());
+        assert!(jwt_rsa_validation_from_json(r#"{"sub":123}"#).is_err());
+        assert!(jwt_rsa_validation_from_json(r#"{"algorithm":123}"#).is_err());
+        assert!(jwt_rsa_header_from_json(r#"{"algorithm":123}"#).is_err());
+        assert!(decoding_key_from_rsa_jwk(r#"{"kty":123}"#).is_err());
     }
 }

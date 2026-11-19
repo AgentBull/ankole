@@ -29,26 +29,26 @@ const { lang } = Astro.props
 	<div class="brand-plane pointer-events-none absolute inset-0" aria-hidden="true"></div>
 
 	<div class="relative mx-auto max-w-7xl px-4 sm:px-6">
-		<div class="border-x border-border px-4 py-28 sm:px-8 sm:py-36">
+		<div class="border-x border-border-subtle px-4 py-28 sm:px-8 sm:py-36">
 			<Reveal variant="wipe">
 				<h2
-					class="max-w-3xl text-balance text-4xl leading-tight font-semibold tracking-tight text-foreground sm:text-6xl"
+					class="max-w-3xl text-balance text-4xl leading-tight font-semibold tracking-tight text-fg-primary sm:text-6xl"
 				>
 					{t(lang, 'cta.title')}
 				</h2>
-				<p class="mt-8 max-w-xl leading-8 text-muted-foreground">{t(lang, 'cta.body')}</p>
+				<p class="mt-8 max-w-xl leading-8 text-fg-secondary">{t(lang, 'cta.body')}</p>
 				<div class="mt-12 flex flex-wrap items-center gap-3">
-					<a href={localePath(lang, 'docs/quickstart')} class={buttonVariants({ size: 'lg' })}>
+					<a href={localePath(lang, 'docs/quickstart')} class={buttonVariants()}>
 						{t(lang, 'cta.primary')}
-						<RiArrowRightLine />
+						<RiArrowRightLine data-icon="inline-end" />
 					</a>
 					<a
 						href={GITHUB_URL}
 						target="_blank"
 						rel="noreferrer"
-						class={buttonVariants({ variant: 'outline', size: 'lg' })}
+						class={buttonVariants({ variant: 'outline' })}
 					>
-						<RiGithubFill />
+						<RiGithubFill data-icon="inline-start" />
 						{t(lang, 'cta.secondary')}
 					</a>
 				</div>

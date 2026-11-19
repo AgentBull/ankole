@@ -6,18 +6,24 @@ LABEL org.opencontainers.image.description="PostgreSQL 18 image for Ankole Agent
 
 COPY ./pgsql.repo /etc/yum.repos.d/
 
-RUN dnf install -y \
-    glibc-langpack-en \
-    postgresql18 \
-    postgresql18-server \
-    postgresql18-libs \
-    postgresql18-contrib \
-    postgresql18-llvmjit \
-    pg_search_18* \
-    pgvector_18* \
-    nss_wrapper \
-  && dnf clean all \
-  && rm -rf /var/cache/dnf
+RUN set -eu; \
+  for attempt in 1 2 3; do \
+    if timeout 240s dnf install -y \
+        glibc-langpack-en \
+        postgresql18 \
+        postgresql18-server \
+        postgresql18-libs \
+        postgresql18-contrib \
+        "https://github.com/paradedb/paradedb/releases/download/v0.26.4/pg_search_18-0.26.4-1PARADEDB.el9.$(rpm --eval '%{_arch}').rpm" \
+        pgvector_18 \
+        nss_wrapper; then \
+      break; \
+    fi; \
+    if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+    sleep $((attempt * 10)); \
+  done; \
+  dnf clean all; \
+  rm -rf /var/cache/dnf
 
 RUN mkdir -p /docker-entrypoint-initdb.d /var/lib/pgsql/18/data \
   && chown -R postgres:postgres /docker-entrypoint-initdb.d /var/lib/pgsql/18/data
@@ -32,6 +38,10 @@ USER postgres
 
 EXPOSE 5432
 VOLUME /var/lib/pgsql/18/data
+
+# Fast shutdown disconnects pooled clients and writes a shutdown checkpoint. The
+# default SIGTERM waits for those clients until the runtime kills the server.
+STOPSIGNAL SIGINT
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["postgres", "-c", "shared_preload_libraries=pg_search"]

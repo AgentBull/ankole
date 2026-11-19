@@ -243,7 +243,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
           </div>
         </TableCell>
         <TableCell>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <label className="flex items-center gap-2 text-xs text-fg-secondary">
             <Checkbox
               checked={draft.secret}
               onCheckedChange={checked => setDraft(current => ({ ...current, secret: checked === true }))}
@@ -285,10 +285,10 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     <section className="grid gap-4">
       <div className="grid gap-1">
         <h3 className="text-lg font-semibold tracking-normal">{t('console.worker_envs.agent_section_title')}</h3>
-        <p className="text-sm leading-6 text-muted-foreground">{t('console.worker_envs.agent_section_description')}</p>
+        <p className="text-sm leading-6 text-fg-secondary">{t('console.worker_envs.agent_section_description')}</p>
       </div>
       <ErrorBlock error={list.error ?? draftError} />
-      <div className="overflow-x-auto border border-border bg-card">
+      <div className="overflow-x-auto border border-border-subtle bg-page">
         <Table aria-busy={list.isLoading}>
           <TableHeader>
             <TableRow>
@@ -321,7 +321,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
                       <TableCell className="max-w-[220px] font-mono text-xs break-all whitespace-normal">
                         {item.name}
                       </TableCell>
-                      <TableCell className="max-w-[260px] font-mono text-xs text-muted-foreground">
+                      <TableCell className="max-w-[260px] font-mono text-xs text-fg-secondary">
                         <div className="flex items-center gap-1.5">
                           <span className="truncate">{revealed[item.name] ?? workerEnvValueText(item)}</span>
                           {item.secret ? (
@@ -331,7 +331,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
                                   ? t('console.worker_envs.reveal')
                                   : t('console.aria.hide_secret')
                               }
-                              className="grid size-9 shrink-0 place-items-center text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+                              className="grid size-9 shrink-0 place-items-center text-fg-secondary outline-none hover:bg-layer-03 hover:text-fg-primary focus-visible:ring-2 focus-visible:ring-ring/40"
                               title={
                                 revealed[item.name] === undefined
                                   ? t('console.worker_envs.reveal')

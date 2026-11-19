@@ -1,4 +1,4 @@
-import { RiArrowLeftSLine, RiArrowRightSLine, RiMoreLine } from '@remixicon/react'
+import { ChevronLeftRegular, ChevronRightRegular, MoreHorizontalRegular } from '../icons'
 import type * as React from 'react'
 import { Button } from './button'
 import { cn } from '../lib/utils'
@@ -33,10 +33,9 @@ function PaginationLink({ className, isActive, size = 'icon', ...props }: Pagina
       variant="ghost"
       size={size}
       className={cn(
-        'relative size-12! min-w-0! justify-center! p-0! text-foreground! hover:bg-muted! data-[active=true]:bg-transparent! data-[active=true]:font-semibold data-[active=true]:after:absolute data-[active=true]:after:bottom-0 data-[active=true]:after:left-1/2 data-[active=true]:after:h-1 data-[active=true]:after:w-4 data-[active=true]:after:-translate-x-1/2 data-[active=true]:after:bg-primary',
+        'relative size-8! min-w-0! justify-center! p-0! text-fg-primary! hover:bg-layer-hover! data-[active=true]:bg-transparent! data-[active=true]:font-semibold data-[active=true]:after:absolute data-[active=true]:after:inset-x-2 data-[active=true]:after:bottom-0 data-[active=true]:after:h-0.5 data-[active=true]:after:bg-fg-primary',
         className
       )}
-      nativeButton={false}
       render={
         <a aria-current={isActive ? 'page' : undefined} data-slot="pagination-link" data-active={isActive} {...props} />
       }
@@ -46,12 +45,17 @@ function PaginationLink({ className, isActive, size = 'icon', ...props }: Pagina
 
 function PaginationPrevious({
   className,
+  label,
   text = 'Previous',
   ...props
-}: React.ComponentProps<typeof PaginationLink> & { text?: string }) {
+}: React.ComponentProps<typeof PaginationLink> & { label?: string; text?: string }) {
   return (
-    <PaginationLink aria-label="Go to previous page" size="icon" className={cn(className)} {...props}>
-      <RiArrowLeftSLine data-icon="inline-start" />
+    <PaginationLink
+      aria-label={label ?? (text === 'Previous' ? 'Go to previous page' : text)}
+      size="icon"
+      className={cn(className)}
+      {...props}>
+      <ChevronLeftRegular aria-hidden="true" data-icon="inline-start" />
       <span className="sr-only">{text}</span>
     </PaginationLink>
   )
@@ -59,29 +63,35 @@ function PaginationPrevious({
 
 function PaginationNext({
   className,
+  label,
   text = 'Next',
   ...props
-}: React.ComponentProps<typeof PaginationLink> & { text?: string }) {
+}: React.ComponentProps<typeof PaginationLink> & { label?: string; text?: string }) {
   return (
-    <PaginationLink aria-label="Go to next page" size="icon" className={cn(className)} {...props}>
+    <PaginationLink
+      aria-label={label ?? (text === 'Next' ? 'Go to next page' : text)}
+      size="icon"
+      className={cn(className)}
+      {...props}>
       <span className="sr-only">{text}</span>
-      <RiArrowRightSLine data-icon="inline-end" />
+      <ChevronRightRegular aria-hidden="true" data-icon="inline-end" />
     </PaginationLink>
   )
 }
 
-function PaginationEllipsis({ className, ...props }: React.ComponentProps<'span'>) {
+function PaginationEllipsis({ className, label, ...props }: React.ComponentProps<'span'> & { label?: string }) {
+  const hidden = props['aria-hidden'] ?? true
   return (
     <span
-      aria-hidden
+      aria-hidden={hidden}
       data-slot="pagination-ellipsis"
       className={cn(
-        "flex size-12 items-center justify-center text-muted-foreground [&_svg:not([class*='size-'])]:size-4",
+        "flex size-8 items-center justify-center text-fg-secondary [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}>
-      <RiMoreLine />
-      <span className="sr-only">More pages</span>
+      <MoreHorizontalRegular aria-hidden="true" />
+      {!hidden && label ? <span className="sr-only">{label}</span> : null}
     </span>
   )
 }

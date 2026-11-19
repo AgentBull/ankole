@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { compact } from '@agentbull/active-support'
+import { composingKey } from '../lib/keyboard'
 import {
   Combobox,
   ComboboxCollection,
@@ -22,10 +23,12 @@ type ComboboxOption = CreatableComboboxOption & {
   creatable?: boolean
 }
 
-/** Selects a known option or commits the current input as a new option. */
 export function CreatableCombobox({
   ariaLabel,
   clearLabel,
+  id,
+  inputRef,
+  onBlur,
   value,
   options,
   placeholder,
@@ -34,10 +37,15 @@ export function CreatableCombobox({
   onValueChange,
   disabled,
   required,
-  triggerLabel
+  triggerLabel,
+  'aria-describedby': ariaDescribedBy,
+  'aria-invalid': ariaInvalid
 }: {
   ariaLabel?: string
   clearLabel?: string
+  id?: string
+  inputRef?: React.ComponentProps<typeof ComboboxInput>['ref']
+  onBlur?: React.ComponentProps<typeof ComboboxInput>['onBlur']
   value?: string | null
   options: CreatableComboboxOption[]
   placeholder?: string
@@ -47,6 +55,8 @@ export function CreatableCombobox({
   disabled?: boolean
   required?: boolean
   triggerLabel?: string
+  'aria-describedby'?: string
+  'aria-invalid'?: boolean
 }) {
   const currentValue = value ?? ''
   const selected = React.useMemo(
@@ -75,41 +85,48 @@ export function CreatableCombobox({
     : visibleOptions
 
   function commitInput() {
-    if (matchedInputOption) {
-      setInputValue(displayValue(matchedInputOption))
-      if (matchedInputOption.value !== currentValue) onValueChange(matchedInputOption.value)
-    } else if (canCreate) {
-      setInputValue(trimmedInput)
-      onValueChange(trimmedInput)
-    }
+    const result = resolveCreatableComboboxBlur({ currentValue, inputValue, options, selected })
+    setInputValue(result.inputValue)
+    if (result.nextValue !== undefined) onValueChange(result.nextValue)
   }
 
   return (
     <Combobox
       items={items}
-      filter={null}
+      filter={false}
       value={selected}
-      inputValue={inputValue}
+      query={inputValue}
       disabled={disabled}
-      itemToStringValue={item => item.value}
-      itemToStringLabel={item => item.label || item.value}
+      itemToValue={item => item.value}
+      itemToLabel={item => item.label || item.value}
       isItemEqualToValue={(item, current) => item.value === current.value}
-      onInputValueChange={setInputValue}
+      onQueryChange={setInputValue}
       onValueChange={item => {
         const nextValue = item?.value ?? ''
         setInputValue(displayValue(item))
         onValueChange(nextValue)
       }}>
       <ComboboxInput
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
         aria-label={ariaLabel}
         clearLabel={clearLabel}
+        disabled={disabled}
+        id={id}
+        ref={inputRef}
         placeholder={placeholder}
         showClear
         required={required}
         triggerLabel={triggerLabel}
-        onBlur={commitInput}
+        onBlur={event => {
+          commitInput()
+          onBlur?.(event)
+        }}
         onKeyDown={event => {
-          if (event.key === 'Enter' && canCreate) {
+          if (
+            shouldCommitCreatableComboboxEnter(event) &&
+            (canCreate || Boolean(matchedInputOption && matchedInputOption.value !== currentValue))
+          ) {
             event.preventDefault()
             commitInput()
           }
@@ -124,9 +141,9 @@ export function CreatableCombobox({
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate leading-5">{option.label || option.value}</span>
                   {option.description ? (
-                    <span className="truncate text-xs leading-4 text-muted-foreground">{option.description}</span>
+                    <span className="truncate text-xs leading-4 text-fg-secondary">{option.description}</span>
                   ) : option.creatable ? (
-                    <span className="truncate text-xs leading-4 text-muted-foreground">{option.value}</span>
+                    <span className="truncate text-xs leading-4 text-fg-secondary">{option.value}</span>
                   ) : null}
                 </span>
               </ComboboxItem>
@@ -164,4 +181,70 @@ export function filterCreatableComboboxOptions(
 function displayValue(option: ComboboxOption | null) {
   if (!option) return ''
   return option.creatable ? option.value : option.label || option.value
+}
+
+export function hasHighlightedComboboxOption(
+  input: Pick<HTMLElement, 'getAttribute'> & {
+    ownerDocument?: {
+      getElementById(
+        id: string
+      ): { hasAttribute(name: string): boolean; querySelector(selector: string): unknown } | null
+    } | null
+  }
+): boolean {
+  const activeID = input.getAttribute('aria-activedescendant')
+  const doc = input.ownerDocument
+  if (activeID) {
+    const active = doc?.getElementById(activeID)
+    return active ? active.hasAttribute('data-highlighted') : true
+  }
+  const controlsID = input.getAttribute('aria-controls')
+  return Boolean(controlsID && doc?.getElementById(controlsID)?.querySelector('[data-highlighted]'))
+}
+
+export function shouldCommitCreatableComboboxEnter(event: {
+  key: string
+  defaultPrevented: boolean
+  nativeEvent: Pick<KeyboardEvent, 'isComposing' | 'keyCode'>
+  currentTarget: Parameters<typeof hasHighlightedComboboxOption>[0]
+}): boolean {
+  return (
+    event.key === 'Enter' &&
+    !event.defaultPrevented &&
+    !composingKey(event.nativeEvent) &&
+    !hasHighlightedComboboxOption(event.currentTarget)
+  )
+}
+
+export function resolveCreatableComboboxBlur({
+  currentValue,
+  inputValue,
+  options,
+  selected
+}: {
+  currentValue: string
+  inputValue: string
+  options: CreatableComboboxOption[]
+  selected: ComboboxOption | null
+}): { inputValue: string; nextValue?: string } {
+  const selectedInputValue = displayValue(selected)
+  const trimmedInput = inputValue.trim()
+  if (trimmedInput === '') {
+    return {
+      inputValue: currentValue === '' ? '' : selectedInputValue,
+      nextValue: currentValue !== '' ? '' : undefined
+    }
+  }
+  const matchedInputOption = optionForInput(options, trimmedInput)
+  if (matchedInputOption) {
+    return {
+      inputValue: displayValue(matchedInputOption),
+      nextValue: matchedInputOption.value !== currentValue ? matchedInputOption.value : undefined
+    }
+  }
+  const inputMatchesValue = selected ? optionMatchesInput(selected, trimmedInput) : false
+  if (!inputMatchesValue) {
+    return { inputValue: trimmedInput, nextValue: trimmedInput }
+  }
+  return { inputValue: selectedInputValue }
 }

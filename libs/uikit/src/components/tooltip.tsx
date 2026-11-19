@@ -1,17 +1,29 @@
-import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
+import {
+  TooltipContent as TooltipContentPrimitive,
+  Tooltip as TooltipPrimitive,
+  TooltipTrigger as TooltipTriggerPrimitive
+} from '@ui-sdk/react/tooltip'
+import type * as React from 'react'
 
+import { usePopupContainer } from '../lib/popup-container'
 import { cn } from '../lib/utils'
 
-function TooltipProvider({ delay = 0, ...props }: TooltipPrimitive.Provider.Props) {
-  return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />
+/**
+ * ui-sdk groups tooltips without a provider: once one tooltip is open, or was open a moment ago, a neighbouring
+ * tooltip opens at once. The kit keeps `TooltipProvider` so that existing layouts can wrap a region in it, and the
+ * provider renders only its children.
+ */
+function TooltipProvider({ children }: { children?: React.ReactNode }) {
+  return children
 }
 
-function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+// A hovered tooltip opens after this delay, and keyboard focus opens a tooltip immediately.
+function Tooltip({ container, delay = 400, ...props }: React.ComponentProps<typeof TooltipPrimitive>) {
+  return <TooltipPrimitive container={usePopupContainer(container)} delay={delay} {...props} />
 }
 
-function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+function TooltipTrigger(props: React.ComponentProps<typeof TooltipTriggerPrimitive>) {
+  return <TooltipTriggerPrimitive {...props} />
 }
 
 function TooltipContent({
@@ -20,30 +32,20 @@ function TooltipContent({
   sideOffset = 4,
   align = 'center',
   alignOffset = 0,
-  children,
   ...props
-}: TooltipPrimitive.Popup.Props &
-  Pick<TooltipPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>) {
+}: React.ComponentProps<typeof TooltipContentPrimitive>) {
   return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Positioner
-        align={align}
-        alignOffset={alignOffset}
-        side={side}
-        sideOffset={sideOffset}
-        className="isolate z-50">
-        <TooltipPrimitive.Popup
-          data-slot="tooltip-content"
-          className={cn(
-            'z-50 inline-flex w-fit max-w-xs origin-(--transform-origin) items-center gap-1.5 rounded-none bg-foreground px-3 py-1.5 text-xs text-background has-data-[slot=kbd]:pr-1.5 transition-opacity duration-(--duration-tooltip) ease-out **:data-[slot=kbd]:relative **:data-[slot=kbd]:isolate **:data-[slot=kbd]:z-50 **:data-[slot=kbd]:rounded-none data-starting-style:opacity-0 data-ending-style:opacity-0',
-            className
-          )}
-          {...props}>
-          {children}
-          <TooltipPrimitive.Arrow className="z-50 size-2.5 translate-y-[calc(-50%-2px)] rotate-45 rounded-none bg-foreground fill-foreground data-[side=bottom]:top-1 data-[side=inline-end]:top-1/2! data-[side=inline-end]:-left-1 data-[side=inline-end]:translate-x-[1.5px] data-[side=inline-end]:-translate-y-1/2 data-[side=inline-start]:top-1/2! data-[side=inline-start]:-right-1 data-[side=inline-start]:translate-x-[-1.5px] data-[side=inline-start]:-translate-y-1/2 data-[side=left]:top-1/2! data-[side=left]:-right-1 data-[side=left]:-translate-y-1/2 data-[side=right]:top-1/2! data-[side=right]:-left-1 data-[side=right]:-translate-y-1/2 data-[side=top]:-bottom-2.5" />
-        </TooltipPrimitive.Popup>
-      </TooltipPrimitive.Positioner>
-    </TooltipPrimitive.Portal>
+    <TooltipContentPrimitive
+      align={align}
+      alignOffset={alignOffset}
+      side={side}
+      sideOffset={sideOffset}
+      className={cn(
+        'ceramic z-50 inline-flex w-fit [--ceramic-radius:var(--ceramic-radius-tip)] max-w-xs origin-(--transform-origin) items-center gap-1.5 px-3 py-1.5 text-xs text-fg-primary has-data-[slot=kbd]:pr-1.5 transition-opacity duration-(--duration-tooltip) ease-out data-instant:transition-none **:data-[slot=kbd]:relative **:data-[slot=kbd]:isolate **:data-[slot=kbd]:z-50 data-starting-style:opacity-0 data-ending-style:opacity-0',
+        className
+      )}
+      {...props}
+    />
   )
 }
 

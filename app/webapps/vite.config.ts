@@ -70,6 +70,7 @@ function nodeModulePackageName(moduleID: string): string | undefined {
 }
 
 function manualChunks(moduleID: string): string | undefined {
+  if (/\.css(?:$|\?)/.test(moduleID)) return undefined
   if (!moduleID.includes('/node_modules/')) return undefined
   if (moduleID.includes('/react/') || moduleID.includes('/react-dom/') || moduleID.includes('/scheduler/')) {
     return 'vendor-react'
@@ -108,8 +109,8 @@ function manualChunks(moduleID: string): string | undefined {
   }
 
   if (
-    moduleID.includes('/@base-ui/') ||
-    moduleID.includes('/@floating-ui/') ||
+    moduleID.includes('/@ui-sdk/') ||
+    moduleID.includes('/@fluentui/react-icons/') ||
     moduleID.includes('/@formisch/react/') ||
     moduleID.includes('/@remixicon/react/') ||
     moduleID.includes('/valibot/')

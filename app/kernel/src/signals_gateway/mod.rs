@@ -55,7 +55,7 @@ fn cached_filter_program(source: &str) -> KernelResult<Arc<Program>> {
     Ok(program)
 }
 
-fn build_filter_context(context_json: JSONValue) -> KernelResult<Context<'static>> {
+fn build_filter_context(context_json: JSONValue) -> KernelResult<Context<'static, 'static>> {
     let object = context_json
         .as_object()
         .ok_or_else(|| KernelError::new("signal filter context must be a JSON object"))?;
@@ -92,7 +92,7 @@ fn required_context_object(
     }
 }
 
-fn execute_bool(program: &Program, context: &Context<'_>) -> KernelResult<bool> {
+fn execute_bool(program: &Program, context: &Context<'_, '_>) -> KernelResult<bool> {
     match cel::execute_bool(program, context) {
         Ok(value) => Ok(value),
         Err(BoolEvalError::ResultType(reason)) => {

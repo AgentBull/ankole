@@ -50,20 +50,25 @@ app.kubernetes.io/component: {{ .component }}
 {{/*
 Component names.
 */}}
+{{- define "ankole-agent.suffixedName" -}}
+{{- $limit := int (sub 62 (len .suffix)) -}}
+{{- printf "%s-%s" (include "ankole-agent.fullname" .root | trunc $limit | trimSuffix "-") .suffix -}}
+{{- end -}}
+
 {{- define "ankole-agent.controlPlaneName" -}}
-{{- printf "%s-control-plane" (include "ankole-agent.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- include "ankole-agent.suffixedName" (dict "root" . "suffix" "control-plane") -}}
 {{- end -}}
 
 {{- define "ankole-agent.controlPlaneHeadlessName" -}}
-{{- printf "%s-control-plane-headless" (include "ankole-agent.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- include "ankole-agent.suffixedName" (dict "root" . "suffix" "control-plane-headless") -}}
 {{- end -}}
 
 {{- define "ankole-agent.workerName" -}}
-{{- printf "%s-worker" (include "ankole-agent.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- include "ankole-agent.suffixedName" (dict "root" . "suffix" "worker") -}}
 {{- end -}}
 
 {{- define "ankole-agent.postgresqlName" -}}
-{{- printf "%s-postgresql" (include "ankole-agent.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- include "ankole-agent.suffixedName" (dict "root" . "suffix" "postgresql") -}}
 {{- end -}}
 
 {{/*

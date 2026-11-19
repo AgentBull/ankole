@@ -1,5 +1,4 @@
 use argon2::Argon2;
-use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{
     Error as PasswordHashError, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
 };
@@ -12,7 +11,9 @@ use crate::common::{KernelError, KernelResult};
 /// different strings. The string embeds the algorithm, version, parameters,
 /// salt, and digest, so verification needs no other stored state.
 pub fn argon2id_hash(password: &str) -> KernelResult<String> {
-    let salt = SaltString::generate(&mut OsRng);
+    let salt_bytes: [u8; 16] = rand::random();
+    let salt = SaltString::encode_b64(&salt_bytes)
+        .map_err(|error| KernelError::new(format!("argon2id salt failed: {error}")))?;
 
     Argon2::default()
         .hash_password(password.as_bytes(), &salt)

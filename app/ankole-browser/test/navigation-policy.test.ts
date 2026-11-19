@@ -52,6 +52,16 @@ describe('validateNavigationURL', () => {
     await expect(validateNavigationURL('localhost/', filterOff)).resolves.toBeInstanceOf(URL)
   })
 
+  test('blocks trailing-dot metadata and localhost domains', async () => {
+    for (const url of ['https://METADATA./x', 'https://metadata.google.internal./computeMetadata/v1']) {
+      await expect(validateNavigationURL(url, filterOn)).rejects.toThrow('metadata address')
+      await expect(validateNavigationURL(url, filterOff)).rejects.toThrow('metadata address')
+    }
+    for (const url of ['https://LOCALHOST./x', 'https://svc.localhost./x']) {
+      await expect(validateNavigationURL(url, filterOn)).rejects.toThrow('private address')
+    }
+  })
+
   test('allows file URLs only when the material opts in', async () => {
     const allowing = material({ ssrf_filter: true, allow_file_urls: true })
     expect((await validateNavigationURL('file:///tmp/page.html', allowing)).protocol).toBe('file:')

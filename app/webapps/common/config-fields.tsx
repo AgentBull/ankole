@@ -89,9 +89,9 @@ export function ConfigFields({
       ) : null}
       {advancedFields.length > 0 ? (
         <Collapsible className="grid gap-4" defaultOpen={false}>
-          <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border/70 bg-card/60 px-4 py-3 text-left text-sm font-medium text-foreground">
+          <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border-subtle/70 bg-page/60 px-4 py-3 text-left text-sm font-medium text-fg-primary">
             <span>{advancedLabel}</span>
-            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="flex items-center gap-2 text-xs text-fg-secondary">
               {showAdvancedCount ? advancedFields.length : null}
               <RiArrowDownSLine className="size-4" aria-hidden />
             </span>
@@ -169,7 +169,7 @@ export function ConfigField({
   const labelContent = (
     <>
       {label}
-      {required ? <span className="ml-1 font-normal text-muted-foreground">{i18n.t('common.required')}</span> : null}
+      {required ? <span className="ml-1 font-normal text-fg-secondary">{i18n.t('common.required')}</span> : null}
     </>
   )
 
@@ -179,7 +179,7 @@ export function ConfigField({
         <FieldLabel>{labelContent}</FieldLabel>
         <FieldLabel
           htmlFor={controlID}
-          className="h-10 w-full cursor-pointer items-center justify-between border border-transparent border-b-input bg-field px-4 text-sm font-normal transition-[background-color,border-color] has-data-checked:border-transparent has-data-checked:border-b-input has-data-checked:bg-field has-focus-visible:border-b-ring dark:has-data-checked:border-transparent dark:has-data-checked:border-b-input dark:has-data-checked:bg-field">
+          className="h-10 w-full cursor-pointer items-center justify-between border border-transparent border-b-field-border bg-field px-4 text-sm font-normal transition-[background-color,border-color] has-data-checked:border-transparent has-data-checked:border-b-field-border has-data-checked:bg-field has-focus-visible:border-b-ring dark:has-data-checked:border-transparent dark:has-data-checked:border-b-field-border dark:has-data-checked:bg-field">
           <span>{i18n.t('common.enable')}</span>
           <Switch
             id={controlID}

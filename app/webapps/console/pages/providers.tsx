@@ -195,7 +195,7 @@ export function ProvidersListPage() {
           <TableRow key={provider.provider_id}>
             <TableCell className="font-mono text-xs">
               <Link
-                className="text-foreground hover:text-link hover:underline"
+                className="text-fg-primary hover:text-link hover:underline"
                 to={encodeURIComponent(provider.provider_id)}>
                 {provider.provider_id}
               </Link>
@@ -218,7 +218,7 @@ export function ProvidersListPage() {
                     usable
                   })}
                 </span>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-fg-secondary">
                   {credentialStrategyLabel(t, provider.credential_pool.strategy)}
                 </span>
               </div>
@@ -419,9 +419,9 @@ export function ProviderEditorPage() {
           activeKind ? (
             <CredentialPoolEditor provider={selected} providerKind={activeKind} />
           ) : unavailableKind ? (
-            <section className="grid gap-1 border border-border bg-card p-5 md:p-6">
+            <section className="grid gap-1 border border-border-subtle bg-page p-5 md:p-6">
               <h3 className="text-lg font-semibold">{t('console.providers.pool_title')}</h3>
-              <p className="max-w-2xl text-sm text-muted-foreground">{t('console.providers.pool_kind_unavailable')}</p>
+              <p className="max-w-2xl text-sm text-fg-secondary">{t('console.providers.pool_kind_unavailable')}</p>
             </section>
           ) : null
         ) : null
@@ -492,9 +492,9 @@ export function ProviderEditorPage() {
 
       {advancedFieldCount > 0 ? (
         <Collapsible className="grid gap-4" defaultOpen={false}>
-          <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
+          <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border-subtle bg-layer-03/40 px-4 py-3 text-left text-sm font-medium">
             <span>{t('common.advanced_settings')}</span>
-            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="flex items-center gap-2 text-xs text-fg-secondary">
               {advancedFieldCount}
               <RiArrowDownSLine className="size-4" aria-hidden />
             </span>
@@ -514,7 +514,7 @@ export function ProviderEditorPage() {
       ) : null}
 
       {mode === 'edit' ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-fg-secondary">
           {t('console.providers.model_profiles_hint')}{' '}
           <Link to="/agents" className="text-link underline underline-offset-4">
             {t('console.nav.agents')}
@@ -577,11 +577,11 @@ function CredentialPoolEditor({
   }
 
   return (
-    <section className="grid gap-5 border border-border bg-card p-5 md:p-6">
+    <section className="grid gap-5 border border-border-subtle bg-page p-5 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="grid gap-1">
           <h3 className="text-lg font-semibold">{t('console.providers.pool_title')}</h3>
-          <p className="max-w-2xl text-sm text-muted-foreground">{t('console.providers.pool_description')}</p>
+          <p className="max-w-2xl text-sm text-fg-secondary">{t('console.providers.pool_description')}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {isChatGPT ? (
@@ -628,13 +628,13 @@ function CredentialPoolEditor({
       </LabeledField>
 
       {provider.credential_pool.entries.length === 0 ? (
-        <div className="border border-dashed border-border p-6 text-sm text-muted-foreground">
+        <div className="border border-dashed border-border-subtle p-6 text-sm text-fg-secondary">
           {t('console.providers.pool_empty')}
         </div>
       ) : (
         <div className="grid gap-3">
           {provider.credential_pool.entries.map(entry => (
-            <article key={entry.id} className="grid gap-4 border border-border bg-background p-4">
+            <article key={entry.id} className="grid gap-4 border border-border-subtle bg-page p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="grid gap-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -646,7 +646,7 @@ function CredentialPoolEditor({
                       <Badge variant="warning">{t('console.providers.reauth_required')}</Badge>
                     ) : null}
                   </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-fg-secondary">
                     <span>{entry.id}</span>
                     <span>{t('console.providers.priority_value', { priority: entry.priority })}</span>
                     <span>{credentialSourceLabel(t, entry.source)}</span>
@@ -734,7 +734,7 @@ function CredentialPoolEditor({
                       .join(' · ')}
                   </span>
                   {entry.last_error_message ? (
-                    <span className="text-muted-foreground">{entry.last_error_message}</span>
+                    <span className="text-fg-secondary">{entry.last_error_message}</span>
                   ) : null}
                 </div>
               ) : null}
@@ -943,7 +943,7 @@ const chatGPTLoginErrorCodes: Record<string, { upstream: boolean }> = {
  * Localizes coded ChatGPT sign-in failures and keeps the real upstream
  * response visible; unknown failures fall back to the envelope message.
  */
-function chatGPTLoginErrorText(error: unknown, t: (key: string, values?: Record<string, string>) => string): string {
+function chatGPTLoginErrorText(error: unknown, t: TFunction): string {
   if (typeof error === 'string') return error
   const code = requestErrorCode(error) ?? ''
   const entry = chatGPTLoginErrorCodes[code]
@@ -1119,7 +1119,7 @@ function ChatGPTLoginDialog({
             ) : null}
 
             {mode === 'device' ? (
-              <div className="grid gap-4 border border-border bg-muted/30 p-4">
+              <div className="grid gap-4 border border-border-subtle bg-layer-03/30 p-4">
                 <p className="text-sm">{t('console.providers.device_login_instructions')}</p>
                 <a
                   className="inline-flex items-center gap-1 text-sm text-link underline underline-offset-4"
@@ -1130,7 +1130,7 @@ function ChatGPTLoginDialog({
                   <RiExternalLinkLine className="size-4" aria-hidden />
                 </a>
                 <ReadOnlyValue mono>{textValue(login?.user_code)}</ReadOnlyValue>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-fg-secondary">
                   {poll.isPending
                     ? t('console.providers.device_login_polling')
                     : t('console.providers.device_login_waiting', { seconds: retryAfter })}
@@ -1139,7 +1139,7 @@ function ChatGPTLoginDialog({
             ) : null}
 
             {mode === 'browser_paste' ? (
-              <div className="grid gap-4 border border-border bg-muted/30 p-4">
+              <div className="grid gap-4 border border-border-subtle bg-layer-03/30 p-4">
                 <p className="text-sm">{t('console.providers.browser_login_instructions')}</p>
                 <a
                   className="inline-flex items-center gap-1 text-sm text-link underline underline-offset-4"
@@ -1363,7 +1363,7 @@ function CredentialFact({ label, value }: { label: string; value: string | null 
 
   return (
     <div className="grid gap-1 sm:grid-cols-[minmax(8rem,0.4fr)_1fr] sm:gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
+      <dt className="text-fg-secondary">{label}</dt>
       <dd className="break-all font-mono tabular-nums">{value}</dd>
     </div>
   )
@@ -1375,7 +1375,7 @@ function CredentialDiagnostics({ label, value }: { label: string; value: string 
   return (
     <details>
       <summary className="cursor-pointer text-sm font-medium">{label}</summary>
-      <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all border border-border bg-muted p-3 text-xs">
+      <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all border border-border-subtle bg-layer-03 p-3 text-xs">
         {value}
       </pre>
     </details>

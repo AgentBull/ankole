@@ -741,7 +741,7 @@ fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>,
             .unwrap_or_else(|| json!(4096)),
     );
 
-    for key in ["temperature", "top_p", "metadata"] {
+    for key in ["temperature", "top_p", "metadata", "thinking"] {
         maybe_put_from(&mut body, &request, key);
     }
 
@@ -749,7 +749,8 @@ fn build_anthropic_body(context: &ResponseContext) -> Result<Map<String, Value>,
         body.insert("tools".to_string(), tools);
     }
 
-    if let Some(tool_choice) = anthropic_tool_choice(request.get("tool_choice")) {
+    let thinking_enabled = anthropic_thinking_enabled(body.get("thinking"));
+    if let Some(tool_choice) = anthropic_tool_choice(request.get("tool_choice"), thinking_enabled) {
         body.insert("tool_choice".to_string(), tool_choice);
     }
 
@@ -797,11 +798,11 @@ fn anthropic_messages(context: &ResponseContext, input: Option<&Value>) -> Value
                             .unwrap_or_default();
                     }
                     Some("function_call") => replay.push_assistant(vec![anthropic_tool_use(map)]),
-                    Some("function_call_output") => replay.push_user(json!([{
+                    Some("function_call_output") => replay.push_tool_result(json!({
                         "type": "tool_result",
                         "tool_use_id": map.get("call_id").map(value_to_text).unwrap_or_default(),
                         "content": map.get("output").map(value_to_text).unwrap_or_default()
-                    }])),
+                    })),
                     _type => replay.push_item(map),
                 }
             }
@@ -816,19 +817,28 @@ fn anthropic_messages(context: &ResponseContext, input: Option<&Value>) -> Value
 struct AnthropicReplay {
     messages: Vec<Value>,
     assistant_blocks: Vec<Value>,
+    tool_result_blocks: Vec<Value>,
     pending_thinking: Vec<Value>,
 }
 
 impl AnthropicReplay {
     fn push_assistant(&mut self, mut blocks: Vec<Value>) {
+        self.flush_tool_results();
         if self.assistant_blocks.is_empty() {
             self.assistant_blocks.append(&mut self.pending_thinking);
         }
         self.assistant_blocks.append(&mut blocks);
     }
 
+    fn push_tool_result(&mut self, block: Value) {
+        self.flush_assistant();
+        self.pending_thinking.clear();
+        self.tool_result_blocks.push(block);
+    }
+
     fn push_user(&mut self, content: Value) {
         self.flush_assistant();
+        self.flush_tool_results();
         self.pending_thinking.clear();
         self.messages
             .push(json!({"role": "user", "content": content}));
@@ -859,8 +869,18 @@ impl AnthropicReplay {
             .push(json!({"role": "assistant", "content": content}));
     }
 
+    fn flush_tool_results(&mut self) {
+        if self.tool_result_blocks.is_empty() {
+            return;
+        }
+        let content = std::mem::take(&mut self.tool_result_blocks);
+        self.messages
+            .push(json!({"role": "user", "content": content}));
+    }
+
     fn finish(mut self) -> Vec<Value> {
         self.flush_assistant();
+        self.flush_tool_results();
         self.messages
     }
 }
@@ -1112,15 +1132,30 @@ fn anthropic_function_call_item(context: &ResponseContext, call: &ToolCall, stat
     item
 }
 
-fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
+// Anthropic rejects `any` and `tool` choices with HTTP 400 when extended or
+// adaptive thinking is active, allowing only `auto` or `none`.
+fn anthropic_thinking_enabled(thinking: Option<&Value>) -> bool {
+    matches!(
+        thinking
+            .and_then(Value::as_object)
+            .and_then(|map| map.get("type"))
+            .and_then(Value::as_str),
+        Some("enabled" | "adaptive")
+    )
+}
+
+fn anthropic_tool_choice(choice: Option<&Value>, thinking_enabled: bool) -> Option<Value> {
     match choice {
         Some(Value::Object(map)) => match map.get("type").and_then(Value::as_str) {
-            Some("function") => {
+            Some("function" | "custom") => {
                 let function = map
                     .get("function")
                     .and_then(Value::as_object)
                     .unwrap_or(map);
                 let name = function.get("name").and_then(Value::as_str)?;
+                if thinking_enabled {
+                    return Some(json!({ "type": "auto" }));
+                }
                 let namespace = function
                     .get("namespace")
                     .or_else(|| map.get("namespace"))
@@ -1132,6 +1167,9 @@ fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
             }
             Some("tool") => {
                 let name = map.get("name").and_then(Value::as_str)?;
+                if thinking_enabled {
+                    return Some(json!({ "type": "auto" }));
+                }
                 let name = map
                     .get("namespace")
                     .and_then(Value::as_str)
@@ -1139,9 +1177,25 @@ fn anthropic_tool_choice(choice: Option<&Value>) -> Option<Value> {
                     .unwrap_or_else(|| flattened_namespace_tool_name("", name));
                 Some(json!({ "type": "tool", "name": name }))
             }
+            Some("any" | "required") => {
+                if thinking_enabled {
+                    Some(json!({ "type": "auto" }))
+                } else {
+                    Some(json!({ "type": "any" }))
+                }
+            }
+            Some("auto") => Some(json!({ "type": "auto" })),
+            Some("none") => Some(json!({ "type": "none" })),
             _type => None,
         },
         Some(Value::String(value)) if value == "auto" => Some(json!({ "type": "auto" })),
+        Some(Value::String(value)) if value == "required" || value == "any" => {
+            if thinking_enabled {
+                Some(json!({ "type": "auto" }))
+            } else {
+                Some(json!({ "type": "any" }))
+            }
+        }
         Some(Value::String(value)) if value == "none" => Some(json!({ "type": "none" })),
         _choice => None,
     }

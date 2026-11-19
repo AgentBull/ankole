@@ -130,7 +130,7 @@ export function AutomationJobsPage() {
 
       <Sheet open={selectedID !== undefined} onOpenChange={open => !open && closeJob()}>
         <SheetContent closeLabel={t('common.close')} className="w-full data-[side=right]:sm:max-w-[min(64rem,92vw)]">
-          <SheetHeader className="gap-3 border-b border-border pb-6">
+          <SheetHeader className="gap-3 border-b border-border-subtle pb-6">
             <SheetTitle>{detail.data?.automation_job.label ?? t('console.automation_jobs.detail_title')}</SheetTitle>
             <SheetDescription>
               {detail.data?.automation_job ? (
@@ -192,8 +192,8 @@ function AutomationJobRow({ job, onOpen }: { job: AutomationJobItem; onOpen: () 
     <TableRow>
       <TableCell>
         <button type="button" className="grid gap-1 text-left" onClick={onOpen}>
-          <span className="font-medium text-foreground hover:text-link hover:underline">{job.label}</span>
-          <span className="font-mono text-xs text-muted-foreground">#{job.id}</span>
+          <span className="font-medium text-fg-primary hover:text-link hover:underline">{job.label}</span>
+          <span className="font-mono text-xs text-fg-secondary">#{job.id}</span>
         </button>
       </TableCell>
       <AgentCell uid={job.agent_uid} />
@@ -224,12 +224,12 @@ function AutomationJobDetail({ job }: { job: AutomationJobItem }) {
 
   return (
     <div className="grid min-w-0 gap-8">
-      <section className="grid gap-3 border border-border bg-card p-4">
+      <section className="grid gap-3 border border-border-subtle bg-page p-4">
         <div className="flex flex-wrap items-center gap-3">
           <StatusIndicator tone={jobStatusTone(job.status)}>
             {t(`console.automation_jobs.status_${job.status}`)}
           </StatusIndicator>
-          <span className="text-sm text-muted-foreground">{t('console.automation_jobs.attempt_policy')}</span>
+          <span className="text-sm text-fg-secondary">{t('console.automation_jobs.attempt_policy')}</span>
         </div>
         <dl className="grid gap-3 text-sm md:grid-cols-2">
           <Fact label={t('console.automation_jobs.directory')} value={job.directory_path} mono />
@@ -242,7 +242,7 @@ function AutomationJobDetail({ job }: { job: AutomationJobItem }) {
         </dl>
         <details>
           <summary className="cursor-pointer text-sm font-medium">{t('console.automation_jobs.reply_route')}</summary>
-          <pre className="mt-2 max-h-56 overflow-auto border border-border bg-muted p-3 text-xs">
+          <pre className="mt-2 max-h-56 overflow-auto border border-border-subtle bg-layer-03 p-3 text-xs">
             {formatJSON(job.reply_route)}
           </pre>
         </details>
@@ -251,7 +251,7 @@ function AutomationJobDetail({ job }: { job: AutomationJobItem }) {
       <section className="grid gap-3">
         <h3 className="font-medium">{t('console.automation_jobs.run_history')}</h3>
         {job.runs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('console.automation_jobs.no_runs')}</p>
+          <p className="text-sm text-fg-secondary">{t('console.automation_jobs.no_runs')}</p>
         ) : (
           job.runs.map(run => <AutomationJobRun key={run.id} run={run} />)
         )}
@@ -264,7 +264,7 @@ function AutomationJobRun({ run }: { run: AutomationJobRunItem }) {
   const { t } = useTranslation()
 
   return (
-    <article className="grid min-w-0 gap-3 border border-border bg-card p-4">
+    <article className="grid min-w-0 gap-3 border border-border-subtle bg-page p-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="font-mono text-xs">#{run.id}</span>
@@ -272,11 +272,11 @@ function AutomationJobRun({ run }: { run: AutomationJobRunItem }) {
             {t(`console.automation_jobs.run_status_${run.status}`)}
           </StatusIndicator>
         </div>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs text-fg-secondary">
           {t('console.automation_jobs.attempts', { count: run.attempts })}
         </span>
       </header>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-secondary">
         <span>{formatConsoleDate(run.started_at)}</span>
         <span>→</span>
         <span>{formatConsoleDate(run.finished_at)}</span>
@@ -293,7 +293,7 @@ function RunLog({ label, value }: { label: string; value: string }) {
   return (
     <details>
       <summary className="cursor-pointer font-mono text-xs">{label}</summary>
-      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border border-border bg-muted p-3 text-xs">
+      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border border-border-subtle bg-layer-03 p-3 text-xs">
         {value}
       </pre>
     </details>
@@ -303,7 +303,7 @@ function RunLog({ label, value }: { label: string; value: string }) {
 function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="grid min-w-0 gap-1">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dt className="text-xs text-fg-secondary">{label}</dt>
       <dd className={mono ? 'break-all font-mono text-xs' : ''}>{value}</dd>
     </div>
   )

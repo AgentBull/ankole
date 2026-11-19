@@ -84,7 +84,9 @@ fn classify_host(host: &Host<&str>) -> HostClass {
 }
 
 fn classify_domain(domain: &str) -> HostClass {
-    // WHATWG parsing already lowercased the domain.
+    // WHATWG parsing already lowercased the domain; strip any FQDN trailing dots
+    // so `metadata.google.internal.` or `localhost.` cannot bypass host rules.
+    let domain = domain.trim_end_matches('.');
     if domain == "metadata" || domain == "metadata.google.internal" {
         return HostClass::Metadata;
     }
@@ -156,13 +158,23 @@ mod tests {
     #[test]
     fn classifies_domains() {
         assert_eq!(class_of("https://metadata/x"), Some(HostClass::Metadata));
+        assert_eq!(class_of("https://METADATA./x"), Some(HostClass::Metadata));
         assert_eq!(
             class_of("https://metadata.google.internal/computeMetadata/v1/"),
             Some(HostClass::Metadata)
         );
+        assert_eq!(
+            class_of("https://metadata.google.internal./computeMetadata/v1/"),
+            Some(HostClass::Metadata)
+        );
         assert_eq!(class_of("https://localhost/x"), Some(HostClass::Private));
+        assert_eq!(class_of("https://LOCALHOST./x"), Some(HostClass::Private));
         assert_eq!(
             class_of("https://svc.localhost/x"),
+            Some(HostClass::Private)
+        );
+        assert_eq!(
+            class_of("https://svc.localhost./x"),
             Some(HostClass::Private)
         );
         assert_eq!(class_of("https://example.com/x"), Some(HostClass::Public));

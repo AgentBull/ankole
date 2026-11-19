@@ -13,8 +13,8 @@
     "./protocol": "./src/protocol.ts"
   },
   "scripts": {
-    "build": "bun build src/cli/main.ts src/daemon/main.ts src/runner/bootstrap.ts --target=bun --outdir dist --external playwright-core",
-    "type-check": "tsc -p tsconfig.json --noEmit",
+    "build": "rm -rf dist && bun build src/cli/main.ts src/daemon/main.ts src/runner/bootstrap.ts --target=bun --outdir dist --external playwright-core",
+    "type-check": "bun check -p tsconfig.json --noEmit",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "bun run fmt:check && bun run type-check",
@@ -22,10 +22,10 @@
     "test:integration": "ANKOLE_BROWSER_INTEGRATION=1 bun test test/integration"
   },
   "dependencies": {
-    "playwright-core": "1.63.0",
-    "zod": "^4.4.3"
+    "playwright-core": "1.65.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/bun": "1.4.2"
+    "@types/bun": "1.4.4"
   }
 }

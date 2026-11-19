@@ -227,7 +227,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
       {list.error ? (
         <ErrorBlock error={list.error} />
       ) : !list.isLoading && jobs.length === 0 ? (
-        <Empty className="items-start border border-border bg-card text-left">
+        <Empty className="items-start border border-border-subtle bg-page text-left">
           <EmptyHeader className="items-start">
             <EmptyMedia variant="icon">
               <RiTimeLine aria-hidden />
@@ -254,8 +254,8 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
           {columns.map(column => (
             <section
               key={column.key}
-              className="min-h-72 border border-border bg-muted/25 xl:grid xl:max-h-[65dvh] xl:grid-rows-[auto_minmax(0,1fr)]">
-              <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
+              className="min-h-72 border border-border-subtle bg-layer-03/25 xl:grid xl:max-h-[65dvh] xl:grid-rows-[auto_minmax(0,1fr)]">
+              <header className="flex items-center justify-between border-b border-border-subtle bg-page px-4 py-3">
                 <h3 id={`background-agent-jobs-column-${column.key}`} className="font-medium">
                   {t(`console.background_agent_jobs.column_${column.key}`)}
                 </h3>
@@ -271,7 +271,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
                     <Skeleton className="h-28 w-full" />
                   </>
                 ) : grouped[column.key].length === 0 ? (
-                  <p className="px-2 py-8 text-center text-sm text-muted-foreground">
+                  <p className="px-2 py-8 text-center text-sm text-fg-secondary">
                     {t('console.background_agent_jobs.empty_column')}
                   </p>
                 ) : (
@@ -295,9 +295,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
           a busy deployment instance silently loses its older jobs off the end. Say that
           the view is capped rather than let it look complete. */}
       {list.data?.next_cursor ? (
-        <p className="text-sm text-muted-foreground">
-          {t('console.background_agent_jobs.capped', { count: jobs.length })}
-        </p>
+        <p className="text-sm text-fg-secondary">{t('console.background_agent_jobs.capped', { count: jobs.length })}</p>
       ) : null}
 
       {/*
@@ -307,7 +305,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
       */}
       <Sheet open={selectedID !== undefined} onOpenChange={open => !open && closeBackgroundAgentJob()}>
         <SheetContent closeLabel={t('common.close')} className="w-full data-[side=right]:sm:max-w-[min(80rem,92vw)]">
-          <SheetHeader className="gap-3 border-b border-border pb-6">
+          <SheetHeader className="gap-3 border-b border-border-subtle pb-6">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 pr-10">
               <SheetTitle className="min-w-0 break-words">
                 {selected?.title ?? t('console.background_agent_jobs.detail_title')}
@@ -513,10 +511,10 @@ function JobHealthStrip({ health }: { health: BackgroundAgentJobHealthResponse }
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       {cells.map(cell => (
-        <div key={cell.key} className="border border-border bg-card px-4 py-3">
-          <p className="text-xs text-muted-foreground">{t(`console.background_agent_jobs.health_${cell.key}`)}</p>
+        <div key={cell.key} className="border border-border-subtle bg-page px-4 py-3">
+          <p className="text-xs text-fg-secondary">{t(`console.background_agent_jobs.health_${cell.key}`)}</p>
           <p className="mt-1 text-xl font-medium tabular-nums">{cell.value}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{cell.hint}</p>
+          <p className="mt-1 text-xs text-fg-secondary">{cell.hint}</p>
         </div>
       ))}
     </div>
@@ -531,7 +529,7 @@ function JobHealthStripSkeleton() {
       <span className="sr-only">{t('common.loading')}</span>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" aria-hidden>
         {Array.from({ length: 5 }, (_, index) => (
-          <div key={index} className="border border-border bg-card px-4 py-3">
+          <div key={index} className="border border-border-subtle bg-page px-4 py-3">
             <Skeleton className="h-3 w-24" />
             <Skeleton className="mt-2 h-7 w-16" />
             <Skeleton className="mt-2 h-3 w-36 max-w-full" />
@@ -556,7 +554,7 @@ function BackgroundAgentJobCard({
   const { t } = useTranslation()
 
   return (
-    <article className="grid gap-3 border border-border bg-card p-4 shadow-xs transition-colors hover:border-foreground/30">
+    <article className="grid gap-3 border border-border-subtle bg-page p-4 shadow-xs transition-colors hover:border-fg-primary/30">
       <button
         type="button"
         className="grid gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
@@ -577,7 +575,7 @@ function BackgroundAgentJobCard({
               its place only where the column mixes several. */}
           {distinguishesStatus(task.status) ? <StatusBadge status={task.status} /> : null}
         </div>
-        <div className="grid gap-1 text-xs text-muted-foreground">
+        <div className="grid gap-1 text-xs text-fg-secondary">
           <span className="truncate font-mono">{task.agent_uid}</span>
           <span className="flex items-center gap-1.5">
             <RiTimeLine className="size-3.5" />
@@ -622,7 +620,7 @@ function JobFacts({ job }: { job: BackgroundAgentJobItem }) {
   return (
     <dl
       aria-label={t('console.background_agent_jobs.overview')}
-      className="grid grid-cols-1 min-w-0 content-start gap-px self-start border border-border bg-border sm:grid-cols-2 lg:grid-cols-3 xl:sticky xl:top-0 xl:grid-cols-1">
+      className="grid grid-cols-1 min-w-0 content-start gap-px self-start border border-border-subtle bg-border-subtle sm:grid-cols-2 lg:grid-cols-3 xl:sticky xl:top-0 xl:grid-cols-1">
       <Fact label={t('console.background_agent_jobs.status')} value={<StatusBadge status={job.status} />} />
       <Fact label={t('console.background_agent_jobs.agent')} value={job.agent_uid} mono />
       <Fact label={t('console.background_agent_jobs.model_profile')} value={job.model_profile} mono />
@@ -642,8 +640,8 @@ function JobFacts({ job }: { job: BackgroundAgentJobItem }) {
 
 function Fact({ label, value, mono = false }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
-    <div className="grid content-start gap-1 bg-card px-4 py-3">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+    <div className="grid content-start gap-1 bg-page px-4 py-3">
+      <dt className="text-xs text-fg-secondary">{label}</dt>
       <dd className={cn('break-all text-sm', mono && 'font-mono text-xs leading-5')}>{value}</dd>
     </div>
   )
@@ -667,7 +665,7 @@ function JobPrompt({ job }: { job: BackgroundAgentJobItem }) {
 
   return (
     <JobSection title={t('console.background_agent_jobs.task')}>
-      <div className="border border-border bg-card px-4 py-3 text-sm leading-6 whitespace-pre-wrap break-words">
+      <div className="border border-border-subtle bg-page px-4 py-3 text-sm leading-6 whitespace-pre-wrap break-words">
         {job.task || '—'}
       </div>
     </JobSection>
@@ -698,8 +696,8 @@ function JobOutcome({ job }: { job: BackgroundAgentJobItem }) {
       {text ? (
         <div
           className={cn(
-            'border border-border px-4 py-3 text-sm leading-6 whitespace-pre-wrap break-words',
-            failed ? 'border-destructive/40 bg-destructive/5' : 'bg-card'
+            'border border-border-subtle px-4 py-3 text-sm leading-6 whitespace-pre-wrap break-words',
+            failed ? 'border-destructive/40 bg-destructive/5' : 'bg-page'
           )}>
           {text}
         </div>
@@ -735,7 +733,7 @@ function JobTrajectory({ job }: { job: BackgroundAgentJobItem }) {
   if (turns.length === 0) {
     return (
       <JobSection title={t('console.background_agent_jobs.timeline')}>
-        <p className="border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
+        <p className="border border-border-subtle bg-page px-4 py-8 text-center text-sm text-fg-secondary">
           {t('console.background_agent_jobs.no_turns')}
         </p>
         {pager}
@@ -750,10 +748,10 @@ function JobTrajectory({ job }: { job: BackgroundAgentJobItem }) {
       <div className="grid gap-6">
         {groupTurnsByAttempt(turns, job.attempts, job.runtime_thread_id).map(group => (
           <section key={group.attempt} className="grid min-w-0 gap-3">
-            <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            <h4 className="text-xs font-medium tracking-wide text-fg-secondary uppercase">
               {t('console.background_agent_jobs.attempt_label', { count: group.attempt })}
             </h4>
-            <ol className="grid min-w-0 gap-4 border-l border-border pl-6">
+            <ol className="grid min-w-0 gap-4 border-l border-border-subtle pl-6">
               {group.turns.map(turn => (
                 <TurnCard key={turn.id} turn={turn} lead={turn.runtime_thread_id === group.leadThreadID} />
               ))}
@@ -787,20 +785,20 @@ function TurnCard({ turn, lead }: { turn: BackgroundAgentJobTurn; lead: boolean 
   const { t } = useTranslation()
 
   return (
-    <li className="relative grid min-w-0 gap-4 border border-border bg-card p-4">
+    <li className="relative grid min-w-0 gap-4 border border-border-subtle bg-page p-4">
       <span className="absolute top-6 -left-[1.75rem] size-2 rounded-full bg-primary" aria-hidden />
       <header className="grid min-w-0 gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
           <Badge variant="outline">{t(`console.background_agent_jobs.turn_kind_${turn.kind}`)}</Badge>
-          <Badge variant={lead ? 'default' : 'secondary'}>
+          <Badge variant={lead ? 'primary' : 'secondary'}>
             {t(
               lead ? 'console.background_agent_jobs.turn_scope_lead' : 'console.background_agent_jobs.turn_scope_child'
             )}
           </Badge>
           <TurnStatusBadge status={turn.status} />
-          <span className="ml-auto shrink-0 text-xs text-muted-foreground">{formatConsoleDate(turn.started_at)}</span>
+          <span className="ml-auto shrink-0 text-xs text-fg-secondary">{formatConsoleDate(turn.started_at)}</span>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-secondary">
           <span className="break-all font-mono">{turn.runtime_turn_id}</span>
           <span className="tabular-nums">
             {t('console.background_agent_jobs.turn_revision', { revision: turn.revision })}
@@ -834,11 +832,11 @@ function TurnProgress({ turn }: { turn: BackgroundAgentJobTurn }) {
 
   return (
     <div className="grid min-w-0 gap-3">
-      <dl className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-4">
+      <dl className="grid grid-cols-1 gap-px border border-border-subtle bg-border-subtle sm:grid-cols-4">
         <Metric label={t('console.background_agent_jobs.tool_calls')} value={turn.progress.tool_calls} />
         <Metric label={t('console.background_agent_jobs.completed_items')} value={turn.progress.completed_items} />
-        <div className="grid content-start gap-1 bg-card px-3 py-2 sm:col-span-2">
-          <dt className="text-xs text-muted-foreground">{t('console.background_agent_jobs.active_item')}</dt>
+        <div className="grid content-start gap-1 bg-page px-3 py-2 sm:col-span-2">
+          <dt className="text-xs text-fg-secondary">{t('console.background_agent_jobs.active_item')}</dt>
           <dd className="break-all font-mono text-xs leading-5">
             {activeItem ? `${activeItem.name} · ${activeItem.id}` : '—'}
           </dd>
@@ -865,9 +863,7 @@ function TurnProgress({ turn }: { turn: BackgroundAgentJobTurn }) {
 
       {plan ? (
         <LabeledRow label={t('console.background_agent_jobs.plan')}>
-          {plan.explanation ? (
-            <p className="mb-1.5 text-xs leading-5 text-muted-foreground">{plan.explanation}</p>
-          ) : null}
+          {plan.explanation ? <p className="mb-1.5 text-xs leading-5 text-fg-secondary">{plan.explanation}</p> : null}
           <ol className="grid gap-1">
             {plan.steps.map((step, index) => (
               <PlanStep key={`${index}:${step.step}`} step={step} />
@@ -881,7 +877,7 @@ function TurnProgress({ turn }: { turn: BackgroundAgentJobTurn }) {
           <ul className="grid gap-0.5">
             {files.map(file => (
               <li key={file} className="flex min-w-0 items-center gap-1.5 font-mono text-xs">
-                <RiFileTextLine className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <RiFileTextLine className="size-3.5 shrink-0 text-fg-secondary" aria-hidden />
                 <span className="break-all">{file}</span>
               </li>
             ))}
@@ -894,8 +890,8 @@ function TurnProgress({ turn }: { turn: BackgroundAgentJobTurn }) {
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="grid content-start gap-1 bg-card px-3 py-2">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
+    <div className="grid content-start gap-1 bg-page px-3 py-2">
+      <dt className="text-xs text-fg-secondary">{label}</dt>
       <dd className="text-sm tabular-nums">{value.toLocaleString()}</dd>
     </div>
   )
@@ -904,7 +900,7 @@ function Metric({ label, value }: { label: string; value: number }) {
 function LabeledRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid min-w-0 gap-1.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-xs text-fg-secondary">{label}</span>
       <div className="min-w-0">{children}</div>
     </div>
   )
@@ -919,13 +915,10 @@ function PlanStep({ step }: { step: BackgroundAgentJobTurnPlanStep }) {
   return (
     <li className="flex min-w-0 items-start gap-2 text-xs leading-5">
       <Icon
-        className={cn(
-          'mt-0.5 size-3.5 shrink-0',
-          step.status === 'completed' ? 'text-success' : 'text-muted-foreground'
-        )}
+        className={cn('mt-0.5 size-3.5 shrink-0', step.status === 'completed' ? 'text-success' : 'text-fg-secondary')}
         aria-hidden
       />
-      <span className={cn('break-words', step.status === 'completed' && 'text-muted-foreground line-through')}>
+      <span className={cn('break-words', step.status === 'completed' && 'text-fg-secondary line-through')}>
         {step.step}
       </span>
     </li>
@@ -943,7 +936,7 @@ function TokenUsage({ usage }: { usage: NonNullable<BackgroundAgentJobTurn['usag
   return (
     <div className="grid gap-1">
       <table className="w-full border-collapse font-mono text-xs tabular-nums">
-        <thead className="text-muted-foreground">
+        <thead className="text-fg-secondary">
           <tr>
             <th className="py-0.5 text-left font-normal" />
             {TOKEN_COLUMNS.map(column => (
@@ -955,8 +948,8 @@ function TokenUsage({ usage }: { usage: NonNullable<BackgroundAgentJobTurn['usag
         </thead>
         <tbody>
           {rows.map(row => (
-            <tr key={row.key} className="border-t border-border">
-              <td className="py-0.5 pr-3 text-muted-foreground">{row.label}</td>
+            <tr key={row.key} className="border-t border-border-subtle">
+              <td className="py-0.5 pr-3 text-fg-secondary">{row.label}</td>
               {TOKEN_COLUMNS.map(column => (
                 <td key={column.key} className="py-0.5 pl-3 text-right">
                   {column.read(row.breakdown).toLocaleString()}
@@ -967,7 +960,7 @@ function TokenUsage({ usage }: { usage: NonNullable<BackgroundAgentJobTurn['usag
         </tbody>
       </table>
       {usage.model_context_window === undefined ? null : (
-        <span className="font-mono text-xs text-muted-foreground tabular-nums">
+        <span className="font-mono text-xs text-fg-secondary tabular-nums">
           {t('console.background_agent_jobs.usage_context', {
             tokens: usage.model_context_window.toLocaleString()
           })}
@@ -997,7 +990,7 @@ function TurnMessages({ turn }: { turn: BackgroundAgentJobTurn }) {
   if (turn.trajectory.messages.length === 0) return null
 
   return (
-    <div className="grid min-w-0 gap-3 border-t border-border pt-4">
+    <div className="grid min-w-0 gap-3 border-t border-border-subtle pt-4">
       {turn.trajectory.messages.map((message, index) => (
         <TrajectoryMessageView key={`${turn.id}:${index}`} message={message} />
       ))}
@@ -1038,7 +1031,7 @@ function TrajectoryMessageView({ message }: { message: TrajectoryMessage }) {
   // `developer` carries the system instruction and `user` the queued prompt.
   // Both are long-form input, so they read as a bordered quote rather than a bubble.
   return (
-    <article className="grid min-w-0 gap-1.5 border-l-2 border-border pl-3">
+    <article className="grid min-w-0 gap-1.5 border-l-2 border-border-subtle pl-3">
       <MessageRole role={message.role} icon={RiUser3Line} />
       {text ? <MarkdownBody text={text} /> : <CodeBlock>{formatJSON(message.content)}</CodeBlock>}
     </article>
@@ -1047,7 +1040,7 @@ function TrajectoryMessageView({ message }: { message: TrajectoryMessage }) {
 
 function MessageRole({ role, icon: Icon }: { role: string; icon: typeof RiUser3Line }) {
   return (
-    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+    <span className="flex items-center gap-1.5 text-xs text-fg-secondary">
       <Icon className="size-3.5" aria-hidden />
       <span className="font-medium">{role}</span>
     </span>
@@ -1067,16 +1060,16 @@ function ToolTile({
   children: ReactNode
 }) {
   return (
-    <Accordion className="min-w-0 border border-border bg-card">
+    <Accordion className="min-w-0 border border-border-subtle bg-page">
       <AccordionItem value="payload">
         <AccordionTrigger className="items-center gap-2 px-3 py-2 text-xs font-normal hover:no-underline">
           <span className="flex min-w-0 flex-1 items-center gap-2">
-            <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            <Icon className="size-3.5 shrink-0 text-fg-secondary" aria-hidden />
             <span className="truncate font-mono font-medium">{name}</span>
-            <span className="ml-auto truncate font-mono text-muted-foreground">{reference}</span>
+            <span className="ml-auto truncate font-mono text-fg-secondary">{reference}</span>
           </span>
         </AccordionTrigger>
-        <AccordionContent className="border-t border-border px-3 py-2">{children}</AccordionContent>
+        <AccordionContent className="border-t border-border-subtle px-3 py-2">{children}</AccordionContent>
       </AccordionItem>
     </Accordion>
   )
@@ -1095,7 +1088,7 @@ function ToolPayload({ text }: { text: string }) {
 /** Monospace payload surface matching the conversations detail page. */
 function CodeBlock({ children }: { children: string }) {
   return (
-    <pre className="max-h-80 overflow-auto border border-border bg-muted px-3 py-2 font-mono text-xs leading-5 whitespace-pre">
+    <pre className="max-h-80 overflow-auto border border-border-subtle bg-layer-03 px-3 py-2 font-mono text-xs leading-5 whitespace-pre">
       {children}
     </pre>
   )

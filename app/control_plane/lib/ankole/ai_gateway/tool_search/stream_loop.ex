@@ -64,6 +64,23 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
     }
   end
 
+  @doc """
+  Returns the share of the provider-history limits that `items` use: the larger
+  of their share of the item limit and their share of the byte limit.
+  """
+  @spec provider_history_usage([map()]) :: float()
+  def provider_history_usage(items) when is_list(items) do
+    count = length(items)
+
+    bytes =
+      case json_items_size(items) do
+        {:ok, item_bytes} -> json_array_size(count, item_bytes)
+        {:error, _reason} -> 0
+      end
+
+    max(count / @max_provider_history_items, bytes / @max_provider_history_bytes)
+  end
+
   @doc "Returns whether this loop executes built-in effects inside AIGateway."
   @spec gateway_effects?(t() | nil) :: boolean()
   def gateway_effects?(%__MODULE__{plan: plan}), do: ToolSearch.response_stream_required?(plan)
