@@ -32,4 +32,12 @@ fn main() {
         // unresolved Node symbols bind at load time instead of at Rust link time.
         println!("cargo:rustc-link-arg=-Wl,-undefined,dynamic_lookup");
     }
+
+    #[cfg(all(feature = "napi", target_os = "linux"))]
+    {
+        // Rust 1.99 defaults to rust-lld on x86_64 Linux. Example binaries built
+        // with `--features napi` link the rlib (including N-API registration glue)
+        // without a Node/Bun host, so leave unresolved N-API symbols non-fatal there.
+        println!("cargo:rustc-link-arg-examples=-Wl,--warn-unresolved-symbols");
+    }
 }

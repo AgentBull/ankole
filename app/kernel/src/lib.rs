@@ -44,5 +44,6 @@ pub mod universal_ai_client;
 #[cfg(feature = "napi")]
 mod napi_exports;
 
-#[cfg(any(feature = "nif_dev", feature = "nif_prod"))]
+// BEAM provides the NIF symbols. Rust test binaries run the host-neutral modules.
+#[cfg(all(any(feature = "nif_dev", feature = "nif_prod"), not(test)))]
 mod nif_exports;

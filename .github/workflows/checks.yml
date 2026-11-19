@@ -107,6 +107,8 @@ jobs:
           workspaces: app/kernel -> target
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: bun install --frozen-lockfile
+      - run: mix local.hex --force && mix local.rebar --force
+        working-directory: app/kernel
       - run: bun run --filter @ankole/kernel lint
       - run: bun run --filter @ankole/kernel lint:prod-nif
       - run: bun run --filter @ankole/kernel test
