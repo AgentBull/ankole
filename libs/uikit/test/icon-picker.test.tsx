@@ -46,9 +46,7 @@ const labels: IconPickerLabels = {
 }
 
 const pictures = {
-  items: [
-    { id: 'metadata/custom-emoji/aa/brain.png', name: 'brain', url: '/api/v2/pod/metadata/files/content?path=brain' }
-  ],
+  items: [{ id: 'custom-emoji/aa/brain.png', name: 'brain', url: '/assets/custom-emoji/brain.png' }],
   onSelect: () => {},
   canUpload: true,
   upload: { open: false, onOpenChange: () => {}, onSubmit: () => {} }
@@ -73,7 +71,7 @@ describe('IconPicker', () => {
     expect(html).toContain('>Remove<')
     expect(html).toContain('aria-label="brain"')
     expect(html).toContain('aria-label="Upload picture"')
-    expect(html).toContain('src="/api/v2/pod/metadata/files/content?path=brain"')
+    expect(html).toContain('src="/assets/custom-emoji/brain.png"')
   })
 
   test('renders standard emoji cells with Fluent Emoji and leaves custom cells to the host', () => {
@@ -106,7 +104,7 @@ describe('IconPicker', () => {
   test('marks the current picture and omits Remove when the host cannot remove it', () => {
     const html = renderToStaticMarkup(
       <IconPicker
-        activeIcon="metadata/custom-emoji/aa/brain.png"
+        activeIcon="custom-emoji/aa/brain.png"
         defaultTab="picture"
         emoji={{ onSelect: () => {} }}
         labels={labels}

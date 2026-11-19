@@ -1,8 +1,8 @@
-# Ankole Agent Guidelines
+# OpenAnkole Agent Guidelines
 
 Before acting, consider what the user is trying to accomplish. Their words may express that intent indirectly or only in part. Interpret the request in light of the conversation, the product context, and the user's decisions. Refine your understanding as the work unfolds and the user responds. Pursue the intended outcome within the authorized scope and judge completion against it.
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the repository map, and verification. Follow the directory-specific `AGENTS.md` in `app/webapps/`, `app/agent_computer/`, and `tools/formal/` when working there.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the repository map, and verification. Follow the directory-specific `AGENTS.md` in `app/webapps/` and `app/agent_computer/` when working there.
 
 ## Authorization and collaboration
 
@@ -30,12 +30,12 @@ Functionality and user experience always take precedence over security. Ankole e
 
 ## Boundaries
 
-- **Site and tenant.** A site owns shared infrastructure and uses one control-plane PostgreSQL database. Each tenant owns its organization and data, with physical Base tables on its assigned shard. Tenant-scoped queries fail immediately without explicit process context through `Ankole.Repo`. See [Tenants](docs/design-docs/Tenants.md).
-- **Identity and authorization.** Principal and AuthZ own all subjects and permissions. A Principal's identity is `(tenant_id, uid)`. Its `uid` is a meaningful name unique within its tenant. Resolve the tenant from credentials or explicit context before looking up a `uid`.
+- **Single-installation deployment.** One installation owns its organization and data in one control-plane PostgreSQL database (`Ankole.Repo`).
+- **Identity and authorization.** Principal and AuthZ own all subjects and permissions. A Principal's identity is `uid`, a meaningful name unique within the installation.
 - **Identifiers.** Use the owning domain's schema and identifier format without relying on database-generated IDs.
 - **Configuration and secrets.** Reserve environment variables and secret mounts for bootstrap facts and credentials needed before PostgreSQL is reachable. Declare operator settings in `Ankole.AppConfigure`. Keep runtime-generated secrets in their owner's encrypted storage.
 - **State and runtime.** PostgreSQL owns facts whose loss or replay would change user-visible behavior. Enforce invariants with native types and constraints. Other stores hold only rebuildable caches and external artifacts referenced by PostgreSQL. The Elixir control plane owns durable state, supervision, and commit authority. The Rust kernel provides stateless native primitives and transport. The Bun Agent Computer runs agent tools and holds rebuildable Worker state. Worker actions with durable business meaning go through a control-plane contract.
-- **Ash.** Ash resources and domains own control-plane persistence and cross-domain interfaces. The `Ankole.Ash.Resource` and `Ankole.Ash.Domain` Spark extensions enforce tenant, upsert, and transaction contracts at compile time. Use `Ankole.Ash` for all resource queries and changesets to bind both tenant context and `Ankole.LockOrder`. Root `Ash.Domain` modules declare external `define` interfaces. Keep procedures in submodules. Resource create, update, and destroy actions set `transaction? false` and omit transaction hooks. Run `after_commit` hooks only once the outer transaction commits. Use plain functions with `Ankole.Repo.transact_top_level` for private intra-domain multi-step writes and stateless `Ash.DataLayer.Simple` resources for typed `/api/v2` JSON:API generic actions. Follow the [persistence boundary](CONTRIBUTING.md#persistence-boundary).
+- **Persistence and HTTP APIs.** Ecto schemas and `Ankole.Repo` own control-plane persistence and transactions. Phoenix controllers with `OpenApiSpex` schemas own `/api/v1` HTTP contracts; keep the checked-in OpenAPI spec and generated browser client in sync with `mix ankole.openapi.check` and `bun run --filter @ankole/webapps openapi:generate`.
 - **Model-visible contracts.** Expose only resources and paths backed by real runtime contracts.
 - **Extensions.** Extensions are trusted first-party code. A marketplace, hot-loading, or untrusted plugin isolation requires a product decision.
 
@@ -45,4 +45,4 @@ Use Bun and the workspace's `package.json` scripts. Prefer `@agentbull/active-su
 
 Use the real domain contract and adapter in production. Derive assertions from approved user-visible behavior and update superseded tests. Only unit tests may fake the boundary. Integration tests exercise the real adapter or protocol. End-to-end tests follow the real user flow. Never bypass a production code path or shift ownership to make a test pass. Run the [checks for the boundaries touched](CONTRIBUTING.md#run-the-right-checks). For a required check you could not run, report the exact command and what blocked it.
 
-Update the owning specification in `docs/design-docs/` for changes to behavior, schemas, events, storage, transport, or lifecycle. Follow the [changelog rules](CONTRIBUTING.md#changelog) before committing code. In docs and comments, name who acts, unpack dense noun phrases, and connect new information to what the reader already knows. Follow the [documentation rules](CONTRIBUTING.md#keep-design-docs-and-the-changelog-current) in every language.
+Update the owning specification in `docs/design-docs/` for changes to behavior, schemas, events, storage, transport, or lifecycle. Follow the [changelog rules](CONTRIBUTING.md#one-version-per-commit) before committing code. In docs and comments, name who acts, unpack dense noun phrases, and connect new information to what the reader already knows. Follow the [documentation rules](CONTRIBUTING.md#keep-design-docs-and-the-changelog-current) in every language.

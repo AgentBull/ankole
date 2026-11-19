@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -129,7 +129,7 @@ describe('InputOTP and InputGroup', () => {
 })
 
 describe('prefers-reduced-motion stylesheets', () => {
-  test('gates emoji skin-tone and Pod completion spatial transitions behind no-preference while keeping opacity/color feedback', () => {
+  test('gates emoji skin-tone spatial transitions behind no-preference while keeping opacity/color feedback', () => {
     const emojiCss = readFileSync(resolve(import.meta.dir, '../src/components/emoji-picker.css'), 'utf8')
 
     expect(emojiCss).toMatch(
@@ -138,13 +138,5 @@ describe('prefers-reduced-motion stylesheets', () => {
     expect(emojiCss).toMatch(
       /\.ankole-emoji-picker-tone-btn \{[\s\S]*?transition:\s*opacity[\s\S]*?background-color[\s\S]*?@media \(prefers-reduced-motion: no-preference\) \{\s*transition:\s*transform/
     )
-
-    const chatCssPath = resolve(import.meta.dir, '../../../app/webapps/pod/chat.css')
-    if (existsSync(chatCssPath)) {
-      const chatCss = readFileSync(chatCssPath, 'utf8')
-      expect(chatCss).toMatch(
-        /\.pod-chat-completion-highlight,\s*\.pod-chat-composer-menu \[data-slot='select-highlight'\] \{\s*transition: opacity 160ms ease-out;\s*@media \(prefers-reduced-motion: no-preference\) \{\s*transition:\s*translate/
-      )
-    }
   })
 })

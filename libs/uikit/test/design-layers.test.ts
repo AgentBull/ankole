@@ -90,13 +90,8 @@ const arbitraryRadius = /(?<![\w-])rounded(?:-[a-z]+)?-\[\d+(?:\.\d+)?px\]/g
 const cssFontSize = /font-size:\s*\d+(?:\.\d+)?px;(?!\s*\/\* glyph \*\/)/g
 const cssHex = /#[0-9a-fA-F]{3,8}\b/g
 
-// Agent-authored chart specifications and viz overrides read the legacy names through these lookup tables
-// (see "Applet CSS contract" in DesignSystem.md).
-const LEGACY_NAME_CONTRACT = new Set([
-  'libs/uikit/src/viz/theme.ts',
-  'libs/uikit/src/viz/graph-layout.ts',
-  'app/webapps/pod/chat/mermaid/mermaid-renderer.ts'
-])
+// Agent-authored chart specifications and viz overrides read the legacy names through these lookup tables.
+const LEGACY_NAME_CONTRACT = new Set(['libs/uikit/src/viz/theme.ts', 'libs/uikit/src/viz/graph-layout.ts'])
 
 function violations(pattern: RegExp, filter: (file: string) => boolean = () => true) {
   const found: string[] = []

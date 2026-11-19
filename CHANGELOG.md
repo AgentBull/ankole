@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 1.7.1 (2026-11-19)
+
+- Align `AGENTS.md`, `docs/design-docs/AIGateway.md`, and UIKit test fixtures with OpenAnkole's single-installation Ecto, `/api/v1` OpenApiSpex, and stateful Claude conversation contracts, and omit the unused `multi_agent_v2_dynamic_tools` Codex flag under Codex CLI `0.158.0`.
+
 ## Version 1.7.0 (2026-11-19)
 
 - Console, Setup, Sign-In, and the documentation website now use the updated UIKit component library and Ceramic & Paper design tokens, clear browser validation errors when pasting into form fields, and keep search inputs usable when a filtered list has no results.

@@ -46,19 +46,19 @@ describe('Select', () => {
 
   test('waits for loading options instead of showing a raw value', () => {
     const loading = renderToStaticMarkup(
-      <Select value="01a1d381-tenant" loading>
+      <Select value="01a1d381-provider" loading>
         <SelectTrigger>
-          <SelectValue placeholder="Choose tenant" />
+          <SelectValue placeholder="Choose provider" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="__all__">All tenants</SelectItem>
+          <SelectItem value="__all__">All providers</SelectItem>
         </SelectContent>
       </Select>
     )
     // The hidden form input still carries the value; only the visible value waits.
     const visible = loading.slice(loading.indexOf('data-slot="select-value"'), loading.indexOf('<svg'))
     expect(visible).toContain('data-slot="skeleton"')
-    expect(visible).not.toContain('01a1d381-tenant')
+    expect(visible).not.toContain('01a1d381-provider')
 
     const known = renderToStaticMarkup(
       <Select value="openrouter" loading>

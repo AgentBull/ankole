@@ -549,14 +549,16 @@ flag before provider dispatch. The OpenAI, Azure OpenAI, and OpenAI-compatible
 Responses adapters set the upstream `store` field to `false` independently.
 Local conversation storage does not depend on upstream response storage.
 
-Stateful history replays as Responses items. A stateful request must resolve to
-a provider wire that replays those items without loss: `openai_responses` or
-`openai_chat_completions`. AIGateway rejects other wires at turn start with
-`stateful_wire_unsupported` (status 422). Providers on other wires, such as the
-Anthropic wire, stay available for stateless requests. To move a conversation
-across wire families, start a new conversation.
+AIGateway stores stateful history as Responses items, and each language-model
+wire replays those items in its provider's own shape. The OpenAI Responses wire
+sends them as they are. The Chat Completions and Anthropic Messages adapters
+rebuild assistant turns, tool calls, and tool results as their own messages, so
+every Claude `tool_use` reaches the provider together with its `tool_result`
+(see [Split Work between Elixir and Rust](#split-work-between-elixir-and-rust)
+for how each adapter carries private reasoning). A conversation can therefore
+switch its model profile between turns, including across wires.
 
-Tool history is also provider-implementation specific. A native Responses
+Tool history remains provider-implementation specific. A native Responses
 history can contain caller-scoped Shell, Apply Patch, or other provider-hosted
 items that the local compatibility runtime cannot execute. If a later route
 would move that history into the local runtime, AIGateway rejects the first

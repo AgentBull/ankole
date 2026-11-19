@@ -50,7 +50,6 @@ describe('@ankole/agent-computer Codex job project config', () => {
       expect(config.features.memories).toBe(false)
       expect(config.features.remote_compaction_v2).toBeUndefined()
       expect(config.features.plugins).toBe(false)
-      expect(config.features.multi_agent_v2_dynamic_tools).toBe(true)
       expect(config.features.code_mode).toEqual({ enabled: true })
       expect(config.features.multi_agent_v2).toEqual({
         default_wait_timeout_ms: 600_000,
@@ -131,7 +130,6 @@ describe('@ankole/agent-computer Codex job project config', () => {
       const config = TOML.parse(readFileSync(join(root, '.codex', 'config.toml'), 'utf8')) as Record<string, any>
       expect(config.web_search).toBe('disabled')
       expect(config.features.plugins).toBe(false)
-      expect(config.features.multi_agent_v2_dynamic_tools).toBe(true)
       expect(config.model).toBeUndefined()
       expect(config.model_provider).toBeUndefined()
       expect(config.features.multi_agent_v2).toEqual({

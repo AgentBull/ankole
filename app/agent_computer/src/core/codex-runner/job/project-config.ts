@@ -67,11 +67,6 @@ function applyRunnerSafety(config: TomlTable, hostedWebSearch: boolean): void {
   features.plugins = false
   features.remote_plugin = false
 
-  // A child thread receives the parent's dynamic tools only behind this Codex
-  // feature gate. The Ankole tools are part of the Job contract for every
-  // thread, so a workspace template cannot turn the gate off.
-  features.multi_agent_v2_dynamic_tools = true
-
   const codeMode = tableAt(features, 'code_mode')
   codeMode.enabled = true
 
