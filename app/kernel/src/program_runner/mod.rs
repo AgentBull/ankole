@@ -1015,7 +1015,7 @@ struct RunPermit;
 impl RunPermit {
     fn acquire() -> Option<Self> {
         ACTIVE_RUNS
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |active| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |active| {
                 (active < MAX_CONCURRENT_RUNS).then_some(active + 1)
             })
             .ok()

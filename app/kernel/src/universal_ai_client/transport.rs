@@ -131,8 +131,8 @@ pub(super) async fn open_http_stream_for_upstream(
     for mode in modes {
         match open_http_stream_with_mode(upstream, mode).await {
             Ok(stream) => return Ok(stream),
-            Err(error) if error.retryable => last_error = Some(error.error),
-            Err(error) => return Err(error.error),
+            Err(error) if error.retryable => last_error = Some(*error.error),
+            Err(error) => return Err(*error.error),
         }
     }
 
@@ -282,21 +282,21 @@ async fn collect_http_body_until_idle(
 
 #[derive(Debug)]
 struct TransportAttemptError {
-    error: StreamError,
+    error: Box<StreamError>,
     retryable: bool,
 }
 
 impl TransportAttemptError {
     fn retryable(error: StreamError) -> Self {
         Self {
-            error,
+            error: Box::new(error),
             retryable: true,
         }
     }
 
     fn terminal(error: StreamError) -> Self {
         Self {
-            error,
+            error: Box::new(error),
             retryable: false,
         }
     }

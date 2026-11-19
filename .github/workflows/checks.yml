@@ -58,10 +58,10 @@ jobs:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - run: bunx oxlint
-      - run: bun run --filter='!@ankole/control-plane' --filter='!@ankole/kernel' lint
-      - run: bun run --filter='!@ankole/control-plane' --filter='!@ankole/kernel' fmt:check
+      - run: bun run --filter='!@ankole/control-plane' --filter='!@ankole/kernel' --filter='!@ankole/feishu-openapi' lint
+      - run: bun run --filter='!@ankole/control-plane' --filter='!@ankole/kernel' --filter='!@ankole/feishu-openapi' fmt:check
       - run: bun run analyze
-      - run: bun run --filter='!@ankole/control-plane' type-check
+      - run: bun run --filter='!@ankole/control-plane' --filter='!@ankole/kernel' --filter='!@ankole/feishu-openapi' type-check
       - run: bun run --filter @ankole/uikit test
       - run: bun run --filter @ankole/webapps test
       - run: bun run --filter @ankole/browser test
@@ -161,6 +161,7 @@ jobs:
           test -z "$(git ls-files --others --exclude-standard -- app/webapps/console/api/generated)"
       - run: mix deps.get
         working-directory: libs/feishu_openapi
+      - run: bun run --filter @ankole/feishu-openapi lint
       - run: bun run feishu-openapi:test
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ github.ref == 'refs/heads/main' && steps.mix-cache.outputs.cache-hit != 'true' }}
